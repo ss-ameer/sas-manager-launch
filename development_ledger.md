@@ -1,5 +1,43 @@
 # Development Ledger
 
+## Session: 2026-08-17 (V6 Surgical Strike 1.2: Dual-Track Save Logic)
+
+### Goals
+- In `QuickActivityDrawer.tsx`, inject execution time-snap logic in the initialization `useEffect` when `drawerMode === 'execute'` to stamp `activityDate` with current local datetime.
+- Refactor `handleSubmit` to implement dual-track save routing based on `drawerMode`:
+  - `drawerMode === 'execute'`: Update existing task to mark completed today with current disposition and notes. Spawn second brand-new scheduled task if next follow-up date is present.
+  - `drawerMode === 'edit'`: Perform standard in-place update on existing log without spawning a new log.
+  - Create mode: Perform standard creation of a new log.
+
+### Modifications
+
+| File Path | Change Description |
+| :--- | :--- |
+| `/src/components/QuickActivityDrawer.tsx` | Added time-snap logic in init effect; refactored `handleSubmit` to fork on `drawerMode` (`execute`, `edit`, `create`). |
+| `/package.json` | Bumped version to `0.72.4`. |
+| `/CHANGELOG.md` | Added release notes for version `0.72.4`. |
+| `/development_ledger.md` | Recorded session goals and modifications for V6 Surgical Strike 1.2. |
+
+## Session: 2026-08-17 (V6 Surgical Strike 1.1: State & UI Routing)
+
+### Goals
+- Implement `drawerMode` state (`'create' | 'edit' | 'execute'`) across `CallLogManager.tsx` and `App.tsx`.
+- Update the "Execute Task" Zap button handler to set `drawerMode('execute')` and set editing log.
+- Update "Edit" pencil icon handlers to set `drawerMode('edit')`.
+- Update "Log / Schedule New Call" and `onScheduleFollowUp` to set `drawerMode('create')`.
+- Add `drawerMode` prop to `QuickActivityDrawerProps` and render a pulsating "Live Execution Mode" banner at the top of the form body when in execute mode.
+
+### Modifications
+
+| File Path | Change Description |
+| :--- | :--- |
+| `/src/components/CallLogManager.tsx` | Added `drawerMode` and `editingLog` state; updated queue execute, edit, and create handlers to pass mode. |
+| `/src/components/QuickActivityDrawer.tsx` | Added `drawerMode` prop and injected Live Execution Mode banner in form body. |
+| `/src/App.tsx` | Updated `activityDrawerContext` and threaded `drawerMode` to `<QuickActivityDrawer />`. |
+| `/package.json` | Bumped version to `0.72.3`. |
+| `/CHANGELOG.md` | Added release notes for version `0.72.3`. |
+| `/development_ledger.md` | Recorded session goals and modifications for V6 Surgical Strike 1.1. |
+
 ## Session: 2026-08-17 (V5 Surgical Strike 1.2: Smart Outcome Presets)
 
 ### Goals

@@ -59,6 +59,7 @@ export { getPurposesForChannel, getOutcomesForStatus };
 export interface QuickActivityDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  drawerMode?: 'create' | 'edit' | 'execute';
   existingLog?: CallLogEntry | null;
   logToEdit?: CallLogEntry | null;
   companyId?: string;
@@ -224,6 +225,7 @@ const formatToDatetimeLocal = (dateStr?: string): string => {
 export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   isOpen,
   onClose,
+  drawerMode,
   existingLog,
   logToEdit,
   companyId,
@@ -519,6 +521,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setValidationError(null);
         setCompanySearchQuery('');
         setIsComboboxOpen(false);
+
+        if (drawerMode === 'execute') {
+          const now = new Date();
+          const offset = now.getTimezoneOffset() * 60000;
+          const localISOTime = (new Date(now.getTime() - offset)).toISOString().slice(0, 16);
+          setActivityDate(localISOTime);
+        }
       } else {
         setLinkMode('crm');
         setUnlinkedName('');
@@ -563,6 +572,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     isOpen,
     existingLog,
     logToEdit,
+    drawerMode,
     companyId,
     companyName,
     contactId,
@@ -1591,19 +1601,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
 
       const activeLog = existingLog || logToEdit;
-      const isCompletingScheduledTask = Boolean(
-        activeLog &&
-        (activeLog.status === 'Scheduled / Planned' ||
-         activeLog.status === 'Scheduled' ||
-         activeLog.status?.toLowerCase().includes('scheduled'))
-      );
 
       let finalStatus: CallStatus = status || 'Completed';
       let completedAtIso: string | undefined = undefined;
 
       const isCurScheduled = finalStatus === 'Scheduled' || finalStatus === 'Scheduled / Planned' || finalStatus?.toLowerCase().includes('scheduled');
-      if (finalStatus === 'Completed' || (isCompletingScheduledTask && !isCurScheduled)) {
-        finalStatus = 'Completed';
+      if (drawerMode === 'execute' || finalStatus === 'Completed' || (!isCurScheduled && drawerMode !== 'edit')) {
+        finalStatus = (status && status !== 'Scheduled / Planned' && status !== 'Scheduled') ? status : 'Completed';
         completedAtIso = nowIso;
       }
 
@@ -1646,49 +1650,86 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         ...(isDncOptOut ? { dnc: true, opt_out: true } : {})
       };
 
-      if (isCompletingScheduledTask && activeLog && activeLog.id) {
-        // 1. Mutate original scheduled task record to status: 'Completed' (or 'Canceled')
-        const isCanceledOutcome =
-          outcome?.toLowerCase().includes('cancel') ||
-          status?.toLowerCase().includes('cancel') ||
-          outcome === 'Cancelled' ||
-          status === 'Cancelled';
-        const scheduledStatus: CallStatus = isCanceledOutcome ? 'Cancelled' : 'Completed';
-
-        const completedScheduledEntry: CallLogEntry = {
+      if (drawerMode === 'execute' && activeLog && activeLog.id) {
+        // Track 1: Live Execution Mode
+        // 1. Update the existingLog with the active status, outcome, purpose, and notes using snapped activityDate
+        const updatedExistingLog: CallLogEntry = {
           ...activeLog,
-          status: scheduledStatus,
+          ...payload,
+          id: activeLog.id,
+          date: activityIsoDate,
+          status: (status && status !== 'Scheduled / Planned' && status !== 'Scheduled') ? status : 'Completed',
+          outcome: outcome || activeLog.outcome || 'Completed',
+          purpose: purpose || activeLog.purpose || 'Discovery / Validation',
+          requirement_notes: notes.trim(),
           completedAt: nowIso,
           updatedAt: nowIso,
           last_modified_by_uid: userUid,
-          last_modified_by_name: userName
+          last_modified_by_name: userName,
+          next_followup_date: undefined
         };
 
-        await safeSetDoc('activity_logs', activeLog.id, completedScheduledEntry);
-        await safeSetDoc('call_logs', activeLog.id, completedScheduledEntry);
-        await CallLogRepository.save(completedScheduledEntry);
+        await safeSetDoc('activity_logs', activeLog.id, updatedExistingLog);
+        await safeSetDoc('call_logs', activeLog.id, updatedExistingLog);
+        await CallLogRepository.save(updatedExistingLog);
 
-        // 2. Generate BRAND NEW activity log payload for the call outcome just logged
-        const newId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const newEntry: CallLogEntry = {
-          ...payload,
-          id: newId
-        };
-        await safeSetDoc('activity_logs', newId, newEntry);
-        await safeSetDoc('call_logs', newId, newEntry);
-        await CallLogRepository.save(newEntry);
+        let spawnedFollowUpLog: CallLogEntry | null = null;
+        // The Spawner: IF nextFollowUpDate has a value, explicitly construct a SECOND brand-new activity log object
+        if (followupIsoDate && followupIsoDate.trim() !== '') {
+          const newFollowUpId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
+          spawnedFollowUpLog = {
+            id: newFollowUpId,
+            workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
+            date: followupIsoDate,
+            status: 'Scheduled / Planned',
+            outcome: 'Follow-Up Scheduled',
+            channel: channel,
+            interaction_type: interactionTypeMap[channel] || 'call',
+            purpose: purpose || 'Follow-Up',
+            requirement_notes: followupIntent.trim() || '',
+            followup_intent: followupIntent.trim() || undefined,
+            company_id: resolvedCompanyId || activeLog.company_id,
+            company_name: resolvedCompanyName || activeLog.company_name,
+            contact_id: resolvedContactId || activeLog.contact_id,
+            contact_name: resolvedContactName || activeLog.contact_name,
+            contact_phone: resolvedContactPhone || activeLog.contact_phone,
+            unlinked_name: resolvedUnlinkedName || activeLog.unlinked_name,
+            unlinked_contact_info: resolvedUnlinkedInfo || activeLog.unlinked_contact_info,
+            enquiry_id: linkMode === 'crm' ? (selectedEnquiryId || activeLog.enquiry_id) : undefined,
+            enquiry_quote_ref: linkMode === 'crm' ? (selectedEnquiryQuoteRef || activeLog.enquiry_quote_ref) : undefined,
+            logged_by: currentUserInitials || 'System',
+            sales_person_id: currentSalespersonId || undefined,
+            sales_person: currentUserInitials || undefined,
+            handled_by_salesperson_id: currentSalespersonId || undefined,
+            handled_by_team_member_name: currentUserInitials || undefined,
+            created_by_uid: userUid,
+            created_by_name: userName,
+            last_modified_by_uid: userUid,
+            last_modified_by_name: userName,
+            createdAt: nowIso,
+            updatedAt: nowIso
+          };
+
+          await safeSetDoc('activity_logs', newFollowUpId, spawnedFollowUpLog);
+          await safeSetDoc('call_logs', newFollowUpId, spawnedFollowUpLog);
+          await CallLogRepository.save(spawnedFollowUpLog);
+        }
 
         if (setCallLogs) {
-          setCallLogs((prev) => [
-            newEntry,
-            ...prev.map((log) => (log.id === activeLog.id ? completedScheduledEntry : log)).filter((log) => log.id !== newId)
-          ]);
+          setCallLogs((prev) => {
+            const updatedList = prev.map((log) => (log.id === activeLog.id ? updatedExistingLog : log));
+            if (spawnedFollowUpLog) {
+              return [spawnedFollowUpLog, ...updatedList.filter((l) => l.id !== spawnedFollowUpLog!.id)];
+            }
+            return updatedList;
+          });
         }
         if (onSave) {
-          onSave(newEntry);
+          onSave(updatedExistingLog);
         }
-      } else if (activeLog?.id) {
-        // Normal historical log edit: update existing document
+      } else if (drawerMode === 'edit' && activeLog && activeLog.id) {
+        // Track 2: Edit Mode
+        // Standard update on existingLog applying currently selected fields (including nextFollowUpDate). No new log spawned.
         const updatedEntry: CallLogEntry = {
           ...activeLog,
           ...payload,
@@ -1708,7 +1749,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           onSave(updatedEntry);
         }
       } else {
-        // Brand new log (no logToEdit / existingLog)
+        // Track 3: Create Mode
+        // Standard creation of a single new log
         const newId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const newEntry: CallLogEntry = {
           ...payload,
@@ -1718,37 +1760,40 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         await safeSetDoc('call_logs', newId, newEntry);
         await CallLogRepository.save(newEntry);
 
+        let spawnedFollowUpLog: CallLogEntry | null = null;
+        if (followupIsoDate && followupIsoDate.trim() !== '') {
+          const scheduledLogId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
+          spawnedFollowUpLog = {
+            ...payload,
+            id: scheduledLogId,
+            workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
+            company_id: resolvedCompanyId || payload.company_id,
+            company_name: resolvedCompanyName || payload.company_name,
+            date: followupIsoDate,
+            status: 'Scheduled / Planned' as CallStatus,
+            outcome: 'Follow-Up Scheduled',
+            requirement_notes: followupIntent.trim() || '',
+            followup_intent: followupIntent.trim() || undefined,
+            next_followup_date: undefined,
+            createdAt: nowIso,
+            updatedAt: nowIso
+          };
+          await safeSetDoc('activity_logs', scheduledLogId, spawnedFollowUpLog);
+          await safeSetDoc('call_logs', scheduledLogId, spawnedFollowUpLog);
+          await CallLogRepository.save(spawnedFollowUpLog);
+        }
+
         if (setCallLogs) {
-          setCallLogs((prev) => [newEntry, ...prev.filter((log) => log.id !== newId)]);
+          setCallLogs((prev) => {
+            const list = [newEntry, ...prev.filter((log) => log.id !== newId)];
+            if (spawnedFollowUpLog) {
+              return [spawnedFollowUpLog, ...list.filter((l) => l.id !== spawnedFollowUpLog!.id)];
+            }
+            return list;
+          });
         }
         if (onSave) {
           onSave(newEntry);
-        }
-      }
-
-      // Auto-Schedule Follow-Up Log if next follow-up date is provided
-      if (followupIsoDate && followupIsoDate.trim() !== '') {
-        const scheduledLogId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
-        const scheduledEntry: CallLogEntry = {
-          ...payload,
-          id: scheduledLogId,
-          workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
-          company_id: resolvedCompanyId || payload.company_id,
-          company_name: resolvedCompanyName || payload.company_name,
-          date: followupIsoDate,
-          status: 'Scheduled / Planned' as CallStatus,
-          outcome: 'Follow-Up Scheduled',
-          requirement_notes: '',
-          next_followup_date: undefined,
-          createdAt: nowIso,
-          updatedAt: nowIso
-        };
-        await safeSetDoc('activity_logs', scheduledLogId, scheduledEntry);
-        await safeSetDoc('call_logs', scheduledLogId, scheduledEntry);
-        await CallLogRepository.save(scheduledEntry);
-
-        if (setCallLogs) {
-          setCallLogs((prev) => [scheduledEntry, ...prev.filter((log) => log.id !== scheduledLogId)]);
         }
       }
 
@@ -1838,6 +1883,16 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           {/* Form Body */}
           <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+            {drawerMode === 'execute' && (
+              <div className="mb-5 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center space-x-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                </span>
+                <span className="text-red-400 text-xs font-bold tracking-wider uppercase">Live Execution Mode</span>
+              </div>
+            )}
+
             {/* Validation Error Alert */}
             {validationError && (
               <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800/80 flex items-center gap-2.5 text-xs text-rose-300">

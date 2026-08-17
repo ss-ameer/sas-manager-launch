@@ -141,6 +141,7 @@ interface CallLogManagerProps {
     initialStatus?: string;
     existingLog?: any;
     logToEdit?: any;
+    drawerMode?: 'create' | 'edit' | 'execute';
   }) => void;
   onEditCompany?: (company: Company) => void;
   onOpenMobileMenu?: () => void;
@@ -169,6 +170,8 @@ export default function CallLogManager({
   onEditCompany,
   onOpenMobileMenu
 }: CallLogManagerProps) {
+  const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
+  const [editingLog, setEditingLog] = useState<CallLogEntry | null>(null);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
   const [queueTimeframe, setQueueTimeframe] = useState<'today' | 'upcoming' | 'all'>('today');
   const [queueSortOrder, setQueueSortOrder] = useState<'oldest' | 'newest'>('oldest');
@@ -679,8 +682,10 @@ export default function CallLogManager({
 
   const openFastQueueLogger = (entry: CallLogEntry) => {
     setSelectedEntry(entry);
+    setDrawerMode('execute');
+    setEditingLog(entry);
     if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({ existingLog: entry, logToEdit: entry });
+      onOpenActivityDrawer({ existingLog: entry, logToEdit: entry, drawerMode: 'execute' });
     } else {
       setSelectedDetailEntry(entry);
     }
@@ -1127,8 +1132,10 @@ export default function CallLogManager({
   };
 
   const openNewLogModal = () => {
+    setDrawerMode('create');
+    setEditingLog(null);
     if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({ channel: 'Call' });
+      onOpenActivityDrawer({ channel: 'Call', drawerMode: 'create' });
     }
   };
 
@@ -1296,8 +1303,10 @@ export default function CallLogManager({
           label: '+ Log / Schedule New Call',
           icon: Plus,
           onClick: () => {
+            setDrawerMode('create');
+            setEditingLog(null);
             if (onOpenActivityDrawer) {
-              onOpenActivityDrawer({ channel: 'Call' });
+              onOpenActivityDrawer({ channel: 'Call', drawerMode: 'create' });
             } else {
               openNewLogModal();
             }
@@ -1603,8 +1612,10 @@ export default function CallLogManager({
                         {canEditOrDeleteRecord(user, item) && (
                           <button
                             onClick={() => {
+                              setDrawerMode('edit');
+                              setEditingLog(item);
                               if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ existingLog: item, logToEdit: item });
+                                onOpenActivityDrawer({ existingLog: item, logToEdit: item, drawerMode: 'edit' });
                               } else {
                                 setSelectedDetailEntry(item);
                               }
@@ -1991,8 +2002,10 @@ export default function CallLogManager({
                           <button
                             type="button"
                             onClick={() => {
+                              setDrawerMode('edit');
+                              setEditingLog(log);
                               if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ existingLog: log, logToEdit: log });
+                                onOpenActivityDrawer({ existingLog: log, logToEdit: log, drawerMode: 'edit' });
                               } else {
                                 setSelectedDetailEntry(log);
                               }
@@ -3153,12 +3166,15 @@ export default function CallLogManager({
           const viewingLog = selectedDetailEntry;
           setSelectedDetailEntry(null);
           setShowLogModal(false);
+          setDrawerMode('create');
+          setEditingLog(null);
           if (onOpenActivityDrawer) {
             onOpenActivityDrawer({
               companyId: viewingLog?.company_id || undefined,
               contactId: viewingLog?.contact_id || undefined,
               existingLog: null,
-              logToEdit: null
+              logToEdit: null,
+              drawerMode: 'create'
             });
           }
         }}
@@ -3181,8 +3197,10 @@ export default function CallLogManager({
         onEdit={(entry) => {
           setSelectedDetailEntry(null);
           setShowLogModal(false);
+          setDrawerMode('edit');
+          setEditingLog(entry);
           if (onOpenActivityDrawer) {
-            onOpenActivityDrawer({ existingLog: entry, logToEdit: entry });
+            onOpenActivityDrawer({ existingLog: entry, logToEdit: entry, drawerMode: 'edit' });
           }
         }}
         onDelete={async (id) => {

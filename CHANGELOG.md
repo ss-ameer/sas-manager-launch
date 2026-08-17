@@ -2,6 +2,23 @@
 
 All notable changes to the Enquiry Manager will be documented in this file.
 
+## [0.72.4] - 2026-08-17
+
+### Added & Refactored
+- **V6 Surgical Strike 1.2: Dual-Track Save Logic (`src/components/QuickActivityDrawer.tsx`)**:
+  - **Part 1 — Execution Time-Snap**: In the initialization `useEffect`, injected auto-snap logic to stamp `activityDate` with current local datetime (`YYYY-MM-DDTHH:mm`) whenever `drawerMode === 'execute'`.
+  - **Part 2 — Dual-Track Save Routing**: Refactored `handleSubmit` to fork behavior based on `drawerMode`:
+    - **Live Execution Mode (`drawerMode === 'execute'`)**: Updates the `existingLog` using the snapped date, active status/outcome/purpose, notes, and marks `completedAt: nowIso`. If a next follow-up date is provided, explicitly spawns a second, brand-new activity log queued with status `'Scheduled / Planned'`, target date, and follow-up agenda notes linked to the company/contact.
+    - **Edit Mode (`drawerMode === 'edit'`)**: Performs standard mutation on `existingLog` preserving/applying updated fields without spawning a duplicate log.
+    - **Create Mode**: Standard creation of a single activity log with optional follow-up scheduling.
+
+## [0.72.3] - 2026-08-17
+
+### Added & Refactored
+- **V6 Surgical Strike 1.1: State & UI Routing**:
+  - **Part 1 — Drawer Mode State & Routing (`src/components/CallLogManager.tsx` & `src/App.tsx`)**: Introduced `drawerMode` state (`'create' | 'edit' | 'execute'`) and `editingLog` state. Explicitly set `drawerMode` to `'execute'` on the "Execute Task" Zap button, `'edit'` on pencil icon actions, and `'create'` on new log creation and `onScheduleFollowUp`.
+  - **Part 2 — Visual Engine Live Execution Banner (`src/components/QuickActivityDrawer.tsx`)**: Extended `QuickActivityDrawerProps` with `drawerMode?: 'create' | 'edit' | 'execute'` and added a pulsing "Live Execution Mode" banner at the top of the form body when `drawerMode === 'execute'`.
+
 ## [0.72.2] - 2026-08-17
 
 ### Added & Refactored
