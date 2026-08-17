@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User account information and roles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "username": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Member", "Viewer"] },
+        "blocked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "username", "role"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Canonical company registry with duplicate-prevention aliases",
+      "type": "object",
+      "properties": {
+        "canonical_name": { "type": "string" },
+        "legal_suffix": { "type": "string", "enum": ["LLC", "FZE", "FZC", "Co. LLC", "Ltd", "W.L.L.", "Est.", "None / Other"] },
+        "display_name": { "type": "string" },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "country": { "type": "string" },
+        "city": { "type": "string" },
+        "general_phone": { "type": "string" },
+        "general_email": { "type": "string", "format": "email" },
+        "notes": { "type": "string" }
+      },
+      "required": ["canonical_name", "legal_suffix", "display_name", "country", "city"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Company personnel linked to a canonical company",
+      "type": "object",
+      "properties": {
+        "company_id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "designation": { "type": "string" },
+        "mobile": { "type": "string" },
+        "landline": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "is_primary": { "type": "boolean" }
+      },
+      "required": ["company_id", "full_name"]
+    },
+    "Enquiry": {
+      "title": "Enquiry",
+      "description": "Standardized enquiry parent record containing line items and attachments",
+      "type": "object",
+      "properties": {
+        "sn": { "type": "integer" },
+        "enquiry_date": { "type": "string", "format": "date" },
+        "sales_person": { "type": "string" },
+        "company_id": { "type": "string" },
+        "contact_id": { "type": "string" },
+        "country": { "type": "string" },
+        "project_location": { "type": "string" },
+        "enquiry_source": { "type": "string", "enum": ["Email", "Phone", "WhatsApp", "Meeting", "Verbal"] },
+        "status": { "type": "string", "enum": ["Active", "Order Received", "Lost", "Dead", "Hold", "Delayed", "Cancelled PO"] },
+        "quote_ref_no": { "type": "string" },
+        "projected_order_date": { "type": "string", "format": "date" },
+        "next_followup_date": { "type": "string", "format": "date" },
+        "value_aed": { "type": "number" },
+        "is_lump_sum": { "type": "boolean" },
+        "remarks": { "type": "string" },
+        "invoice_po_no": { "type": "string" },
+        "payment_status": { "type": "string" },
+        "line_items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/LineItem" }
+        },
+        "attachments": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Attachment" }
+        }
+      },
+      "required": ["sn", "enquiry_date", "sales_person", "company_id", "status"]
+    },
+    "LineItem": {
+      "title": "Line Item",
+      "description": "Specific product lines within a multi-product enquiry",
+      "type": "object",
+      "properties": {
+        "product_type": { "type": "string", "enum": ["FRP Tanks", "FRP Vessels", "Pressure Vessels", "RO Membranes", "RO Housing", "Cartridge Filters", "Dosing Pumps", "MBBR Media", "Sand Media", "Tube Settler Media", "Chemicals", "Valves", "Frames/Fabrication", "Various", "Other"] },
+        "description": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "enum": ["Nos", "M3", "MT", "Set", "LS", "Kg"] },
+        "unit_price": { "type": "number" },
+        "total_price": { "type": "number" },
+        "lead_time_note": { "type": "string" }
+      },
+      "required": ["product_type", "quantity", "unit", "unit_price", "total_price"]
+    },
+    "Attachment": {
+      "title": "Attachment",
+      "description": "Metadata of attached proposal documents",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "size": { "type": "integer" },
+        "type": { "type": "string" },
+        "url": { "type": "string" },
+        "uploadedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "url"]
+    },
+    "Invite": {
+      "title": "Invite Code",
+      "description": "Registration invite tokens",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Member", "Viewer"] },
+        "used": { "type": "boolean" },
+        "usedBy": { "type": "string" },
+        "usedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "role", "used", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Immutable version history logs",
+      "type": "object",
+      "properties": {
+        "document_id": { "type": "string" },
+        "entity_type": { "type": "string", "enum": ["company", "contact", "enquiry"] },
+        "action": { "type": "string", "enum": ["create", "update", "delete"] },
+        "changed_by_uid": { "type": "string" },
+        "changed_by_name": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "before": { "type": "object" },
+        "after": { "type": "object" },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "old_value": {},
+              "new_value": {}
+            }
+          }
+        }
+      },
+      "required": ["document_id", "entity_type", "action", "changed_by_uid", "changed_by_name", "timestamp"]
+    },
+    "Salesperson": {
+      "title": "Salesperson",
+      "description": "Salesperson profiles",
+      "type": "object",
+      "properties": {
+        "initials": { "type": "string" },
+        "full_name": { "type": "string" },
+        "role": { "type": "string" },
+        "linked_user_id": { "type": "string" }
+      },
+      "required": ["full_name", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Custom managed products registry for quotation items",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "product_type": { "type": "string", "enum": ["FRP Tanks", "FRP Vessels", "Pressure Vessels", "RO Membranes", "RO Housing", "Cartridge Filters", "Dosing Pumps", "MBBR Media", "Sand Media", "Tube Settler Media", "Chemicals", "Valves", "Frames/Fabrication", "Various", "Other"] },
+        "description": { "type": "string" },
+        "unit": { "type": "string", "enum": ["Nos", "M3", "MT", "Set", "LS", "Kg"] },
+        "unit_price": { "type": "number" },
+        "sku": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "product_type", "description", "unit", "unit_price"]
+    },
+    "DropdownOption": {
+      "title": "Dropdown Option",
+      "description": "Customizable list option for dropdown metadata",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User account registrations"
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Canonical database of client companies"
+    },
+    "/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Client contact personnel"
+    },
+    "/enquiries/{enquiryId}": {
+      "schema": "Enquiry",
+      "description": "The master registry of Omni Suite enquiries"
+    },
+    "/invites/{inviteId}": {
+      "schema": "Invite",
+      "description": "Access invite codes for onboarding"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Historic change log registry"
+    },
+    "/salespersons/{salespersonId}": {
+      "schema": "Salesperson",
+      "description": "Registered salesperson representatives"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Custom managed products list"
+    },
+    "/dropdown_enquiry_sources/{sourceId}": {
+      "schema": "DropdownOption",
+      "description": "Custom enquiry sources dropdown choices"
+    },
+    "/dropdown_product_categories/{categoryId}": {
+      "schema": "DropdownOption",
+      "description": "Custom product categories/types dropdown choices"
+    },
+    "/dropdown_units/{unitId}": {
+      "schema": "DropdownOption",
+      "description": "Custom unit measurement dropdown choices"
+    }
+  }
+}

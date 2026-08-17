@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* Prevent browser dark-mode auto-inversion from rendering dark text on dark backgrounds */
+input, select, textarea {
+  color-scheme: dark light;
+}
+
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  color: #f8fafc;
+  background-color: #0f172a;
+  border-color: #334155;
+}
+
+.dark table th,
+.dark table td {
+  color: #f1f5f9;
+}
+
+@keyframes marquee-slide-back-forth {
+  0%, 15% {
+    transform: translateX(0px);
+  }
+  50%, 65% {
+    transform: translateX(var(--scroll-dist, 0px));
+  }
+  100% {
+    transform: translateX(0px);
+  }
+}
+
+.animate-marquee-hover {
+  animation: marquee-slide-back-forth var(--marquee-duration, 3s) ease-in-out infinite;
+}
