@@ -35,9 +35,7 @@ export default function LiveExecutionModal({
   onSuccess,
   user
 }: LiveExecutionModalProps) {
-  if (!isOpen || !task) return null;
-
-  const taskChannel: ActivityChannel = (task.channel as ActivityChannel) || 'Call';
+  const taskChannel: ActivityChannel = ((task?.channel as ActivityChannel) || 'Call') as ActivityChannel;
   const availableStatuses = channelStatuses[taskChannel] || channelStatuses.Call || [
     'Completed Log',
     'Scheduled / Planned',
@@ -61,7 +59,7 @@ export default function LiveExecutionModal({
 
   // Initialize and reset form when task or isOpen changes
   useEffect(() => {
-    if (task) {
+    if (task && isOpen) {
       setResolutionAction('complete');
       setCallStatus(defaultCompletedStatus);
       const initialOutcomes = getOutcomesForStatus(defaultCompletedStatus);
@@ -80,11 +78,15 @@ export default function LiveExecutionModal({
 
   // Update outcomes when status changes
   useEffect(() => {
-    const validOutcomes = getOutcomesForStatus(callStatus);
-    if (!validOutcomes.includes(callOutcome)) {
-      setCallOutcome(validOutcomes[0] || '');
+    if (isOpen) {
+      const validOutcomes = getOutcomesForStatus(callStatus);
+      if (!validOutcomes.includes(callOutcome)) {
+        setCallOutcome(validOutcomes[0] || '');
+      }
     }
-  }, [callStatus, callOutcome]);
+  }, [callStatus, callOutcome, isOpen]);
+
+  if (!isOpen || !task) return null;
 
   const isConnectedState = [
     'Completed Log',

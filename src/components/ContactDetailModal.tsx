@@ -50,9 +50,9 @@ export default function ContactDetailModal({
   onSelectEnquiry,
   onSelectCallLog
 }: ContactDetailModalProps) {
-  if (!isOpen || !contact) return null;
-
   const [showHistory, setShowHistory] = useState(true);
+
+  if (!isOpen || !contact) return null;
 
   const isOwnDataOnly = currentUser && currentUser.role !== 'Admin' && currentUser.dataVisibilityScope === 'OWN_DATA_ONLY';
   const isBasicTier = currentUser && currentUser.role !== 'Admin' && currentUser.dataVisibilityTier === 'BASIC';
