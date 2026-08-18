@@ -48,6 +48,7 @@ import CallLogDetailModal from './CallLogDetailModal';
 import Company360Modal from './Company360Modal';
 import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
+import LiveExecutionModal from './LiveExecutionModal';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 
 export function getOffsetDateString(offsetDays: number): string {
@@ -173,17 +174,21 @@ export default function CallLogManager({
 }: CallLogManagerProps) {
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
   const [editingLog, setEditingLog] = useState<CallLogEntry | null>(null);
+  const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
   const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
 
-  const handleLogSaved = (savedLog: CallLogEntry) => {
+  const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
     if (setCallLogs) {
       setCallLogs((prev) => {
-        const exists = prev.some((l) => l.id === savedLog.id);
-        if (exists) {
-          return prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+        let updatedList = prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+        if (!prev.some((l) => l.id === savedLog.id)) {
+          updatedList = [savedLog, ...updatedList];
         }
-        return [savedLog, ...prev];
+        if (spawnedLog) {
+          updatedList = [spawnedLog, ...updatedList.filter((l) => l.id !== spawnedLog.id)];
+        }
+        return updatedList;
       });
     }
   };
@@ -695,25 +700,7 @@ export default function CallLogManager({
   const [fastContactPhone, setFastContactPhone] = useState<string>('');
 
   const openFastQueueLogger = (entry: CallLogEntry) => {
-    setSelectedEntry(entry);
-    setDrawerMode('execute');
-    setEditingLog(entry);
-    if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({
-        existingLog: entry,
-        logToEdit: entry,
-        drawerMode: 'execute',
-        companyId: entry.company_id,
-        companyName: entry.company_name || entry.unlinked_name,
-        contactId: entry.contact_id,
-        contactName: entry.contact_name,
-        contactPhone: entry.contact_phone,
-        enquiryId: entry.enquiry_id,
-        channel: entry.channel || 'Call'
-      });
-    } else {
-      setIsActivityDrawerOpen(true);
-    }
+    setExecutionModalTask(entry);
   };
 
   const handleEditActivityLog = (entry: CallLogEntry) => {
@@ -3383,6 +3370,15 @@ export default function CallLogManager({
           setEditingLog(null);
           triggerToast(drawerMode === 'execute' ? 'Task executed successfully!' : 'Activity updated successfully!', 'success');
         }}
+      />
+
+      {/* Live Execution Command Center Modal */}
+      <LiveExecutionModal
+        isOpen={Boolean(executionModalTask)}
+        onClose={() => setExecutionModalTask(null)}
+        task={executionModalTask}
+        onSuccess={handleLogSaved}
+        user={user}
       />
 
       {/* Reusable Confirmation Dialog Overlay */}
