@@ -86,6 +86,7 @@ export interface QuickActivityDrawerProps {
   onUpdateCompany?: (company: Company) => void;
   onUpdateContact?: (contact: Contact) => void;
   onSave?: (log: CallLogEntry) => void;
+  onUpdate?: (log: CallLogEntry) => void;
   onOpen360?: (companyId: string) => void;
   onInspectCompany?: (companyId: string) => void;
   onOpenCompanyModal?: (companyId: string) => void;
@@ -252,6 +253,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   onUpdateCompany,
   onUpdateContact,
   onSave,
+  onUpdate,
   onOpen360,
   onInspectCompany,
   onOpenCompanyModal
@@ -1727,6 +1729,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         if (onSave) {
           onSave(updatedExistingLog);
         }
+        if (onUpdate) {
+          onUpdate(updatedExistingLog);
+        }
       } else if (drawerMode === 'edit' && activeLog && activeLog.id) {
         // Track 2: Edit Mode
         // Standard update on existingLog applying currently selected fields (including nextFollowUpDate). No new log spawned.
@@ -1747,6 +1752,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         }
         if (onSave) {
           onSave(updatedEntry);
+        }
+        if (onUpdate) {
+          onUpdate(updatedEntry);
         }
       } else {
         // Track 3: Create Mode
@@ -1794,6 +1802,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         }
         if (onSave) {
           onSave(newEntry);
+        }
+        if (onUpdate) {
+          onUpdate(newEntry);
         }
       }
 

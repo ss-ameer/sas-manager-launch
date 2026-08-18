@@ -47,6 +47,7 @@ import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import Company360Modal from './Company360Modal';
 import CallLogReportModal from './CallLogReportModal';
+import QuickActivityDrawer from './QuickActivityDrawer';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 
 export function getOffsetDateString(offsetDays: number): string {
@@ -172,7 +173,20 @@ export default function CallLogManager({
 }: CallLogManagerProps) {
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
   const [editingLog, setEditingLog] = useState<CallLogEntry | null>(null);
+  const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
+
+  const handleLogSaved = (savedLog: CallLogEntry) => {
+    if (setCallLogs) {
+      setCallLogs((prev) => {
+        const exists = prev.some((l) => l.id === savedLog.id);
+        if (exists) {
+          return prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+        }
+        return [savedLog, ...prev];
+      });
+    }
+  };
   const [queueTimeframe, setQueueTimeframe] = useState<'today' | 'upcoming' | 'all'>('today');
   const [queueSortOrder, setQueueSortOrder] = useState<'oldest' | 'newest'>('oldest');
   const [historySortOrder, setHistorySortOrder] = useState<'newest' | 'oldest'>('newest');
@@ -685,9 +699,41 @@ export default function CallLogManager({
     setDrawerMode('execute');
     setEditingLog(entry);
     if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({ existingLog: entry, logToEdit: entry, drawerMode: 'execute' });
+      onOpenActivityDrawer({
+        existingLog: entry,
+        logToEdit: entry,
+        drawerMode: 'execute',
+        companyId: entry.company_id,
+        companyName: entry.company_name || entry.unlinked_name,
+        contactId: entry.contact_id,
+        contactName: entry.contact_name,
+        contactPhone: entry.contact_phone,
+        enquiryId: entry.enquiry_id,
+        channel: entry.channel || 'Call'
+      });
     } else {
-      setSelectedDetailEntry(entry);
+      setIsActivityDrawerOpen(true);
+    }
+  };
+
+  const handleEditActivityLog = (entry: CallLogEntry) => {
+    setDrawerMode('edit');
+    setEditingLog(entry);
+    if (onOpenActivityDrawer) {
+      onOpenActivityDrawer({
+        existingLog: entry,
+        logToEdit: entry,
+        drawerMode: 'edit',
+        companyId: entry.company_id,
+        companyName: entry.company_name || entry.unlinked_name,
+        contactId: entry.contact_id,
+        contactName: entry.contact_name,
+        contactPhone: entry.contact_phone,
+        enquiryId: entry.enquiry_id,
+        channel: entry.channel || 'Call'
+      });
+    } else {
+      setIsActivityDrawerOpen(true);
     }
   };
 
@@ -1611,15 +1657,7 @@ export default function CallLogManager({
 
                         {canEditOrDeleteRecord(user, item) && (
                           <button
-                            onClick={() => {
-                              setDrawerMode('edit');
-                              setEditingLog(item);
-                              if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ existingLog: item, logToEdit: item, drawerMode: 'edit' });
-                              } else {
-                                setSelectedDetailEntry(item);
-                              }
-                            }}
+                            onClick={() => handleEditActivityLog(item)}
                             className="p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
                             title="Edit Activity Log"
                           >
@@ -2001,15 +2039,7 @@ export default function CallLogManager({
                         {canEditOrDeleteRecord(user, log) && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setDrawerMode('edit');
-                              setEditingLog(log);
-                              if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ existingLog: log, logToEdit: log, drawerMode: 'edit' });
-                              } else {
-                                setSelectedDetailEntry(log);
-                              }
-                            }}
+                            onClick={() => handleEditActivityLog(log)}
                             className="p-2.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
                             title="Edit Activity Log"
                           >
@@ -3314,6 +3344,45 @@ export default function CallLogManager({
           full_name: s,
           role: 'Operator'
         }))}
+      />
+
+      {/* Embedded Quick Activity Drawer for in-component direct rendering & fallback */}
+      <QuickActivityDrawer
+        isOpen={isActivityDrawerOpen}
+        onClose={() => {
+          setIsActivityDrawerOpen(false);
+          setEditingLog(null);
+        }}
+        drawerMode={drawerMode}
+        existingLog={editingLog}
+        logToEdit={editingLog}
+        companyId={editingLog?.company_id}
+        companyName={editingLog?.company_name || editingLog?.unlinked_name}
+        contactId={editingLog?.contact_id}
+        contactName={editingLog?.contact_name}
+        contactPhone={editingLog?.contact_phone}
+        enquiryId={editingLog?.enquiry_id}
+        initialChannel={editingLog?.channel}
+        initialStatus={editingLog?.status}
+        activeWorkspaceId={activeWorkspace.id}
+        currentSalespersonId={user?.uid || user?.username || ''}
+        currentUserInitials={user?.username?.slice(0, 2).toUpperCase() || 'OP'}
+        currentUserUid={user?.uid}
+        currentUserName={user?.full_name || user?.username || user?.email}
+        user={user}
+        companies={workspaceCompanies}
+        contacts={workspaceContacts}
+        enquiries={workspaceEnquiries}
+        setCompanies={setCompanies}
+        setContacts={setContacts}
+        setCallLogs={setCallLogs}
+        onSave={handleLogSaved}
+        onUpdate={handleLogSaved}
+        onSaveSuccess={() => {
+          setIsActivityDrawerOpen(false);
+          setEditingLog(null);
+          triggerToast(drawerMode === 'execute' ? 'Task executed successfully!' : 'Activity updated successfully!', 'success');
+        }}
       />
 
       {/* Reusable Confirmation Dialog Overlay */}

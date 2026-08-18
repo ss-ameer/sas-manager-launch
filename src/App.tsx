@@ -1748,6 +1748,24 @@ export default function App() {
         setCallLogs={setCallLogs}
         onOpen360={(companyId) => setSelected360CompanyId(companyId)}
         onInspectCompany={(companyId) => setSelected360CompanyId(companyId)}
+        onSave={(savedLog) => {
+          setCallLogs((prev) => {
+            const exists = prev.some((l) => l.id === savedLog.id);
+            if (exists) {
+              return prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+            }
+            return [savedLog, ...prev];
+          });
+        }}
+        onUpdate={(updatedLog) => {
+          setCallLogs((prev) => {
+            const exists = prev.some((l) => l.id === updatedLog.id);
+            if (exists) {
+              return prev.map((l) => (l.id === updatedLog.id ? { ...l, ...updatedLog } : l));
+            }
+            return [updatedLog, ...prev];
+          });
+        }}
         onSaveSuccess={() => {
           setIsActivityDrawerOpen(false);
           triggerToast('Activity logged successfully!', 'success');
