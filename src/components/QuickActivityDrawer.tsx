@@ -278,6 +278,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
   const [purpose, setPurpose] = useState<string>('Discovery / Validation');
 
+  const isCompletedState =
+    status === 'Completed Log' ||
+    status === 'Completed' ||
+    status === 'Conducted' ||
+    status === 'Message Sent' ||
+    status === 'Email Sent' ||
+    status === 'Read / Seen' ||
+    status === 'Opened / Replied';
+
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
     const available = channelStatuses[newChannel] || [];
@@ -1052,8 +1061,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
     }
 
-    const isConnectedState = ['Completed Log', 'Completed', 'Conducted', 'Message Sent', 'Email Sent', 'Read / Seen', 'Opened / Replied'].includes(status);
-    if (isConnectedState && (!outcome || !outcome.trim())) {
+    if (isCompletedState && (!outcome || !outcome.trim())) {
       setValidationError('Please select an outcome for this completed activity.');
       return;
     }
@@ -1638,7 +1646,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         workspace_id: activeWorkspaceId,
         date: activityIsoDate,
         status: finalStatus,
-        outcome: outcome || channel,
+        outcome: isCompletedState ? (outcome || '') : '',
         channel: channel,
         requirement_notes: notes.trim(),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
@@ -3167,29 +3175,31 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             </div>
 
             {/* Outcome & Purpose Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                  {interactionChannel.toUpperCase()} OUTCOME
-                </label>
-                <select
-                  value={outcome}
-                  onChange={(e) => {
-                    setOutcome(e.target.value);
-                    setValidationError(null);
-                  }}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
-                >
-                  <option value="" disabled>
-                    Select an outcome...
-                  </option>
-                  {getOutcomesForStatus(interactionChannel, status).map((o) => (
-                    <option key={o} value={o}>
-                      {o}
+            <div className={`grid gap-3 ${isCompletedState ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {isCompletedState && (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    {interactionChannel.toUpperCase()} OUTCOME
+                  </label>
+                  <select
+                    value={outcome}
+                    onChange={(e) => {
+                      setOutcome(e.target.value);
+                      setValidationError(null);
+                    }}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      Select an outcome...
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {getOutcomesForStatus(interactionChannel, status).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">

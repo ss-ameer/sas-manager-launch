@@ -200,15 +200,14 @@ export default function LiveExecutionModal({
   // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !task) return null;
 
-  const isConnectedState = [
-    'Completed Log',
-    'Completed',
-    'Conducted',
-    'Message Sent',
-    'Email Sent',
-    'Read / Seen',
-    'Opened / Replied'
-  ].includes(callStatus);
+  const isCompletedState =
+    callStatus === 'Completed Log' ||
+    callStatus === 'Completed' ||
+    callStatus === 'Conducted' ||
+    callStatus === 'Message Sent' ||
+    callStatus === 'Email Sent' ||
+    callStatus === 'Read / Seen' ||
+    callStatus === 'Opened / Replied';
 
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
@@ -240,7 +239,7 @@ export default function LiveExecutionModal({
     if (!task || !task.id || isSubmitting) return;
 
     // Validation: Block execution if completed/connected state and outcome not selected
-    if (resolutionAction === 'complete' && isConnectedState && (!callOutcome || !callOutcome.trim())) {
+    if (resolutionAction === 'complete' && isCompletedState && (!callOutcome || !callOutcome.trim())) {
       alert(`Please select an outcome before completing this ${activeChannel.toLowerCase()}.`);
       return;
     }
@@ -274,9 +273,7 @@ export default function LiveExecutionModal({
       } else {
         // resolutionAction === 'complete'
         updatedStatus = callStatus;
-        if (isConnectedState || availableOutcomes.length > 0) {
-          updatedOutcome = callOutcome;
-        }
+        updatedOutcome = isCompletedState ? (callOutcome || '') : '';
         finalNotes = notes.trim()
           ? finalNotes
             ? `${finalNotes}\n[Execution Notes]: ${notes.trim()}`
@@ -600,7 +597,7 @@ export default function LiveExecutionModal({
               </div>
 
               {/* Dynamic Outcome Select Dropdown */}
-              {(isConnectedState || availableOutcomes.length > 0) && (
+              {isCompletedState && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     {activeChannel} Outcome <span className="text-rose-500">*</span>
