@@ -242,7 +242,33 @@ export default function CallLogReportModal({
       ))
   ).length;
 
-  const pendingFollowupsList = filteredLogs.filter((l) => l.next_followup_date);
+  // Agent Name Normalizer
+  const normalizeAgentName = (rawName?: string): string => {
+    if (!rawName) return '—';
+    const trimmed = rawName.trim();
+    if (!trimmed) return '—';
+
+    const matched = salespersons.find(
+      (s) =>
+        s.full_name?.toLowerCase() === trimmed.toLowerCase() ||
+        s.initials?.toLowerCase() === trimmed.toLowerCase() ||
+        s.id === trimmed
+    );
+
+    return (matched && matched.full_name) ? matched.full_name : trimmed;
+  };
+
+  const getLogTimestamp = (l: CallLogEntry): number => {
+    const raw = l.date || l.createdAt || (l as any).activityDate || (l as any).timestamp || '';
+    if (!raw) return 0;
+    const t = new Date(raw).getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
+  // Sort logs strictly newest first
+  const sortedFilteredLogs = [...filteredLogs].sort((a, b) => getLogTimestamp(b) - getLogTimestamp(a));
+
+  const pendingFollowupsList = sortedFilteredLogs.filter((l) => l.next_followup_date);
 
   // Generate CSV Data and Download
   const handleExportCSV = () => {
@@ -261,13 +287,14 @@ export default function CallLogReportModal({
       'Notes'
     ];
 
-    const rows = filteredLogs.map((l) => {
+    const rows = sortedFilteredLogs.map((l) => {
       const channelLabel = l.interaction_type === 'email' ? 'Email Log' : l.interaction_type === 'message' ? `Message (${l.message_platform || 'WhatsApp'})` : 'Phone Call';
       const contactInfo = l.interaction_type === 'email' ? (l.email_address || l.contact_phone || '') : (l.contact_phone || '');
       const dateFormatted = formatReportDate(l.date || l.createdAt);
       const companyDisplayName = l.company_name || l.unlinked_name || 'Direct Client';
       const contactDisplayName = l.contact_name || '—';
       const followupDateFormatted = l.next_followup_date ? formatReportDate(l.next_followup_date) : '';
+      const loggedByName = normalizeAgentName(l.logged_by || (l as any).sales_person || (l as any).handled_by_team_member_name);
 
       return [
         `"${dateFormatted}"`,
@@ -278,7 +305,7 @@ export default function CallLogReportModal({
         `"${contactDisplayName.replace(/"/g, '""')}"`,
         `"${contactInfo}"`,
         `"${l.geography || ''}"`,
-        `"${l.logged_by || ''}"`,
+        `"${loggedByName}"`,
         `"${followupDateFormatted}"`,
         `"${l.enquiry_quote_ref || ''}"`,
         `"${(l.requirement_notes || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
@@ -390,9 +417,9 @@ export default function CallLogReportModal({
             </thead>
             <tbody>
               ${
-                filteredLogs.length === 0
+                sortedFilteredLogs.length === 0
                   ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8;">No records found for this period.</td></tr>`
-                  : filteredLogs
+                  : sortedFilteredLogs
                       .map((l) => {
                         const channel = (l.channel || (l.interaction_type === 'email' ? 'Email' : l.interaction_type === 'message' ? (l.message_platform || 'WhatsApp') : 'Call')).toLowerCase();
                         let channelBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Phone Call</span>`;
@@ -418,8 +445,56 @@ export default function CallLogReportModal({
                           statusBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
                         }
 
-                        const outcomeBadgeHtml = l.outcome ? `<span style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; padding:2px 6px; border-radius:4px; font-weight:600; font-size:10px; display:inline-block;">${l.outcome}</span>` : '-';
+                        // Outcome Badge with distinction between conversions (green), follow-ups (blue), warnings (red), and neutral/general (gray)
+                        const getOutcomeBadgeHtml = (outcome?: string) => {
+                          if (!outcome) return `<span style="color:#94a3b8;">-</span>`;
+                          const o = outcome.toLowerCase();
+
+                          if (
+                            o === 'deal closed' ||
+                            o.includes('deal closed') ||
+                            o.includes('deal made') ||
+                            o.includes('meeting booked') ||
+                            o.includes('quote requested') ||
+                            o.includes('interested') ||
+                            o.includes('proposal submitted') ||
+                            o.includes('replied / engaged') ||
+                            o.includes('site inspected') ||
+                            o.includes('decision maker')
+                          ) {
+                            return `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${outcome}</span>`;
+                          }
+
+                          if (
+                            o.includes('follow-up') ||
+                            o.includes('call back') ||
+                            o.includes('rescheduled') ||
+                            o.includes('decision pending') ||
+                            o.includes('information gathered')
+                          ) {
+                            return `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${outcome}</span>`;
+                          }
+
+                          if (
+                            o.includes('not interested') ||
+                            o.includes('wrong') ||
+                            o.includes('invalid') ||
+                            o.includes('bounced') ||
+                            o.includes('competitor') ||
+                            o.includes('dnc') ||
+                            o.includes('gatekeeper')
+                          ) {
+                            return `<span style="background:#fff1f2; color:#be123c; border:1px solid #fecdd3; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${outcome}</span>`;
+                          }
+
+                          // Neutral / General / Other (Gray / Slate)
+                          return `<span style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:2px 8px; border-radius:12px; font-weight:600; font-size:10px; display:inline-block;">${outcome}</span>`;
+                        };
+
+                        const outcomeBadgeHtml = getOutcomeBadgeHtml(l.outcome);
                         const contactDetail = l.interaction_type === 'email' ? (l.email_address || l.contact_phone || '') : (l.contact_phone || '');
+                        const loggedByFormatted = normalizeAgentName(l.logged_by || (l as any).sales_person || (l as any).handled_by_team_member_name);
+
                         return `
                 <tr>
                   <td style="white-space:nowrap; font-weight:600;">${formatReportDate(l.date || l.createdAt)}</td>
@@ -428,7 +503,7 @@ export default function CallLogReportModal({
                   <td>${outcomeBadgeHtml}</td>
                   <td><strong>${l.company_name || l.unlinked_name || 'Direct Client'}</strong></td>
                   <td>${l.contact_name || '-'}${contactDetail ? `<br/><span style="color:#64748b;">${contactDetail}</span>` : ''}</td>
-                  <td>${l.logged_by || '-'}</td>
+                  <td>${loggedByFormatted}</td>
                   <td style="max-width: 220px;">${l.requirement_notes || '-'}</td>
                 </tr>
               `;
@@ -465,7 +540,7 @@ export default function CallLogReportModal({
                   <td><strong>${f.company_name || f.unlinked_name || 'Direct Client'}</strong></td>
                   <td>${f.contact_name || '-'}</td>
                   <td>${f.contact_phone || f.email_address || '-'}</td>
-                  <td>${f.logged_by || '-'}</td>
+                  <td>${normalizeAgentName(f.logged_by || (f as any).sales_person || (f as any).handled_by_team_member_name)}</td>
                   <td>${f.requirement_notes || '-'}</td>
                 </tr>
               `

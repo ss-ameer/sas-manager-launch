@@ -1,6 +1,28 @@
 import { Company, Contact } from '../types';
 
 /**
+ * Common B2B stop words stripped before fuzzy string comparison to prevent
+ * false positives between unrelated companies sharing generic industry terms.
+ */
+export const B2B_STOP_WORDS = [
+  'llc',
+  'l.l.c',
+  'maintenance',
+  'pools',
+  'pool',
+  'technical',
+  'services',
+  'service',
+  'trading',
+  'group',
+  'co',
+  'company',
+  'est',
+  'establishment',
+  'cleaning'
+];
+
+/**
  * Calculates the Levenshtein distance between two strings.
  */
 export function levenshteinDistance(a: string, b: string): number {
@@ -28,30 +50,68 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
+ * Sanitizes a company name by removing punctuation and common B2B stop words.
+ */
+export function sanitizeCompanyName(name: string): string {
+  if (!name) return '';
+  const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+  const tokens = cleaned
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0 && !B2B_STOP_WORDS.includes(t));
+  return tokens.join(' ').trim();
+}
+
+/**
  * Returns a normalized similarity score between 0 and 1.
  * 1 means exact match, 0 means completely different.
+ * Strips common B2B stop words and ensures completely different root names yield 0%.
  */
 export function stringSimilarity(a: string, b: string): number {
   if (!a && !b) return 1;
   if (!a || !b) return 0;
 
-  const strA = a.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const strB = b.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const rawA = a.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const rawB = b.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (rawA === rawB) return 1;
 
-  if (strA === strB) return 1;
-  if (!strA || !strB) return 0;
+  // Sanitize both strings using B2B stop-word filter
+  const cleanA = sanitizeCompanyName(a);
+  const cleanB = sanitizeCompanyName(b);
 
-  // Check substring containment
-  if (strA.includes(strB) || strB.includes(strA)) {
-    const minLen = Math.min(strA.length, strB.length);
-    const maxLen = Math.max(strA.length, strB.length);
-    if (minLen / maxLen >= 0.6) {
-      return 0.88;
+  // If sanitization stripped everything (e.g. name was literally just a stop word), fall back to raw
+  const finalA = cleanA || rawA;
+  const finalB = cleanB || rawB;
+
+  if (!finalA || !finalB) return 0;
+  if (finalA === finalB) return 1;
+
+  const tokensA = finalA.split(/\s+/).filter(Boolean);
+  const tokensB = finalB.split(/\s+/).filter(Boolean);
+
+  // If tokens don't share common root words and distance is significant, yield 0
+  const setB = new Set(tokensB);
+  const commonTokens = tokensA.filter((t) => setB.has(t));
+
+  // Check substring containment on sanitized root names
+  if (finalA.includes(finalB) || finalB.includes(finalA)) {
+    const minLen = Math.min(finalA.length, finalB.length);
+    const maxLen = Math.max(finalA.length, finalB.length);
+    if (minLen / maxLen >= 0.85) {
+      return 0.90;
     }
   }
 
-  const distance = levenshteinDistance(strA, strB);
-  const maxLen = Math.max(strA.length, strB.length);
+  const distance = levenshteinDistance(finalA.replace(/\s+/g, ''), finalB.replace(/\s+/g, ''));
+  const maxLen = Math.max(finalA.replace(/\s+/g, '').length, finalB.replace(/\s+/g, '').length);
+
+  if (maxLen === 0) return 0;
+
+  // If no common root words and distance is large (> 2), yield 0%
+  if (commonTokens.length === 0 && distance > 2) {
+    return 0;
+  }
+
   return Math.max(0, 1 - distance / maxLen);
 }
 
@@ -109,8 +169,8 @@ export function findDuplicateCompany(
     }
   }
 
-  // Consider match if similarity is 70% or higher
-  if (bestMatch && highestSimilarity >= 0.70) {
+  // Threshold bump: > 0.85
+  if (bestMatch && highestSimilarity > 0.85) {
     return {
       match: bestMatch,
       similarity: highestSimilarity,
@@ -178,7 +238,7 @@ export function findDuplicateContact(
     }
   }
 
-  if (bestMatch && highestSimilarity >= 0.72) {
+  if (bestMatch && highestSimilarity > 0.85) {
     return {
       match: bestMatch,
       similarity: highestSimilarity,
