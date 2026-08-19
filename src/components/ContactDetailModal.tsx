@@ -85,9 +85,9 @@ export default function ContactDetailModal({
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-hidden">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden font-sans my-auto animate-in zoom-in-95 duration-150">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden font-sans my-auto animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-start justify-between p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white relative shrink-0">
+        <div className="flex items-start justify-between p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white relative shrink-0 sticky top-0 z-10">
           <div className="space-y-1 pr-6">
             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               <h3 className="text-xl font-bold font-sans tracking-tight">{contact.full_name}</h3>
@@ -414,7 +414,7 @@ export default function ContactDetailModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="sticky bottom-0 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between z-10">
           <div>
             {onDelete && canEditOrDeleteRecord(currentUser, contact) && (
               <button
@@ -423,7 +423,7 @@ export default function ContactDetailModal({
                   onClose();
                   onDelete(contact);
                 }}
-                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+                className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/60 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Delete Contact</span>
@@ -435,7 +435,7 @@ export default function ContactDetailModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+              className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
             >
               Close
             </button>
@@ -446,7 +446,7 @@ export default function ContactDetailModal({
                   onClose();
                   onEdit(contact);
                 }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
+                className="px-4.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
               >
                 <Edit className="w-3.5 h-3.5" />
                 <span>Edit Contact</span>

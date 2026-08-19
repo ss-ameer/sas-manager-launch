@@ -168,24 +168,24 @@ export default function CompanyModal({
     if (val === 'dnc') {
       return {
         label: 'DNC 🚫',
-        className: 'bg-rose-950 text-rose-200 border-rose-600 font-black ring-1 ring-rose-500 shadow-xs'
+        className: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
       };
     }
     if (val === 'hot') {
       return {
         label: 'Hot 🔥',
-        className: 'bg-rose-500 text-white border-rose-600 font-black'
+        className: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
       };
     }
     if (val === 'warm') {
       return {
         label: 'Warm 🌤️',
-        className: 'bg-amber-500 text-slate-950 border-amber-600 font-black'
+        className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
       };
     }
     return {
       label: 'Cold ❄️',
-      className: 'bg-cyan-500 text-slate-950 border-cyan-600 font-black'
+      className: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800'
     };
   };
   const [viewMode, setViewMode] = useState<'companies' | 'contacts' | 'phones'>('companies');
@@ -1638,16 +1638,16 @@ export default function CompanyModal({
 
               {filteredCompanies.length > 0 ? (
                 companyViewStyle === 'table' ? (
-                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-                    <table className="w-full text-left text-xs border-collapse">
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+                    <table className="w-full text-left text-xs border-collapse font-sans">
                       <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400">
                         <tr>
-                          <th className="p-3">Ref ID</th>
-                          <th className="p-3">Company Name & City</th>
-                          <th className="p-3">Relationship & Temp</th>
-                          <th className="p-3">Phones & Emails</th>
-                          <th className="p-3">Links</th>
-                          <th className="p-3 text-right">Action</th>
+                          <th className="py-3.5 px-4">Ref ID</th>
+                          <th className="py-3.5 px-4">Company Name & City</th>
+                          <th className="py-3.5 px-4">Relationship & Temp</th>
+                          <th className="py-3.5 px-4">Phones & Emails</th>
+                          <th className="py-3.5 px-4">Activity</th>
+                          <th className="py-3.5 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -1663,68 +1663,74 @@ export default function CompanyModal({
                             <tr
                               key={c.id}
                               onClick={() => setSelectedCompanyId(c.id!)}
-                              className={`cursor-pointer transition hover:bg-slate-50 ${
-                                isSelected ? 'bg-blue-50/70 border-l-4 border-l-blue-600' : ''
+                              className={`cursor-pointer transition-colors group hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                                isSelected ? 'bg-blue-50/70 dark:bg-blue-950/30 border-l-4 border-l-blue-600' : ''
                               }`}
                             >
-                              <td className="p-3 font-mono text-[10px] text-blue-700 font-bold whitespace-nowrap">
+                              <td className="py-4 px-4 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap">
                                 {getReferenceId('CMP', c, companies)}
                               </td>
-                              <td className="p-3">
-                                <div className="font-bold text-slate-900 dark:text-slate-100 font-sans">{c.display_name}</div>
-                                <div className="text-slate-500 dark:text-slate-400 text-xs flex items-center space-x-1">
-                                  <MapPin className="w-3 h-3 text-slate-400" />
-                                  <span className="text-slate-600 dark:text-slate-400 text-xs">{c.city}, {c.country}</span>
+                              <td className="py-4 px-4">
+                                <div className="font-semibold text-slate-900 dark:text-white font-sans text-sm">{c.display_name}</div>
+                                <div className="text-slate-500 dark:text-slate-400 text-xs flex items-center space-x-1 mt-0.5">
+                                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>{c.city}, {c.country}</span>
                                 </div>
                               </td>
-                              <td className="p-3 whitespace-nowrap space-y-1">
-                                <div>
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                              <td className="py-4 px-4 whitespace-nowrap">
+                                <div className="flex flex-col gap-1.5 items-start">
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                     {relVal}
                                   </span>
-                                </div>
-                                <div>
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleCycleCompanyTemperature(c);
                                     }}
-                                    className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border inline-block cursor-pointer transition hover:scale-105 ${tempBadge.className}`}
+                                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide cursor-pointer transition hover:opacity-85 ${tempBadge.className}`}
                                     title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
                                   >
                                     {tempBadge.label}
                                   </button>
                                 </div>
                               </td>
-                              <td className="p-3 text-xs font-mono text-slate-800 dark:text-slate-200">
-                                {phones.length > 0 && (
-                                  <div className="truncate max-w-[180px] text-slate-900 dark:text-slate-200 font-mono text-xs font-semibold" title={phones[0].number}>
+                              <td className="py-4 px-4 text-xs font-mono">
+                                {phones.length > 0 ? (
+                                  <div className="truncate max-w-[180px] text-slate-900 dark:text-slate-100 font-mono text-xs font-medium" title={phones[0].number}>
                                     {phones[0].number}
                                   </div>
+                                ) : (
+                                  <div className="italic text-slate-400 text-xs">No phone saved</div>
                                 )}
-                                {emails.length > 0 && (
-                                  <div className="truncate max-w-[180px] text-slate-600 dark:text-slate-400 text-xs font-mono" title={emails[0].email}>
+                                {emails.length > 0 ? (
+                                  <div className="truncate max-w-[180px] text-slate-500 dark:text-slate-400 text-xs font-mono mt-0.5" title={emails[0].email}>
                                     {emails[0].email}
                                   </div>
+                                ) : (
+                                  <div className="italic text-slate-400 text-xs mt-0.5">No email addresses saved</div>
                                 )}
                               </td>
-                              <td className="p-3 whitespace-nowrap font-mono text-[10px]">
-                                <span className="text-blue-600 font-bold">{linkCount} Enquiries</span>
+                              <td className="py-4 px-4 whitespace-nowrap">
+                                {linkCount > 0 ? (
+                                  <span className="text-slate-900 dark:text-white font-medium text-xs">{linkCount} Enquiries</span>
+                                ) : (
+                                  <span className="italic text-slate-400 text-xs">0 Enquiries</span>
+                                )}
                               </td>
-                              <td className="p-3 text-right whitespace-nowrap">
+                              <td className="py-4 px-4 text-right whitespace-nowrap">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedCompanyId(c.id!);
                                   }}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
                                     isSelected
-                                      ? 'bg-blue-600 text-white'
-                                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                      ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+                                      : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                                   }`}
                                 >
-                                  {isSelected ? 'Selected' : 'Inspect'}
+                                  {isSelected ? 'Inspecting' : 'Inspect'}
                                 </button>
                               </td>
                             </tr>
@@ -1745,34 +1751,36 @@ export default function CompanyModal({
                         <button
                           key={c.id}
                           onClick={() => setSelectedCompanyId(c.id!)}
-                          className={`p-5 rounded-xl border text-left flex flex-col justify-between transition duration-150 ${
+                          className={`p-5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group ${
                             isSelected
-                              ? 'bg-blue-50/50 border-blue-400 text-slate-900 shadow-sm'
-                              : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                              ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-500 text-slate-900 dark:text-white shadow-sm'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'
                           }`}
                         >
-                          <div className="space-y-1.5">
+                          <div className="space-y-2 w-full">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-semibold block truncate font-sans">{c.display_name}</span>
-                              <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider border shrink-0 ${tempBadge.className}`}>
+                              <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
+                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border shrink-0 ${tempBadge.className}`}>
                                 {tempBadge.label}
                               </span>
                             </div>
 
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs text-slate-500 flex items-center space-x-1 font-sans">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-sans">
                                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                 <span>{c.city}, {c.country}</span>
                               </span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                 {relVal}
                               </span>
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 w-full text-[10px] font-mono text-slate-500">
-                            <span>{c.aliases.length > 0 ? `${c.aliases.length} ALIASES` : 'NO ALIASES'}</span>
-                            <span className="text-blue-600 font-bold">{linkCount} ENQUIRIES</span>
+                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-mono text-slate-500 dark:text-slate-400">
+                            <span>{c.aliases && c.aliases.length > 0 ? `${c.aliases.length} ALIASES` : <span className="italic text-slate-400">NO ALIASES</span>}</span>
+                            <span className={linkCount > 0 ? "text-blue-600 dark:text-blue-400 font-semibold" : "italic text-slate-400"}>
+                              {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
+                            </span>
                           </div>
                         </button>
                       );
@@ -1780,28 +1788,27 @@ export default function CompanyModal({
                   </div>
                 )
               ) : (
-                <div className="py-12 text-center text-slate-400 font-sans text-sm">
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm italic">
                   No matching companies found in your database.
                 </div>
               )}
             </div>
           )}
 
-          {/* Company Detail Inspector Panel (Full Row Width) */}
-          <div className="w-full space-y-6 min-w-0">
+          {/* Company Detail Command Dashboard */}
+          <div className="w-full min-w-0">
             {selectedCompany ? (
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col xl:flex-row w-full">
-                <div className="flex-1 p-6 space-y-6 overflow-y-auto min-w-0">
-                {/* Header / Info */}
-                <div className="flex items-start justify-between pb-6 border-b border-slate-100 gap-4">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-md m-4 p-6">
+                {/* Header & Quick Actions */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800 gap-4">
                   <div className="space-y-1.5">
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                      <h3 className="text-xl font-bold text-slate-900 font-sans">{selectedCompany.display_name}</h3>
-                      <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-slate-100 text-blue-700 border border-slate-200 flex items-center space-x-1">
-                        <Tag className="w-3 h-3 text-blue-600" />
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
+                      <h3 className="text-xl font-bold text-slate-900 dark:text-white font-sans">{selectedCompany.display_name}</h3>
+                      <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
+                        <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                         <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
                       </span>
                       {(() => {
@@ -1810,7 +1817,7 @@ export default function CompanyModal({
                           <button
                             type="button"
                             onClick={() => handleCycleCompanyTemperature(selectedCompany)}
-                            className={`px-2 py-0.5 rounded text-[11px] font-black uppercase border cursor-pointer transition hover:scale-105 ${selBadge.className}`}
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border cursor-pointer transition hover:opacity-85 ${selBadge.className}`}
                             title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
                           >
                             {selBadge.label}
@@ -1818,692 +1825,593 @@ export default function CompanyModal({
                         );
                       })()}
                     </div>
-                    <p className="text-xs font-mono text-slate-500 uppercase tracking-wider bg-slate-50 px-2 py-0.5 rounded border border-slate-200 w-fit">
+                    <p className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 w-fit">
                       Canonical Base: {selectedCompany.canonical_name}
                     </p>
                   </div>
 
-              <div className="flex items-center space-x-2 shrink-0">
-                {onOpenActivityDrawer && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenActivityDrawer({
-                        companyId: selectedCompany.id,
-                        companyName: selectedCompany.display_name
-                      });
-                    }}
-                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <span>⚡ Log Activity</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsHistorySidePanelExpanded(!isHistorySidePanelExpanded)}
-                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center space-x-1.5 ${
-                    isHistorySidePanelExpanded 
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-2xs' 
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                  }`}
-                  title="Toggle Outreach & Proposal History Side Panel"
-                >
-                  <History className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">History</span>
-                </button>
-                {isEditable && (
-                  <button
-                    onClick={() => handleOpenEditCompany(selectedCompany)}
-                    className="p-2 hover:bg-slate-50 text-slate-600 hover:text-slate-900 border border-transparent hover:border-slate-200 rounded-lg transition"
-                    title="Edit Company"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                )}
-                {user.role === 'Admin' && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setMergeSourceId(selectedCompany.id!);
-                        setShowMerge(true);
-                      }}
-                      className="p-2 hover:bg-slate-50 text-blue-600 border border-transparent hover:border-slate-200 rounded-lg transition"
-                      title="Merge and Deduplicate"
-                    >
-                      <Merge className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteCompany(selectedCompany.id!)}
-                      className="p-2 hover:bg-slate-50 text-red-500 border border-transparent hover:border-slate-200 rounded-lg transition"
-                      title="Delete Company"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* General Specs & All Phones / Emails */}
-            <div className="space-y-4">
-              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl flex items-center space-x-2.5 text-xs">
-                <MapPin className="w-4 h-4 text-slate-400" />
-                <div>
-                  <span className="text-[10px] text-slate-400 block uppercase font-mono">Location</span>
-                  <span className="text-slate-800 font-semibold">{selectedCompany.city}, {selectedCompany.country}</span>
-                </div>
-              </div>
-
-              {/* Labeled Phones & Emails list */}
-              <div className="space-y-3 bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                <div className="space-y-1.5">
-                  <span className="text-[10px] text-slate-400 block uppercase font-mono font-bold">Company Phone Numbers</span>
-                  {getCompanyPhones(selectedCompany).length > 0 ? (
-                    getCompanyPhones(selectedCompany).map((ph, idx) => {
-                      const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
-                      const phoneVal = ph.number || '';
-                      const phoneTrim = phoneVal.trim();
-                      const restriction = getLineRestriction(selectedCompany.restricted_lines, phoneVal, selectedCompany.is_dnc);
-                      const isRestricted = Boolean(restriction);
-                      const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
-
-                      return (
-                        <div key={idx} className="flex items-center justify-between text-xs py-0.5">
-                          <div className="flex items-center space-x-2">
-                            <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                            {isRestricted ? (
-                              <span className="font-mono font-bold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                                {ph.number}
-                              </span>
-                            ) : (
-                              <a
-                                href={`tel:${ph.number}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="font-mono text-blue-700 hover:underline font-bold"
-                              >
-                                {ph.number}
-                              </a>
-                            )}
-                            <span className="px-1.5 py-0.2 bg-slate-200/80 text-slate-600 rounded text-[9px] font-semibold">
-                              {ph.label || 'Telephone'}
-                            </span>
-                            {isRestricted && (
-                              <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
-                                restriction === 'Invalid'
-                                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                  : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
-                              }`}>
-                                {badgeText}
-                              </span>
-                            )}
-                          </div>
-                          {!isRestricted && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <a
-                                href={`tel:${ph.number}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="p-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition"
-                                title="1-Click Dial"
-                              >
-                                <Phone className="w-3 h-3 text-blue-600" />
-                              </a>
-                              {cleanNum && (
-                                <a
-                                  href={`https://wa.me/${cleanNum}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition"
-                                  title="1-Click WhatsApp"
-                                >
-                                  <MessageSquare className="w-3 h-3 text-emerald-600" />
-                                </a>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">No phone numbers saved.</span>
-                  )}
-                </div>
-
-                <div className="space-y-1.5 pt-2 border-t border-slate-200">
-                  <span className="text-[10px] text-slate-400 block uppercase font-mono font-bold">Company Email Addresses</span>
-                  {getCompanyEmails(selectedCompany).length > 0 ? (
-                    getCompanyEmails(selectedCompany).map((em, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs py-0.5">
-                        <div className="flex items-center space-x-2 truncate">
-                          <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <a
-                            href={`mailto:${em.email}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="font-mono text-slate-800 hover:underline truncate"
-                          >
-                            {em.email}
-                          </a>
-                          <span className="px-1.5 py-0.2 bg-slate-200/80 text-slate-600 rounded text-[9px] font-semibold shrink-0">
-                            {em.label || 'General'}
-                          </span>
-                        </div>
-                        <a
-                          href={`mailto:${em.email}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition shrink-0 ml-1"
-                          title="1-Click Email"
+                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
+                    {onOpenActivityDrawer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenActivityDrawer({
+                            companyId: selectedCompany.id,
+                            companyName: selectedCompany.display_name
+                          });
+                        }}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Log Activity</span>
+                      </button>
+                    )}
+                    {onOpenCompany360 && selectedCompany?.id && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenCompany360(selectedCompany.id)}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 transition"
+                        title="Open Company 360° View"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                        <span className="hidden sm:inline">Company 360°</span>
+                      </button>
+                    )}
+                    {isEditable && (
+                      <button
+                        onClick={() => handleOpenEditCompany(selectedCompany)}
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition"
+                        title="Edit Company"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    )}
+                    {user.role === 'Admin' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setMergeSourceId(selectedCompany.id!);
+                            setShowMerge(true);
+                          }}
+                          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 rounded-lg transition"
+                          title="Merge and Deduplicate"
                         >
-                          <Mail className="w-3 h-3 text-purple-600" />
-                        </a>
-                      </div>
-                    ))
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">No email addresses saved.</span>
-                  )}
+                          <Merge className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteCompany(selectedCompany.id!)}
+                          className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 border border-rose-200 dark:border-rose-800 rounded-lg transition"
+                          title="Delete Company"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Aliases List */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">Duplicate Lookup Aliases</h4>
-              <div className="flex flex-wrap gap-1.5">
-                {selectedCompany.aliases.length > 0 ? (
-                  selectedCompany.aliases.map((a) => (
-                    <span key={a} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-2 py-0.5 rounded">
-                      {a}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-xs text-slate-400 italic font-sans">No alternate spellings declared.</span>
-                )}
-              </div>
-            </div>
+                {/* 2-Column Command Dashboard Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-6">
+                  {/* Left Column: Details, Locations, Aliases & Contacts (2 Cols) */}
+                  <div className="lg:col-span-2 space-y-6">
+                    {/* Location & Specs */}
+                    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center space-x-3 text-xs">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Location & Jurisdiction</span>
+                        <span className="text-slate-900 dark:text-white font-semibold text-sm">{selectedCompany.city}, {selectedCompany.country}</span>
+                      </div>
+                    </div>
 
-            {/* Company Notes */}
-            {selectedCompany.notes && (
-              <div className="space-y-1 bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                <h4 className="text-xs font-mono text-slate-500 uppercase tracking-wider">Internal Client Notes</h4>
-                <p className="text-xs text-slate-700 leading-relaxed font-sans">{selectedCompany.notes}</p>
-              </div>
-            )}
+                    {/* Labeled Phones & Emails list */}
+                    <div className="space-y-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
+                      <div className="space-y-2">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Company Phone Numbers</span>
+                        {getCompanyPhones(selectedCompany).length > 0 ? (
+                          <div className="space-y-1.5">
+                            {getCompanyPhones(selectedCompany).map((ph, idx) => {
+                              const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
+                              const phoneVal = ph.number || '';
+                              const restriction = getLineRestriction(selectedCompany.restricted_lines, phoneVal, selectedCompany.is_dnc);
+                              const isRestricted = Boolean(restriction);
+                              const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
 
-            {/* Personnel Contacts Section */}
-            <div className="space-y-4 pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-bold text-slate-800 flex items-center space-x-2 font-sans">
-                  <Users2 className="w-4 h-4 text-slate-400" />
-                  <span>Client Contact Personnel ({companyContacts.length})</span>
-                </h4>
-                {isEditable && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContactToEdit(null);
-                      setSelectedCompanyForContact(selectedCompany.id!);
-                      setContactModalOpen(true);
-                    }}
-                    className="p-1 hover:bg-slate-50 text-blue-600 border border-transparent hover:border-slate-200 rounded transition flex items-center space-x-1 text-xs font-bold"
-                    title="Add Personnel Contact"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Contact</span>
-                  </button>
-                )}
-              </div>
-
-              {companyContacts.length > 0 ? (
-                <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-                  {companyContacts.map((c) => {
-                    const cPhones = getContactPhones(c);
-                    const cEmails = getContactEmails(c);
-                    return (
-                      <div key={c.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2 relative">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="overflow-hidden">
-                            <div className="flex items-center space-x-2 flex-wrap">
-                              <span className="text-sm font-semibold text-slate-800 block font-sans">{c.full_name}</span>
-                              {c.is_primary && (
-                                <span className="text-[9px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider shrink-0">
-                                  Primary
-                                </span>
-                              )}
-                              {c.is_dnc && (
-                                <span className="text-[9px] bg-rose-600 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
-                                  DNC
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-slate-500 block font-sans">{c.designation || 'No title declared'}</span>
-                          </div>
-
-                          {isEditable && (
-                            <div className="flex items-center space-x-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setContactToEdit(c);
-                                  setSelectedCompanyForContact(selectedCompany.id!);
-                                  setContactModalOpen(true);
-                                }}
-                                className="p-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded border border-slate-200 transition"
-                                title="Edit Personnel"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-                              {isEditable && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteContact(c.id!)}
-                                  className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 transition"
-                                  title="Delete Personnel"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-1 text-xs pt-2 border-t border-slate-200/60 w-full text-slate-600 font-sans">
-                          {cPhones.map((ph, pIdx) => {
-                            const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
-                            const phoneVal = ph.number || '';
-                            const phoneTrim = phoneVal.trim();
-                            const restriction = getLineRestriction(c.restricted_lines, phoneVal) || getLineRestriction(selectedCompany.restricted_lines, phoneVal, c.is_dnc || selectedCompany.is_dnc);
-                            const isRestricted = Boolean(restriction);
-                            const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
-
-                            return (
-                              <div key={pIdx} className="flex items-center justify-between text-xs py-0.5">
-                                <div className="flex items-center space-x-2">
-                                  <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                                  {isRestricted ? (
-                                    <span className="font-mono font-bold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                                      {ph.number}
-                                    </span>
-                                  ) : (
-                                    <a
-                                      href={`tel:${ph.number}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="font-mono text-blue-700 hover:underline font-semibold"
-                                    >
-                                      {ph.number}
-                                    </a>
-                                  )}
-                                  <span className="px-1.5 py-0.2 bg-slate-200/80 text-slate-600 rounded text-[9px] font-semibold">
-                                    {ph.label}
-                                  </span>
-                                  {isRestricted && (
-                                    <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
-                                      restriction === 'Invalid'
-                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
-                                    }`}>
-                                      {badgeText}
-                                    </span>
-                                  )}
-                                </div>
-                                {!isRestricted && (
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <a
-                                      href={`tel:${ph.number}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="p-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition"
-                                      title="1-Click Dial"
-                                    >
-                                      <Phone className="w-3 h-3 text-blue-600" />
-                                    </a>
-                                    {cleanNum && (
+                              return (
+                                <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
+                                  <div className="flex items-center space-x-2">
+                                    <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
+                                    {isRestricted ? (
+                                      <span className="font-mono font-semibold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
+                                        {ph.number}
+                                      </span>
+                                    ) : (
                                       <a
-                                        href={`https://wa.me/${cleanNum}`}
+                                        href={`tel:${ph.number}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
-                                        className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition"
-                                        title="1-Click WhatsApp"
+                                        className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold"
                                       >
-                                        <MessageSquare className="w-3 h-3 text-emerald-600" />
+                                        {ph.number}
                                       </a>
                                     )}
+                                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
+                                      {ph.label || 'Telephone'}
+                                    </span>
+                                    {isRestricted && (
+                                      <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border ${
+                                        restriction === 'Invalid'
+                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                          : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                      }`}>
+                                        {badgeText}
+                                      </span>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {cEmails.map((em, eIdx) => (
-                            <div key={eIdx} className="flex items-center justify-between text-xs py-0.5">
-                              <div className="flex items-center space-x-2 overflow-hidden">
-                                <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  {!isRestricted && (
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <a
+                                        href={`tel:${ph.number}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition"
+                                        title="1-Click Dial"
+                                      >
+                                        <Phone className="w-3 h-3" />
+                                      </a>
+                                      {cleanNum && (
+                                        <a
+                                          href={`https://wa.me/${cleanNum}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="p-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition"
+                                          title="1-Click WhatsApp"
+                                        >
+                                          <MessageSquare className="w-3 h-3" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">No phone numbers saved.</span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Company Email Addresses</span>
+                        {getCompanyEmails(selectedCompany).length > 0 ? (
+                          <div className="space-y-1.5">
+                            {getCompanyEmails(selectedCompany).map((em, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center space-x-2 truncate">
+                                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <a
+                                    href={`mailto:${em.email}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="font-mono text-slate-800 dark:text-slate-200 hover:underline truncate"
+                                  >
+                                    {em.email}
+                                  </a>
+                                  <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium shrink-0">
+                                    {em.label || 'General'}
+                                  </span>
+                                </div>
                                 <a
                                   href={`mailto:${em.email}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                  className="truncate text-slate-800 hover:underline"
+                                  className="p-1.5 rounded-md bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition shrink-0 ml-1"
+                                  title="1-Click Email"
                                 >
-                                  {em.email}
+                                  <Mail className="w-3 h-3" />
                                 </a>
-                                {em.label && (
-                                  <span className="px-1.5 py-0.2 bg-slate-200/80 text-slate-500 rounded text-[9px] font-semibold shrink-0">
-                                    {em.label}
-                                  </span>
-                                )}
                               </div>
-                              <a
-                                href={`mailto:${em.email}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition shrink-0 ml-1"
-                                title="1-Click Email"
-                              >
-                                <Mail className="w-3 h-3 text-purple-600" />
-                              </a>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="py-6 text-center text-slate-400 font-sans text-xs">
-                  No linked personnel registered for this account yet.
-                </div>
-              )}
-            </div>
-
-            {/* Recent Interactions Section */}
-            <div className="space-y-3 pt-4 border-t border-slate-200">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-bold text-slate-800 flex items-center space-x-2 font-sans">
-                  <History className="w-4 h-4 text-blue-500" />
-                  <span>Recent Interactions ({recentCompanyLogs.length})</span>
-                </h4>
-                {onOpenActivityDrawer && selectedCompany && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenActivityDrawer({
-                        companyId: selectedCompany.id,
-                        companyName: selectedCompany.display_name
-                      });
-                    }}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Log Interaction</span>
-                  </button>
-                )}
-              </div>
-
-              {recentCompanyLogs.length > 0 ? (
-                <div className="space-y-2">
-                  {recentCompanyLogs.map((log) => {
-                    const operatorName = log.handled_by_team_member_name || log.logged_by || 'System';
-                    return (
-                      <div
-                        key={log.id}
-                        className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition hover:border-slate-300"
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-bold font-mono">
-                            <PhoneCall className="w-4 h-4" />
+                            ))}
                           </div>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-bold text-slate-900 font-mono">
-                                {formatHistoryDate(log.date || log.createdAt)}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                by <strong className="text-slate-700">{operatorName}</strong>
-                              </span>
-                            </div>
-                            {log.requirement_notes && (
-                              <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5 font-sans">
-                                {log.requirement_notes}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                            {log.status || 'Scheduled'}
-                          </span>
-                          {log.outcome && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-300">
-                              {log.outcome}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="py-4 text-center text-slate-400 font-sans text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4">
-                  No recent interactions found.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Retractable Outreach & Proposal History Side Panel */}
-                {isHistorySidePanelExpanded && (
-                  <div className="w-full xl:w-80 2xl:w-96 bg-slate-50 border-t xl:border-t-0 xl:border-l border-slate-200 flex flex-col shrink-0 overflow-hidden font-sans">
-                    <div className="p-3.5 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between shrink-0">
-                      <div className="flex items-center space-x-2">
-                        <Zap className="w-4 h-4 text-blue-600" />
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">
-                          Outreach & History Panel
-                        </h4>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {onOpenCompany360 && selectedCompany?.id && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenCompany360(selectedCompany.id)}
-                            className="text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1 cursor-pointer bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 transition"
-                            title="Open Company 360° View"
-                          >
-                            <Sparkles className="w-3 h-3 text-blue-500" />
-                            <span>Company 360°</span>
-                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">No email addresses saved.</span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setIsHistorySidePanelExpanded(false)}
-                          className="p-1 text-slate-400 hover:text-slate-600 rounded transition cursor-pointer"
-                          title="Collapse Side Panel"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
                       </div>
                     </div>
 
-                    <div className="flex-1 p-3.5 overflow-y-auto space-y-4 max-h-[620px]">
-                      {(() => {
-                        const isOwnDataOnly = user.role !== 'Admin' && user.dataVisibilityScope === 'OWN_DATA_ONLY';
-                        const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
+                    {/* Aliases List */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-mono text-slate-400 dark:text-slate-500 uppercase tracking-widest">Duplicate Lookup Aliases</h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedCompany.aliases && selectedCompany.aliases.length > 0 ? (
+                          selectedCompany.aliases.map((a) => (
+                            <span key={a} className="text-xs font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-2.5 py-0.5 rounded-md">
+                              {a}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-400 italic font-sans">No alternate spellings declared.</span>
+                        )}
+                      </div>
+                    </div>
 
-                        const linkedCompanyLogs = (callLogs || []).filter((cl) => {
-                          if (isOwnDataOnly && !isRecordOwner(user, cl)) return false;
-                          return (
-                            cl.company_id === selectedCompany.id ||
-                            (cl.company_name && cl.company_name.toLowerCase() === selectedCompany.display_name.toLowerCase())
-                          );
-                        });
+                    {/* Company Notes */}
+                    {selectedCompany.notes && (
+                      <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
+                        <h4 className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Internal Client Notes</h4>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans">{selectedCompany.notes}</p>
+                      </div>
+                    )}
 
-                        const linkedCompanyEnquiries = companyEnquiries.filter((e) => {
-                          if (isOwnDataOnly && !isRecordOwner(user, e)) return false;
-                          return true;
-                        });
+                    {/* Personnel Contacts Section (Sleek List Items / Soft Subtle Cards) */}
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center space-x-2 font-sans">
+                          <Users2 className="w-4 h-4 text-slate-400" />
+                          <span>Client Contact Personnel ({companyContacts.length})</span>
+                        </h4>
+                        {isEditable && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactToEdit(null);
+                              setSelectedCompanyForContact(selectedCompany.id!);
+                              setContactModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 rounded-md transition flex items-center space-x-1"
+                            title="Add Personnel Contact"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Contact</span>
+                          </button>
+                        )}
+                      </div>
 
-                        const totalHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;
+                      {companyContacts.length > 0 ? (
+                        <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                          {companyContacts.map((c) => {
+                            const cPhones = getContactPhones(c);
+                            const cEmails = getContactEmails(c);
+                            return (
+                              <div key={c.id} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 space-y-2">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="overflow-hidden">
+                                    <div className="flex items-center space-x-2 flex-wrap">
+                                      <span className="text-sm font-semibold text-slate-900 dark:text-white block font-sans">{c.full_name}</span>
+                                      {c.is_primary && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                          Primary
+                                        </span>
+                                      )}
+                                      {c.is_dnc && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                          DNC
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-sans mt-0.5">{c.designation || 'No title declared'}</span>
+                                  </div>
 
-                        return (
-                          <>
-                            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs font-mono">
-                              <span>Calls: <strong className="text-blue-700">{linkedCompanyLogs.length}</strong></span>
-                              <span>Proposals: <strong className="text-purple-700">{linkedCompanyEnquiries.length}</strong></span>
-                              <span>Total: <strong className="text-slate-900">{totalHistoryCount}</strong></span>
-                            </div>
-
-                            {/* Call Center Operations subsection */}
-                            {linkedCompanyLogs.length > 0 && (
-                              <div className="space-y-2">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block font-mono">
-                                  Call Center Operations ({linkedCompanyLogs.length})
-                                </span>
-                                <div className="space-y-2">
-                                  {linkedCompanyLogs.map((log) => {
-                                    const canClick = canUserClickRecord(user, log, salespersons);
-                                    return (
-                                      <div
-                                        key={log.id}
+                                  {isEditable && (
+                                    <div className="flex items-center space-x-1 shrink-0">
+                                      <button
+                                        type="button"
                                         onClick={() => {
-                                          if (canClick) setSelectedCallLogDetail(log);
+                                          setContactToEdit(c);
+                                          setSelectedCompanyForContact(selectedCompany.id!);
+                                          setContactModalOpen(true);
                                         }}
-                                        className={`p-3 bg-white border border-slate-200 rounded-xl text-xs space-y-1.5 transition ${
-                                          canClick ? 'hover:border-blue-400 hover:shadow-md cursor-pointer group' : 'opacity-90'
-                                        }`}
+                                        className="p-1.5 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-md transition"
+                                        title="Edit Personnel"
                                       >
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="flex items-center space-x-1.5">
-                                            <PhoneCall className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                            <span className="font-bold text-slate-900 font-mono">{formatHistoryDate(log.date)}</span>
+                                        <Edit className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteContact(c.id!)}
+                                        className="p-1.5 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
+                                        title="Delete Personnel"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1 text-xs pt-2 border-t border-slate-200/60 dark:border-slate-700/60 w-full text-slate-600 dark:text-slate-300 font-sans">
+                                  {cPhones.map((ph, pIdx) => {
+                                    const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
+                                    const phoneVal = ph.number || '';
+                                    const restriction = getLineRestriction(c.restricted_lines, phoneVal) || getLineRestriction(selectedCompany.restricted_lines, phoneVal, c.is_dnc || selectedCompany.is_dnc);
+                                    const isRestricted = Boolean(restriction);
+                                    const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
+
+                                    return (
+                                      <div key={pIdx} className="flex items-center justify-between text-xs py-0.5">
+                                        <div className="flex items-center space-x-2">
+                                          <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
+                                          {isRestricted ? (
+                                            <span className="font-mono font-semibold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
+                                              {ph.number}
+                                            </span>
+                                          ) : (
+                                            <a
+                                              href={`tel:${ph.number}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                            >
+                                              {ph.number}
+                                            </a>
+                                          )}
+                                          <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
+                                            {ph.label}
+                                          </span>
+                                          {isRestricted && (
+                                            <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border ${
+                                              restriction === 'Invalid'
+                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                            }`}>
+                                              {badgeText}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {!isRestricted && (
+                                          <div className="flex items-center gap-1 shrink-0">
+                                            <a
+                                              href={`tel:${ph.number}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="p-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition"
+                                              title="1-Click Dial"
+                                            >
+                                              <Phone className="w-3 h-3" />
+                                            </a>
+                                            {cleanNum && (
+                                              <a
+                                                href={`https://wa.me/${cleanNum}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition"
+                                                title="1-Click WhatsApp"
+                                              >
+                                                <MessageSquare className="w-3 h-3" />
+                                              </a>
+                                            )}
                                           </div>
-                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-                                            {log.status}
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {cEmails.map((em, eIdx) => (
+                                    <div key={eIdx} className="flex items-center justify-between text-xs py-0.5">
+                                      <div className="flex items-center space-x-2 overflow-hidden">
+                                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <a
+                                          href={`mailto:${em.email}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="truncate text-slate-800 dark:text-slate-200 hover:underline font-mono"
+                                        >
+                                          {em.email}
+                                        </a>
+                                        {em.label && (
+                                          <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium shrink-0">
+                                            {em.label}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <a
+                                        href={`mailto:${em.email}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1 rounded bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition shrink-0 ml-1"
+                                        title="1-Click Email"
+                                      >
+                                        <Mail className="w-3 h-3" />
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="py-6 text-center text-slate-400 font-sans text-xs italic">
+                          No linked personnel registered for this account yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: The 360 History & Activity Timeline (1 Col) */}
+                  <div className="lg:col-span-1 space-y-6">
+                    {(() => {
+                      const isOwnDataOnly = user.role !== 'Admin' && user.dataVisibilityScope === 'OWN_DATA_ONLY';
+                      const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
+
+                      const linkedCompanyLogs = (callLogs || []).filter((cl) => {
+                        if (isOwnDataOnly && !isRecordOwner(user, cl)) return false;
+                        return (
+                          cl.company_id === selectedCompany.id ||
+                          (cl.company_name && cl.company_name.toLowerCase() === selectedCompany.display_name.toLowerCase())
+                        );
+                      });
+
+                      const linkedCompanyEnquiries = companyEnquiries.filter((e) => {
+                        if (isOwnDataOnly && !isRecordOwner(user, e)) return false;
+                        return true;
+                      });
+
+                      const totalHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;
+
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center space-x-2">
+                              <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-mono">
+                                Outreach & History (360°)
+                              </h4>
+                            </div>
+                          </div>
+
+                          {/* Metric Summary Counters */}
+                          <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 font-mono">
+                            <span>Calls: <strong className="text-blue-600 dark:text-blue-400 font-bold">{linkedCompanyLogs.length}</strong></span>
+                            <span>Proposals: <strong className="text-purple-600 dark:text-purple-400 font-bold">{linkedCompanyEnquiries.length}</strong></span>
+                            <span>Total: <strong className="text-slate-900 dark:text-white font-bold">{totalHistoryCount}</strong></span>
+                          </div>
+
+                          {/* Sleek Timeline List: Call Logs */}
+                          {linkedCompanyLogs.length > 0 && (
+                            <div className="space-y-3">
+                              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-mono">
+                                Call Center & Outreach ({linkedCompanyLogs.length})
+                              </span>
+                              <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800 max-h-[300px] overflow-y-auto pr-1">
+                                {linkedCompanyLogs.map((log) => {
+                                  const canClick = canUserClickRecord(user, log, salespersons);
+                                  return (
+                                    <div
+                                      key={log.id}
+                                      onClick={() => {
+                                        if (canClick) setSelectedCallLogDetail(log);
+                                      }}
+                                      className={`py-3 px-1 transition ${
+                                        canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center space-x-2">
+                                          <div className="w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                                            <PhoneCall className="w-3 h-3" />
+                                          </div>
+                                          <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs">
+                                            {formatHistoryDate(log.date || log.createdAt)}
                                           </span>
                                         </div>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                                          {log.status || 'Scheduled'}
+                                        </span>
+                                      </div>
 
-                                        <p className="text-[11px] text-slate-500 font-sans">
-                                          Logged by: <span className="font-semibold text-slate-800">{log.logged_by || 'Staff'}</span>
+                                      <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                                        <p>
+                                          Logged by: <span className="font-medium text-slate-700 dark:text-slate-300">{log.handled_by_team_member_name || log.logged_by || 'Staff'}</span>
+                                          {log.contact_name && (
+                                            <span className="ml-2">· Contact: <span className="font-medium text-slate-700 dark:text-slate-300">{log.contact_name}</span></span>
+                                          )}
                                         </p>
-
-                                        {log.contact_name && (
-                                          <p className="text-[11px] text-slate-600 font-medium">
-                                            Contact: <span className="font-semibold">{log.contact_name}</span>
-                                          </p>
-                                        )}
-
                                         {log.requirement_notes && (
-                                          <p className="text-[11px] text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100 line-clamp-2">
+                                          <p className="text-xs text-slate-600 dark:text-slate-400 italic line-clamp-2">
                                             "{log.requirement_notes}"
                                           </p>
                                         )}
-
-                                        {canClick ? (
-                                          <div className="text-[10px] font-bold text-blue-600 group-hover:underline flex items-center justify-end space-x-1 pt-1">
-                                            <span>View Call Log</span>
-                                            <ExternalLink className="w-3 h-3" />
-                                          </div>
-                                        ) : (
-                                          <div className="text-[10px] font-medium text-slate-400 flex items-center justify-end space-x-1 pt-1">
-                                            <span>Restricted View</span>
+                                        {canClick && (
+                                          <div className="text-[10px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-1 pt-0.5">
+                                            <span>View Log</span>
+                                            <ExternalLink className="w-2.5 h-2.5" />
                                           </div>
                                         )}
                                       </div>
-                                    );
-                                  })}
-                                </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            )}
+                            </div>
+                          )}
 
-                            {/* Proposals subsection */}
-                            {linkedCompanyEnquiries.length > 0 && (
-                              <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block font-mono">
-                                  Proposals & Quotes ({linkedCompanyEnquiries.length})
-                                </span>
-                                <div className="space-y-2">
-                                  {linkedCompanyEnquiries.map((e) => {
-                                    const canClick = canUserClickRecord(user, e, salespersons);
-                                    const spName = getSalespersonFullName(e.sales_person, salespersons);
-                                    return (
-                                      <div
-                                        key={e.id}
-                                        onClick={() => {
-                                          if (canClick && onSelectEnquiry && e.id) {
-                                            onSelectEnquiry(e.id);
-                                          }
-                                        }}
-                                        className={`p-3 bg-white border border-slate-200 rounded-xl text-xs space-y-1.5 transition ${
-                                          canClick ? 'hover:border-purple-400 hover:shadow-md cursor-pointer group' : 'opacity-90'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="flex items-center space-x-1.5 overflow-hidden">
-                                            <FileText className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                                            <span className="font-bold text-slate-900 font-mono truncate">{e.quote_ref_no || `SN#${e.sn}`}</span>
+                          {/* Sleek Proposals & Quotes Subsection */}
+                          {linkedCompanyEnquiries.length > 0 && (
+                            <div className="space-y-3 pt-2">
+                              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-mono">
+                                Proposals & Quotes ({linkedCompanyEnquiries.length})
+                              </span>
+                              <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800 max-h-[260px] overflow-y-auto pr-1">
+                                {linkedCompanyEnquiries.map((e) => {
+                                  const canClick = canUserClickRecord(user, e, salespersons);
+                                  const spName = getSalespersonFullName(e.sales_person, salespersons);
+                                  return (
+                                    <div
+                                      key={e.id}
+                                      onClick={() => {
+                                        if (canClick && onSelectEnquiry && e.id) {
+                                          onSelectEnquiry(e.id);
+                                        }
+                                      }}
+                                      className={`py-3 px-1 transition ${
+                                        canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center space-x-2 overflow-hidden">
+                                          <div className="w-6 h-6 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                                            <FileText className="w-3 h-3" />
                                           </div>
-                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
-                                            {e.status || 'Active'}
+                                          <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs truncate">
+                                            {e.quote_ref_no || `SN#${e.sn}`}
                                           </span>
                                         </div>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                                          {e.status || 'Active'}
+                                        </span>
+                                      </div>
 
+                                      <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
                                         {e.subject && (
-                                          <p className="text-[11px] font-semibold text-slate-800 line-clamp-1">{e.subject}</p>
+                                          <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">{e.subject}</p>
                                         )}
-
-                                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 border-t border-slate-100">
-                                          <span>Logged by: <strong className="text-slate-800">{spName}</strong></span>
+                                        <div className="flex items-center justify-between text-xs">
+                                          <span>Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong></span>
                                           {!isBasicTier && e.value_aed ? (
-                                            <span className="font-mono font-bold text-emerald-700">AED {e.value_aed.toLocaleString()}</span>
+                                            <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">AED {e.value_aed.toLocaleString()}</span>
                                           ) : null}
                                         </div>
-
-                                        {canClick ? (
-                                          <div className="text-[10px] font-bold text-purple-600 group-hover:underline flex items-center justify-end space-x-1 pt-0.5">
+                                        {canClick && (
+                                          <div className="text-[10px] font-medium text-purple-600 dark:text-purple-400 group-hover:underline flex items-center space-x-1 pt-0.5">
                                             <span>Open Proposal</span>
-                                            <ExternalLink className="w-3 h-3" />
-                                          </div>
-                                        ) : (
-                                          <div className="text-[10px] font-medium text-slate-400 flex items-center justify-end space-x-1 pt-0.5">
-                                            <span>Restricted View</span>
+                                            <ExternalLink className="w-2.5 h-2.5" />
                                           </div>
                                         )}
                                       </div>
-                                    );
-                                  })}
-                                </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            )}
+                            </div>
+                          )}
 
-                            {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 && (
-                              <div className="py-8 text-center text-slate-400 font-sans text-xs bg-white rounded-xl border border-dashed border-slate-200 p-4">
-                                No outreach calls or proposals linked to this company yet.
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
+                          {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 && (
+                            <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-sans text-xs bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-4">
+                              No outreach calls or proposals linked to this company yet.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
-                )}
-
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center text-slate-400 dark:text-slate-500 font-sans shadow-sm m-4">
+                Select a company from the list above to inspect details, link contact managers, and explore 360° outreach history.
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 font-sans shadow-sm">
-            Select a company card from the left panel to inspect details, link contact managers, or trigger administrative merge consolidations.
-          </div>
-        )}
-      </div>
       </div>
       )}
 
@@ -2646,7 +2554,7 @@ export default function CompanyModal({
                 <div
                   key={ct.id}
                   onClick={() => setSelectedContactDetail(ct)}
-                  className={`bg-white border rounded-xl p-5 shadow-xs flex flex-col justify-between space-y-3 hover:border-slate-300 transition cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'}`}
+                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800'}`}
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
@@ -2660,29 +2568,29 @@ export default function CompanyModal({
                           }}
                           className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0 mt-0.5"
                         />
-                        <h4 className="font-bold text-slate-900 text-sm font-sans flex items-center space-x-2">
+                        <h4 className="font-semibold text-slate-900 dark:text-white text-sm font-sans flex items-center space-x-2">
                           <span>{ct.full_name}</span>
                           {ct.is_primary && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                               Primary
                             </span>
                           )}
                           {ct.is_dnc && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-600 text-white">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                               DNC
                             </span>
                           )}
                         </h4>
                       </div>
                     </div>
-                    {ct.designation && <p className="text-xs text-slate-500 pl-6.5">{ct.designation}</p>}
-                    <p className="text-xs font-semibold text-slate-700 pt-1 border-t border-slate-100 flex items-center space-x-1">
+                    {ct.designation && <p className="text-xs text-slate-500 dark:text-slate-400 pl-6.5">{ct.designation}</p>}
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 pt-1 border-t border-slate-100 dark:border-slate-800 flex items-center space-x-1">
                       <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{ct.companyName}</span>
                     </p>
                   </div>
 
-                  <div className="space-y-1 text-xs font-mono text-slate-600 pt-2 border-t border-slate-100">
+                  <div className="space-y-1 text-xs font-mono text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800">
                     {ct.mobile && (
                       <div className="flex items-center space-x-1.5">
                         <PhoneCall className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -2703,7 +2611,7 @@ export default function CompanyModal({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="hover:underline text-slate-700 truncate"
+                          className="hover:underline text-slate-700 dark:text-slate-300 truncate"
                         >{ct.email}</a>
                       </div>
                     )}
@@ -2718,13 +2626,13 @@ export default function CompanyModal({
                             setSelectedCompanyForContact(ct.company_id);
                             setContactModalOpen(true);
                           }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDeleteContact(ct.id!)}
-                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold rounded-lg border border-rose-200 transition flex items-center space-x-1"
+                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-medium rounded-lg border border-rose-200 dark:border-rose-800 transition flex items-center space-x-1"
                           title="Delete Contact"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2737,11 +2645,11 @@ export default function CompanyModal({
               ))}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-100 text-slate-700 uppercase tracking-wider font-semibold text-[10px] border-b border-slate-200">
+            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+              <table className="w-full text-left border-collapse text-xs font-sans">
+              <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="p-3.5 w-10 text-center">
+                  <th className="py-3.5 px-4 w-10 text-center">
                     <input
                       type="checkbox"
                       checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
@@ -2750,22 +2658,22 @@ export default function CompanyModal({
                       title="Select/Deselect All Filtered Contacts"
                     />
                   </th>
-                  <th className="p-3.5">Contact Name & Role</th>
-                  <th className="p-3.5">Assigned Company</th>
-                  <th className="p-3.5">Mobile Phone</th>
-                  <th className="p-3.5">Landline Phone</th>
-                  <th className="p-3.5">Email Address</th>
-                  <th className="p-3.5 text-right">Actions</th>
+                  <th className="py-3.5 px-4">Contact Name & Role</th>
+                  <th className="py-3.5 px-4">Assigned Company</th>
+                  <th className="py-3.5 px-4">Mobile Phone</th>
+                  <th className="py-3.5 px-4">Landline Phone</th>
+                  <th className="py-3.5 px-4">Email Address</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                 {filteredContacts.map((ct) => (
                   <tr
                     key={ct.id}
                     onClick={() => setSelectedContactDetail(ct)}
-                    className={`hover:bg-slate-50 transition cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'bg-blue-50/50' : ''}`}
+                    className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
                   >
-                    <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                    <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={!!(ct.id && selectedContactIds.includes(ct.id))}
@@ -2773,65 +2681,65 @@ export default function CompanyModal({
                         className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="p-3.5">
-                      <div className="font-bold text-slate-900 flex items-center space-x-2">
+                    <td className="py-4 px-4">
+                      <div className="font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
                         <span>{ct.full_name}</span>
                         {ct.is_primary && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                             Primary
                           </span>
                         )}
                         {ct.is_dnc && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-600 text-white">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                             DNC
                           </span>
                         )}
                       </div>
-                      {ct.designation && <div className="text-[11px] text-slate-500">{ct.designation}</div>}
+                      {ct.designation && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{ct.designation}</div>}
                     </td>
-                    <td className="p-3.5">
-                      <div className="font-semibold text-slate-800">{ct.companyName}</div>
-                      <div className="text-[10px] text-slate-400">{ct.location}</div>
+                    <td className="py-4 px-4">
+                      <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{ct.companyName}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{ct.location}</div>
                     </td>
-                    <td className="p-3.5">
+                    <td className="py-4 px-4">
                       {ct.mobile ? (
                         <a
                           href={`tel:${ct.mobile}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="font-mono text-blue-600 font-bold hover:underline flex items-center space-x-1"
+                          className="font-mono text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center space-x-1"
                         >
-                          <PhoneCall className="w-3 h-3 text-blue-500" />
+                          <PhoneCall className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span>{ct.mobile}</span>
                         </a>
                       ) : (
-                        <span className="text-slate-400 italic">—</span>
+                        <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="p-3.5">
+                    <td className="py-4 px-4">
                       {ct.landline ? (
-                        <span className="font-mono text-slate-700 font-medium">{ct.landline}</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs">{ct.landline}</span>
                       ) : (
-                        <span className="text-slate-400 italic">—</span>
+                        <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="p-3.5">
+                    <td className="py-4 px-4">
                       {ct.email ? (
                         <a
                           href={`mailto:${ct.email}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-slate-700 hover:text-blue-600 hover:underline"
+                          className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-xs"
                         >
                           {ct.email}
                         </a>
                       ) : (
-                        <span className="text-slate-400 italic">—</span>
+                        <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="p-3.5 text-right">
+                    <td className="py-4 px-4 text-right">
                       <div className="flex items-center justify-end space-x-1.5">
                         {isEditable && (
                           <>
@@ -2841,7 +2749,7 @@ export default function CompanyModal({
                                 setContactToEdit(ct);
                                 setContactModalOpen(true);
                               }}
-                              className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition flex items-center space-x-1"
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-md transition flex items-center space-x-1"
                               title="Edit Contact"
                             >
                               <Edit className="w-3 h-3" />
@@ -2850,7 +2758,7 @@ export default function CompanyModal({
                             <button
                               type="button"
                               onClick={() => handleDeleteContact(ct.id!)}
-                              className="px-2 py-1 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition flex items-center space-x-1"
+                              className="px-2.5 py-1 text-xs font-medium text-rose-600 dark:text-rose-400 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 rounded-md transition flex items-center space-x-1"
                               title="Delete Contact"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -2864,7 +2772,7 @@ export default function CompanyModal({
                               setSelectedCompanyId(ct.company_id!);
                               setViewMode('companies');
                             }}
-                            className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
+                            className="px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-md transition"
                           >
                             View Company
                           </button>
@@ -2876,7 +2784,7 @@ export default function CompanyModal({
 
                 {filteredContacts.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <td colSpan={7} className="py-12 text-center text-slate-400 dark:text-slate-500 italic text-sm">
                       No contacts found matching your search.
                     </td>
                   </tr>
@@ -2890,13 +2798,13 @@ export default function CompanyModal({
 
       {/* VIEW 3: TELECOM & PHONE NUMBER DIRECTORY */}
       {viewMode === 'phones' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center space-x-3">
               <Phone className="w-6 h-6 text-blue-600" />
               <div>
-                <h2 className="text-xl font-bold text-slate-900 font-sans">Telecom & Phone Number Directory</h2>
-                <p className="text-xs text-slate-500">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Telecom & Phone Number Directory</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Consolidated registry of switchboards, direct mobiles, and landline extensions.
                 </p>
               </div>
@@ -2908,31 +2816,31 @@ export default function CompanyModal({
                 placeholder="Search phone numbers, companies, people..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 pl-10 pr-4 text-xs text-slate-800"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 pl-10 pr-4 text-xs text-slate-800 dark:text-slate-200"
               />
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-100 text-slate-700 uppercase tracking-wider font-semibold text-[10px] border-b border-slate-200">
+          <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+            <table className="w-full text-left border-collapse text-xs font-sans">
+              <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="p-3.5">Phone Number</th>
-                  <th className="p-3.5">Type</th>
-                  <th className="p-3.5">Associated Person / Entity</th>
-                  <th className="p-3.5">Role / Context</th>
-                  <th className="p-3.5">Location</th>
-                  <th className="p-3.5 text-right">Quick Dial</th>
+                  <th className="py-3.5 px-4">Phone Number</th>
+                  <th className="py-3.5 px-4">Type</th>
+                  <th className="py-3.5 px-4">Associated Person / Entity</th>
+                  <th className="py-3.5 px-4">Role / Context</th>
+                  <th className="py-3.5 px-4">Location</th>
+                  <th className="py-3.5 px-4 text-right">Quick Dial</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                 {filteredPhones.map((p) => {
                   const isRestricted = Boolean(p.restriction);
                   const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
 
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3.5 font-mono text-xs font-bold text-slate-900">
+                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                      <td className="py-4 px-4 font-mono text-xs font-semibold text-slate-900 dark:text-white">
                         <div className="flex items-center space-x-1.5">
                           {isRestricted ? (
                             <span className="line-through text-slate-400 cursor-not-allowed" title={`Restricted line (${badgeText})`}>
@@ -2942,46 +2850,46 @@ export default function CompanyModal({
                             <span>{p.number}</span>
                           )}
                           {isRestricted && (
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border ${
                               p.restriction === 'Invalid'
-                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
                             }`}>
                               {badgeText}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="p-3.5">
+                      <td className="py-4 px-4">
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border ${
                             p.type === 'Mobile'
-                              ? 'bg-blue-100 text-blue-800'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                               : p.type === 'Landline'
-                              ? 'bg-purple-100 text-purple-800'
-                              : 'bg-slate-100 text-slate-800'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                              : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                           }`}
                         >
                           {p.type}
                         </span>
                       </td>
-                      <td className="p-3.5 font-bold text-slate-900">{p.entityName}</td>
-                      <td className="p-3.5 text-slate-600">{p.subText || '—'}</td>
-                      <td className="p-3.5 text-slate-500">{p.location || '—'}</td>
-                      <td className="p-3.5 text-right">
+                      <td className="py-4 px-4 font-semibold text-slate-900 dark:text-white">{p.entityName}</td>
+                      <td className="py-4 px-4 text-slate-600 dark:text-slate-400">{p.subText || <span className="italic text-slate-400">—</span>}</td>
+                      <td className="py-4 px-4 text-slate-500 dark:text-slate-400">{p.location || <span className="italic text-slate-400">—</span>}</td>
+                      <td className="py-4 px-4 text-right">
                         {!isRestricted ? (
                           <a
                             href={`tel:${p.number}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition shadow-sm"
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md text-xs transition shadow-xs"
                           >
-                            <PhoneCall className="w-3 h-3" />
+                            <PhoneCall className="w-3.5 h-3.5" />
                             <span>Call</span>
                           </a>
                         ) : (
-                          <span className="text-[10px] text-slate-400 font-sans italic">Disabled</span>
+                          <span className="text-xs text-slate-400 font-sans italic">Disabled</span>
                         )}
                       </td>
                     </tr>
@@ -2990,7 +2898,7 @@ export default function CompanyModal({
 
                 {filteredPhones.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <td colSpan={6} className="py-12 text-center text-slate-400 dark:text-slate-500 italic text-sm">
                       No phone numbers found matching your query.
                     </td>
                   </tr>
@@ -3004,9 +2912,9 @@ export default function CompanyModal({
       {/* MODAL: ADD COMPANY WITH DUPLICATE FUZZY WARNING */}
       {showAddCompany && (
         <div id="company-form-modal" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-950/50">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-950/80 sticky top-0 z-10">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-indigo-950/60 border border-indigo-800/60 rounded-xl text-indigo-400">
                   <Building2 className="w-5 h-5" />
@@ -3025,10 +2933,10 @@ export default function CompanyModal({
             </div>
 
             {/* Scrollable Form Body */}
-            <form onSubmit={submitCompany} className="flex-1 overflow-y-auto p-6 space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+            <form onSubmit={submitCompany} className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Canonical Name
                     </label>
                     <input
@@ -3037,17 +2945,17 @@ export default function CompanyModal({
                       placeholder="e.g. Veolia Water Solutions"
                       value={canonicalName}
                       onChange={(e) => setCanonicalName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none placeholder-slate-600"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Legal Suffix
                     </label>
                     <select
                       value={legalSuffix}
                       onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none font-sans"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
                     >
                       {['None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((s) => (
                         <option key={s} value={s}>{s}</option>
@@ -3057,7 +2965,7 @@ export default function CompanyModal({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                     Fuzzy Search Aliases (comma-separated)
                   </label>
                   <input
@@ -3065,16 +2973,16 @@ export default function CompanyModal({
                     placeholder="e.g. Veolia Water, Veolia Solutions, VWS"
                     value={aliasesInput}
                     onChange={(e) => setAliasesInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none placeholder-slate-600"
+                    className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                   />
-                  <span className="text-[10px] text-slate-500 font-mono mt-1 block leading-normal">
+                  <span className="text-[10px] text-slate-500 font-mono mt-1.5 block leading-normal">
                     Helps the fuzzy matching index search variants to block subsequent duplicates.
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       City
                     </label>
                     <input
@@ -3083,11 +2991,11 @@ export default function CompanyModal({
                       placeholder="e.g. Sharjah"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none placeholder-slate-600"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Country
                     </label>
                     <input
@@ -3096,20 +3004,20 @@ export default function CompanyModal({
                       placeholder="e.g. UAE"
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none placeholder-slate-600"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Relationship (Required)
                     </label>
                     <select
                       value={relationship}
                       onChange={(e) => setRelationship(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none font-sans font-semibold"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       {(companyRelationships || []).map((r) => (
                         <option key={r.id} value={r.name}>{r.name}</option>
@@ -3117,13 +3025,13 @@ export default function CompanyModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Temperature (Heat Level)
                     </label>
                     <select
                       value={temperature}
                       onChange={(e) => setTemperature(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none font-sans font-semibold cursor-pointer"
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       <option value="Cold">Cold ❄️</option>
                       <option value="Warm">Warm 🌤️</option>
@@ -3161,7 +3069,7 @@ export default function CompanyModal({
                   <option value="Info" />
                 </datalist>
 
-                <div className="space-y-3 pt-2 border-t border-slate-800">
+                <div className="space-y-3 pt-4 border-t border-slate-800">
                   <div className="flex items-center justify-between">
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
                       Company Phone Numbers
@@ -3196,14 +3104,14 @@ export default function CompanyModal({
                             const val = e.target.value;
                             setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
                           }}
-                          className="flex-1 px-3 py-1.5 text-xs border border-slate-800 rounded-xl font-mono bg-slate-950 text-slate-100 focus:border-indigo-500 focus:outline-none placeholder-slate-600 min-w-0"
+                          className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all min-w-0"
                         />
 
                         <button
                           type="button"
                           onClick={() => togglePhoneRestriction(ph.value)}
                           disabled={!ph.value.trim()}
-                          className={`px-2 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                          className={`px-2.5 py-2.5 rounded-xl text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
                             currentRestriction === 'DNC'
                               ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 hover:bg-rose-500/30'
                               : currentRestriction === 'Invalid'
@@ -3232,10 +3140,10 @@ export default function CompanyModal({
                           <button
                             type="button"
                             onClick={() => setCompanyPhones(prev => prev.filter((_, i) => i !== idx))}
-                            className="p-1.5 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                            className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
                             title="Remove Phone"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
@@ -3243,7 +3151,7 @@ export default function CompanyModal({
                   })}
                 </div>
 
-                <div className="space-y-3 pt-2 border-t border-slate-800">
+                <div className="space-y-3 pt-4 border-t border-slate-800">
                   <div className="flex items-center justify-between">
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
                       Company Email Addresses
@@ -3275,16 +3183,16 @@ export default function CompanyModal({
                           const val = e.target.value;
                           setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
                         }}
-                        className="flex-1 px-3 py-1.5 text-xs border border-slate-800 rounded-xl font-sans bg-slate-950 text-slate-100 focus:border-indigo-500 focus:outline-none placeholder-slate-600"
+                        className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                       />
                       {companyEmails.length > 1 && (
                         <button
                           type="button"
                           onClick={() => setCompanyEmails(prev => prev.filter((_, i) => i !== idx))}
-                          className="p-1.5 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
+                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
                           title="Remove Email"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -3292,30 +3200,31 @@ export default function CompanyModal({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                     Internal notes
                   </label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     placeholder="Provide any client profiles, special conditions..."
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none font-sans placeholder-slate-600"
+                    className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
                   />
                 </div>
 
-                <div className="flex items-center space-x-3 pt-2">
+                {/* Sticky Footer */}
+                <div className="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 mt-6 flex justify-end gap-3 z-10">
                   <button
                     type="button"
                     onClick={closeCompanyModal}
-                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSavingCompany || !activeWorkspace?.id}
-                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center space-x-2 cursor-pointer shadow-md"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center space-x-2 cursor-pointer shadow-md"
                   >
                     {isSavingCompany && <Loader2 className="w-4 h-4 animate-spin" />}
                     <span>{isSavingCompany ? 'Saving Record...' : 'Save Canonical Record'}</span>
