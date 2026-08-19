@@ -194,35 +194,37 @@ export default function CallLogReportModal({
   // Calculate Key Metrics
   const totalCalls = filteredLogs.length;
 
-  const isFailureOutcomeOrStatus = (l: CallLogEntry) => {
-    const st = (l.status || '').toLowerCase();
-    const oc = (l.outcome || '').toLowerCase();
-    return (
-      st.includes('no answer') || st.includes('busy') || st.includes('invalid') || st.includes('disconnected') ||
-      oc.includes('no answer') || oc.includes('busy') || oc.includes('invalid') || oc.includes('disconnected') || oc.includes('voicemail') || oc.includes('dnc')
-    );
-  };
+  // Completed Activities: counter MUST increment if log.status === 'Completed Log' || log.status === 'Completed'. Do not restrict it by outcome.
+  const completedCalls = filteredLogs.filter((l) => {
+    const st = (l.status || '').trim().toLowerCase();
+    return st === 'completed log' || st === 'completed';
+  }).length;
 
-  // Completed / Connected calls (excluding connection failures & unanswered attempts)
-  const completedCalls = filteredLogs.filter(
-    (l) => (l.status === 'Completed' || l.status === 'Connected') && !isFailureOutcomeOrStatus(l)
-  ).length;
-  const scheduledQueue = filteredLogs.filter((l) => l.status === 'Scheduled').length;
+  const scheduledQueue = filteredLogs.filter((l) => {
+    const st = (l.status || '').toLowerCase();
+    return st === 'scheduled' || st === 'scheduled / planned' || st.includes('scheduled');
+  }).length;
+
   const interestedCount = filteredLogs.filter(
     (l) => l.outcome && (
       l.outcome.toLowerCase().includes('interested') ||
+      l.outcome.toLowerCase().includes('requested info') ||
       l.outcome.toLowerCase().includes('decision maker') ||
       l.outcome.toLowerCase().includes('deal made') ||
+      l.outcome.toLowerCase().includes('deal closed') ||
       l.outcome.toLowerCase().includes('quote') ||
       l.outcome.toLowerCase().includes('proposal')
     )
   ).length;
+
   const quoteRequestedCount = filteredLogs.filter(
     (l) => l.outcome && (
       l.outcome.toLowerCase().includes('quote') ||
-      l.outcome.toLowerCase().includes('proposal')
+      l.outcome.toLowerCase().includes('proposal') ||
+      l.outcome.toLowerCase() === 'quote requested'
     )
   ).length;
+
   const noAnswerCount = filteredLogs.filter(
     (l) =>
       (l.outcome && (
@@ -288,7 +290,7 @@ export default function CallLogReportModal({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Call_Operations_Report_${effectiveStart}_to_${effectiveEnd}.csv`);
+    link.setAttribute('download', `Activity_Operations_Report_${effectiveStart}_to_${effectiveEnd}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -349,16 +351,16 @@ export default function CallLogReportModal({
               ? `
           <div className="grid">
             <div className="card">
-              <div className="card-label">Total Calls Logged</div>
+              <div className="card-label">Total Activity Logged</div>
               <div className="card-val">${totalCalls}</div>
             </div>
             <div className="card">
-              <div className="card-label">Completed Calls</div>
+              <div className="card-label">Completed Activities</div>
               <div className="card-val" style="color: #059669;">${completedCalls}</div>
             </div>
             <div className="card">
               <div className="card-label">Interested / Quotes</div>
-              <div className="card-val" style="color: #2563eb;">${interestedCount + quoteRequestedCount}</div>
+              <div className="card-val" style="color: #2563eb;">${interestedCount}</div>
             </div>
             <div className="card">
               <div className="card-label">No Answer / Voicemail</div>
@@ -392,14 +394,38 @@ export default function CallLogReportModal({
                   ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8;">No records found for this period.</td></tr>`
                   : filteredLogs
                       .map((l) => {
-                        const channelLabel = l.interaction_type === 'email' ? 'Email Log' : l.interaction_type === 'message' ? `Msg (${l.message_platform || 'WhatsApp'})` : 'Phone Call';
+                        const channel = (l.channel || (l.interaction_type === 'email' ? 'Email' : l.interaction_type === 'message' ? (l.message_platform || 'WhatsApp') : 'Call')).toLowerCase();
+                        let channelBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Phone Call</span>`;
+                        if (channel.includes('whatsapp') || channel.includes('message')) {
+                          channelBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">WhatsApp</span>`;
+                        } else if (channel.includes('email')) {
+                          channelBadgeHtml = `<span style="background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Email</span>`;
+                        } else if (channel.includes('meeting')) {
+                          channelBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Meeting</span>`;
+                        } else if (channel.includes('site') || channel.includes('visit')) {
+                          channelBadgeHtml = `<span style="background:#ecfeff; color:#0e7490; border:1px solid #a5f3fc; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Site Visit</span>`;
+                        }
+
+                        const st = (l.status || '').toLowerCase();
+                        let statusBadgeHtml = `<span style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status || '-'}</span>`;
+                        if (st === 'completed log' || st === 'completed' || st.includes('conducted') || st.includes('sent') || st.includes('replied')) {
+                          statusBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
+                        } else if (st === 'scheduled / planned' || st === 'scheduled' || st.includes('scheduled') || st.includes('planned')) {
+                          statusBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
+                        } else if (st === 'invalid number' || st === 'cancelled' || st.includes('invalid') || st.includes('wrong') || st.includes('dnc') || st.includes('failed') || st.includes('dead')) {
+                          statusBadgeHtml = `<span style="background:#fff1f2; color:#be123c; border:1px solid #fecdd3; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
+                        } else if (st === 'busy' || st.includes('no answer') || st.includes('voicemail') || st.includes('busy') || st.includes('unreachable') || st.includes('disconnected')) {
+                          statusBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
+                        }
+
+                        const outcomeBadgeHtml = l.outcome ? `<span style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; padding:2px 6px; border-radius:4px; font-weight:600; font-size:10px; display:inline-block;">${l.outcome}</span>` : '-';
                         const contactDetail = l.interaction_type === 'email' ? (l.email_address || l.contact_phone || '') : (l.contact_phone || '');
                         return `
                 <tr>
                   <td style="white-space:nowrap; font-weight:600;">${formatReportDate(l.date || l.createdAt)}</td>
-                  <td><span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">${channelLabel}</span></td>
-                  <td><strong>${l.status || '-'}</strong></td>
-                  <td>${l.outcome || '-'}</td>
+                  <td>${channelBadgeHtml}</td>
+                  <td>${statusBadgeHtml}</td>
+                  <td>${outcomeBadgeHtml}</td>
                   <td><strong>${l.company_name || l.unlinked_name || 'Direct Client'}</strong></td>
                   <td>${l.contact_name || '-'}${contactDetail ? `<br/><span style="color:#64748b;">${contactDetail}</span>` : ''}</td>
                   <td>${l.logged_by || '-'}</td>
@@ -627,7 +653,7 @@ export default function CallLogReportModal({
                   onChange={(e) => setIncludeTable(e.target.checked)}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
                 />
-                <span className="text-xs font-bold text-slate-800">Include Detailed Calls Log Table</span>
+                <span className="text-xs font-bold text-slate-800">Include Detailed Activities Log Table</span>
               </label>
 
               <label className="flex items-center space-x-2.5 cursor-pointer">
@@ -649,7 +675,7 @@ export default function CallLogReportModal({
             <div className="flex items-center space-x-2">
               <PhoneCall className="w-4 h-4 text-blue-600" />
               <span>
-                Report scope: <strong>{filteredLogs.length}</strong> call records matched for period (
+                Report scope: <strong>{filteredLogs.length}</strong> activity records matched for period (
                 {effectiveStart} to {effectiveEnd})
               </span>
             </div>

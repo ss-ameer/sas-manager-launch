@@ -21,6 +21,7 @@ export function getPurposesForChannel(channel: ActivityChannel): string[] {
 export const CALL_OUTCOMES = [
   'Meeting Booked',
   'Quote Requested',
+  'Interested / Requested Info',
   'Follow-up Scheduled',
   'Requested Call Back',
   'Information Gathered',
@@ -58,6 +59,7 @@ export const MESSAGE_OUTCOMES = [
   'Replied / Engaged',
   'Meeting Booked',
   'Quote Requested',
+  'Interested / Requested Info',
   'Follow-up Scheduled',
   'Not Interested',
   'Invalid / Bounced',
