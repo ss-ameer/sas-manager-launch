@@ -210,7 +210,7 @@ export default function LiveExecutionModal({
     'Opened / Replied'
   ].includes(callStatus);
 
-  const availableOutcomes = getOutcomesForStatus(callStatus);
+  const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
   // Helper for dynamic channel icon
   const renderChannelIcon = () => {
@@ -582,7 +582,7 @@ export default function LiveExecutionModal({
                       type="button"
                       onClick={() => {
                         setCallStatus(st);
-                        const allowed = getOutcomesForStatus(st);
+                        const allowed = getOutcomesForStatus(activeChannel, st);
                         if (callOutcome && !allowed.includes(callOutcome)) {
                           setCallOutcome('');
                         }

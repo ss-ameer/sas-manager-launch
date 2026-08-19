@@ -52,9 +52,23 @@ import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
 import { SYSTEM_CALL_PURPOSES } from '../utils/defaults';
-import { getPurposesForChannel, getOutcomesForStatus, DEFAULT_CALL_OUTCOMES } from '../utils/activityLogic';
+import {
+  getPurposesForChannel,
+  getOutcomesForStatus,
+  CALL_OUTCOMES,
+  MEETING_OUTCOMES,
+  SITE_VISIT_OUTCOMES,
+  MESSAGE_OUTCOMES
+} from '../utils/activityLogic';
 
-export { getPurposesForChannel, getOutcomesForStatus, DEFAULT_CALL_OUTCOMES };
+export {
+  getPurposesForChannel,
+  getOutcomesForStatus,
+  CALL_OUTCOMES,
+  MEETING_OUTCOMES,
+  SITE_VISIT_OUTCOMES,
+  MESSAGE_OUTCOMES
+};
 
 export interface QuickActivityDrawerProps {
   isOpen: boolean;
@@ -278,7 +292,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const validOutcomes = getOutcomesForStatus(activeStatus);
+    const validOutcomes = getOutcomesForStatus(newChannel, activeStatus);
     if (outcome && !validOutcomes.includes(outcome)) {
       setOutcome('');
     }
@@ -297,7 +311,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const validOutcomes = getOutcomesForStatus(activeStatus);
+    const validOutcomes = getOutcomesForStatus(interactionChannel, activeStatus);
     if (outcome && !validOutcomes.includes(outcome)) {
       setOutcome('');
     }
@@ -3169,7 +3183,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   <option value="" disabled>
                     Select an outcome...
                   </option>
-                  {getOutcomesForStatus(status).map((o) => (
+                  {getOutcomesForStatus(interactionChannel, status).map((o) => (
                     <option key={o} value={o}>
                       {o}
                     </option>
