@@ -123,6 +123,7 @@ export interface Company extends SoftDeleteFields {
   temperature?: CompanyTemperature;
   notes?: string;
   is_dnc?: boolean;
+  dnc?: boolean;
   dnc_reason?: string;
   restricted_lines?: Record<string, 'DNC' | 'Invalid'>;
   search_terms?: string[];
@@ -145,6 +146,7 @@ export interface Contact extends SoftDeleteFields {
   handles?: LabeledHandle[];
   is_primary?: boolean;
   is_dnc?: boolean;
+  dnc?: boolean;
   dnc_reason?: string;
   restricted_lines?: Record<string, 'DNC' | 'Invalid'>;
   createdAt?: string;

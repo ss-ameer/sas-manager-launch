@@ -388,6 +388,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [selectedContactId, setSelectedContactId] = useState<string>(contactId || '');
   const [selectedContactName, setSelectedContactName] = useState<string>(contactName || '');
   const [newContactDesignation, setNewContactDesignation] = useState<string>('');
+  const [newPhoneTag, setNewPhoneTag] = useState<string>('Mobile');
   const [newContactPhoneTag, setNewContactPhoneTag] = useState<string>('Mobile');
   const [selectedContactPhone, setSelectedContactPhone] = useState<string>(contactPhone || '');
   const [selectedContactEmail, setSelectedContactEmail] = useState<string>('');
@@ -591,6 +592,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setSelectedContactPhone(contactPhone || '');
         setSelectedEnquiryId(enquiryId || '');
         setSelectedEnquiryQuoteRef('');
+        setNewContactDesignation('');
+        setNewPhoneTag('Mobile');
+        setNewContactPhoneTag('Mobile');
       }
     }
   }, [
@@ -635,7 +639,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setIsAddingNewContactPhone(false);
       setIsAddingNewCompanyLine(false);
       setNewContactDesignation('');
-      setNewContactPhoneTag('');
+      setNewPhoneTag('Mobile');
+      setNewContactPhoneTag('Mobile');
       prevSelectedCompanyIdRef.current = selectedCompanyId;
     }
   }, [isOpen, selectedCompanyId]);
@@ -734,6 +739,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setIsAddingNewContact(false);
     setIsAddingNewContactPhone(false);
     setIsAddingNewCompanyLine(false);
+    setNewContactDesignation('');
+    setNewPhoneTag('Mobile');
+    setNewContactPhoneTag('Mobile');
   };
 
   const availableCompanyContacts = useMemo(() => {
@@ -1024,6 +1032,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setIsAddingNewContact(false);
     setIsAddingNewContactPhone(false);
     setIsAddingNewCompanyLine(false);
+    setNewContactDesignation('');
+    setNewPhoneTag('Mobile');
+    setNewContactPhoneTag('Mobile');
 
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
@@ -1273,34 +1284,75 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 }
               }
 
-              // 3. Append contact person if new
-              if (selectedContactName && selectedContactName.trim()) {
-                const contactTrim = selectedContactName.trim();
-                const existingContact = (contacts || []).find(
-                  (ct) => ct.company_id === selectedCompanyId && (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
-                );
+              // 3. Append contact person or upstream sync to existing contact
+              const hasContactInput = Boolean(
+                selectedContactId ||
+                isAddingNewContact ||
+                (selectedContactName && selectedContactName.trim())
+              );
+
+              if (hasContactInput) {
+                const contactTrim = (selectedContactName || '').trim();
+                const newPhone = (selectedContactPhone || '').trim();
+
+                // Determine if this is an existing contact or a brand new contact
+                let existingContact: Contact | null = null;
+                if (selectedContactId) {
+                  const localContacts = await CompanyRepository.getContactsLocal();
+                  existingContact = localContacts.find((ct) => ct.id === selectedContactId) ||
+                    (contacts || []).find((ct) => ct.id === selectedContactId) || null;
+                } else if (!isAddingNewContact && contactTrim) {
+                  const localContacts = await CompanyRepository.getContactsLocal();
+                  existingContact = localContacts.find(
+                    (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
+                            (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
+                  ) || (contacts || []).find(
+                    (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
+                            (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
+                  ) || null;
+                }
 
                 if (!existingContact) {
+                  // SCENARIO A: Brand New Contact Creation
                   const newContactId = `cont_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                  const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
+                  const initialPhoneObj = newPhone ? [{
+                    id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                    number: newPhone,
+                    value: newPhone,
+                    tag: newPhoneTag || 'Mobile',
+                    label: newPhoneTag || 'Mobile',
+                    isInvalid: isInvalid,
+                    is_invalid: isInvalid
+                  }] : [];
+
                   const newContact: Contact = {
                     id: newContactId,
                     company_id: selectedCompanyId,
                     workspace_id: activeWorkspaceId,
-                    full_name: contactTrim,
+                    full_name: contactTrim || `${targetComp.display_name || targetComp.canonical_name} Representative`,
                     designation: newContactDesignation ? newContactDesignation.trim() : undefined,
-                    mobile: selectedContactPhone ? selectedContactPhone.trim() : '',
+                    mobile: newPhone,
+                    phone: newPhone,
+                    phones: initialPhoneObj,
                     email: selectedContactEmail ? selectedContactEmail.trim() : '',
+                    emails: selectedContactEmail ? [{ id: `email_${Date.now()}`, label: 'Direct', email: selectedContactEmail.trim() }] : [],
                     is_primary: false,
+                    is_dnc: isDnc || isDncOptOut,
+                    dnc: isDnc || isDncOptOut,
+                    ...(isDnc || isDncOptOut ? { dnc_reason: 'Opt-Out from Activity Log' } : {}),
                     createdAt: nowIso,
                     updatedAt: nowIso,
-                    ...(isInvalidNumberCall && selectedContactPhone && selectedContactPhone.trim() ? {
-                      restricted_lines: { [selectedContactPhone.trim()]: 'Invalid' }
+                    ...(isInvalid && newPhone ? {
+                      restricted_lines: { [newPhone]: 'Invalid' }
                     } : {})
                   };
 
                   await safeSetDoc('contacts', newContactId, newContact);
                   await CompanyRepository.saveContact(newContact);
                   resolvedContactId = newContactId;
+                  resolvedContactName = newContact.full_name;
+                  resolvedContactPhone = newPhone;
 
                   if (setContacts) {
                     setContacts((prev) => [newContact, ...prev.filter((c) => c.id !== newContactId)]);
@@ -1309,23 +1361,100 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     onUpdateContact(newContact);
                   }
                 } else {
-                  let updatedCt = { ...existingContact };
+                  // SCENARIO B & C: Existing Contact Updates (Upstream Sync)
+                  let updatedCt: Contact = { ...existingContact };
                   let ctChanged = false;
+                  const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
 
-                  if (selectedContactPhone && selectedContactPhone.trim()) {
-                    const pTrim = selectedContactPhone.trim();
-                    const existingPhones = getContactPhones(existingContact);
-                    if (!existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, pTrim))) {
-                      const newPhoneObj = { id: `phone_${Date.now()}`, label: 'Direct Line', number: pTrim };
-                      updatedCt.phones = [...(updatedCt.phones || []), newPhoneObj];
-                      if (!updatedCt.mobile) updatedCt.mobile = pTrim;
-                      ctChanged = true;
+                  if (isAddingNewContactPhone) {
+                    // Scenario B: Append new manual phone number
+                    if (newPhone) {
+                      const existingPhones = getContactPhones(updatedCt);
+                      const exists = existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, newPhone));
+                      if (!exists) {
+                        const newPhoneObj = {
+                          id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                          number: newPhone,
+                          value: newPhone,
+                          tag: newPhoneTag || 'Mobile',
+                          label: newPhoneTag || 'Mobile',
+                          isInvalid: isInvalid,
+                          is_invalid: isInvalid
+                        };
+                        updatedCt.phones = [...(updatedCt.phones || []), newPhoneObj];
+                        if (!updatedCt.mobile) updatedCt.mobile = newPhone;
+                        ctChanged = true;
+                      } else {
+                        if (isInvalid) {
+                          updatedCt.phones = (updatedCt.phones || []).map((p: any) => {
+                            if (isSamePhoneNumber(p.number || p.value, newPhone)) {
+                              return { ...p, isInvalid: true, is_invalid: true };
+                            }
+                            return p;
+                          });
+                          ctChanged = true;
+                        }
+                      }
+                    }
+                  } else {
+                    // Scenario C: Using an existing number
+                    if (isInvalid && newPhone) {
+                      let matchedInArray = false;
+                      if (updatedCt.phones && updatedCt.phones.length > 0) {
+                        updatedCt.phones = updatedCt.phones.map((p: any) => {
+                          if (isSamePhoneNumber(p.number || p.value, newPhone)) {
+                            matchedInArray = true;
+                            return { ...p, isInvalid: true, is_invalid: true };
+                          }
+                          return p;
+                        });
+                        ctChanged = true;
+                      }
+                      if (!matchedInArray && (isSamePhoneNumber(updatedCt.mobile, newPhone) || isSamePhoneNumber(updatedCt.landline, newPhone))) {
+                        updatedCt.phones = [
+                          ...(updatedCt.phones || []),
+                          {
+                            id: `phone_${Date.now()}`,
+                            number: newPhone,
+                            value: newPhone,
+                            tag: 'Mobile',
+                            label: 'Mobile',
+                            isInvalid: true,
+                            is_invalid: true
+                          }
+                        ];
+                        ctChanged = true;
+                      }
                     }
                   }
 
+                  // Restricted lines sync for invalid number
+                  if (isInvalid && newPhone) {
+                    updatedCt.restricted_lines = {
+                      ...(updatedCt.restricted_lines || {}),
+                      [newPhone]: 'Invalid'
+                    };
+                    ctChanged = true;
+                  }
+
+                  // DNC CHECK: Regardless of whether the phone is new or existing
+                  if (isDnc || isDncOptOut) {
+                    updatedCt.is_dnc = true;
+                    updatedCt.dnc = true;
+                    updatedCt.dnc_reason = updatedCt.dnc_reason || 'Opt-Out from Activity Log';
+                    ctChanged = true;
+                  }
+
+                  // Designation sync if updated
+                  if (newContactDesignation && newContactDesignation.trim() && newContactDesignation.trim() !== updatedCt.designation) {
+                    updatedCt.designation = newContactDesignation.trim();
+                    ctChanged = true;
+                  }
+
+                  // Email sync if new
                   if (selectedContactEmail && selectedContactEmail.trim()) {
                     const eTrim = selectedContactEmail.trim().toLowerCase();
-                    const existingEmails = getContactEmails(existingContact);
+                    const existingEmails = getContactEmails(updatedCt);
                     if (!existingEmails.some((e) => (e.email || e.value || '').toLowerCase() === eTrim)) {
                       const newEmailObj = { id: `email_${Date.now()}`, label: 'Direct', email: selectedContactEmail.trim() };
                       updatedCt.emails = [...(updatedCt.emails || []), newEmailObj];
@@ -1334,30 +1463,22 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     }
                   }
 
-                  if (isInvalidNumberCall && selectedContactPhone && selectedContactPhone.trim()) {
-                    const pTrim = selectedContactPhone.trim();
-                    updatedCt.restricted_lines = {
-                      ...(updatedCt.restricted_lines || {}),
-                      [pTrim]: 'Invalid'
-                    };
-                    ctChanged = true;
-                  }
-
+                  // Upstream sync to database
                   if (ctChanged) {
                     updatedCt.updatedAt = nowIso;
-                    await safeSetDoc('contacts', existingContact.id, updatedCt);
+                    await safeSetDoc('contacts', updatedCt.id!, updatedCt);
                     await CompanyRepository.saveContact(updatedCt);
                     if (setContacts) {
-                      setContacts((prev) => prev.map((c) => (c.id === existingContact.id ? updatedCt : c)));
+                      setContacts((prev) => prev.map((c) => (c.id === updatedCt.id ? updatedCt : c)));
                     }
                     if (onUpdateContact) {
                       onUpdateContact(updatedCt);
                     }
                   }
 
-                  if (!resolvedContactId) {
-                    resolvedContactId = existingContact.id;
-                  }
+                  resolvedContactId = updatedCt.id;
+                  resolvedContactName = updatedCt.full_name;
+                  resolvedContactPhone = newPhone || updatedCt.mobile || (updatedCt.phones && updatedCt.phones[0]?.number);
                 }
               }
             }
@@ -1505,9 +1626,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 designation: cRole || undefined,
                 mobile: primaryContactPhone,
                 email: primaryContactEmail,
-                phones: validContactPhones.map((p) => ({ id: p.id, label: p.label || 'Direct Line', number: p.number.trim() })),
+                phones: validContactPhones.map((p) => ({
+                  id: p.id,
+                  label: p.label || 'Direct Line',
+                  tag: p.label || 'Direct Line',
+                  number: p.number.trim(),
+                  isInvalid: isInvalidNumberCall,
+                  is_invalid: isInvalidNumberCall
+                })),
                 emails: validContactEmails.map((e) => ({ id: e.id, label: e.label || 'Direct', email: e.email.trim() })),
                 is_primary: true,
+                is_dnc: isDnc || isDncOptOut,
+                dnc: isDnc || isDncOptOut,
+                ...(isDnc || isDncOptOut ? { dnc_reason: 'Opt-Out from Activity Log' } : {}),
                 createdAt: nowIso,
                 updatedAt: nowIso,
                 ...(isInvalidNumberCall && primaryContactPhone ? {
@@ -1531,8 +1662,23 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               const existingCPhones = getContactPhones(targetContact);
               validContactPhones.forEach((p) => {
                 if (!existingCPhones.some((ep) => isSamePhoneNumber(ep.number || ep.value, p.number))) {
-                  const newPhoneObj = { id: p.id, label: p.label || 'Direct Line', number: p.number.trim() };
+                  const newPhoneObj = {
+                    id: p.id,
+                    label: p.label || 'Direct Line',
+                    tag: p.label || 'Direct Line',
+                    number: p.number.trim(),
+                    isInvalid: isInvalidNumberCall,
+                    is_invalid: isInvalidNumberCall
+                  };
                   updatedCt.phones = [...(updatedCt.phones || []), newPhoneObj];
+                  ctChanged = true;
+                } else if (isInvalidNumberCall) {
+                  updatedCt.phones = (updatedCt.phones || []).map((ep: any) => {
+                    if (isSamePhoneNumber(ep.number || ep.value, p.number)) {
+                      return { ...ep, isInvalid: true, is_invalid: true };
+                    }
+                    return ep;
+                  });
                   ctChanged = true;
                 }
               });
@@ -1542,6 +1688,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   ...(updatedCt.restricted_lines || {}),
                   [primaryContactPhone]: 'Invalid'
                 };
+                ctChanged = true;
+              }
+
+              if (isDnc || isDncOptOut) {
+                updatedCt.is_dnc = true;
+                updatedCt.dnc = true;
+                updatedCt.dnc_reason = updatedCt.dnc_reason || 'Opt-Out from Activity Log';
                 ctChanged = true;
               }
 
@@ -2257,6 +2410,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                                 <div>
                                   <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                                    Designation / Role
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newContactDesignation}
+                                    onChange={(e) => setNewContactDesignation(e.target.value)}
+                                    placeholder="e.g. Procurement Manager, General Manager..."
+                                    className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
                                     Phone Number
                                   </label>
                                   <input
@@ -2273,15 +2439,18 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     Contact Tag / Label
                                   </label>
                                   <select
-                                    value={newContactPhoneTag}
-                                    onChange={(e) => setNewContactPhoneTag(e.target.value)}
+                                    value={newPhoneTag}
+                                    onChange={(e) => {
+                                      setNewPhoneTag(e.target.value);
+                                      setNewContactPhoneTag(e.target.value);
+                                    }}
                                     className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden cursor-pointer"
                                   >
                                     <option value="Mobile">Mobile</option>
-                                    <option value="Direct Line">Direct Line</option>
                                     <option value="Work">Work</option>
-                                    <option value="Personal">Personal</option>
-                                    <option value="General">General</option>
+                                    <option value="Direct Line">Direct Line</option>
+                                    <option value="Home">Home</option>
+                                    <option value="Other">Other</option>
                                   </select>
                                 </div>
                               </div>
@@ -2499,6 +2668,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono"
                                     autoFocus={isAddingNewContactPhone}
                                   />
+                                  <select
+                                    value={newPhoneTag}
+                                    onChange={(e) => setNewPhoneTag(e.target.value)}
+                                    className="shrink-0 rounded-lg bg-slate-950 border border-blue-500/50 px-2.5 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium cursor-pointer"
+                                  >
+                                    <option value="Mobile">Mobile</option>
+                                    <option value="Work">Work</option>
+                                    <option value="Direct Line">Direct Line</option>
+                                    <option value="Home">Home</option>
+                                    <option value="Other">Other</option>
+                                  </select>
                                   {selectedContactPhone.trim() && (
                                     <a
                                       href={`tel:${selectedContactPhone.replace(/[^\d+]/g, '')}`}
