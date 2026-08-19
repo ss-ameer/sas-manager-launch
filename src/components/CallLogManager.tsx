@@ -486,38 +486,63 @@ export default function CallLogManager({
       );
     }
 
-    if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled')) {
+    if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s.includes('planned')) {
       return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40">
-          <Clock className="w-3 h-3 text-blue-400" />
-          <span>Scheduled / Planned</span>
-        </span>
-      );
-    } else if (s === 'completed' || s === 'connected') {
-      return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-          <CheckCircle2 className="w-3 h-3" />
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/40">
+          <Clock className="w-3 h-3 text-blue-500 dark:text-blue-400" />
           <span>{status}</span>
         </span>
       );
-    } else if (s === 'cancelled' || s.includes('invalid') || s.includes('wrong')) {
+    } else if (
+      s === 'completed' ||
+      s === 'completed log' ||
+      s.includes('completed') ||
+      s.includes('conducted') ||
+      s.includes('sent') ||
+      s.includes('replied') ||
+      s.includes('seen')
+    ) {
       return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
-          <XCircle className="w-3 h-3" />
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
           <span>{status}</span>
         </span>
       );
-    } else if (s.includes('no answer') || s.includes('voicemail')) {
+    } else if (
+      s === 'cancelled' ||
+      s === 'invalid number' ||
+      s.includes('invalid') ||
+      s.includes('wrong') ||
+      s.includes('dnc') ||
+      s.includes('blocked') ||
+      s.includes('failed') ||
+      s.includes('dead')
+    ) {
       return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-          <PhoneOff className="w-3 h-3" />
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+          <XCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+          <span>{status}</span>
+        </span>
+      );
+    } else if (
+      s === 'busy' ||
+      s === 'no answer' ||
+      s.includes('no answer') ||
+      s.includes('voicemail') ||
+      s.includes('busy') ||
+      s.includes('unreachable') ||
+      s.includes('disconnected')
+    ) {
+      return (
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          <PhoneOff className="w-3 h-3 text-amber-600 dark:text-amber-400" />
           <span>{status}</span>
         </span>
       );
     } else {
       return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-          <Clock className="w-3 h-3" />
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+          <Clock className="w-3 h-3 text-slate-500" />
           <span>{status}</span>
         </span>
       );

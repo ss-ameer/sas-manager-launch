@@ -22,9 +22,10 @@ import {
   MapPin,
   Activity
 } from 'lucide-react';
-import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry } from '../types';
+import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, isSamePhoneNumber } from '../types';
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
+import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { channelStatuses, getOutcomesForStatus } from './QuickActivityDrawer';
 import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
@@ -99,6 +100,7 @@ export default function LiveExecutionModal({
   const [resolutionAction, setResolutionAction] = useState<'complete' | 'reschedule' | 'cancel'>('complete');
   const [callStatus, setCallStatus] = useState<string>(defaultCompletedStatus);
   const [callOutcome, setCallOutcome] = useState<string>('');
+  const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -122,6 +124,7 @@ export default function LiveExecutionModal({
       setResolutionAction('complete');
       setCallStatus(defaultCompletedStatus);
       setCallOutcome('');
+      setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes('');
       
       // Default next follow-up date to tomorrow at 10:00 AM
@@ -279,6 +282,78 @@ export default function LiveExecutionModal({
             ? `${finalNotes}\n[Execution Notes]: ${notes.trim()}`
             : notes.trim()
           : finalNotes;
+      }
+
+      // Step 0: Upstream Contact Sync for 'Invalid Number' and DNC
+      const targetContactId = activeContactId || task.contact_id;
+      const targetPhone = activeContactPhone || task.phone_number || task.contact_phone || task.phone || task.unlinked_contact_info || '';
+      const isInvalidStatus = updatedStatus === 'Invalid Number' || callStatus === 'Invalid Number';
+      const isDncTriggered = isDnc || updatedOutcome === 'DNC Request' || (callOutcome && (callOutcome.toLowerCase().includes('dnc') || callOutcome.toLowerCase().includes('opt-out')));
+
+      if (targetContactId) {
+        try {
+          const localContacts = await CompanyRepository.getContactsLocal();
+          const existingCt = localContacts.find((c) => c.id === targetContactId) || (contacts || []).find((c) => c.id === targetContactId);
+
+          if (existingCt) {
+            let updatedContact: Contact = { ...existingCt };
+            let hasContactChanges = false;
+
+            if (isInvalidStatus && targetPhone) {
+              let matchedInArray = false;
+              if (updatedContact.phones && updatedContact.phones.length > 0) {
+                updatedContact.phones = updatedContact.phones.map((p: any) => {
+                  if (isSamePhoneNumber(p.number || p.value, targetPhone)) {
+                    matchedInArray = true;
+                    return {
+                      ...p,
+                      isInvalid: true,
+                      is_invalid: true
+                    };
+                  }
+                  return p;
+                });
+              }
+              if (!matchedInArray && (isSamePhoneNumber(updatedContact.mobile, targetPhone) || isSamePhoneNumber(updatedContact.landline, targetPhone) || isSamePhoneNumber(updatedContact.phone, targetPhone))) {
+                updatedContact.phones = [
+                  ...(updatedContact.phones || []),
+                  {
+                    id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+                    number: targetPhone,
+                    value: targetPhone,
+                    label: 'Mobile',
+                    tag: 'Mobile',
+                    isInvalid: true,
+                    is_invalid: true
+                  }
+                ];
+              }
+              updatedContact.restricted_lines = {
+                ...(updatedContact.restricted_lines || {}),
+                [targetPhone.trim()]: 'Invalid'
+              };
+              hasContactChanges = true;
+            }
+
+            if (isDncTriggered) {
+              updatedContact.is_dnc = true;
+              updatedContact.dnc = true;
+              updatedContact.dnc_reason = updatedContact.dnc_reason || 'Opt-Out from Live Execution Command Center';
+              hasContactChanges = true;
+            }
+
+            if (hasContactChanges) {
+              updatedContact.updatedAt = nowIso;
+              await safeSetDoc('contacts', updatedContact.id!, updatedContact);
+              await CompanyRepository.updateContact(updatedContact.id!, updatedContact);
+              if (setContacts) {
+                setContacts((prev) => prev.map((c) => (c.id === updatedContact.id ? updatedContact : c)));
+              }
+            }
+          }
+        } catch (contactSyncErr) {
+          console.warn('[LiveExecutionModal] Upstream contact sync failed:', contactSyncErr);
+        }
       }
 
       // Step 1: Update the CURRENT task's database record (including updated contact if modified)
@@ -473,9 +548,24 @@ export default function LiveExecutionModal({
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                             {log.channel || 'Call'}
                           </span>
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                            {log.status}
-                          </span>
+                          {(() => {
+                            const stLower = (log.status || '').toLowerCase();
+                            const isComp = stLower === 'completed log' || stLower === 'completed' || stLower.includes('conducted') || stLower.includes('sent');
+                            const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong');
+                            const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail');
+                            const badgeColor = isComp
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                              : isInv
+                              ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                              : isNoAns
+                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                              : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+                            return (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${badgeColor}`}>
+                                {log.status}
+                              </span>
+                            );
+                          })()}
                           {log.outcome && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                               {log.outcome}
@@ -633,6 +723,25 @@ export default function LiveExecutionModal({
                   placeholder="Summarize key takeaways, client response, requirement updates..."
                   className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition placeholder:text-slate-400 resize-none"
                 />
+              </div>
+
+              {/* DNC Toggle */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40">
+                <label className="flex items-center space-x-2 text-xs font-semibold text-rose-700 dark:text-rose-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    id="live-execution-dnc-toggle"
+                    checked={isDnc}
+                    onChange={(e) => setIsDnc(e.target.checked)}
+                    className="rounded border-rose-300 dark:border-rose-700 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span>Mark Contact as Do Not Call (DNC) / Opt-Out</span>
+                </label>
+                {isDnc && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-600 text-white uppercase tracking-wider shadow-xs">
+                    DNC Active
+                  </span>
+                )}
               </div>
 
               {/* Next Follow-Up Date Input */}

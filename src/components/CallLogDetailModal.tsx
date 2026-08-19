@@ -128,31 +128,53 @@ export default function CallLogDetailModal({
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
-    if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled')) {
+    if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s.includes('planned')) {
       return (
         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 flex items-center gap-1 shrink-0">
           <Clock className="w-3 h-3 text-blue-400" />
           <span>Scheduled / Planned</span>
         </span>
       );
-    } else if (s === 'completed') {
+    } else if (
+      s === 'completed' ||
+      s === 'completed log' ||
+      s.includes('completed') ||
+      s.includes('conducted') ||
+      s.includes('sent') ||
+      s.includes('replied')
+    ) {
       return (
         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 shrink-0">
           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-          <span>Completed</span>
+          <span>{status}</span>
         </span>
       );
-    } else if (s === 'cancelled') {
+    } else if (
+      s === 'cancelled' ||
+      s === 'invalid number' ||
+      s.includes('invalid') ||
+      s.includes('wrong') ||
+      s.includes('dnc') ||
+      s.includes('failed') ||
+      s.includes('dead')
+    ) {
       return (
         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 shrink-0">
           <AlertCircle className="w-3 h-3 text-rose-400" />
-          <span>Cancelled</span>
+          <span>{status}</span>
+        </span>
+      );
+    } else if (s.includes('no answer') || s.includes('voicemail') || s.includes('busy')) {
+      return (
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shrink-0">
+          <Clock className="w-3 h-3 text-amber-400" />
+          <span>{status}</span>
         </span>
       );
     } else {
       return (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shrink-0">
-          <Clock className="w-3 h-3 text-amber-400" />
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-500/20 text-slate-300 border border-slate-500/30 flex items-center gap-1 shrink-0">
+          <Clock className="w-3 h-3 text-slate-400" />
           <span>{status}</span>
         </span>
       );

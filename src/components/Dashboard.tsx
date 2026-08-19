@@ -419,7 +419,7 @@ export default function Dashboard({
     );
     const totalScheduled = scheduled.length;
     const completedScheduled = scheduled.filter((l) =>
-      ['Completed', 'Closed', 'Closed - Deal Made'].includes(l.status)
+      ['Completed', 'Completed Log', 'Closed', 'Closed - Deal Made'].includes(l.status)
     ).length;
 
     const rate = totalScheduled > 0 ? Math.round((completedScheduled / totalScheduled) * 100) : (filteredCallLogs.length > 0 ? 100 : 0);

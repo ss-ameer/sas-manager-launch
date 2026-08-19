@@ -310,6 +310,29 @@ export class CompanyRepository {
     await syncEngine.enqueue('contacts', 'set', contact.id, contact);
   }
 
+  public static async updateContact(contactId: string, contactData: Partial<Contact>): Promise<void> {
+    const current = await this.getContactsLocal();
+    const idx = current.findIndex((item) => item.id === contactId);
+    let contactToSave: Contact;
+
+    if (idx >= 0) {
+      contactToSave = {
+        ...current[idx],
+        ...contactData,
+        id: contactId,
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      contactToSave = {
+        ...contactData,
+        id: contactId,
+        updatedAt: new Date().toISOString()
+      } as Contact;
+    }
+
+    await this.saveContact(contactToSave);
+  }
+
   public static async softDeleteContact(id: string, user?: { uid: string; name: string }): Promise<void> {
     const current = await this.getContactsLocal();
     const idx = current.findIndex((item) => item.id === id);

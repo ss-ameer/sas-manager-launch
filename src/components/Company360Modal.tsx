@@ -683,11 +683,26 @@ export default function Company360Modal({
                                <PhoneCall className="w-3.5 h-3.5" />}
                             </div>
                             <span className="text-xs font-bold text-slate-900">{log.date}</span>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                              {log.status}
-                            </span>
+                            {(() => {
+                              const stLower = (log.status || '').toLowerCase();
+                              const isComp = stLower === 'completed log' || stLower === 'completed' || stLower.includes('conducted') || stLower.includes('sent');
+                              const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong');
+                              const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail');
+                              const badgeStyle = isComp
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : isInv
+                                ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                : isNoAns
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-blue-50 text-blue-800 border-blue-200';
+                              return (
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeStyle}`}>
+                                  {log.status}
+                                </span>
+                              );
+                            })()}
                             {log.outcome && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                                 {log.outcome}
                               </span>
                             )}
