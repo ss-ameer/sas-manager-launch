@@ -18,6 +18,20 @@ export function getPurposesForChannel(channel: ActivityChannel): string[] {
   ];
 }
 
+export const DEFAULT_CALL_OUTCOMES = [
+  'Meeting Booked',
+  'Quote Requested',
+  'Follow-up Scheduled',
+  'Requested Call Back',
+  'Information Gathered',
+  'Using Competitor / Has Provider',
+  'Not Interested',
+  'Wrong Person',
+  'Needs Qualification / Unclear',
+  'Deal Closed',
+  'General Connection / Other'
+];
+
 export function getOutcomesForStatus(status: CallStatus | string): string[] {
   const completedStatuses = [
     'Completed Log',
@@ -46,13 +60,7 @@ export function getOutcomesForStatus(status: CallStatus | string): string[] {
   ];
 
   if (completedStatuses.includes(status)) {
-    return [
-      'Meeting Booked',
-      'Quote Requested',
-      'Information Gathered',
-      'Follow-up Scheduled',
-      'Deal Closed'
-    ];
+    return DEFAULT_CALL_OUTCOMES;
   }
 
   if (pendingNoAnswerStatuses.includes(status)) {
@@ -74,11 +82,5 @@ export function getOutcomesForStatus(status: CallStatus | string): string[] {
     ];
   }
 
-  return [
-    'Meeting Booked',
-    'Quote Requested',
-    'Information Gathered',
-    'Follow-up Scheduled',
-    'Deal Closed'
-  ];
+  return DEFAULT_CALL_OUTCOMES;
 }

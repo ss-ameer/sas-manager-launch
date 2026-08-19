@@ -108,6 +108,61 @@ export function formatOverdueDisplayDate(dateStr?: string): string {
   }
 }
 
+export function parseTaskScheduledDate(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+export function isTaskOverdue(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  
+  const hasTime = dateStr.includes('T') || dateStr.includes(':');
+  if (!hasTime) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return parsed.getTime() < startOfToday.getTime();
+  }
+  
+  return parsed.getTime() < Date.now();
+}
+
+export function isTaskDueTodayOrOverdue(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return parsed.getTime() <= endOfToday.getTime();
+}
+
+export function isTaskDueToday(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  
+  return parsed.getTime() >= startOfToday.getTime() && parsed.getTime() <= endOfToday.getTime();
+}
+
+export function isTaskUpcoming(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return parsed.getTime() > endOfToday.getTime();
+}
+
 import { DropdownOption } from '../types';
 import { PageHeader, PageBody } from './layout/UiContainer';
 
@@ -637,49 +692,56 @@ export default function CallLogManager({
         return true;
       })
       .sort((a, b) => {
-        // Overdue first (date < todayStr)
-        const isAOverdue = a.date < todayStr;
-        const isBOverdue = b.date < todayStr;
+        // Overdue first (isTaskOverdue)
+        const isAOverdue = isTaskOverdue(a.date);
+        const isBOverdue = isTaskOverdue(b.date);
         if (isAOverdue && !isBOverdue) return -1;
         if (!isAOverdue && isBOverdue) return 1;
-        return a.date.localeCompare(b.date);
+
+        const timeA = parseTaskScheduledDate(a.date)?.getTime() || 0;
+        const timeB = parseTaskScheduledDate(b.date)?.getTime() || 0;
+        return timeA - timeB;
       });
-  }, [workspaceCallLogs, todayStr, companyMap, contactMap]);
+  }, [workspaceCallLogs, companyMap, contactMap]);
 
   // Filtered Queue Items by timeframe toggle & date sort
   const queueItems = useMemo(() => {
     let base = allScheduledQueueItems;
     if (queueTimeframe === 'today') {
-      base = allScheduledQueueItems.filter((i) => i.date <= todayStr);
+      base = allScheduledQueueItems.filter((i) => isTaskDueTodayOrOverdue(i.date));
     } else if (queueTimeframe === 'upcoming') {
-      base = allScheduledQueueItems.filter((i) => i.date > todayStr);
+      base = allScheduledQueueItems.filter((i) => isTaskUpcoming(i.date));
     }
     return [...base].sort((a, b) => {
+      const timeA = parseTaskScheduledDate(a.date)?.getTime() || 0;
+      const timeB = parseTaskScheduledDate(b.date)?.getTime() || 0;
       if (queueSortOrder === 'oldest') {
-        return a.date.localeCompare(b.date);
+        return timeA - timeB;
       } else {
-        return b.date.localeCompare(a.date);
+        return timeB - timeA;
       }
     });
-  }, [allScheduledQueueItems, queueTimeframe, todayStr, queueSortOrder]);
+  }, [allScheduledQueueItems, queueTimeframe, queueSortOrder]);
 
   // Stats Counters
   const stats = useMemo(() => {
-    const scheduledToday = allScheduledQueueItems.filter((i) => i.date === todayStr).length;
-    const overdueCount = allScheduledQueueItems.filter((i) => i.date < todayStr).length;
+    const scheduledToday = allScheduledQueueItems.filter((i) => isTaskDueToday(i.date)).length;
+    const overdueCount = allScheduledQueueItems.filter((i) => isTaskOverdue(i.date)).length;
 
     const completedToday = workspaceCallLogs.filter(
-      (l) => l.status === 'Completed' && l.date.startsWith(todayStr)
+      (l) => (l.status === 'Completed' || l.status === 'Completed Log') && l.date && isTaskDueToday(l.date)
     ).length;
 
     // Start of week (7 days ago)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const weekAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    sevenDaysAgo.setHours(0, 0, 0, 0);
 
-    const completedThisWeek = workspaceCallLogs.filter(
-      (l) => l.status === 'Completed' && l.date >= weekAgoStr
-    ).length;
+    const completedThisWeek = workspaceCallLogs.filter((l) => {
+      if (l.status !== 'Completed' && l.status !== 'Completed Log') return false;
+      const t = parseTaskScheduledDate(l.date)?.getTime() || 0;
+      return t >= sevenDaysAgo.getTime();
+    }).length;
 
     return {
       scheduledToday,
@@ -688,7 +750,7 @@ export default function CallLogManager({
       completedThisWeek,
       totalQueue: queueItems.length
     };
-  }, [queueItems, workspaceCallLogs, todayStr]);
+  }, [allScheduledQueueItems, queueItems.length, workspaceCallLogs]);
 
   // Fast In-Queue Logging Form State
   const [fastOutcome, setFastOutcome] = useState<string>('Reached - Interested');
@@ -1467,7 +1529,7 @@ export default function CallLogManager({
                 }`}
               >
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
-                <span>Today ({allScheduledQueueItems.filter(i => i.date <= todayStr).length})</span>
+                <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.date)).length})</span>
               </button>
               <button
                 type="button"
@@ -1479,7 +1541,7 @@ export default function CallLogManager({
                 }`}
               >
                 <Calendar className="w-3.5 h-3.5 text-amber-500" />
-                <span>Upcoming ({allScheduledQueueItems.filter(i => i.date > todayStr).length})</span>
+                <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.date)).length})</span>
               </button>
               <button
                 type="button"
@@ -1509,8 +1571,8 @@ export default function CallLogManager({
 
           <div className="space-y-3">
             {queueItems.map((item) => {
-              const isOverdue = item.date < todayStr;
-              const isToday = item.date === todayStr;
+              const isOverdue = isTaskOverdue(item.date);
+              const isToday = isTaskDueToday(item.date);
               const type = (item.interaction_type || '').toLowerCase();
 
               return (
@@ -3379,6 +3441,13 @@ export default function CallLogManager({
         task={executionModalTask}
         onSuccess={handleLogSaved}
         user={user}
+        callLogs={workspaceCallLogs}
+        contacts={workspaceContacts}
+        companies={workspaceCompanies}
+        enquiries={enquiries}
+        setCompanies={setCompanies}
+        setContacts={setContacts}
+        setCallLogs={setCallLogs}
       />
 
       {/* Reusable Confirmation Dialog Overlay */}

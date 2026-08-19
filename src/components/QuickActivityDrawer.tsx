@@ -52,9 +52,9 @@ import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
 import { SYSTEM_CALL_PURPOSES } from '../utils/defaults';
-import { getPurposesForChannel, getOutcomesForStatus } from '../utils/activityLogic';
+import { getPurposesForChannel, getOutcomesForStatus, DEFAULT_CALL_OUTCOMES } from '../utils/activityLogic';
 
-export { getPurposesForChannel, getOutcomesForStatus };
+export { getPurposesForChannel, getOutcomesForStatus, DEFAULT_CALL_OUTCOMES };
 
 export interface QuickActivityDrawerProps {
   isOpen: boolean;
@@ -260,7 +260,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 }) => {
   const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
   const interactionChannel = channel;
-  const [outcome, setOutcome] = useState<string>('Meeting Booked');
+  const [outcome, setOutcome] = useState<string>('');
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
   const [purpose, setPurpose] = useState<string>('Discovery / Validation');
 
@@ -279,8 +279,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const validOutcomes = getOutcomesForStatus(activeStatus);
-    if (!validOutcomes.includes(outcome)) {
-      setOutcome(validOutcomes[0]);
+    if (outcome && !validOutcomes.includes(outcome)) {
+      setOutcome('');
     }
   };
 
@@ -298,8 +298,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const validOutcomes = getOutcomesForStatus(activeStatus);
-    if (!validOutcomes.includes(outcome)) {
-      setOutcome(validOutcomes[0]);
+    if (outcome && !validOutcomes.includes(outcome)) {
+      setOutcome('');
     }
   }, [interactionChannel, status, purpose, outcome]);
   const [notes, setNotes] = useState<string>('');
@@ -501,7 +501,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
         setChannel((activeLog.channel as ActivityChannel) || initialChannel || 'Call');
         setStatus(activeLog.status || initialStatus || 'Completed');
-        setOutcome(activeLog.outcome || 'Meeting Booked');
+        setOutcome(activeLog.outcome || '');
         setPurpose(activeLog.purpose || 'Discovery / Validation');
         setNotes(activeLog.requirement_notes || (activeLog as any).notes || '');
         setWhatsappDraft(activeLog.whatsapp_draft || '');
@@ -545,7 +545,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
         setChannel(initialChannel || 'Call');
         setStatus(initialStatus || 'Completed');
-        setOutcome('Meeting Booked');
+        setOutcome('');
         setPurpose('Discovery / Validation');
         setNotes('');
         setActivityDate(getLocalDateTimeString());
@@ -977,7 +977,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setExpressContactEmails([{ id: makeExpressId('cte'), label: 'Direct', email: '' }]);
 
     setChannel('Call');
-    setOutcome('Meeting Booked');
+    setOutcome('');
     setStatus('Completed');
     setPurpose('Discovery / Validation');
     setNotes('');
@@ -1037,6 +1037,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         return;
       }
     }
+
+    const isConnectedState = ['Completed Log', 'Completed', 'Conducted', 'Message Sent', 'Email Sent', 'Read / Seen', 'Opened / Replied'].includes(status);
+    if (isConnectedState && (!outcome || !outcome.trim())) {
+      setValidationError('Please select an outcome for this completed activity.');
+      return;
+    }
+
     setValidationError(null);
 
     setIsSubmitting(true);
@@ -3153,9 +3160,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </label>
                 <select
                   value={outcome}
-                  onChange={(e) => setOutcome(e.target.value)}
+                  onChange={(e) => {
+                    setOutcome(e.target.value);
+                    setValidationError(null);
+                  }}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                 >
+                  <option value="" disabled>
+                    Select an outcome...
+                  </option>
                   {getOutcomesForStatus(status).map((o) => (
                     <option key={o} value={o}>
                       {o}

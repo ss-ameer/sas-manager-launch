@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Phone,
   Building2,
   User,
+  UserPlus,
   Calendar,
   Clock,
   CheckCircle2,
@@ -11,14 +12,23 @@ import {
   Ban,
   FileText,
   Loader2,
-  Sparkles,
   ArrowRight,
-  PhoneCall
+  PhoneCall,
+  History,
+  ExternalLink,
+  MessageSquare,
+  Mail,
+  Users,
+  MapPin,
+  Activity
 } from 'lucide-react';
-import { CallLogEntry, CallStatus, ActivityChannel } from '../types';
+import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry } from '../types';
 import { safeSetDoc } from '../firebase';
-import { CallLogRepository } from '../services/repositories/CallLogRepository';
+import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { channelStatuses, getOutcomesForStatus } from './QuickActivityDrawer';
+import { formatActivityDate } from './CallLogManager';
+import ContactModal from './ContactModal';
+import Company360Modal from './Company360Modal';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -26,6 +36,13 @@ export interface LiveExecutionModalProps {
   task: CallLogEntry | any | null;
   onSuccess?: (updatedTask: CallLogEntry, spawnedTask?: CallLogEntry) => void;
   user?: any;
+  callLogs?: CallLogEntry[];
+  contacts?: Contact[];
+  companies?: Company[];
+  enquiries?: Enquiry[];
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
+  setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
 }
 
 export default function LiveExecutionModal({
@@ -33,22 +50,51 @@ export default function LiveExecutionModal({
   onClose,
   task,
   onSuccess,
-  user
+  user,
+  callLogs = [],
+  contacts = [],
+  companies = [],
+  enquiries = [],
+  setCompanies,
+  setContacts,
+  setCallLogs
 }: LiveExecutionModalProps) {
-  const taskChannel: ActivityChannel = ((task?.channel as ActivityChannel) || 'Call') as ActivityChannel;
-  const availableStatuses = channelStatuses[taskChannel] || channelStatuses.Call || [
-    'Completed Log',
-    'Scheduled / Planned',
-    'No Answer',
-    'Busy',
-    'Invalid Number'
-  ];
+  // Read active channel from task.channel with fallback to 'Activity'
+  const activeChannel: string = task?.channel || 'Activity';
+  const isCallChannel: boolean = activeChannel.toLowerCase() === 'call';
+  const taskChannel: ActivityChannel = (isCallChannel ? 'Call' : (task?.channel as ActivityChannel)) || 'Call';
+
+  // Dynamically filter available statuses based on channel (excluding phone-specific options if not a call)
+  const availableStatuses = useMemo(() => {
+    const rawStatuses = channelStatuses[taskChannel] || [
+      'Completed Log',
+      'Scheduled / Planned',
+      'No Answer',
+      'Busy',
+      'Invalid Number'
+    ];
+
+    if (isCallChannel) {
+      return rawStatuses;
+    }
+
+    // Explicitly filter out phone-specific statuses like 'Busy' and 'Invalid Number' for non-call channels
+    return rawStatuses.filter((status) => status !== 'Busy' && status !== 'Invalid Number');
+  }, [taskChannel, isCallChannel]);
 
   // Default completed status
-  const defaultCompletedStatus =
-    availableStatuses.find((s) => s.toLowerCase().includes('completed') || s.toLowerCase().includes('conducted') || s.toLowerCase().includes('sent')) ||
-    availableStatuses[0] ||
-    'Completed Log';
+  const defaultCompletedStatus = useMemo(() => {
+    return (
+      availableStatuses.find(
+        (s) =>
+          s.toLowerCase().includes('completed') ||
+          s.toLowerCase().includes('conducted') ||
+          s.toLowerCase().includes('sent')
+      ) ||
+      availableStatuses[0] ||
+      'Completed Log'
+    );
+  }, [availableStatuses]);
 
   const [resolutionAction, setResolutionAction] = useState<'complete' | 'reschedule' | 'cancel'>('complete');
   const [callStatus, setCallStatus] = useState<string>(defaultCompletedStatus);
@@ -57,13 +103,25 @@ export default function LiveExecutionModal({
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Dynamic Contact details override (for Add Contact binding)
+  const [activeContactId, setActiveContactId] = useState<string>('');
+  const [activeContactName, setActiveContactName] = useState<string>('');
+  const [activeContactPhone, setActiveContactPhone] = useState<string>('');
+
+  // Modals integration state
+  const [isContactModalOpen, setIsContactModalOpen] = useState<boolean>(false);
+  const [isCompany360Open, setIsCompany360Open] = useState<boolean>(false);
+
+  // Fetched history logs fallback if callLogs not passed
+  const [fetchedCompanyLogs, setFetchedCompanyLogs] = useState<CallLogEntry[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+
   // Initialize and reset form when task or isOpen changes
   useEffect(() => {
     if (task && isOpen) {
       setResolutionAction('complete');
       setCallStatus(defaultCompletedStatus);
-      const initialOutcomes = getOutcomesForStatus(defaultCompletedStatus);
-      setCallOutcome(initialOutcomes[0] || 'Meeting Booked');
+      setCallOutcome('');
       setNotes('');
       
       // Default next follow-up date to tomorrow at 10:00 AM
@@ -73,6 +131,11 @@ export default function LiveExecutionModal({
       const offset = tomorrow.getTimezoneOffset() * 60000;
       const localIso = new Date(tomorrow.getTime() - offset).toISOString().slice(0, 16);
       setNextFollowUpDate(localIso);
+
+      // Initialize contact details
+      setActiveContactId(task.contact_id || '');
+      setActiveContactName(task.contact_name || '');
+      setActiveContactPhone(task.contact_phone || task.phone_number || task.phone || task.unlinked_contact_info || '');
     }
   }, [task, isOpen, defaultCompletedStatus]);
 
@@ -80,12 +143,61 @@ export default function LiveExecutionModal({
   useEffect(() => {
     if (isOpen) {
       const validOutcomes = getOutcomesForStatus(callStatus);
-      if (!validOutcomes.includes(callOutcome)) {
-        setCallOutcome(validOutcomes[0] || '');
+      if (callOutcome && !validOutcomes.includes(callOutcome)) {
+        setCallOutcome('');
       }
     }
   }, [callStatus, callOutcome, isOpen]);
 
+  // Fetch company history logs if not already provided in callLogs prop
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCompanyHistory() {
+      if (!isOpen || !task || !task.company_id) {
+        setFetchedCompanyLogs([]);
+        return;
+      }
+
+      if (callLogs && callLogs.length > 0) {
+        return;
+      }
+
+      setIsLoadingHistory(true);
+      try {
+        const allLogs = await ActivityLogRepository.getAllLocal();
+        if (isMounted) {
+          const matching = allLogs
+            .filter((l) => l.company_id === task.company_id && l.id !== task.id)
+            .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
+            .slice(0, 5);
+          setFetchedCompanyLogs(matching);
+        }
+      } catch (err) {
+        console.error('Failed to load company history:', err);
+      } finally {
+        if (isMounted) setIsLoadingHistory(false);
+      }
+    }
+
+    loadCompanyHistory();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, task, callLogs]);
+
+  // Derive recent company history
+  const recentHistoryLogs = useMemo(() => {
+    if (!task || !task.company_id) return [];
+    if (callLogs && callLogs.length > 0) {
+      return callLogs
+        .filter((l) => l.company_id === task.company_id && l.id !== task.id)
+        .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
+        .slice(0, 5);
+    }
+    return fetchedCompanyLogs;
+  }, [task, callLogs, fetchedCompanyLogs]);
+
+  // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !task) return null;
 
   const isConnectedState = [
@@ -100,14 +212,38 @@ export default function LiveExecutionModal({
 
   const availableOutcomes = getOutcomesForStatus(callStatus);
 
-  const companyName = task.company_name || task.unlinked_name || 'No Company';
-  const contactName = task.contact_name || 'No Contact';
-  const phoneNumber = task.contact_phone || task.phone_number || task.phone || task.unlinked_contact_info || '';
+  // Helper for dynamic channel icon
+  const renderChannelIcon = () => {
+    switch (activeChannel.toLowerCase()) {
+      case 'call':
+        return <PhoneCall className="w-4 h-4" />;
+      case 'whatsapp':
+        return <MessageSquare className="w-4 h-4" />;
+      case 'email':
+        return <Mail className="w-4 h-4" />;
+      case 'meeting':
+        return <Users className="w-4 h-4" />;
+      case 'site visit':
+        return <MapPin className="w-4 h-4" />;
+      default:
+        return <Activity className="w-4 h-4" />;
+    }
+  };
+
+  const companyName = task.company_name || task.unlinked_name || 'No Company Account';
+  const displayContactName = activeContactName || task.contact_name || 'No Contact Person';
+  const displayPhone = activeContactPhone || task.contact_phone || task.phone_number || task.phone || task.unlinked_contact_info || '';
   const originalAgenda = task.followup_intent || task.requirement_notes || task.notes || 'No prior agenda notes attached.';
 
   const handleExecute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!task || !task.id || isSubmitting) return;
+
+    // Validation: Block execution if completed/connected state and outcome not selected
+    if (resolutionAction === 'complete' && isConnectedState && (!callOutcome || !callOutcome.trim())) {
+      alert(`Please select an outcome before completing this ${activeChannel.toLowerCase()}.`);
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -148,9 +284,12 @@ export default function LiveExecutionModal({
           : finalNotes;
       }
 
-      // Step 1: Update the CURRENT task's database record
+      // Step 1: Update the CURRENT task's database record (including updated contact if modified)
       const updatedTaskRecord: CallLogEntry = {
         ...task,
+        contact_id: activeContactId || task.contact_id,
+        contact_name: activeContactName || task.contact_name,
+        contact_phone: activeContactPhone || task.contact_phone,
         status: updatedStatus as CallStatus,
         outcome: updatedOutcome,
         requirement_notes: finalNotes,
@@ -178,9 +317,9 @@ export default function LiveExecutionModal({
           workspace_id: task.workspace_id || 'ws_default',
           company_id: task.company_id,
           company_name: task.company_name || task.unlinked_name,
-          contact_id: task.contact_id,
-          contact_name: task.contact_name,
-          contact_phone: task.contact_phone || task.phone_number || task.phone,
+          contact_id: activeContactId || task.contact_id,
+          contact_name: activeContactName || task.contact_name,
+          contact_phone: activeContactPhone || task.contact_phone || task.phone_number || task.phone,
           channel: task.channel || 'Call',
           date: nextFollowUpDate,
           status: 'Scheduled / Planned' as CallStatus,
@@ -216,24 +355,24 @@ export default function LiveExecutionModal({
   return (
     <div
       id="live-execution-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="live-execution-modal-container"
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full my-8 overflow-hidden text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-150"
+        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-150"
       >
-        {/* Modal Top Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
+        {/* Modal Top Bar (Sticky Header) */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 shrink-0">
           <div className="flex items-center space-x-2.5">
             <span className="p-2 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 rounded-xl">
-              <PhoneCall className="w-5 h-5" />
+              {renderChannelIcon()}
             </span>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
                 Live Execution Command Center
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Log resolution and spawn scheduled follow-ups
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Log resolution, review history, and spawn scheduled follow-ups
               </p>
             </div>
           </div>
@@ -241,38 +380,54 @@ export default function LiveExecutionModal({
             id="close-live-execution-modal-button"
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Content */}
-        <form onSubmit={handleExecute} className="p-6 space-y-5">
+        {/* Modal Scrollable Body */}
+        <form onSubmit={handleExecute} className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Target Task Briefing Card */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <Building2 className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
-                <span className="font-semibold text-sm text-slate-900 dark:text-white">
+                <span className="font-bold text-sm text-slate-900 dark:text-white">
                   {companyName}
                 </span>
               </div>
-              <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
-                <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>{contactName}</span>
+
+              {/* Contact with Sleek "+ Add Contact" Button */}
+              <div className="flex items-center space-x-2 text-xs">
+                <div className="flex items-center space-x-1 text-slate-600 dark:text-slate-300">
+                  <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="font-semibold">{displayContactName}</span>
+                </div>
+                <button
+                  type="button"
+                  id="open-add-contact-modal-button"
+                  onClick={() => setIsContactModalOpen(true)}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 transition cursor-pointer"
+                  title="Add new contact person"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  <span>+ Add Contact</span>
+                </button>
               </div>
             </div>
 
-            {phoneNumber && (
+            {/* Direct Phone Number Bar */}
+            {displayPhone && (
               <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs">
                 <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
                   <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span className="font-mono">{phoneNumber}</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{displayPhone}</span>
                 </div>
                 <a
-                  href={`tel:${phoneNumber}`}
-                  className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-100 transition font-medium"
+                  href={`tel:${displayPhone.replace(/[^\d+]/g, '')}`}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-bold text-xs shadow-xs"
                 >
                   <PhoneCall className="w-3 h-3" />
                   <span>Call Now</span>
@@ -282,47 +437,117 @@ export default function LiveExecutionModal({
 
             {/* Read-Only Original Agenda */}
             <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-              <div className="flex items-center space-x-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-                <FileText className="w-3 h-3" />
+              <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                <FileText className="w-3 h-3 text-slate-400" />
                 <span>Original Agenda / Notes</span>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200/50 dark:border-slate-800 whitespace-pre-wrap">
+              <p className="text-xs text-slate-700 dark:text-slate-200 bg-white/80 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800 whitespace-pre-wrap leading-relaxed">
                 {originalAgenda}
               </p>
+            </div>
+
+            {/* FEATURE 1: Recent Company History */}
+            <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <History className="w-3 h-3 text-blue-500" />
+                  <span>Recent Company History</span>
+                </div>
+                {isLoadingHistory && (
+                  <span className="text-[10px] text-slate-400 flex items-center space-x-1">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <span>Loading...</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {recentHistoryLogs.length > 0 ? (
+                  recentHistoryLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          {formatActivityDate(log.date || log.createdAt)}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {log.channel || 'Call'}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            {log.status}
+                          </span>
+                          {log.outcome && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              {log.outcome}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {log.requirement_notes && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 italic">
+                          "{log.requirement_notes}"
+                        </p>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-2.5 text-center bg-white/60 dark:bg-slate-900/40 rounded-lg border border-slate-200/50 dark:border-slate-800 text-[11px] text-slate-400">
+                    No prior activity logs recorded for this company account.
+                  </div>
+                )}
+              </div>
+
+              {/* View Full History Button */}
+              {task?.company_id && (
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    id="open-company-360-history-button"
+                    onClick={() => setIsCompany360Open(true)}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50/80 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 transition cursor-pointer shadow-2xs"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>View Full History</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* 3-Way Action Toggle */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Select Resolution Action
             </label>
-            <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               <button
                 type="button"
                 id="action-toggle-complete"
                 onClick={() => setResolutionAction('complete')}
-                className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                className={`flex items-center justify-center space-x-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                   resolutionAction === 'complete'
-                    ? 'bg-emerald-600 text-white shadow-sm'
+                    ? 'bg-emerald-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50'
                 }`}
               >
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span className="truncate">Complete Call</span>
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Complete {activeChannel}</span>
               </button>
 
               <button
                 type="button"
                 id="action-toggle-reschedule"
                 onClick={() => setResolutionAction('reschedule')}
-                className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                className={`flex items-center justify-center space-x-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                   resolutionAction === 'reschedule'
-                    ? 'bg-amber-500 text-white shadow-sm'
+                    ? 'bg-amber-500 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50'
                 }`}
               >
-                <CalendarClock className="w-4 h-4 shrink-0" />
+                <CalendarClock className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">Just Reschedule</span>
               </button>
 
@@ -330,36 +555,42 @@ export default function LiveExecutionModal({
                 type="button"
                 id="action-toggle-cancel"
                 onClick={() => setResolutionAction('cancel')}
-                className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                className={`flex items-center justify-center space-x-1.5 py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                   resolutionAction === 'cancel'
-                    ? 'bg-rose-600 text-white shadow-sm'
+                    ? 'bg-rose-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50'
                 }`}
               >
-                <Ban className="w-4 h-4 shrink-0" />
-                <span className="truncate">Cancel Activity</span>
+                <Ban className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Cancel {activeChannel}</span>
               </button>
             </div>
           </div>
 
           {/* Conditional Form Fields */}
           {resolutionAction === 'complete' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Call Status Selector */}
+            <div className="space-y-3.5 animate-in fade-in duration-150">
+              {/* Dynamic Status / Disposition Toggle */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Call Status <span className="text-rose-500">*</span>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  {activeChannel} Status / Disposition
                 </label>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                   {availableStatuses.map((st) => (
                     <button
                       key={st}
                       type="button"
-                      onClick={() => setCallStatus(st)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer ${
-                        callStatus === st
-                          ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100 font-semibold'
-                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                      onClick={() => {
+                        setCallStatus(st);
+                        const allowed = getOutcomesForStatus(st);
+                        if (callOutcome && !allowed.includes(callOutcome)) {
+                          setCallOutcome('');
+                        }
+                      }}
+                      className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                        callStatus === st || (st === 'Scheduled / Planned' && callStatus === 'Scheduled')
+                          ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
                       }`}
                     >
                       {st}
@@ -368,18 +599,21 @@ export default function LiveExecutionModal({
                 </div>
               </div>
 
-              {/* Call Outcome Select Dropdown (shown when connected or when outcomes available) */}
+              {/* Dynamic Outcome Select Dropdown */}
               {(isConnectedState || availableOutcomes.length > 0) && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Call Outcome <span className="text-rose-500">*</span>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    {activeChannel} Outcome <span className="text-rose-500">*</span>
                   </label>
                   <select
-                    id="call-outcome-select"
+                    id="activity-outcome-select"
                     value={callOutcome}
                     onChange={(e) => setCallOutcome(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
+                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition cursor-pointer font-medium"
                   >
+                    <option value="" disabled>
+                      Select an outcome...
+                    </option>
                     {availableOutcomes.map((out) => (
                       <option key={out} value={out}>
                         {out}
@@ -391,21 +625,21 @@ export default function LiveExecutionModal({
 
               {/* Notes Textarea */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Discussion Summary & Notes
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  {activeChannel} Summary & Notes
                 </label>
                 <textarea
                   id="execution-notes-textarea"
-                  rows={3}
+                  rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Summarize key takeaways, client response, requirement updates..."
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition placeholder:text-slate-400 resize-none"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition placeholder:text-slate-400 resize-none"
                 />
               </div>
 
               {/* Next Follow-Up Date Input */}
-              <div className="p-3.5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl space-y-1.5">
+              <div className="p-3 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-300 flex items-center space-x-1.5">
                     <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -426,20 +660,20 @@ export default function LiveExecutionModal({
                   id="next-followup-datetime"
                   value={nextFollowUpDate}
                   onChange={(e) => setNextFollowUpDate(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition font-mono"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition font-mono"
                 />
-                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                  Leaving a date creates a fresh scheduled task in your queue automatically.
+                <p className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                  Setting a date creates a linked task in your queue automatically.
                 </p>
               </div>
             </div>
           )}
 
           {resolutionAction === 'reschedule' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
+            <div className="space-y-3.5 animate-in fade-in duration-150">
               {/* Next Follow-Up Date Input */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   New Scheduled Date & Time <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -448,54 +682,54 @@ export default function LiveExecutionModal({
                   required
                   value={nextFollowUpDate}
                   onChange={(e) => setNextFollowUpDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-mono"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition font-mono"
                 />
               </div>
 
               {/* Notes Textarea */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Reschedule Reason & Agenda
                 </label>
                 <textarea
                   id="reschedule-notes-textarea"
-                  rows={3}
+                  rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Client requested call tomorrow at 11 AM due to management review..."
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition placeholder:text-slate-400 resize-none"
+                  placeholder={`e.g. Client requested ${activeChannel.toLowerCase()} reschedule due to management review...`}
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition placeholder:text-slate-400 resize-none"
                 />
               </div>
             </div>
           )}
 
           {resolutionAction === 'cancel' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
+            <div className="space-y-3.5 animate-in fade-in duration-150">
               {/* Notes Textarea */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Cancellation Reason <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   id="cancel-notes-textarea"
-                  rows={3}
+                  rows={2}
                   required
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. Project dropped, wrong contact details, client opted out..."
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition placeholder:text-slate-400 resize-none"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition placeholder:text-slate-400 resize-none"
                 />
               </div>
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          {/* Action Buttons (Sticky Footer inside form) */}
+          <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="py-2.5 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
+              className="py-2 px-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 transition cursor-pointer"
             >
               Cancel
             </button>
@@ -504,7 +738,7 @@ export default function LiveExecutionModal({
               type="submit"
               id="confirm-execute-resolution-button"
               disabled={isSubmitting}
-              className={`py-2.5 px-5 rounded-xl text-xs font-bold text-white shadow-sm transition flex items-center space-x-2 cursor-pointer ${
+              className={`py-2 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition flex items-center space-x-1.5 cursor-pointer ${
                 resolutionAction === 'cancel'
                   ? 'bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400'
                   : resolutionAction === 'reschedule'
@@ -514,7 +748,7 @@ export default function LiveExecutionModal({
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Processing...</span>
                 </>
               ) : (
@@ -523,16 +757,61 @@ export default function LiveExecutionModal({
                     {resolutionAction === 'cancel'
                       ? 'Confirm Cancellation'
                       : resolutionAction === 'reschedule'
-                      ? 'Reschedule Task'
-                      : 'Complete & Save'}
+                      ? `Reschedule ${activeChannel}`
+                      : `Complete ${activeChannel}`}
                   </span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Full Contact Creation Modal */}
+      {isContactModalOpen && (
+        <ContactModal
+          isOpen={isContactModalOpen}
+          onClose={() => setIsContactModalOpen(false)}
+          companyId={task.company_id}
+          companies={companies}
+          activeWorkspaceId={task.workspace_id || 'ws_default'}
+          user={user || { uid: 'system_op', email: 'operator@crm.local', name: 'Operator' }}
+          setContacts={setContacts}
+          setCompanies={setCompanies}
+          setCallLogs={setCallLogs}
+          onSaved={(savedContact: Contact) => {
+            if (savedContact) {
+              setActiveContactId(savedContact.id || '');
+              setActiveContactName(savedContact.full_name || '');
+              const primaryPhone =
+                savedContact.phone ||
+                (savedContact.phones && savedContact.phones.length > 0
+                  ? (savedContact.phones[0] as any).number || (savedContact.phones[0] as any).value
+                  : '') ||
+                '';
+              setActiveContactPhone(primaryPhone);
+            }
+            setIsContactModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Full 360 Company History & Profile Modal */}
+      {isCompany360Open && task?.company_id && (
+        <Company360Modal
+          companyId={task.company_id}
+          companies={companies}
+          contacts={contacts}
+          enquiries={enquiries}
+          callLogs={callLogs}
+          user={user || { uid: 'system_op', email: 'operator@crm.local', name: 'Operator' }}
+          setCompanies={setCompanies}
+          setContacts={setContacts}
+          setCallLogs={setCallLogs}
+          onClose={() => setIsCompany360Open(false)}
+        />
+      )}
     </div>
   );
 }
