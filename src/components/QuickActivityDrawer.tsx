@@ -139,13 +139,7 @@ export interface ExpressEmailItem {
   email: string;
 }
 
-export const SYSTEM_CALL_PURPOSES_TAXONOMY = [
-  'Discovery / Validation',
-  'Prospecting / Cold Outreach',
-  'Follow-up / Nurture',
-  'Quote / Proposal Discussion',
-  'Relationship / Account Mgmt'
-];
+export const SYSTEM_CALL_PURPOSES_TAXONOMY = [...PURPOSES];
 
 export const channelStatuses: Record<string, string[]> = {
   'Phone Call': getStatusesForChannel('Phone Call'),

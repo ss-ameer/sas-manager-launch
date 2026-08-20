@@ -24,6 +24,8 @@ export const PURPOSES = [
   'Order Fulfillment / Logistics'
 ] as const;
 
+export type MasterPurpose = (typeof PURPOSES)[number];
+
 export const POSITIVE_OUTCOMES = [
   'Meeting Booked',
   'Quote / Proposal Requested',
@@ -56,6 +58,8 @@ export const OUTCOMES = [
   ...NEGATIVE_OUTCOMES
 ] as const;
 
+export type MasterOutcome = (typeof OUTCOMES)[number];
+
 export const SUCCESS_STATUSES = [
   'Completed / Connected',
   'Sent / Delivered',
@@ -64,20 +68,22 @@ export const SUCCESS_STATUSES = [
 ] as const;
 
 /**
- * Returns valid statuses for a given interaction channel.
+ * Returns valid statuses for a given interaction channel matching the V3 matrix.
  */
 export function getStatusesForChannel(channel?: string): string[] {
   const norm = (channel || 'Phone Call').toLowerCase().trim();
 
+  // Email / Message / WhatsApp / SMS
   if (
+    norm.includes('email') ||
     norm.includes('message') ||
     norm.includes('whatsapp') ||
-    norm.includes('sms') ||
-    norm.includes('email')
+    norm.includes('sms')
   ) {
     return ['Sent / Delivered', 'Bounced / Failed', 'Scheduled / Planned'];
   }
 
+  // Meeting / Site Visit
   if (
     norm.includes('meeting') ||
     norm.includes('site visit') ||
@@ -86,6 +92,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     return ['Completed / Attended', 'No Show', 'Cancelled', 'Rescheduled', 'Scheduled / Planned'];
   }
 
+  // Internal Task / Admin
   if (
     norm.includes('internal') ||
     norm.includes('task') ||
@@ -94,7 +101,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     return ['Completed', 'In Progress', 'Scheduled / Planned'];
   }
 
-  // Default / Phone Call
+  // Default: Phone Call
   return [
     'Completed / Connected',
     'No Answer',
@@ -130,6 +137,20 @@ export function isSuccessStatus(status?: string): boolean {
   );
 }
 
+/**
+ * Returns valid outcomes for a given status or channel/status pair.
+ */
+export function getOutcomesForStatus(
+  statusOrChannel?: ActivityChannel | CallStatus | string,
+  maybeStatus?: CallStatus | string
+): string[] {
+  const targetStatus = maybeStatus || statusOrChannel;
+  if (targetStatus && !isSuccessStatus(targetStatus)) {
+    return [];
+  }
+  return [...OUTCOMES];
+}
+
 // Backward compatibility helpers & arrays
 export function getPurposesForChannel(_channel?: ActivityChannel | string): string[] {
   return [...PURPOSES];
@@ -140,9 +161,3 @@ export const MEETING_OUTCOMES = [...OUTCOMES];
 export const SITE_VISIT_OUTCOMES = [...OUTCOMES];
 export const MESSAGE_OUTCOMES = [...OUTCOMES];
 
-export function getOutcomesForStatus(
-  _channel?: ActivityChannel | string,
-  _status?: CallStatus | string
-): string[] {
-  return [...OUTCOMES];
-}

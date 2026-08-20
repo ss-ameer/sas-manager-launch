@@ -26,7 +26,14 @@ import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, i
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
-import { getStatusesForChannel, getOutcomesForStatus, isSuccessStatus, OUTCOMES } from '../utils/activityLogic';
+import {
+  CHANNELS,
+  PURPOSES,
+  OUTCOMES,
+  getStatusesForChannel,
+  getOutcomesForStatus,
+  isSuccessStatus
+} from '../utils/activityLogic';
 import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
@@ -61,21 +68,18 @@ export default function LiveExecutionModal({
   setCallLogs
 }: LiveExecutionModalProps) {
   // Read active channel from task.channel with fallback to 'Phone Call'
-  const activeChannel: string = task?.channel || 'Phone Call';
-  const isCallChannel: boolean = activeChannel.toLowerCase() === 'call' || activeChannel.toLowerCase() === 'phone call';
-  const taskChannel: string = isCallChannel ? 'Phone Call' : activeChannel;
+  const initialTaskChannel: string = task?.channel || 'Phone Call';
+  const [currentChannel, setCurrentChannel] = useState<string>(initialTaskChannel);
 
   // Dynamically get available statuses based on channel from activityLogic
   const availableStatuses = useMemo(() => {
-    return getStatusesForChannel(taskChannel);
-  }, [taskChannel]);
+    return getStatusesForChannel(currentChannel);
+  }, [currentChannel]);
 
   // Default completed status
   const defaultCompletedStatus = useMemo(() => {
     return (
-      availableStatuses.find(
-        (s) => isSuccessStatus(s)
-      ) ||
+      availableStatuses.find((s) => isSuccessStatus(s)) ||
       availableStatuses[0] ||
       'Completed / Connected'
     );
@@ -105,8 +109,12 @@ export default function LiveExecutionModal({
   // Initialize and reset form when task or isOpen changes
   useEffect(() => {
     if (task && isOpen) {
+      const taskChan = task.channel || 'Phone Call';
+      setCurrentChannel(taskChan);
       setResolutionAction('complete');
-      setCallStatus(defaultCompletedStatus);
+      const validStatuses = getStatusesForChannel(taskChan);
+      const defaultStatus = validStatuses.find((s) => isSuccessStatus(s)) || validStatuses[0] || 'Completed / Connected';
+      setCallStatus(defaultStatus);
       setCallOutcome('');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes('');
@@ -124,7 +132,7 @@ export default function LiveExecutionModal({
       setActiveContactName(task.contact_name || '');
       setActiveContactPhone(task.contact_phone || task.phone_number || task.phone || task.unlinked_contact_info || '');
     }
-  }, [task, isOpen, defaultCompletedStatus]);
+  }, [task, isOpen]);
 
   // Update outcomes when status changes
   useEffect(() => {
@@ -187,26 +195,35 @@ export default function LiveExecutionModal({
   // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !task) return null;
 
+  const activeChannel = currentChannel;
   const isCompletedState = isSuccessStatus(callStatus);
-
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
-  // Helper for dynamic channel icon
-  const renderChannelIcon = () => {
-    switch (activeChannel.toLowerCase()) {
-      case 'call':
-        return <PhoneCall className="w-4 h-4" />;
-      case 'whatsapp':
-        return <MessageSquare className="w-4 h-4" />;
-      case 'email':
-        return <Mail className="w-4 h-4" />;
-      case 'meeting':
-        return <Users className="w-4 h-4" />;
-      case 'site visit':
-        return <MapPin className="w-4 h-4" />;
-      default:
-        return <Activity className="w-4 h-4" />;
+  const handleChannelChange = (newChan: string) => {
+    setCurrentChannel(newChan);
+    const newStatuses = getStatusesForChannel(newChan);
+    if (!newStatuses.includes(callStatus)) {
+      const defaultSt = newStatuses.find((s) => isSuccessStatus(s)) || newStatuses[0] || 'Completed / Connected';
+      setCallStatus(defaultSt);
+      setCallOutcome('');
     }
+  };
+
+  // Helper for dynamic channel icon
+  const renderChannelIcon = (chanName: string = activeChannel) => {
+    const norm = chanName.toLowerCase();
+    if (norm.includes('call') || norm.includes('phone')) {
+      return <PhoneCall className="w-4 h-4" />;
+    } else if (norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms')) {
+      return <MessageSquare className="w-4 h-4" />;
+    } else if (norm.includes('email')) {
+      return <Mail className="w-4 h-4" />;
+    } else if (norm.includes('meeting')) {
+      return <Users className="w-4 h-4" />;
+    } else if (norm.includes('site visit')) {
+      return <MapPin className="w-4 h-4" />;
+    }
+    return <Activity className="w-4 h-4" />;
   };
 
   const companyName = task.company_name || task.unlinked_name || 'No Company Account';
@@ -336,6 +353,7 @@ export default function LiveExecutionModal({
       // Step 1: Update the CURRENT task's database record (including updated contact if modified)
       const updatedTaskRecord: CallLogEntry = {
         ...task,
+        channel: currentChannel as ActivityChannel,
         contact_id: activeContactId || task.contact_id,
         contact_name: activeContactName || task.contact_name,
         contact_phone: activeContactPhone || task.contact_phone,
@@ -369,7 +387,7 @@ export default function LiveExecutionModal({
           contact_id: activeContactId || task.contact_id,
           contact_name: activeContactName || task.contact_name,
           contact_phone: activeContactPhone || task.contact_phone || task.phone_number || task.phone,
-          channel: task.channel || 'Call',
+          channel: (currentChannel as ActivityChannel) || task.channel || 'Phone Call',
           date: nextFollowUpDate,
           status: 'Scheduled / Planned' as CallStatus,
           outcome: 'Follow-Up Scheduled',
@@ -578,6 +596,40 @@ export default function LiveExecutionModal({
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Dynamic Interaction Channel Selector */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                Interaction Channel
+              </label>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                Auto-updates valid dispositions
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+              {CHANNELS.map((ch) => {
+                const isSelected = activeChannel === ch;
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    onClick={() => handleChannelChange(ch)}
+                    className={`flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {renderChannelIcon(ch)}
+                    <span className="truncate">
+                      {ch === 'Message (WhatsApp/SMS)' ? 'Message' : ch === 'Internal Task / Admin' ? 'Internal Task' : ch}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
