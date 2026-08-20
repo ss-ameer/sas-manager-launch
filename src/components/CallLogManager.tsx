@@ -548,11 +548,11 @@ export default function CallLogManager({
 
   const renderOutcomeBadge = (outcome?: string) => {
     if (!outcome) return null;
-    const oc = outcome.toLowerCase();
+    const oc = outcome.toLowerCase().trim();
 
     // Check if there is a custom color from database options
     const customOption = (callOutcomes || []).find(
-      (opt) => opt.name.toLowerCase() === oc
+      (opt) => opt.name.toLowerCase().trim() === oc
     );
     if (customOption && customOption.color) {
       return (
@@ -566,17 +566,61 @@ export default function CallLogManager({
       );
     }
 
+    // Emerald (Positive): 'Meeting Booked', 'Quote / Proposal Requested', 'Interested / Send Info', 'Deal Closed / Won'
+    const positiveOutcomes = [
+      'meeting booked',
+      'quote / proposal requested',
+      'interested / send info',
+      'deal closed / won'
+    ];
+
+    // Blue (Neutral/In-Progress): 'Quote / Info Sent', 'Collateral / Material Left', 'Information Gathered'
+    const blueOutcomes = [
+      'quote / info sent',
+      'collateral / material left',
+      'information gathered'
+    ];
+
+    // Amber (Neutral/In-Progress): 'Active Negotiation', 'Follow-up Scheduled', 'Requested Call Back'
+    const amberOutcomes = [
+      'active negotiation',
+      'follow-up scheduled',
+      'requested call back'
+    ];
+
+    // Rose (Negative/Loss): 'No Response / Ghosted', 'Under Contract / Bad Timing', 'Price / Budget Objection', 'Gatekeeper Blocked', 'Not Interested', 'Using Competitor', 'Wrong Person / Unqualified'
+    const negativeOutcomes = [
+      'no response / ghosted',
+      'under contract / bad timing',
+      'price / budget objection',
+      'gatekeeper blocked',
+      'not interested',
+      'using competitor',
+      'wrong person / unqualified'
+    ];
+
     let color = 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
-    if (oc.includes('interested') || oc.includes('deal') || oc.includes('won')) {
+
+    if (positiveOutcomes.includes(oc) || oc.includes('meeting booked') || oc.includes('deal closed') || oc.includes('won')) {
       color = 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800';
-    } else if (oc.includes('quote') || oc.includes('proposal')) {
+    } else if (blueOutcomes.includes(oc) || oc.includes('info sent') || oc.includes('information gathered')) {
       color = 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800';
-    } else if (oc.includes('follow') || oc.includes('callback') || oc.includes('dropped')) {
+    } else if (amberOutcomes.includes(oc) || oc.includes('negotiation') || oc.includes('follow-up') || oc.includes('call back')) {
       color = 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800';
-    } else if (oc.includes('dnc') || oc.includes('wrong') || oc.includes('dead') || oc.includes('invalid')) {
+    } else if (
+      negativeOutcomes.includes(oc) ||
+      oc.includes('not interested') ||
+      oc.includes('gatekeeper') ||
+      oc.includes('competitor') ||
+      oc.includes('wrong person') ||
+      oc.includes('budget') ||
+      oc.includes('ghosted') ||
+      oc.includes('bad timing') ||
+      oc.includes('dnc') ||
+      oc.includes('invalid') ||
+      oc.includes('dead')
+    ) {
       color = 'bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800';
-    } else if (oc.includes('no answer') || oc.includes('voicemail') || oc.includes('busy') || oc.includes('unreachable') || oc.includes('disconnected')) {
-      color = 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
     }
 
     return (

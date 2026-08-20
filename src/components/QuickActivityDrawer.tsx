@@ -118,15 +118,6 @@ export interface QuickActivityDrawerProps {
 
 export type { ActivityChannel };
 
-interface PresetChip {
-  id: string;
-  label: string;
-  channel?: ActivityChannel;
-  outcome: string;
-  notes: string;
-  followUpDays: number | null; // null means clear follow-up
-}
-
 export interface ExpressPhoneItem {
   id: string;
   label: string;
@@ -153,81 +144,6 @@ export const channelStatuses: Record<string, string[]> = {
   'Internal Task / Admin': getStatusesForChannel('Internal Task / Admin'),
   Task: getStatusesForChannel('Internal Task / Admin')
 };
-
-export const channelPresets: Record<ActivityChannel, string[]> = {
-  Call: ['Connected', 'Interested / Send Quote', 'Left Voicemail', 'Call Back Later', 'Call Dropped', 'Meeting Scheduled', 'Not Interested'],
-  WhatsApp: ['Sent Intro / Profile', 'Sent Quote', 'Awaiting Reply', 'Number Invalid / No WA', 'Follow-up Sent'],
-  Email: ['Sent Profile', 'Sent Quotation', 'Awaiting Reply', 'Bounced / Undeliverable', 'Auto-Reply Received'],
-  Meeting: ['Met Decision Maker', 'Gatekeeper Only / Dropped Profile', 'Rescheduled on Site', 'Site Inspected', 'Deal Closed'],
-  'Site Visit': ['Met Decision Maker', 'Gatekeeper Only / Dropped Profile', 'Rescheduled on Site', 'Site Inspected', 'Deal Closed']
-};
-
-const PRESET_CHIPS: PresetChip[] = [
-  {
-    id: 'connected',
-    label: 'Connected',
-    channel: 'Call',
-    outcome: 'Connected',
-    notes: 'Call connected successfully with contact.',
-    followUpDays: 1
-  },
-  {
-    id: 'quote_req',
-    label: 'Interested / Send Quote',
-    channel: 'Call',
-    outcome: 'Interested - Quote Requested',
-    notes: 'Customer expressed strong interest and requested a formal quotation.',
-    followUpDays: 2
-  },
-  {
-    id: 'voicemail',
-    label: 'Left Voicemail',
-    channel: 'Call',
-    outcome: 'Left Voicemail',
-    notes: 'Attempted call, left a voicemail requesting a callback.',
-    followUpDays: 1
-  },
-  {
-    id: 'callback',
-    label: 'Call Back Later',
-    channel: 'Call',
-    outcome: 'Call Back Later',
-    notes: 'Customer is currently busy and requested a callback later.',
-    followUpDays: 3
-  },
-  {
-    id: 'call_dropped',
-    label: 'Call Dropped',
-    channel: 'Call',
-    outcome: 'Call Dropped / Disconnected',
-    notes: 'Call dropped mid-conversation due to line instability.',
-    followUpDays: 1
-  },
-  {
-    id: 'meeting_sched',
-    label: 'Meeting Scheduled',
-    channel: 'Meeting',
-    outcome: 'Meeting Scheduled',
-    notes: 'Scheduled a meeting to review project requirements and specifications.',
-    followUpDays: 5
-  },
-  {
-    id: 'site_visit',
-    label: 'Site Visit Done',
-    channel: 'Site Visit',
-    outcome: 'Site Visit Completed',
-    notes: 'Visited customer site, conducted survey, and collected technical parameters.',
-    followUpDays: 2
-  },
-  {
-    id: 'not_interested',
-    label: 'Not Interested',
-    channel: 'Call',
-    outcome: 'Not Interested',
-    notes: 'Customer stated they do not require our services at this time.',
-    followUpDays: null
-  }
-];
 
 const getLocalDateTimeString = (d: Date = new Date()): string => {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
@@ -956,40 +872,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setIsListening(true);
       } catch (err) {
         console.warn('Failed to start recognition:', err);
-      }
-    }
-  };
-
-  const getOffsetDateString = (days: number): string => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
-  };
-
-  const handleApplyPreset = (chip: PresetChip | string) => {
-    if (typeof chip === 'string') {
-      setActiveChipId(chip);
-      setOutcome(chip);
-      const matchingChip = PRESET_CHIPS.find((c) => c.label === chip || c.outcome === chip);
-      if (matchingChip) {
-        if (matchingChip.channel) handleChannelSelect(matchingChip.channel);
-        if (matchingChip.notes) setNotes(matchingChip.notes);
-        if (matchingChip.followUpDays !== null) {
-          setFollowupDate(getOffsetDateString(matchingChip.followUpDays));
-        } else {
-          setFollowupDate('');
-        }
-      }
-    } else {
-      setActiveChipId(chip.id);
-      if (chip.channel) handleChannelSelect(chip.channel);
-      setOutcome(chip.outcome);
-      setNotes(chip.notes);
-
-      if (chip.followUpDays !== null) {
-        setFollowupDate(getOffsetDateString(chip.followUpDays));
-      } else {
-        setFollowupDate('');
       }
     }
   };
@@ -3403,62 +3285,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
-            </div>
-
-            {/* One-Tap Outcome Preset Chips */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  One-Tap Outcome Presets
-                </label>
-                <span className="text-[10px] text-slate-500">Auto-fills notes & follow-up</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(channelPresets[interactionChannel] || []).map((preset) => {
-                  const isActive = activeChipId === preset || outcome === preset;
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => {
-                        const p = preset.toLowerCase();
-                        let newStatus: any = status;
-                        let newOutcome: string = outcome;
-
-                        if (p.includes('voicemail') || p.includes('dropped') || p.includes('gatekeeper')) {
-                           newStatus = 'No Answer';
-                           newOutcome = p.includes('voicemail') ? 'Left Voicemail' : p.includes('dropped') ? 'Call Dropped' : 'Gatekeeper Blocked';
-                        } else if (p.includes('quote') || p.includes('profile')) {
-                           newStatus = interactionChannel === 'WhatsApp' ? 'Message Sent' : interactionChannel === 'Email' ? 'Email Sent' : 'Completed Log';
-                           newOutcome = 'Quote Requested';
-                        } else if (p.includes('meeting') || p.includes('decision maker') || p.includes('connected')) {
-                           newStatus = (interactionChannel === 'Meeting' || interactionChannel === 'Site Visit') ? 'Conducted' : interactionChannel === 'Call' ? 'Completed Log' : 'Message Sent';
-                           newOutcome = p.includes('meeting') ? 'Meeting Booked' : 'Information Gathered';
-                        } else if (p.includes('invalid') || p.includes('bounced') || p.includes('no wa')) {
-                           newStatus = interactionChannel === 'Email' ? 'Bounced / Failed' : 'Invalid Number';
-                           newOutcome = 'Number Disconnected';
-                        } else if (p.includes('awaiting reply') || p.includes('follow-up')) {
-                           newStatus = interactionChannel === 'Call' ? 'Completed Log' : interactionChannel === 'Email' ? 'Email Sent' : 'Message Sent';
-                           newOutcome = 'Follow-up Scheduled';
-                        }
-
-                        setStatus(newStatus);
-                        setOutcome(newOutcome);
-
-                        setActiveChipId(preset);
-                        setNotes((prev) => (prev ? `${prev} - ${preset}` : preset));
-                      }}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
-                        isActive
-                          ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
-                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  );
-                })}
               </div>
             </div>
 
