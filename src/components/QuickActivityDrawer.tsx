@@ -53,6 +53,11 @@ import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPT
 import GeminiKeyModal from './GeminiKeyModal';
 import { SYSTEM_CALL_PURPOSES } from '../utils/defaults';
 import {
+  CHANNELS,
+  PURPOSES,
+  OUTCOMES,
+  getStatusesForChannel,
+  isSuccessStatus,
   getPurposesForChannel,
   getOutcomesForStatus,
   CALL_OUTCOMES,
@@ -62,6 +67,11 @@ import {
 } from '../utils/activityLogic';
 
 export {
+  CHANNELS,
+  PURPOSES,
+  OUTCOMES,
+  getStatusesForChannel,
+  isSuccessStatus,
   getPurposesForChannel,
   getOutcomesForStatus,
   CALL_OUTCOMES,
@@ -137,12 +147,16 @@ export const SYSTEM_CALL_PURPOSES_TAXONOMY = [
   'Relationship / Account Mgmt'
 ];
 
-export const channelStatuses: Record<ActivityChannel, string[]> = {
-  Call: ['Completed Log', 'Scheduled / Planned', 'No Answer', 'Busy', 'Invalid Number'],
-  WhatsApp: ['Message Sent', 'Scheduled / Planned', 'Read / Seen', 'Invalid Number', 'Blocked'],
-  Email: ['Email Sent', 'Scheduled / Planned', 'Bounced / Failed', 'Opened / Replied'],
-  Meeting: ['Conducted', 'Scheduled / Planned', 'No Show', 'Rescheduled', 'Cancelled'],
-  'Site Visit': ['Conducted', 'Scheduled / Planned', 'No Show', 'Rescheduled', 'Cancelled']
+export const channelStatuses: Record<string, string[]> = {
+  'Phone Call': getStatusesForChannel('Phone Call'),
+  Call: getStatusesForChannel('Phone Call'),
+  'Message (WhatsApp/SMS)': getStatusesForChannel('Message (WhatsApp/SMS)'),
+  WhatsApp: getStatusesForChannel('Message (WhatsApp/SMS)'),
+  Email: getStatusesForChannel('Email'),
+  Meeting: getStatusesForChannel('Meeting'),
+  'Site Visit': getStatusesForChannel('Site Visit'),
+  'Internal Task / Admin': getStatusesForChannel('Internal Task / Admin'),
+  Task: getStatusesForChannel('Internal Task / Admin')
 };
 
 export const channelPresets: Record<ActivityChannel, string[]> = {
@@ -278,18 +292,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
   const [purpose, setPurpose] = useState<string>('Discovery / Validation');
 
-  const isCompletedState =
-    status === 'Completed Log' ||
-    status === 'Completed' ||
-    status === 'Conducted' ||
-    status === 'Message Sent' ||
-    status === 'Email Sent' ||
-    status === 'Read / Seen' ||
-    status === 'Opened / Replied';
+  const isCompletedState = isSuccessStatus(status);
 
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
-    const available = channelStatuses[newChannel] || [];
+    const available = getStatusesForChannel(newChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -301,14 +308,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const validOutcomes = getOutcomesForStatus(newChannel, activeStatus);
-    if (outcome && !validOutcomes.includes(outcome)) {
+    if (outcome && (!isSuccessStatus(activeStatus) || !OUTCOMES.includes(outcome as any))) {
       setOutcome('');
     }
   };
 
   useEffect(() => {
-    const available = channelStatuses[interactionChannel] || [];
+    const available = getStatusesForChannel(interactionChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -320,8 +326,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const validOutcomes = getOutcomesForStatus(interactionChannel, activeStatus);
-    if (outcome && !validOutcomes.includes(outcome)) {
+    if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
     }
   }, [interactionChannel, status, purpose, outcome]);
@@ -3329,22 +3334,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 {interactionChannel.toUpperCase()} STATUS / DISPOSITION
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                {(channelStatuses[interactionChannel] || []).map((st) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                {getStatusesForChannel(interactionChannel).map((st) => (
                   <button
                     key={st}
                     type="button"
                     onClick={() => {
                       const newStatus = st as CallStatus;
                       setStatus(newStatus);
-                      const allowed = getOutcomesForStatus(newStatus);
-                      if (!allowed.includes(outcome)) {
-                        setOutcome(allowed[0]);
+                      if (!isSuccessStatus(newStatus)) {
+                        setOutcome('');
                       }
                     }}
-                    className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center ${
-                      status === st || (st === 'Scheduled / Planned' && status === 'Scheduled')
-                        ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs'
+                    className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                      status === st || (st === 'Scheduled / Planned' && status === 'Scheduled') || (st === 'Completed / Connected' && status === 'Completed')
+                        ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
                     }`}
                   >
@@ -3372,7 +3376,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <option value="" disabled>
                       Select an outcome...
                     </option>
-                    {getOutcomesForStatus(interactionChannel, status).map((o) => (
+                    {OUTCOMES.map((o) => (
                       <option key={o} value={o}>
                         {o}
                       </option>
@@ -3390,7 +3394,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   onChange={(e) => setPurpose(e.target.value)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                 >
-                  {getPurposesForChannel(interactionChannel).map((p) => (
+                  {PURPOSES.map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>

@@ -50,6 +50,7 @@ import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
 import LiveExecutionModal from './LiveExecutionModal';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
+import { isSuccessStatus } from '../utils/activityLogic';
 
 export function getOffsetDateString(offsetDays: number): string {
   const d = new Date();
@@ -486,25 +487,17 @@ export default function CallLogManager({
       );
     }
 
-    if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s.includes('planned')) {
-      return (
-        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/40">
-          <Clock className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-          <span>{status}</span>
-        </span>
-      );
-    } else if (
-      s === 'completed' ||
-      s === 'completed log' ||
-      s.includes('completed') ||
-      s.includes('conducted') ||
-      s.includes('sent') ||
-      s.includes('replied') ||
-      s.includes('seen')
-    ) {
+    if (isSuccessStatus(status)) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
           <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+          <span>{status}</span>
+        </span>
+      );
+    } else if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s.includes('planned') || s.includes('in progress')) {
+      return (
+        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/40">
+          <Clock className="w-3 h-3 text-blue-500 dark:text-blue-400" />
           <span>{status}</span>
         </span>
       );
@@ -516,7 +509,9 @@ export default function CallLogManager({
       s.includes('dnc') ||
       s.includes('blocked') ||
       s.includes('failed') ||
-      s.includes('dead')
+      s.includes('bounced') ||
+      s.includes('dead') ||
+      s.includes('no show')
     ) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
@@ -531,7 +526,9 @@ export default function CallLogManager({
       s.includes('voicemail') ||
       s.includes('busy') ||
       s.includes('unreachable') ||
-      s.includes('disconnected')
+      s.includes('disconnected') ||
+      s.includes('dropped') ||
+      s.includes('rescheduled')
     ) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">

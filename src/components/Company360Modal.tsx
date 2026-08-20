@@ -26,6 +26,7 @@ import {
 import { safeDeleteDoc, safeSetDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { recordAuditLog } from '../utils/auditLogger';
+import { isSuccessStatus } from '../utils/activityLogic';
 
 function sanitizeWhatsAppNumber(phone: string): string {
   if (!phone) return '';
@@ -684,10 +685,11 @@ export default function Company360Modal({
                             </div>
                             <span className="text-xs font-bold text-slate-900">{log.date}</span>
                             {(() => {
-                              const stLower = (log.status || '').toLowerCase();
-                              const isComp = stLower === 'completed log' || stLower === 'completed' || stLower.includes('conducted') || stLower.includes('sent');
-                              const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong');
-                              const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail');
+                              const st = log.status || '';
+                              const stLower = st.toLowerCase();
+                              const isComp = isSuccessStatus(st);
+                              const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong') || stLower.includes('dnc') || stLower.includes('blocked') || stLower.includes('failed') || stLower.includes('bounced') || stLower.includes('no show');
+                              const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail') || stLower.includes('dropped') || stLower.includes('rescheduled');
                               const badgeStyle = isComp
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 : isInv

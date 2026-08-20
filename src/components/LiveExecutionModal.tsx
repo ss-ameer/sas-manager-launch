@@ -26,7 +26,7 @@ import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, i
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
-import { channelStatuses, getOutcomesForStatus } from './QuickActivityDrawer';
+import { getStatusesForChannel, getOutcomesForStatus, isSuccessStatus, OUTCOMES } from '../utils/activityLogic';
 import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
@@ -60,40 +60,24 @@ export default function LiveExecutionModal({
   setContacts,
   setCallLogs
 }: LiveExecutionModalProps) {
-  // Read active channel from task.channel with fallback to 'Activity'
-  const activeChannel: string = task?.channel || 'Activity';
-  const isCallChannel: boolean = activeChannel.toLowerCase() === 'call';
-  const taskChannel: ActivityChannel = (isCallChannel ? 'Call' : (task?.channel as ActivityChannel)) || 'Call';
+  // Read active channel from task.channel with fallback to 'Phone Call'
+  const activeChannel: string = task?.channel || 'Phone Call';
+  const isCallChannel: boolean = activeChannel.toLowerCase() === 'call' || activeChannel.toLowerCase() === 'phone call';
+  const taskChannel: string = isCallChannel ? 'Phone Call' : activeChannel;
 
-  // Dynamically filter available statuses based on channel (excluding phone-specific options if not a call)
+  // Dynamically get available statuses based on channel from activityLogic
   const availableStatuses = useMemo(() => {
-    const rawStatuses = channelStatuses[taskChannel] || [
-      'Completed Log',
-      'Scheduled / Planned',
-      'No Answer',
-      'Busy',
-      'Invalid Number'
-    ];
-
-    if (isCallChannel) {
-      return rawStatuses;
-    }
-
-    // Explicitly filter out phone-specific statuses like 'Busy' and 'Invalid Number' for non-call channels
-    return rawStatuses.filter((status) => status !== 'Busy' && status !== 'Invalid Number');
-  }, [taskChannel, isCallChannel]);
+    return getStatusesForChannel(taskChannel);
+  }, [taskChannel]);
 
   // Default completed status
   const defaultCompletedStatus = useMemo(() => {
     return (
       availableStatuses.find(
-        (s) =>
-          s.toLowerCase().includes('completed') ||
-          s.toLowerCase().includes('conducted') ||
-          s.toLowerCase().includes('sent')
+        (s) => isSuccessStatus(s)
       ) ||
       availableStatuses[0] ||
-      'Completed Log'
+      'Completed / Connected'
     );
   }, [availableStatuses]);
 
@@ -203,14 +187,7 @@ export default function LiveExecutionModal({
   // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !task) return null;
 
-  const isCompletedState =
-    callStatus === 'Completed Log' ||
-    callStatus === 'Completed' ||
-    callStatus === 'Conducted' ||
-    callStatus === 'Message Sent' ||
-    callStatus === 'Email Sent' ||
-    callStatus === 'Read / Seen' ||
-    callStatus === 'Opened / Replied';
+  const isCompletedState = isSuccessStatus(callStatus);
 
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
@@ -662,20 +639,19 @@ export default function LiveExecutionModal({
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                   {activeChannel} Status / Disposition
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                   {availableStatuses.map((st) => (
                     <button
                       key={st}
                       type="button"
                       onClick={() => {
                         setCallStatus(st);
-                        const allowed = getOutcomesForStatus(activeChannel, st);
-                        if (callOutcome && !allowed.includes(callOutcome)) {
+                        if (!isSuccessStatus(st)) {
                           setCallOutcome('');
                         }
                       }}
                       className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
-                        callStatus === st || (st === 'Scheduled / Planned' && callStatus === 'Scheduled')
+                        callStatus === st || (st === 'Scheduled / Planned' && callStatus === 'Scheduled') || (st === 'Completed / Connected' && callStatus === 'Completed')
                           ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
                       }`}
@@ -701,7 +677,7 @@ export default function LiveExecutionModal({
                     <option value="" disabled>
                       Select an outcome...
                     </option>
-                    {availableOutcomes.map((out) => (
+                    {OUTCOMES.map((out) => (
                       <option key={out} value={out}>
                         {out}
                       </option>
