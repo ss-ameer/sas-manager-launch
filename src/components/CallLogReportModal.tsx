@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CallLogEntry, Workspace, Salesperson, DropdownOption } from '../types';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES } from '../utils/defaults';
+import { isSuccessStatus } from '../utils/activityLogic';
 import {
   FileText,
   Printer,
@@ -194,10 +195,9 @@ export default function CallLogReportModal({
   // Calculate Key Metrics
   const totalCalls = filteredLogs.length;
 
-  // Completed Activities: counter MUST increment if log.status === 'Completed Log' || log.status === 'Completed'. Do not restrict it by outcome.
+  // Completed Activities: counter MUST increment if log.status represents a completed/successful interaction.
   const completedCalls = filteredLogs.filter((l) => {
-    const st = (l.status || '').trim().toLowerCase();
-    return st === 'completed log' || st === 'completed';
+    return isSuccessStatus(l.status);
   }).length;
 
   const scheduledQueue = filteredLogs.filter((l) => {
@@ -433,16 +433,39 @@ export default function CallLogReportModal({
                           channelBadgeHtml = `<span style="background:#ecfeff; color:#0e7490; border:1px solid #a5f3fc; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Site Visit</span>`;
                         }
 
-                        const st = (l.status || '').toLowerCase();
-                        let statusBadgeHtml = `<span style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status || '-'}</span>`;
-                        if (st === 'completed log' || st === 'completed' || st.includes('conducted') || st.includes('sent') || st.includes('replied')) {
-                          statusBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
-                        } else if (st === 'scheduled / planned' || st === 'scheduled' || st.includes('scheduled') || st.includes('planned')) {
-                          statusBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
-                        } else if (st === 'invalid number' || st === 'cancelled' || st.includes('invalid') || st.includes('wrong') || st.includes('dnc') || st.includes('failed') || st.includes('dead')) {
-                          statusBadgeHtml = `<span style="background:#fff1f2; color:#be123c; border:1px solid #fecdd3; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
-                        } else if (st === 'busy' || st.includes('no answer') || st.includes('voicemail') || st.includes('busy') || st.includes('unreachable') || st.includes('disconnected')) {
-                          statusBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${l.status}</span>`;
+                        const rawStatus = l.status || '';
+                        const st = rawStatus.toLowerCase();
+                        let statusBadgeHtml = `<span style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus || '-'}</span>`;
+                        if (isSuccessStatus(rawStatus)) {
+                          statusBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus}</span>`;
+                        } else if (st === 'scheduled / planned' || st === 'scheduled' || st.includes('scheduled') || st.includes('planned') || st.includes('in progress')) {
+                          statusBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus}</span>`;
+                        } else if (
+                          st === 'invalid number' ||
+                          st === 'cancelled' ||
+                          st === 'call dropped' ||
+                          st === 'no show' ||
+                          st.includes('invalid') ||
+                          st.includes('wrong') ||
+                          st.includes('dnc') ||
+                          st.includes('blocked') ||
+                          st.includes('failed') ||
+                          st.includes('bounced') ||
+                          st.includes('dead') ||
+                          st.includes('dropped') ||
+                          st.includes('no show')
+                        ) {
+                          statusBadgeHtml = `<span style="background:#fff1f2; color:#be123c; border:1px solid #fecdd3; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus}</span>`;
+                        } else if (
+                          st === 'busy' ||
+                          st.includes('no answer') ||
+                          st.includes('voicemail') ||
+                          st.includes('busy') ||
+                          st.includes('unreachable') ||
+                          st.includes('disconnected') ||
+                          st.includes('rescheduled')
+                        ) {
+                          statusBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus}</span>`;
                         }
 
                         // Outcome Badge with distinction between conversions (green), follow-ups (blue), warnings (red), and neutral/general (gray)
