@@ -3177,7 +3177,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Interaction Channel
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
                 {CHANNELS.map((ch) => {
                   const isSelected =
                     channel === ch ||
@@ -3190,9 +3190,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     if (norm.includes('call') || norm.includes('phone')) return <Phone className="h-4 w-4 shrink-0" />;
                     if (norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms')) return <MessageSquare className="h-4 w-4 shrink-0" />;
                     if (norm.includes('email')) return <Mail className="h-4 w-4 shrink-0" />;
-                    if (norm.includes('meeting')) return <Users className="h-4 w-4 shrink-0" />;
-                    if (norm.includes('site visit')) return <MapPin className="h-4 w-4 shrink-0" />;
-                    return <FileText className="h-4 w-4 shrink-0" />;
+                    return null;
                   };
 
                   return (
@@ -3200,14 +3198,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       key={ch}
                       type="button"
                       onClick={() => handleChannelSelect(ch as any)}
-                      className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      className={`flex items-center justify-center space-x-1.5 py-2.5 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                         isSelected
                           ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                       }`}
                     >
                       {renderIcon()}
-                      <span className="truncate">{ch}</span>
+                      <span className="text-center leading-tight whitespace-normal text-[11px] font-bold">{ch}</span>
                     </button>
                   );
                 })}

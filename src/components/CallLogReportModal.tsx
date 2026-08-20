@@ -288,10 +288,27 @@ export default function CallLogReportModal({
     ];
 
     const rows = sortedFilteredLogs.map((l) => {
-      const channelLabel = l.interaction_type === 'email' ? 'Email Log' : l.interaction_type === 'message' ? `Message (${l.message_platform || 'WhatsApp'})` : 'Phone Call';
+      let channelLabel = 'Phone Call';
+      const rawInteraction = (l.interaction_type as string) || '';
+      const ch = (l.channel || (rawInteraction === 'email' ? 'Email' : rawInteraction === 'message' ? (l.message_platform || 'WhatsApp') : rawInteraction === 'task' ? 'Internal Task / Admin' : 'Phone Call')).trim();
+      const normCh = ch.toLowerCase();
+      if (normCh.includes('email')) {
+        channelLabel = 'Email';
+      } else if (normCh.includes('whatsapp') || normCh.includes('message') || normCh.includes('sms')) {
+        channelLabel = 'Message (WhatsApp/SMS)';
+      } else if (normCh.includes('meeting')) {
+        channelLabel = 'Meeting (Virtual/In-Person)';
+      } else if (normCh.includes('visit') || normCh.includes('site')) {
+        channelLabel = 'Site Visit';
+      } else if (normCh.includes('task') || normCh.includes('admin')) {
+        channelLabel = 'Internal Task / Admin';
+      } else {
+        channelLabel = 'Phone Call';
+      }
+
       const contactInfo = l.interaction_type === 'email' ? (l.email_address || l.contact_phone || '') : (l.contact_phone || '');
       const dateFormatted = formatReportDate(l.date || l.createdAt);
-      const companyDisplayName = l.company_name || l.unlinked_name || 'Direct Client';
+      const companyDisplayName = l.company_name || l.unlinked_name || (normCh.includes('task') || normCh.includes('admin') ? 'Internal Admin / Team' : 'Direct Client');
       const contactDisplayName = l.contact_name || '—';
       const followupDateFormatted = l.next_followup_date ? formatReportDate(l.next_followup_date) : '';
       const loggedByName = normalizeAgentName(l.logged_by || (l as any).sales_person || (l as any).handled_by_team_member_name);
@@ -421,16 +438,19 @@ export default function CallLogReportModal({
                   ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8;">No records found for this period.</td></tr>`
                   : sortedFilteredLogs
                       .map((l) => {
-                        const channel = (l.channel || (l.interaction_type === 'email' ? 'Email' : l.interaction_type === 'message' ? (l.message_platform || 'WhatsApp') : 'Call')).toLowerCase();
+                        const rawInt = (l.interaction_type as string) || '';
+                        const channel = (l.channel || (rawInt === 'email' ? 'Email' : rawInt === 'message' ? (l.message_platform || 'WhatsApp') : rawInt === 'task' ? 'Internal Task / Admin' : 'Call')).toLowerCase();
                         let channelBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Phone Call</span>`;
-                        if (channel.includes('whatsapp') || channel.includes('message')) {
-                          channelBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">WhatsApp</span>`;
+                        if (channel.includes('whatsapp') || channel.includes('message') || channel.includes('sms')) {
+                          channelBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Message (WhatsApp/SMS)</span>`;
                         } else if (channel.includes('email')) {
                           channelBadgeHtml = `<span style="background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Email</span>`;
                         } else if (channel.includes('meeting')) {
-                          channelBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Meeting</span>`;
+                          channelBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Meeting (Virtual/In-Person)</span>`;
                         } else if (channel.includes('site') || channel.includes('visit')) {
                           channelBadgeHtml = `<span style="background:#ecfeff; color:#0e7490; border:1px solid #a5f3fc; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Site Visit</span>`;
+                        } else if (channel.includes('task') || channel.includes('admin')) {
+                          channelBadgeHtml = `<span style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">Internal Task / Admin</span>`;
                         }
 
                         const rawStatus = l.status || '';
