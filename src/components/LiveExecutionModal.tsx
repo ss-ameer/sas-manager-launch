@@ -20,7 +20,8 @@ import {
   Mail,
   Users,
   MapPin,
-  Activity
+  Activity,
+  Briefcase
 } from 'lucide-react';
 import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, isSamePhoneNumber } from '../types';
 import { safeSetDoc } from '../firebase';
@@ -30,6 +31,9 @@ import {
   CHANNELS,
   PURPOSES,
   OUTCOMES,
+  POSITIVE_OUTCOMES,
+  NEUTRAL_OUTCOMES,
+  NEGATIVE_OUTCOMES,
   getStatusesForChannel,
   getOutcomesForStatus,
   isSuccessStatus
@@ -220,8 +224,10 @@ export default function LiveExecutionModal({
       return <Mail className="w-4 h-4" />;
     } else if (norm.includes('meeting')) {
       return <Users className="w-4 h-4" />;
-    } else if (norm.includes('site visit')) {
+    } else if (norm.includes('site visit') || norm.includes('visit') || norm.includes('site')) {
       return <MapPin className="w-4 h-4" />;
+    } else if (norm.includes('task') || norm.includes('admin')) {
+      return <Briefcase className="w-4 h-4" />;
     }
     return <Activity className="w-4 h-4" />;
   };
@@ -458,7 +464,7 @@ export default function LiveExecutionModal({
         {/* Modal Scrollable Body */}
         <form onSubmit={handleExecute} className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Target Task Briefing Card */}
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl space-y-3">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <Building2 className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
@@ -509,7 +515,7 @@ export default function LiveExecutionModal({
                 <FileText className="w-3 h-3 text-slate-400" />
                 <span>Original Agenda / Notes</span>
               </div>
-              <p className="text-xs text-slate-700 dark:text-slate-200 bg-white/80 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800 whitespace-pre-wrap leading-relaxed">
+              <p className="text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg whitespace-pre-wrap leading-relaxed">
                 {originalAgenda}
               </p>
             </div>
@@ -534,7 +540,7 @@ export default function LiveExecutionModal({
                   recentHistoryLogs.map((log) => (
                     <div
                       key={log.id}
-                      className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-xs space-y-1"
+                      className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-xs space-y-1"
                     >
                       <div className="flex items-center justify-between gap-1 flex-wrap">
                         <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
@@ -577,7 +583,7 @@ export default function LiveExecutionModal({
                     </div>
                   ))
                 ) : (
-                  <div className="p-2.5 text-center bg-white/60 dark:bg-slate-900/40 rounded-lg border border-slate-200/50 dark:border-slate-800 text-[11px] text-slate-400">
+                  <div className="p-2.5 text-center bg-slate-50 dark:bg-slate-800/40 rounded-lg text-[11px] text-slate-400">
                     No prior activity logs recorded for this company account.
                   </div>
                 )}
@@ -610,7 +616,7 @@ export default function LiveExecutionModal({
                 Auto-updates valid dispositions
               </span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl">
               {CHANNELS.map((ch) => {
                 const isSelected = activeChannel === ch;
                 return (
@@ -637,7 +643,7 @@ export default function LiveExecutionModal({
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Select Resolution Action
             </label>
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
               <button
                 type="button"
                 id="action-toggle-complete"
@@ -690,7 +696,7 @@ export default function LiveExecutionModal({
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                   {activeChannel} Status / Disposition
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                <div className="flex flex-wrap gap-1.5 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl">
                   {availableStatuses.map((st) => (
                     <button
                       key={st}
@@ -701,10 +707,10 @@ export default function LiveExecutionModal({
                           setCallOutcome('');
                         }
                       }}
-                      className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                      className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
                         callStatus === st || (st === 'Scheduled / Planned' && callStatus === 'Scheduled') || (st === 'Completed / Connected' && callStatus === 'Completed')
-                          ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700'
                       }`}
                     >
                       {st}
@@ -728,11 +734,33 @@ export default function LiveExecutionModal({
                     <option value="" disabled>
                       Select an outcome...
                     </option>
-                    {OUTCOMES.map((out) => (
-                      <option key={out} value={out}>
-                        {out}
-                      </option>
-                    ))}
+                    {(() => {
+                      return (
+                        <>
+                          <optgroup label="🟢 POSITIVE / WINS">
+                            {POSITIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
+                            {NEUTRAL_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="🔴 NEGATIVE / LOSSES">
+                            {NEGATIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               )}

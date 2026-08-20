@@ -533,6 +533,7 @@ export default function CompanyModal({
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('LLC');
   const [country, setCountry] = useState('UAE');
   const [city, setCity] = useState('');
+  const [website, setWebsite] = useState('');
   const [generalPhone, setGeneralPhone] = useState('');
   const [generalEmail, setGeneralEmail] = useState('');
   const [companyPhones, setCompanyPhones] = useState<ContactMethod[]>([{ id: 'init_p1', label: 'Landline', value: '' }]);
@@ -655,6 +656,7 @@ export default function CompanyModal({
     setLegalSuffix(comp.legal_suffix);
     setCountry(comp.country);
     setCity(comp.city);
+    setWebsite(comp.website || '');
     setGeneralPhone(comp.general_phone || comp.phone || '');
     setGeneralEmail(comp.general_email || comp.email || '');
     if (comp.restricted_lines) {
@@ -768,6 +770,7 @@ export default function CompanyModal({
       aliases: aliasesArr,
       country: country.trim(),
       city: city.trim(),
+      website: website.trim(),
       general_phone: primaryPhoneVal,
       general_email: primaryEmailVal,
       phone: primaryPhoneVal,
@@ -3449,12 +3452,14 @@ export default function CompanyModal({
           similarityScore={duplicateMatchResult.similarity}
           existingDetails={{
             city: duplicateMatchResult.match.city,
+            website: duplicateMatchResult.match.website,
             country: duplicateMatchResult.match.country,
             phone: duplicateMatchResult.match.general_phone,
             email: duplicateMatchResult.match.general_email,
           }}
           newDetails={{
             city,
+            website,
             country,
             phone: generalPhone,
             email: generalEmail,

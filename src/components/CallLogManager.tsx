@@ -38,6 +38,8 @@ import {
   MessageSquare,
   Send,
   Users2,
+  Users,
+  Briefcase,
   LayoutGrid,
   Table,
   Loader2,
@@ -692,28 +694,31 @@ export default function CallLogManager({
       );
     }
 
-    // Meeting (Virtual/In-Person): amber badge with NO ICON
+    // Meeting (Virtual/In-Person): amber badge
     if (norm.includes('meeting')) {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          <Users className="w-3 h-3 text-amber-600 dark:text-amber-400" />
           <span>Meeting (Virtual/In-Person)</span>
         </span>
       );
     }
 
-    // Site Visit: cyan/teal badge with NO ICON
+    // Site Visit: cyan/teal badge
     if (norm.includes('visit') || norm.includes('site')) {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-700 dark:bg-teal-950/80 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-700 dark:bg-teal-950/80 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+          <MapPin className="w-3 h-3 text-teal-600 dark:text-teal-400" />
           <span>Site Visit</span>
         </span>
       );
     }
 
-    // Internal Task / Admin: slate/gray badge with NO ICON
+    // Internal Task / Admin: slate/gray badge
     if (norm.includes('task') || norm.includes('admin')) {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+          <Briefcase className="w-3 h-3 text-slate-600 dark:text-slate-400" />
           <span>Internal Task / Admin</span>
         </span>
       );

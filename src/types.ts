@@ -111,6 +111,7 @@ export interface Company extends SoftDeleteFields {
   aliases: string[];
   country: string;
   city: string;
+  website?: string;
   phone?: string;
   email?: string;
   general_phone?: string;

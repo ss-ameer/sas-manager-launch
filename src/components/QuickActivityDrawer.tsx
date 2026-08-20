@@ -56,6 +56,9 @@ import {
   CHANNELS,
   PURPOSES,
   OUTCOMES,
+  POSITIVE_OUTCOMES,
+  NEUTRAL_OUTCOMES,
+  NEGATIVE_OUTCOMES,
   getStatusesForChannel,
   isSuccessStatus,
   getPurposesForChannel,
@@ -726,6 +729,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
     compPhones.forEach((p) => {
       if (p.number && !list.some((existing) => isSamePhoneNumber(existing.number, p.number))) {
+        // Exclude mobile and direct line labels for company mainline
+        const lbl = (p.label || '').toLowerCase();
+        if (lbl.includes('mobile') || lbl.includes('direct') || lbl.includes('personal')) {
+          return;
+        }
         list.push({ number: p.number, label: p.label || 'Front Desk' });
       }
     });
@@ -1932,7 +1940,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="relative w-full max-w-xl bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col h-full z-10 text-slate-100"
+          className="relative w-full max-w-2xl bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col h-full z-10 text-slate-100"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -3192,6 +3200,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     if (norm.includes('call') || norm.includes('phone')) return <Phone className="h-4 w-4 shrink-0" />;
                     if (norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms')) return <MessageSquare className="h-4 w-4 shrink-0" />;
                     if (norm.includes('email')) return <Mail className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('meeting')) return <Users className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('visit') || norm.includes('site')) return <MapPin className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('task') || norm.includes('admin')) return <Briefcase className="h-4 w-4 shrink-0" />;
                     return null;
                   };
 
@@ -3219,7 +3230,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 {interactionChannel.toUpperCase()} STATUS / DISPOSITION
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+              <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                 {getStatusesForChannel(interactionChannel).map((st) => (
                   <button
                     key={st}
@@ -3231,7 +3242,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         setOutcome('');
                       }
                     }}
-                    className={`py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                    className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
                       status === st || (st === 'Scheduled / Planned' && status === 'Scheduled') || (st === 'Completed / Connected' && status === 'Completed')
                         ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
@@ -3261,11 +3272,34 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <option value="" disabled>
                       Select an outcome...
                     </option>
-                    {OUTCOMES.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
+                    {(() => {
+                      const availableOutcomes = OUTCOMES;
+                      return (
+                        <>
+                          <optgroup label="🟢 POSITIVE / WINS">
+                            {POSITIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
+                            {NEUTRAL_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="🔴 NEGATIVE / LOSSES">
+                            {NEGATIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               )}

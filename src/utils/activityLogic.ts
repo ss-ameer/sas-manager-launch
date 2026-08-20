@@ -17,7 +17,6 @@ export const PURPOSES = [
   'Discovery / Qualification',
   'Follow-up / Check-in',
   'Closing / Negotiation',
-  'Active Negotiation',
   'Issue Resolution',
   'Re-engagement / Win-Back',
   'Internal Prep / Quote Building',
@@ -105,7 +104,6 @@ export function getStatusesForChannel(channel?: string): string[] {
   return [
     'Completed / Connected',
     'No Answer',
-    'Left Voicemail',
     'Busy',
     'Invalid Number',
     'Call Dropped',
