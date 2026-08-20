@@ -3,7 +3,7 @@ import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalS
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { recordAuditLog } from '../utils/auditLogger';
 import { getReferenceId } from '../utils/refId';
-import { isRecordOwner, canEditOrDeleteRecord, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole } from '../utils/permissions';
+import { isRecordOwner, canEditOrDeleteRecord, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, getWorkspaceInitials } from '../utils/permissions';
 import {
   Phone,
   PhoneCall,
@@ -109,11 +109,27 @@ export function formatOverdueDisplayDate(dateStr?: string): string {
   }
 }
 
-export function parseTaskScheduledDate(dateStr?: string): Date | null {
+export function parseTaskScheduledDate(dateStr?: any): Date | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return null;
-  return d;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  if (typeof dateStr === 'object' && typeof dateStr.toDate === 'function') {
+    const d = dateStr.toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof dateStr === 'object' && typeof dateStr.seconds === 'number') {
+    return new Date(dateStr.seconds * 1000);
+  }
+  if (typeof dateStr !== 'string') return null;
+  const clean = dateStr.trim();
+  let d = new Date(clean);
+  if (!isNaN(d.getTime())) return d;
+
+  // Handle strings with dashes or bullets like "Aug 20, 2026 - 10:00 AM" or "Aug 20, 2026 • 10:00 AM"
+  const sanitized = clean.replace(/\s*[-•]\s*/g, ' ');
+  d = new Date(sanitized);
+  if (!isNaN(d.getTime())) return d;
+
+  return null;
 }
 
 export function isTaskOverdue(dateStr?: string): boolean {
@@ -121,7 +137,8 @@ export function isTaskOverdue(dateStr?: string): boolean {
   const parsed = parseTaskScheduledDate(dateStr);
   if (!parsed) return false;
   
-  const hasTime = dateStr.includes('T') || dateStr.includes(':');
+  const str = typeof dateStr === 'string' ? dateStr : '';
+  const hasTime = str.includes('T') || str.includes(':');
   if (!hasTime) {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -146,12 +163,12 @@ export function isTaskDueToday(dateStr?: string): boolean {
   const parsed = parseTaskScheduledDate(dateStr);
   if (!parsed) return false;
   
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-  
-  return parsed.getTime() >= startOfToday.getTime() && parsed.getTime() <= endOfToday.getTime();
+  const now = new Date();
+  return (
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate()
+  );
 }
 
 export function isTaskUpcoming(dateStr?: string): boolean {
@@ -872,9 +889,21 @@ export default function CallLogManager({
     const scheduledToday = allScheduledQueueItems.filter((i) => isTaskDueToday(i.date)).length;
     const overdueCount = allScheduledQueueItems.filter((i) => isTaskOverdue(i.date)).length;
 
-    const completedToday = workspaceCallLogs.filter(
-      (l) => (l.status === 'Completed' || l.status === 'Completed Log') && l.date && isTaskDueToday(l.date)
-    ).length;
+    const isNonScheduledOrCompleted = (status?: string) => {
+      if (!status) return true;
+      const s = status.toLowerCase().trim();
+      return !(s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s === 'cancelled');
+    };
+
+    const getLogExecutionDate = (l: CallLogEntry): string | undefined => {
+      return (l as any).completed_at || (l as any).completedAt || (l as any).executed_at || l.date || l.updatedAt || l.createdAt;
+    };
+
+    const completedToday = workspaceCallLogs.filter((l) => {
+      if (!isNonScheduledOrCompleted(l.status)) return false;
+      const execDate = getLogExecutionDate(l);
+      return execDate ? isTaskDueToday(execDate) : false;
+    }).length;
 
     // Start of week (7 days ago)
     const sevenDaysAgo = new Date();
@@ -882,8 +911,9 @@ export default function CallLogManager({
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
     const completedThisWeek = workspaceCallLogs.filter((l) => {
-      if (l.status !== 'Completed' && l.status !== 'Completed Log') return false;
-      const t = parseTaskScheduledDate(l.date)?.getTime() || 0;
+      if (!isNonScheduledOrCompleted(l.status)) return false;
+      const execDate = getLogExecutionDate(l);
+      const t = execDate ? (parseTaskScheduledDate(execDate)?.getTime() || 0) : 0;
       return t >= sevenDaysAgo.getTime();
     }).length;
 
@@ -954,13 +984,16 @@ export default function CallLogManager({
       const updatedNotes = fastNotes ? `${selectedEntry?.requirement_notes || ''}\n[Completed Note]: ${fastNotes}`.trim() : (selectedEntry?.requirement_notes || '');
       
       const updatedPayload = {
+        date: nowIso,
         status: 'Completed' as const,
         outcome: fastOutcome,
         requirement_notes: updatedNotes,
         company_name: finalCompanyName,
         contact_name: finalContactName,
         contact_phone: finalContactPhone,
+        completed_at: nowIso,
         completedAt: nowIso,
+        executed_at: nowIso,
         updatedAt: nowIso
       };
 
@@ -1627,7 +1660,7 @@ export default function CallLogManager({
           }`}
         >
           <PhoneCall className="w-4 h-4" />
-          <span>Operator Call Queue ({queueItems.length})</span>
+          <span>Activity Queue ({queueItems.length})</span>
         </button>
 
         <button
@@ -1639,17 +1672,17 @@ export default function CallLogManager({
           }`}
         >
           <ListFilter className="w-4 h-4" />
-          <span>Full Call History & Search ({filteredHistoryLogs.length})</span>
+          <span>Activity History ({filteredHistoryLogs.length})</span>
         </button>
       </div>
 
-      {/* VIEW 1: OPERATOR CALL QUEUE */}
+      {/* VIEW 1: ACTIVITY QUEUE */}
       {subTab === 'queue' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
             <div>
               <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2 flex-wrap">
-                <span>Operator Call Queue</span>
+                <span>Activity Queue</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-bold font-mono">
                   {queueItems.length} {queueTimeframe === 'today' ? 'Due Today / Overdue' : queueTimeframe === 'upcoming' ? 'Upcoming' : 'Total Scheduled'}
                 </span>
@@ -1756,8 +1789,12 @@ export default function CallLogManager({
                       )}
                     </div>
 
-                    {/* Phone Tap-to-Call */}
-                      <div className="flex items-center space-x-3 pt-0.5">
+                    {/* Phone Tap-to-Call & Metadata */}
+                      <div className="flex items-center space-x-3 pt-0.5 text-xs flex-wrap gap-y-1">
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {formatActivityDate(item.date)} &bull; By <span className="font-bold text-slate-900 dark:text-slate-100">{getWorkspaceInitials(item.handled_by_team_member_name || item.logged_by || item.sales_person, salespersons, user, activeWorkspace)}</span>
+                        </span>
+
                         {item.contact_phone ? (
                           <a
                             href={`tel:${item.contact_phone}`}
@@ -2047,7 +2084,12 @@ export default function CallLogManager({
 
             {filteredHistoryLogs.map((log) => {
               const isSuppressed = isEntrySuppressedByDNC(log);
-              const handledBy = log.handled_by_team_member_name || log.logged_by;
+              const handledBy = getWorkspaceInitials(
+                log.handled_by_team_member_name || log.logged_by || log.sales_person,
+                salespersons,
+                user,
+                activeWorkspace
+              );
               const type = (log.interaction_type || 'call').toLowerCase();
               const isSelected = !!(log.id && selectedLogIds.includes(log.id));
 

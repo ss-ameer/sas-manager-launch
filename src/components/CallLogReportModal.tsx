@@ -55,26 +55,43 @@ export default function CallLogReportModal({
 
   // Helper to extract candidate YYYY-MM-DD date strings from a log
   const getLogDateStrings = (log: CallLogEntry): string[] => {
-    const raw = log.date || log.createdAt || '';
-    if (!raw) return [];
+    const rawCandidates = [
+      (log as any).completed_at,
+      (log as any).completedAt,
+      (log as any).executed_at,
+      log.date,
+      log.updatedAt,
+      log.createdAt
+    ].filter(Boolean);
 
-    const trimmed = raw.trim();
+    if (rawCandidates.length === 0) return [];
+
     const results = new Set<string>();
 
-    // 1. Direct YYYY-MM-DD prefix / split by T
-    const partBeforeT = trimmed.split('T')[0].trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(partBeforeT)) {
-      results.add(partBeforeT);
-    }
+    for (const raw of rawCandidates) {
+      if (typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
 
-    // 2. Parse date object to capture local and UTC YYYY-MM-DD
-    const parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) {
-      results.add(getLocalDateStr(parsed));
-      const utcY = parsed.getUTCFullYear();
-      const utcM = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-      const utcD = String(parsed.getUTCDate()).padStart(2, '0');
-      results.add(`${utcY}-${utcM}-${utcD}`);
+      // 1. Direct YYYY-MM-DD prefix / split by T
+      const partBeforeT = trimmed.split('T')[0].trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(partBeforeT)) {
+        results.add(partBeforeT);
+      }
+
+      // 2. Parse date object (including dash sanitized) to capture local and UTC YYYY-MM-DD
+      let parsed = new Date(trimmed);
+      if (isNaN(parsed.getTime())) {
+        const sanitized = trimmed.replace(/\s*[-•]\s*/g, ' ');
+        parsed = new Date(sanitized);
+      }
+
+      if (!isNaN(parsed.getTime())) {
+        results.add(getLocalDateStr(parsed));
+        const utcY = parsed.getUTCFullYear();
+        const utcM = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+        const utcD = String(parsed.getUTCDate()).padStart(2, '0');
+        results.add(`${utcY}-${utcM}-${utcD}`);
+      }
     }
 
     return Array.from(results);

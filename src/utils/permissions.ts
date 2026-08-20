@@ -262,6 +262,94 @@ export function getSalespersonFullName(spVal: string | undefined | null, salespe
   return found?.full_name || clean;
 }
 
+export function getWorkspaceInitials(
+  rawVal?: string | null,
+  salespersonsList: any[] = [],
+  currentUser?: UserProfile | null,
+  activeWs?: any | null
+): string {
+  if (!rawVal || !rawVal.trim()) {
+    const fallback =
+      currentUser?.workspace_profiles?.[activeWs?.id || '']?.initials ||
+      currentUser?.initials ||
+      (currentUser as any)?.salesperson_code;
+    return fallback ? fallback.toUpperCase() : '—';
+  }
+
+  const clean = rawVal.trim();
+  const cleanLower = clean.toLowerCase();
+
+  // 1. Match against salespersons list (by ID, initials, full name, email, or linked user ID)
+  const foundSp = salespersonsList.find(
+    (s) =>
+      (s.id && s.id.toLowerCase() === cleanLower) ||
+      (s.initials && s.initials.toLowerCase() === cleanLower) ||
+      (s.full_name && s.full_name.toLowerCase() === cleanLower) ||
+      (s.email && s.email.toLowerCase() === cleanLower) ||
+      (s.linked_user_id && s.linked_user_id.toLowerCase() === cleanLower)
+  );
+  if (foundSp?.initials) {
+    return foundSp.initials.toUpperCase();
+  }
+
+  // 2. Match against current logged-in user
+  if (currentUser) {
+    const isCurrentUser =
+      (currentUser.uid && currentUser.uid.toLowerCase() === cleanLower) ||
+      (currentUser.email && currentUser.email.toLowerCase() === cleanLower) ||
+      (currentUser.username && currentUser.username.toLowerCase() === cleanLower) ||
+      (currentUser.full_name && currentUser.full_name.toLowerCase() === cleanLower);
+
+    if (isCurrentUser) {
+      const userWsInitials =
+        currentUser.workspace_profiles?.[activeWs?.id || '']?.initials ||
+        currentUser.initials ||
+        (currentUser as any)?.salesperson_code;
+      if (userWsInitials) return userWsInitials.toUpperCase();
+    }
+  }
+
+  // 3. Match against workspace members
+  if (activeWs?.members && activeWs.members.length > 0) {
+    const member = activeWs.members.find(
+      (m: any) =>
+        (m.uid && m.uid.toLowerCase() === cleanLower) ||
+        (m.email && m.email.toLowerCase() === cleanLower) ||
+        (m.name && m.name.toLowerCase() === cleanLower) ||
+        (m.full_name && m.full_name.toLowerCase() === cleanLower)
+    );
+    if (member) {
+      const spForMember = salespersonsList.find(
+        (s) =>
+          (s.linked_user_id && s.linked_user_id === member.uid) ||
+          (s.email && s.email.toLowerCase() === member.email?.toLowerCase()) ||
+          (s.full_name && s.full_name.toLowerCase() === (member.full_name || member.name || '').toLowerCase())
+      );
+      if (spForMember?.initials) return spForMember.initials.toUpperCase();
+    }
+  }
+
+  // 4. If already an initials string (<= 4 chars without spaces and alphanumeric), return uppercase
+  if (/^[A-Za-z0-9]{1,4}$/.test(clean)) {
+    return clean.toUpperCase();
+  }
+
+  // 5. If it's a full name like "Syed Ameer Sibuma", extract clean initials
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    if (words.length === 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+  }
+
+  if (words.length === 1 && words[0].length >= 2) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return clean.toUpperCase();
+}
+
 export function isSuperAdmin(user: UserProfile | undefined | null): boolean {
   if (!user) return false;
   const email = (user.email || '').toLowerCase().trim();

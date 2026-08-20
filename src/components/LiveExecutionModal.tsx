@@ -360,10 +360,11 @@ export default function LiveExecutionModal({
         status: updatedStatus as CallStatus,
         outcome: updatedOutcome,
         requirement_notes: finalNotes,
+        date: resolutionAction === 'complete' ? nowIso : task.date,
         updatedAt: nowIso,
         last_modified_by_uid: userUid,
         last_modified_by_name: userName,
-        ...(resolutionAction === 'complete' ? { completed_at: nowIso, completedAt: nowIso } : {}),
+        ...(resolutionAction === 'complete' ? { completed_at: nowIso, completedAt: nowIso, executed_at: nowIso } : {}),
         ...(nextFollowUpDate && resolutionAction !== 'cancel' ? { next_followup_date: nextFollowUpDate } : {})
       };
 
