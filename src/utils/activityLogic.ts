@@ -4,7 +4,7 @@ export const CHANNELS = [
   'Phone Call',
   'Message (WhatsApp/SMS)',
   'Email',
-  'Meeting',
+  'Meeting (Virtual/In-Person)',
   'Site Visit',
   'Internal Task / Admin'
 ] as const;
@@ -80,7 +80,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('whatsapp') ||
     norm.includes('sms')
   ) {
-    return ['Sent / Delivered', 'Bounced / Failed', 'Scheduled / Planned'];
+    return ['Sent / Delivered', 'Bounced / Failed', 'Scheduled'];
   }
 
   // Meeting / Site Visit
@@ -89,7 +89,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('site visit') ||
     norm.includes('visit')
   ) {
-    return ['Completed / Attended', 'No Show', 'Cancelled', 'Rescheduled', 'Scheduled / Planned'];
+    return ['Completed / Attended', 'No Show', 'Cancelled', 'Rescheduled', 'Scheduled'];
   }
 
   // Internal Task / Admin
@@ -98,7 +98,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('task') ||
     norm.includes('admin')
   ) {
-    return ['Completed', 'In Progress', 'Scheduled / Planned'];
+    return ['Completed', 'In Progress', 'Scheduled'];
   }
 
   // Default: Phone Call
@@ -109,7 +109,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     'Busy',
     'Invalid Number',
     'Call Dropped',
-    'Scheduled / Planned'
+    'Scheduled'
   ];
 }
 

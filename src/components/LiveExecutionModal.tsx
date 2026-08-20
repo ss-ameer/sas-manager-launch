@@ -253,7 +253,7 @@ export default function LiveExecutionModal({
 
       if (resolutionAction === 'cancel') {
         updatedStatus = 'Cancelled';
-        updatedOutcome = 'Action Cancelled';
+        updatedOutcome = '';
         finalNotes = notes.trim()
           ? finalNotes
             ? `${finalNotes}\n[Cancelled]: ${notes.trim()}`
@@ -261,7 +261,7 @@ export default function LiveExecutionModal({
           : finalNotes;
       } else if (resolutionAction === 'reschedule') {
         updatedStatus = 'Rescheduled';
-        updatedOutcome = 'Follow-Up Scheduled';
+        updatedOutcome = '';
         finalNotes = notes.trim()
           ? finalNotes
             ? `${finalNotes}\n[Rescheduled]: ${notes.trim()}`
@@ -282,7 +282,7 @@ export default function LiveExecutionModal({
       const targetContactId = activeContactId || task.contact_id;
       const targetPhone = activeContactPhone || task.phone_number || task.contact_phone || task.phone || task.unlinked_contact_info || '';
       const isInvalidStatus = updatedStatus === 'Invalid Number' || callStatus === 'Invalid Number';
-      const isDncTriggered = isDnc || updatedOutcome === 'DNC Request' || (callOutcome && (callOutcome.toLowerCase().includes('dnc') || callOutcome.toLowerCase().includes('opt-out')));
+      const isDncTriggered = isDnc || (callOutcome && (callOutcome.toLowerCase().includes('dnc') || callOutcome.toLowerCase().includes('opt-out')));
 
       if (targetContactId) {
         try {
@@ -624,9 +624,7 @@ export default function LiveExecutionModal({
                     }`}
                   >
                     {renderChannelIcon(ch)}
-                    <span className="truncate">
-                      {ch === 'Message (WhatsApp/SMS)' ? 'Message' : ch === 'Internal Task / Admin' ? 'Internal Task' : ch}
-                    </span>
+                    <span className="truncate">{ch}</span>
                   </button>
                 );
               })}

@@ -147,7 +147,8 @@ export const channelStatuses: Record<string, string[]> = {
   'Message (WhatsApp/SMS)': getStatusesForChannel('Message (WhatsApp/SMS)'),
   WhatsApp: getStatusesForChannel('Message (WhatsApp/SMS)'),
   Email: getStatusesForChannel('Email'),
-  Meeting: getStatusesForChannel('Meeting'),
+  'Meeting (Virtual/In-Person)': getStatusesForChannel('Meeting (Virtual/In-Person)'),
+  Meeting: getStatusesForChannel('Meeting (Virtual/In-Person)'),
   'Site Visit': getStatusesForChannel('Site Visit'),
   'Internal Task / Admin': getStatusesForChannel('Internal Task / Admin'),
   Task: getStatusesForChannel('Internal Task / Admin')
@@ -3294,29 +3295,37 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Interaction Channel
               </label>
-              <div className="grid grid-cols-5 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                {[
-                  { id: 'Call', label: 'Call', icon: Phone },
-                  { id: 'WhatsApp', label: 'WhatsApp', icon: MessageSquare },
-                  { id: 'Email', label: 'Email', icon: Mail },
-                  { id: 'Meeting', label: 'Meeting', icon: Users },
-                  { id: 'Site Visit', label: 'Site Visit', icon: MapPin }
-                ].map((item) => {
-                  const IconComponent = item.icon;
-                  const isSelected = channel === item.id;
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                {CHANNELS.map((ch) => {
+                  const isSelected =
+                    channel === ch ||
+                    (ch === 'Phone Call' && (channel as string) === 'Call') ||
+                    (ch === 'Message (WhatsApp/SMS)' && (channel as string) === 'WhatsApp') ||
+                    (ch === 'Meeting (Virtual/In-Person)' && ((channel as string) === 'Meeting' || (channel as string) === 'Meeting (Virtual/In-Person)'));
+
+                  const renderIcon = () => {
+                    const norm = ch.toLowerCase();
+                    if (norm.includes('call') || norm.includes('phone')) return <Phone className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms')) return <MessageSquare className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('email')) return <Mail className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('meeting')) return <Users className="h-4 w-4 shrink-0" />;
+                    if (norm.includes('site visit')) return <MapPin className="h-4 w-4 shrink-0" />;
+                    return <FileText className="h-4 w-4 shrink-0" />;
+                  };
+
                   return (
                     <button
-                      key={item.id}
+                      key={ch}
                       type="button"
-                      onClick={() => handleChannelSelect(item.id as ActivityChannel)}
-                      className={`flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-lg text-xs font-medium transition-all ${
+                      onClick={() => handleChannelSelect(ch as any)}
+                      className={`flex items-center justify-center space-x-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                       }`}
                     >
-                      <IconComponent className="h-4 w-4" />
-                      <span className="text-[11px] truncate w-full text-center">{item.label}</span>
+                      {renderIcon()}
+                      <span className="truncate">{ch}</span>
                     </button>
                   );
                 })}
