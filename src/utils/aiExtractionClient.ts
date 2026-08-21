@@ -20,6 +20,7 @@ REQUIRED JSON OUTPUT FORMAT:
   "company_name": null,
   "legal_suffix": null,
   "contact_name": null,
+  "contact_designation": null,
   "contact_email": null,
   "contact_phone": null,
   "country": null,
@@ -73,6 +74,7 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 
 2. CONTACT PERSON, EMAIL & PHONE NUMBER:
    - contact_name: Search "Attn:", "Attention:", "Kind Attn:", "Contact Person:", "Name:", "Mr.", "Ms.", "Eng.".
+   - contact_designation: Extract the exact job title or role of the contact person (e.g., "General Manager - Sales & Projects", "Procurement Engineer").
    - contact_email: Extract valid email addresses (e.g. mukesh.katara@aquaenvirosolutions.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
    - contact_phone: Extract mobile or landline numbers (e.g. "+971 55 267 0574", "+971 2 5591110", "050-1234567"). DO NOT leave empty if a phone/mobile string is present.
 
@@ -106,7 +108,10 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
    - Assign 'item_type': 'charge' for non-product fees such as transportation, freight, delivery, installation, testing, commissioning, customs clearance, or mobilization. Set 'charge_type' (e.g. "Transportation", "Installation", "Customs", "Other Charge") and set 'product_type' to "Service / Charge".
    - Assign 'item_type': 'discount' for price deductions or commercial discounts. Set 'charge_type' to "Discount".
 
-6. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
+6. DATES & RECEIVED DATE LOGIC:
+   - received_date: Explicitly prioritize the ACTUAL date the enquiry was submitted or sent by the client (e.g., extract "2026-08-07" from the phrase "email enquiry dated 07/08/2026"). DO NOT default to the document's generation or print date unless absolutely no other submitted/sent date exists.
+
+7. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
    Example Input:
    "2792\\t2751-300626AA\\tJul-2026\\t29/06/2026\\tPV\\tAquaEnviro Solutions\\tMukesh Katara\\tmukesh.katara@aquaenvirosolutions.com\\t\\t+971 55 267 0574\\tUAE\\tDubai\\tEMAIL\\tFRP Filter Vessels...\\t\\"PRICE & COMMERCIAL TERMS\\n1 FRP Filter Vessel 63”x67” 05 Nos. 12,500.00 62,500.00\\n2 Transportation 01 LS 100.00 100.00\\"\\t195,500.00"
    Output Mapping:

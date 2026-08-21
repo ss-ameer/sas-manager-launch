@@ -385,7 +385,10 @@ export default function EnquiryForm({
     legalSuffix?: string;
     city?: string;
     country?: string;
+    relationship?: string;
+    temperature?: string;
     contactName?: string;
+    contactDesignation?: string;
     contactEmail?: string;
     contactMobile?: string;
     generalPhone?: string;
@@ -998,6 +1001,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           workspace_id: activeWorkspace!.id,
           company_id: resolvedCompanyId,
           full_name: unregisteredEntities.contactName.trim(),
+          designation: unregisteredEntities.contactDesignation?.trim() || undefined,
           email: contactEmailVal,
           mobile: contactMobileVal,
           is_primary: true,
@@ -1144,6 +1148,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           legal_suffix: suf,
           city,
           country: countryVal,
+          relationship: unregisteredEntities.relationship || 'Prospect',
+          temperature: unregisteredEntities.temperature || 'Cold ❄️',
           general_phone: companyGeneralPhone,
           general_email: companyGeneralEmail,
           createdAt: new Date().toISOString()
@@ -1339,6 +1345,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             city: companyMatched.city || '',
             country: companyMatched.country || 'UAE',
             contactName: data.contact_name || '',
+            contactDesignation: data.contact_designation || '',
             contactEmail: data.contact_email || data.email || '',
             contactMobile: data.contact_phone || data.mobile || data.phone || '',
             generalPhone: data.contact_phone || data.phone || '',
@@ -1363,6 +1370,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           city: data.project_location || '',
           country: data.country || 'UAE',
           contactName: data.contact_name || '',
+          contactDesignation: data.contact_designation || '',
           contactEmail: data.contact_email || data.email || '',
           contactMobile: data.contact_phone || data.mobile || data.phone || '',
           generalPhone: data.contact_phone || data.phone || '',
@@ -2851,14 +2859,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   ) : (
                     <div className="space-y-2 animate-in fade-in duration-200">
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.companyName || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-2">
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
+                          <input
+                            type="text"
+                            value={unregisteredEntities.companyName || ''}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Legal Suffix</label>
+                          <input
+                            type="text"
+                            value={unregisteredEntities.legalSuffix || 'LLC'}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -2875,10 +2894,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <label className="text-[10px] font-semibold text-slate-500 uppercase">Country</label>
                           <input
                             type="text"
-                            value={unregisteredEntities.country || ''}
+                            value={unregisteredEntities.country || 'UAE'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
                             className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                           />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Relationship</label>
+                          <select
+                            value={unregisteredEntities.relationship || 'Prospect'}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, relationship: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="Prospect">Prospect</option>
+                            <option value="Client">Client</option>
+                            <option value="Partner">Partner</option>
+                            <option value="Vendor">Vendor</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Temperature</label>
+                          <select
+                            value={unregisteredEntities.temperature || 'Cold ❄️'}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, temperature: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="Cold ❄️">Cold ❄️</option>
+                            <option value="Warm 🔥">Warm 🔥</option>
+                            <option value="Hot 🚨">Hot 🚨</option>
+                          </select>
                         </div>
                       </div>
                     </div>
@@ -2904,14 +2951,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
 
                   <div className={`space-y-2 transition-opacity ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
-                      <input
-                        type="text"
-                        value={unregisteredEntities.contactName || ''}
-                        onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
-                      />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
+                        <input
+                          type="text"
+                          value={unregisteredEntities.contactName || ''}
+                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Designation / Job Title</label>
+                        <input
+                          type="text"
+                          value={unregisteredEntities.contactDesignation || ''}
+                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactDesignation: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
