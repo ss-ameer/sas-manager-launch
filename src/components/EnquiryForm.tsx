@@ -9,6 +9,7 @@ import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
+import { extractEnquiryClientSide } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole } from '../utils/permissions';
 import {
   FileText,
@@ -1666,29 +1667,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
 
-      const res = await fetch('/api/gemini/extract-enquiry', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-simulate-gemini-error': simGeminiHeader,
-          'x-simulate-latency': simLatencyHeader,
-          ...(userGeminiKey ? { 'x-user-gemini-api-key': userGeminiKey } : {})
-        },
-        signal: textController.signal,
-        body: JSON.stringify({
-          fileName: 'Pasted_Excel_Row.txt',
-          mimeType: 'text/plain',
-          content: textContent,
-          isBase64: false
-        })
-      });
+      const data = await extractEnquiryClientSide(
+        userGeminiKey,
+        textContent,
+        false, // isBase64
+        'text/plain',
+        'Pasted_Excel_Row.txt',
+        salespersons
+      );
 
       clearTimeout(textTimeoutId);
-
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `Server error: ${res.status}`);
-      }
 
       applyExtractedData(data);
 
@@ -1825,32 +1813,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         requestPayload.isBase64 = false;
       }
 
-      console.log(`[Client Phase 3/4] Dispatching extraction payload to backend API...`);
+      console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
-      const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
-      const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
 
-      const res = await fetch('/api/gemini/extract-enquiry', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-simulate-gemini-error': simGeminiHeader,
-          'x-simulate-latency': simLatencyHeader,
-          ...(userGeminiKey ? { 'x-user-gemini-api-key': userGeminiKey } : {})
-        },
-        body: JSON.stringify(requestPayload),
-        signal: controller.signal
-      });
+      const data = await extractEnquiryClientSide(
+        userGeminiKey,
+        requestPayload.content,
+        requestPayload.isBase64,
+        requestPayload.mimeType,
+        requestPayload.fileName,
+        salespersons
+      );
 
-      const data = await res.json();
       clearTimeout(timeoutId); // Successful request, clear the timeout timer!
       networkRequestTime = Date.now() - networkStart;
-      console.log(`[Client Phase 3/4 Completed] Backend response received in ${networkRequestTime}ms.`);
-
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `Server returned status ${res.status}`);
-      }
+      console.log(`[Client Phase 3/4 Completed] Gemini AI response received in ${networkRequestTime}ms.`);
 
       const stateStart = Date.now();
       applyExtractedData(data);
@@ -1858,17 +1836,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       stateUpdateTime = Date.now() - stateStart;
       const clientTotalTime = Date.now() - clientStartTime;
-      const backendPerf = data.__performance || {};
-
       console.log(`\n=== CLIENT-SIDE PERFORMANCE REPORT ===`);
       console.log(`- File Blob Retrieval from URL: ${fileFetchTime}ms`);
       console.log(`- Local File Base64 Conversion: ${fileConversionTime}ms`);
-      console.log(`- Network Transmission Round-trip: ${networkRequestTime}ms`);
-      console.log(`  └─ Backend File Prepare: ${backendPerf.filePrepareTimeMs || 0}ms`);
-      console.log(`  └─ Backend Gemini API call: ${backendPerf.geminiApiTimeMs || 0}ms`);
-      console.log(`  └─ Backend Output JSON Parse: ${backendPerf.resultParseTimeMs || 0}ms`);
+      console.log(`- Gemini API Network Request: ${networkRequestTime}ms`);
       console.log(`- UI State Updates & Fuzzy Matching: ${stateUpdateTime}ms`);
-      console.log(`- Total Client-to-Client Duration: ${clientTotalTime}ms`);
+      console.log(`- Total Client-Side Duration: ${clientTotalTime}ms`);
       console.log(`======================================\n`);
 
       if (triggerToast) {
@@ -1883,7 +1856,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         `Enquiry form fields extracted and autofilled successfully!\n\n` +
         `Performance Summary:\n` +
         `• File Retrieval & Base64: ${fileFetchTime + fileConversionTime}ms\n` +
-        `• Gemini AI Model Call: ${backendPerf.geminiApiTimeMs || 'N/A'}ms\n` +
+        `• Gemini AI Model Call: ${networkRequestTime}ms\n` +
         `• Total Extraction Time: ${clientTotalTime}ms`
       );
     } catch (err: any) {
