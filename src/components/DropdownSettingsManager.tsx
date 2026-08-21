@@ -114,6 +114,8 @@ export default function DropdownSettingsManager({
     message: ''
   });
 
+  const showColorPicker = !['categories', 'units', 'sources'].includes(activeSubTab);
+
   // Validation/Checking helpers
   const getUsageCount = (optionName: string, type: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures') => {
     if (type === 'sources') {
@@ -717,33 +719,35 @@ export default function DropdownSettingsManager({
                             </button>
                           </div>
                           
-                          <div className="flex items-center space-x-2 pt-1 border-t border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-mono">Custom Color:</span>
-                            <input
-                              type="color"
-                              value={editingColor}
-                              onChange={(e) => setEditingColor(e.target.value)}
-                              className="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0"
-                            />
-                            <div className="flex flex-wrap gap-1">
-                              {['#10b981', '#3b82f6', '#6366f1', '#f59e0b', '#f43f5e', '#64748b', '#8b5cf6'].map((preset) => (
-                                <button
-                                  key={preset}
-                                  type="button"
-                                  onClick={() => setEditingColor(preset)}
-                                  className={`w-4 h-4 rounded-full border transition ${
-                                    editingColor === preset ? 'ring-1 ring-blue-500 scale-110 border-white' : 'border-slate-300'
-                                  }`}
-                                  style={{ backgroundColor: preset }}
-                                />
-                              ))}
+                          {showColorPicker && (
+                            <div className="flex items-center space-x-2 pt-1 border-t border-slate-200">
+                              <span className="text-[10px] text-slate-400 font-mono">Custom Color:</span>
+                              <input
+                                type="color"
+                                value={editingColor}
+                                onChange={(e) => setEditingColor(e.target.value)}
+                                className="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0"
+                              />
+                              <div className="flex flex-wrap gap-1">
+                                {['#10b981', '#3b82f6', '#6366f1', '#f59e0b', '#f43f5e', '#64748b', '#8b5cf6'].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setEditingColor(preset)}
+                                    className={`w-4 h-4 rounded-full border transition ${
+                                      editingColor === preset ? 'ring-1 ring-blue-500 scale-110 border-white' : 'border-slate-300'
+                                    }`}
+                                    style={{ backgroundColor: preset }}
+                                  />
+                                ))}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-1">
                           <div className="flex items-center space-x-2">
-                            {opt.color && (
+                            {showColorPicker && opt.color && (
                               <span 
                                 className="w-2.5 h-2.5 rounded-full shrink-0 border border-slate-300/60"
                                 style={{ backgroundColor: opt.color }}
@@ -820,6 +824,7 @@ export default function DropdownSettingsManager({
                 />
               </div>
 
+            {showColorPicker && (
               <div>
                 <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                   Appearance / Accent Color
@@ -848,6 +853,7 @@ export default function DropdownSettingsManager({
                   </div>
                 </div>
               </div>
+            )}
 
               <button
                 type="submit"
