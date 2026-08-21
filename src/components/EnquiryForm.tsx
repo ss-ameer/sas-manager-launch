@@ -3061,12 +3061,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               Account Pairing
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative bg-slate-950 border border-slate-800 rounded-xl p-4 shadow-inner">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
               {/* Company search */}
               <div className="relative">
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2 flex items-center justify-between">
-                    <MarqueeLabel textClassName="text-slate-300">
+                    <MarqueeLabel>
                       Search & Pair Company
                     </MarqueeLabel>
                     {renderConfidenceBadge('company_name')}
@@ -3164,7 +3164,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       setShowCompanyList(true);
                     }}
                     onFocus={() => setShowCompanyList(true)}
-                    className={`flex-1 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('company')}`}
+                    className={`flex-1 bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('company')}`}
                   />
                 </div>
 
@@ -3207,7 +3207,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2 flex justify-between items-center">
-                    <MarqueeLabel textClassName="text-slate-300">
+                    <MarqueeLabel>
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
@@ -3266,7 +3266,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={contactId}
                   onChange={(e) => setContactId(e.target.value)}
                   disabled={!companyId}
-                  className={`w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
+                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
                 >
                   <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
                   {companyContacts.map((ct) => (
@@ -3524,7 +3524,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_1.2fr_1.5fr] gap-3">
                       <div>
                         <label className="flex items-center h-4 text-[9px] font-mono text-slate-400 uppercase tracking-wider mb-1">
-                          Line Classification
+                          CLASSIFICATION
                         </label>
                         <select
                           value={item.item_type || 'product'}
@@ -3572,7 +3572,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       )}
 
                       <div>
-                        <MarqueeLabel>Quantity</MarqueeLabel>
+                        <MarqueeLabel>QTY</MarqueeLabel>
                         <input
                           type="number"
                           required
@@ -3583,7 +3583,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
 
                       <div>
-                        <MarqueeLabel badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>Unit Suffix</MarqueeLabel>
+                        <MarqueeLabel badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>UNIT</MarqueeLabel>
                         <input
                           type="text"
                           list="unit-list"
@@ -3616,7 +3616,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div>
-                        <MarqueeLabel>Item Description / Design Specifications</MarqueeLabel>
+                        <MarqueeLabel>ITEM DESCRIPTION & SPECS</MarqueeLabel>
                         <input
                           type="text"
                           placeholder="e.g. MMF 63''x67'', Design Pressure 10.5 Bar, ASME Stamped"
@@ -3627,7 +3627,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
 
                       <div>
-                        <MarqueeLabel>Lead Time Availability</MarqueeLabel>
+                        <MarqueeLabel>LEAD TIME</MarqueeLabel>
                         <input
                           type="text"
                           placeholder="e.g. 8–10 Weeks Ex-Factory"
@@ -3638,7 +3638,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
 
                       <div>
-                        <MarqueeLabel>Item Option Designation</MarqueeLabel>
+                        <MarqueeLabel>OPTION DESIGNATION</MarqueeLabel>
                         <select
                           value={item.option || ''}
                           onChange={(e) => handleLineItemChange(index, 'option', e.target.value)}
