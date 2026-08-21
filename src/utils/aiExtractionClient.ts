@@ -137,7 +137,7 @@ export const extractEnquiryClientSide = async (
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.7-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   const systemInstruction = getExtractionSystemPrompt(salespersons);
 
   const filePart = isBase64
