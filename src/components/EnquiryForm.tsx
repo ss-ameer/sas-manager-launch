@@ -1112,8 +1112,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   legal_suffix: suf,
                   city,
                   country: countryVal,
+                  relationship: unregisteredEntities.relationship || 'Prospect',
+                  temperature: unregisteredEntities.temperature || 'Cold ❄️',
                   general_phone: companyGeneralPhone,
                   general_email: companyGeneralEmail,
+                  updatedAt: new Date().toISOString()
                 };
                 await safeUpdateDoc('companies', targetId, updatedCompany);
                 if (setCompanies) {
