@@ -3066,9 +3066,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div className="relative">
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2 flex items-center justify-between">
-                    <MarqueeLabel textClassName="text-slate-300" badge={renderConfidenceBadge('company_name')}>
+                    <MarqueeLabel textClassName="text-slate-300">
                       Search & Pair Company
                     </MarqueeLabel>
+                    {renderConfidenceBadge('company_name')}
                     <button
                       type="button"
                       onClick={handleAutoDetectClipboard}
@@ -3205,10 +3206,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               {/* Contact lookup */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <div className="flex-1 min-w-0 mr-2">
-                    <MarqueeLabel textClassName="text-slate-300" badge={renderConfidenceBadge('contact_name')}>
+                  <div className="flex-1 min-w-0 mr-2 flex justify-between items-center">
+                    <MarqueeLabel textClassName="text-slate-300">
                       Account Contact Personnel
                     </MarqueeLabel>
+                    {renderConfidenceBadge('contact_name')}
                   </div>
                   <div className="flex items-center space-x-1.5">
                     <button
@@ -3285,7 +3287,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div id="field-country">
-                <MarqueeLabel>Company / Client Country</MarqueeLabel>
+                <MarqueeLabel>Country</MarqueeLabel>
                 <input
                   type="text"
                   required
@@ -3297,9 +3299,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div id="field-location">
-                <MarqueeLabel badge={renderConfidenceBadge('project_location')}>
-                  Company Location / City
-                </MarqueeLabel>
+                <div className="flex justify-between items-center mb-1">
+                  <div className="flex-1 min-w-0 mr-2">
+                    <MarqueeLabel>
+                      Company Location / City
+                    </MarqueeLabel>
+                  </div>
+                  {renderConfidenceBadge('project_location')}
+                </div>
                 <input
                   type="text"
                   required
@@ -3514,7 +3521,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_1.2fr_1.5fr] gap-3">
                       <div>
                         <label className="flex items-center h-4 text-[9px] font-mono text-slate-400 uppercase tracking-wider mb-1">
                           Line Classification
