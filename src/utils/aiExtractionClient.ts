@@ -14,6 +14,7 @@ REQUIRED JSON OUTPUT FORMAT:
 {
   "sn": null,
   "quote_ref_no": null,
+  "subject": null,
   "received_date": null,
   "proposal_option": null,
   "company_name": null,
@@ -64,10 +65,11 @@ REQUIRED JSON OUTPUT FORMAT:
 Your job is to analyze the uploaded document or copy-pasted raw text (which may be a Request for Quotation (RFQ), specification sheet, purchase order, enquiry details, email message, PDF file, or a raw multi-column row copy-pasted directly from Microsoft Excel or Google Sheets) and extract structured enquiry details with extreme precision.
 
 HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
-1. COMPANY NAME:
+1. COMPANY NAME & SUBJECT:
    - Search headers, "To:", "Client:", "Customer:", "Messrs:", letterheads, signature blocks, and tabular text.
    - Look for corporate names like "AquaEnviro Solutions", "Al Reef Projects LLC", "Aventura", "Gulf Engineering Services".
    - Extract the legal entity name as company_name and clean suffix (LLC, FZE, FZC, Co. LLC, Ltd, W.L.L., Est., etc.) into legal_suffix.
+   - subject: Extract the exact Subject line of the email, RFQ, or document if present (e.g., "SUBJECT: AIR DIFFUSERS FOR MITROAN DELHI PROJECT").
 
 2. CONTACT PERSON, EMAIL & PHONE NUMBER:
    - contact_name: Search "Attn:", "Attention:", "Kind Attn:", "Contact Person:", "Name:", "Mr.", "Ms.", "Eng.".
