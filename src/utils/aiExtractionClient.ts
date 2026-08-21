@@ -157,7 +157,7 @@ export const extractEnquiryClientSide = async (
   };
 
   const modelWithSystemPrompt = genAI.getGenerativeModel({
-    model: 'gemini-3.7-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction,
   });
 
