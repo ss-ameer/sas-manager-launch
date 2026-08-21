@@ -3420,6 +3420,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             {lineItems.length > 0 ? (
               <div className="space-y-4">
+                <datalist id="product-category-list">
+                  {sortedCategories.map((type) => (
+                    <option key={type} value={type} />
+                  ))}
+                </datalist>
+                <datalist id="unit-list">
+                  {sortedUnits.map((u) => (
+                    <option key={u} value={u} />
+                  ))}
+                </datalist>
                 {lineItems.map((item, index) => (
                   <div key={index} className="bg-white border border-slate-200 p-4 rounded-xl space-y-3 shadow-sm">
                     {/* Card Header Bar */}
@@ -3483,27 +3493,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             <span>Product Type</span>
                             {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
                           </label>
-                          <select
+                          <input
+                            type="text"
+                            list="product-category-list"
                             value={item.product_type}
-                            onChange={(e) => {
-                              if (e.target.value === '__NEW_CATEGORY__') {
-                                setInitiatingLineItemIndex(index);
-                                setNewCategoryModal(true);
-                              } else {
-                                handleLineItemChange(index, 'product_type', e.target.value);
-                              }
-                            }}
+                            onChange={(e) => handleLineItemChange(index, 'product_type', e.target.value)}
                             className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
-                          >
-                            {sortedCategories.map((type) => (
-                              <option key={type} value={type}>{type}</option>
-                            ))}
-                            {user.role === 'Admin' && (
-                              <option value="__NEW_CATEGORY__" className="text-blue-600 font-bold font-sans">
-                                + New Category...
-                              </option>
-                            )}
-                          </select>
+                          />
                         </div>
                       )}
 
@@ -3520,15 +3516,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                       <div>
                         <MarqueeLabel badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>Unit Suffix</MarqueeLabel>
-                        <select
+                        <input
+                          type="text"
+                          list="unit-list"
                           value={item.unit}
                           onChange={(e) => handleLineItemChange(index, 'unit', e.target.value)}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans"
-                        >
-                          {sortedUnits.map((u) => (
-                            <option key={u} value={u}>{u}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
 
                       <div>
