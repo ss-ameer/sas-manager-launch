@@ -2133,7 +2133,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   return (
     <div id="enquiry-form-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
-      <div className={`h-screen flex bg-white border-l border-slate-200 shadow-2xl relative animate-in slide-in-from-right duration-200 transition-all ${isPreviewActive ? 'w-[98vw] max-w-[1700px]' : 'w-full max-w-6xl lg:max-w-7xl'}`}>
+      <div className={`h-screen flex bg-white border-l border-slate-200 shadow-2xl relative animate-in slide-in-from-right duration-200 transition-all max-w-[98vw] w-[98vw]`}>
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (
@@ -2486,7 +2486,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
 
                   {/* Price Discrepancy & Valuation Accuracy Validation Ping */}
-                  {priceDiscrepancyAmount > 1.0 && (
+                  {lineItems.length === 0 ? (
+                    <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-2xs flex items-center justify-between text-slate-500 font-sans text-xs">
+                      <div className="flex items-center gap-2">
+                        <Info className="w-4 h-4 text-slate-400" />
+                        <span>Awaiting Line Items - Package Value: <strong className="text-slate-700">AED {manualValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      </div>
+                    </div>
+                  ) : priceDiscrepancyAmount > 1.0 && (
                     <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 shadow-2xs space-y-2">
                       <div className="flex items-center justify-between text-rose-900 font-bold text-xs">
                         <span className="flex items-center gap-1.5">
@@ -2922,12 +2929,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               Account Pairing
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative bg-slate-950 border border-slate-800 rounded-xl p-4 shadow-inner">
               {/* Company search */}
               <div className="relative">
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2 flex items-center justify-between">
-                    <MarqueeLabel badge={renderConfidenceBadge('company_name')}>
+                    <MarqueeLabel textClassName="text-slate-300" badge={renderConfidenceBadge('company_name')}>
                       Search & Pair Company
                     </MarqueeLabel>
                     <button
@@ -3024,7 +3031,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       setShowCompanyList(true);
                     }}
                     onFocus={() => setShowCompanyList(true)}
-                    className={`flex-1 bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('company')}`}
+                    className={`flex-1 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('company')}`}
                   />
                 </div>
 
@@ -3067,7 +3074,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2">
-                    <MarqueeLabel badge={renderConfidenceBadge('contact_name')}>
+                    <MarqueeLabel textClassName="text-slate-300" badge={renderConfidenceBadge('contact_name')}>
                       Account Contact Personnel
                     </MarqueeLabel>
                   </div>
@@ -3125,9 +3132,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={contactId}
                   onChange={(e) => setContactId(e.target.value)}
                   disabled={!companyId}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
+                  className={`w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
                 >
-                  <option value="">-- Choose Contact Manager --</option>
+                  <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
                   {companyContacts.map((ct) => (
                     <option key={ct.id} value={ct.id}>
                       {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
@@ -3655,8 +3662,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 ))}
               </div>
             ) : (
-              <div className="text-center py-6 border border-dashed border-slate-200 rounded-xl text-xs text-slate-400 font-mono bg-white">
-                No items added. Click 'Add Item Line' to declare proposal specs.
+              <div className="border border-dashed border-slate-200 rounded-xl bg-white overflow-hidden">
+                <table className="w-full">
+                  <thead className="text-left text-[10px] uppercase tracking-wider text-slate-500 bg-slate-50 border-b">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold">Item Description</th>
+                      <th className="px-4 py-2 font-semibold">Proposed Size</th>
+                      <th className="px-4 py-2 font-semibold">Qty</th>
+                      <th className="px-4 py-2 font-semibold">Unit Price (AED)</th>
+                      <th className="px-4 py-2 font-semibold">Total (AED)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                        No items added. Click 'Add Item Line' or use AI to extract specs.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

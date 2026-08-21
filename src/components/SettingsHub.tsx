@@ -319,24 +319,23 @@ export default function SettingsHub({
     const startTime = Date.now();
     try {
       const userApiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (userApiKey) {
-        headers['x-user-gemini-api-key'] = userApiKey;
+      if (!userApiKey) {
+        throw new Error("No API key configured in local storage.");
       }
-      const response = await fetch('/api/gemini/extract-enquiry', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          text: 'PING_API_KEY_HEALTH_TEST',
-          mimeType: 'text/plain'
-        })
-      });
-      const latencyMs = Date.now() - startTime;
-      const data = await response.json().catch(() => ({}));
 
-      if (response.ok && (data?.extractedData || data?.notice)) {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(userApiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+      
+      const response = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: "PING_API_KEY_HEALTH_TEST. Just reply 'OK'." }] }],
+        generationConfig: { maxOutputTokens: 10 }
+      });
+      
+      const reply = response.response.text();
+      const latencyMs = Date.now() - startTime;
+
+      if (reply) {
         setApiKeyTestResult({
           status: 'active',
           message: `Gemini API key is valid and connected! Response time: ${latencyMs}ms.`,
@@ -344,13 +343,7 @@ export default function SettingsHub({
         });
         if (triggerToast) triggerToast(`API Key active (${latencyMs}ms)`, 'success');
       } else {
-        const errText = data?.error || response.statusText || 'Response returned quota error or failed header check.';
-        setApiKeyTestResult({
-          status: 'error',
-          message: errText,
-          latencyMs
-        });
-        if (triggerToast) triggerToast(`API Key Ping: ${errText}`, 'error');
+        throw new Error("Empty response from Gemini.");
       }
     } catch (err: any) {
       const latencyMs = Date.now() - startTime;
