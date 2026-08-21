@@ -393,6 +393,10 @@ export default function EnquiryForm({
     salespersonName?: string;
     emailDestination: 'contact' | 'company';
     phoneDestination: 'contact' | 'company';
+    companyResolutionMode?: 'create' | 'link';
+    linkedCompanyId?: string;
+    linkedCompanySearchTerm?: string;
+    ignoreContact?: boolean;
   } | null>(null);
 
   // Global keyboard paste listener (Ctrl+V / Cmd+V anywhere on form for instant autofill)
@@ -978,130 +982,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   // One-click Confirm & Register Unregistered Entities handler
   const handleConfirmRegisterEntities = async (bypassDuplicateCheck = false) => {
-    if (!unregisteredEntities || !unregisteredEntities.companyName) return;
-
-    const compName = unregisteredEntities.companyName.trim();
-    const suf = (unregisteredEntities.legalSuffix || 'LLC') as LegalSuffix;
-    const display_name = suf === 'None / Other' ? compName : `${compName} ${suf}`;
-    const city = unregisteredEntities.city?.trim() || 'Dubai';
-    const countryVal = unregisteredEntities.country?.trim() || 'UAE';
-    const companyGeneralPhone = unregisteredEntities.phoneDestination === 'company' ? (unregisteredEntities.generalPhone || unregisteredEntities.contactMobile) : undefined;
-    const companyGeneralEmail = unregisteredEntities.emailDestination === 'company' ? (unregisteredEntities.generalEmail || unregisteredEntities.contactEmail) : undefined;
-
-    // Fuzzy duplicate check against existing company index
-    if (!bypassDuplicateCheck && companies.length > 0) {
-      const duplicateCompanyMatch = findDuplicateCompany(display_name, companies);
-      if (duplicateCompanyMatch) {
-        setDuplicateMatchState({
-          isOpen: true,
-          type: 'company',
-          candidateName: display_name,
-          existingRecordName: duplicateCompanyMatch.match.display_name,
-          matchReason: duplicateCompanyMatch.reason,
-          similarityScore: duplicateCompanyMatch.similarity,
-          existingDetails: {
-            city: duplicateCompanyMatch.match.city,
-            country: duplicateCompanyMatch.match.country,
-            phone: duplicateCompanyMatch.match.general_phone,
-            email: duplicateCompanyMatch.match.general_email
-          },
-          newDetails: {
-            city,
-            country: countryVal,
-            phone: companyGeneralPhone,
-            email: companyGeneralEmail
-          },
-          onMerge: () => {
-            // MERGE: Select existing company instead of creating new
-            setCompanyId(duplicateCompanyMatch.match.id);
-            setCompanySearch(duplicateCompanyMatch.match.display_name);
-            setCountry(duplicateCompanyMatch.match.country || countryVal);
-            setProjectLocation(duplicateCompanyMatch.match.city || city);
-            setDuplicateMatchState(null);
-            setUnregisteredEntities(null);
-            if (triggerToast) {
-              triggerToast(`Merged with existing client "${duplicateCompanyMatch.match.display_name}".`, 'info');
-            }
-          },
-          onKeepNew: async () => {
-            // KEEP NEW: Overwrite existing company record with new values and select it
-            const targetId = duplicateCompanyMatch.match.id;
-            if (targetId) {
-              const updatedCompany: Partial<Company> = {
-                canonical_name: compName,
-                display_name,
-                legal_suffix: suf,
-                city,
-                country: countryVal,
-                general_phone: companyGeneralPhone,
-                general_email: companyGeneralEmail,
-              };
-              await safeUpdateDoc('companies', targetId, updatedCompany);
-              if (setCompanies) {
-                setCompanies(prev => prev.map(c => c.id === targetId ? { ...c, ...updatedCompany } : c));
-              }
-              setCompanyId(targetId);
-              setCompanySearch(display_name);
-              setCountry(countryVal);
-              setProjectLocation(city);
-            }
-            setDuplicateMatchState(null);
-            setUnregisteredEntities(null);
-            if (triggerToast) {
-              triggerToast(`Updated existing client "${display_name}" with new submission details.`, 'success');
-            }
-          },
-          onIgnore: () => {
-            // IGNORE: Proceed with registration bypassing duplicate check
-            setDuplicateMatchState(null);
-            handleConfirmRegisterEntities(true);
-          }
-        });
-        return;
-      }
-    }
+    if (!unregisteredEntities) return;
 
     if (!activeWorkspace?.id) {
       throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
     }
 
-    try {
-      // 1. Create Company account in Firestore catalog
-      const newCompPayload = {
-        workspace_id: activeWorkspace.id,
-        canonical_name: compName,
-        display_name,
-        aliases: [compName],
-        legal_suffix: suf,
-        city,
-        country: countryVal,
-        general_phone: companyGeneralPhone,
-        general_email: companyGeneralEmail,
-        createdAt: new Date().toISOString()
-      };
-
-      const compRef = await safeAddDoc('companies', newCompPayload);
-      await logAudit(compRef.id, 'company', 'create', null, newCompPayload, []);
-
-      if (setCompanies) {
-        const createdComp: Company = { id: compRef.id, ...newCompPayload };
-        setCompanies(prev => [createdComp, ...prev.filter(c => c.id !== compRef.id)]);
-      }
-
-      // Update active form company state immediately
-      setCompanyId(compRef.id);
-      setCompanySearch(display_name);
-      setCountry(countryVal);
-      setProjectLocation(city);
-
+    const processContactPhase = async (resolvedCompanyId: string, companyNameForToast: string) => {
       // 2. Create Contact Person account in Firestore catalog
-      if (unregisteredEntities.contactName && unregisteredEntities.contactName.trim()) {
+      if (!unregisteredEntities.ignoreContact && unregisteredEntities.contactName && unregisteredEntities.contactName.trim()) {
         const contactEmailVal = unregisteredEntities.emailDestination === 'contact' ? (unregisteredEntities.contactEmail || unregisteredEntities.generalEmail) : undefined;
         const contactMobileVal = unregisteredEntities.phoneDestination === 'contact' ? (unregisteredEntities.contactMobile || unregisteredEntities.generalPhone) : undefined;
 
         const newContactPayload = {
-          workspace_id: activeWorkspace.id,
-          company_id: compRef.id,
+          workspace_id: activeWorkspace!.id,
+          company_id: resolvedCompanyId,
           full_name: unregisteredEntities.contactName.trim(),
           email: contactEmailVal,
           mobile: contactMobileVal,
@@ -1134,11 +1029,146 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setUnregisteredEntities(null);
 
       if (triggerToast) {
-        triggerToast(`Successfully registered new company "${display_name}" and contact person!`, 'success');
+        if (unregisteredEntities.ignoreContact) {
+          triggerToast(`Processed company "${companyNameForToast}". Contact was ignored.`, 'success');
+        } else {
+          triggerToast(`Processed company "${companyNameForToast}" and contact person!`, 'success');
+        }
       }
-    } catch (err: any) {
-      console.error('Error confirming & registering entities:', err);
-      alert('Failed to register new entities: ' + err.message);
+    };
+
+    if (unregisteredEntities.companyResolutionMode === 'link') {
+      if (!unregisteredEntities.linkedCompanyId) {
+         alert("Please select a company to link to.");
+         return;
+      }
+      const resolvedCompanyId = unregisteredEntities.linkedCompanyId;
+      const comp = companies.find(c => c.id === resolvedCompanyId);
+      
+      if (comp) {
+        setCompanyId(comp.id!);
+        setCompanySearch(comp.display_name);
+        setCountry(comp.country || unregisteredEntities.country || 'UAE');
+        setProjectLocation(comp.city || unregisteredEntities.city || 'Dubai');
+        
+        await processContactPhase(comp.id!, comp.display_name);
+      }
+    } else {
+      if (!unregisteredEntities.companyName) return;
+
+      const compName = unregisteredEntities.companyName.trim();
+      const suf = (unregisteredEntities.legalSuffix || 'LLC') as LegalSuffix;
+      const display_name = suf === 'None / Other' ? compName : `${compName} ${suf}`;
+      const city = unregisteredEntities.city?.trim() || 'Dubai';
+      const countryVal = unregisteredEntities.country?.trim() || 'UAE';
+      const companyGeneralPhone = unregisteredEntities.phoneDestination === 'company' ? (unregisteredEntities.generalPhone || unregisteredEntities.contactMobile) : undefined;
+      const companyGeneralEmail = unregisteredEntities.emailDestination === 'company' ? (unregisteredEntities.generalEmail || unregisteredEntities.contactEmail) : undefined;
+
+      // Fuzzy duplicate check against existing company index
+      if (!bypassDuplicateCheck && companies.length > 0) {
+        const duplicateCompanyMatch = findDuplicateCompany(display_name, companies);
+        if (duplicateCompanyMatch) {
+          setDuplicateMatchState({
+            isOpen: true,
+            type: 'company',
+            candidateName: display_name,
+            existingRecordName: duplicateCompanyMatch.match.display_name,
+            matchReason: duplicateCompanyMatch.reason,
+            similarityScore: duplicateCompanyMatch.similarity,
+            existingDetails: {
+              city: duplicateCompanyMatch.match.city,
+              country: duplicateCompanyMatch.match.country,
+              phone: duplicateCompanyMatch.match.general_phone,
+              email: duplicateCompanyMatch.match.general_email
+            },
+            newDetails: {
+              city,
+              country: countryVal,
+              phone: companyGeneralPhone,
+              email: companyGeneralEmail
+            },
+            onMerge: () => {
+              // MERGE: Select existing company instead of creating new
+              setCompanyId(duplicateCompanyMatch.match.id);
+              setCompanySearch(duplicateCompanyMatch.match.display_name);
+              setCountry(duplicateCompanyMatch.match.country || countryVal);
+              setProjectLocation(duplicateCompanyMatch.match.city || city);
+              setDuplicateMatchState(null);
+              
+              // Proceed to contact phase using this merged ID
+              processContactPhase(duplicateCompanyMatch.match.id, duplicateCompanyMatch.match.display_name);
+            },
+            onKeepNew: async () => {
+              // KEEP NEW: Overwrite existing company record with new values and select it
+              const targetId = duplicateCompanyMatch.match.id;
+              if (targetId) {
+                const updatedCompany: Partial<Company> = {
+                  canonical_name: compName,
+                  display_name,
+                  legal_suffix: suf,
+                  city,
+                  country: countryVal,
+                  general_phone: companyGeneralPhone,
+                  general_email: companyGeneralEmail,
+                };
+                await safeUpdateDoc('companies', targetId, updatedCompany);
+                if (setCompanies) {
+                  setCompanies(prev => prev.map(c => c.id === targetId ? { ...c, ...updatedCompany } : c));
+                }
+                setCompanyId(targetId);
+                setCompanySearch(display_name);
+                setCountry(countryVal);
+                setProjectLocation(city);
+                
+                processContactPhase(targetId, display_name);
+              }
+              setDuplicateMatchState(null);
+            },
+            onIgnore: () => {
+              // IGNORE: Proceed with registration bypassing duplicate check
+              setDuplicateMatchState(null);
+              handleConfirmRegisterEntities(true);
+            }
+          });
+          return;
+        }
+      }
+
+      try {
+        // 1. Create Company account in Firestore catalog
+        const newCompPayload = {
+          workspace_id: activeWorkspace.id,
+          canonical_name: compName,
+          display_name,
+          aliases: [compName],
+          legal_suffix: suf,
+          city,
+          country: countryVal,
+          general_phone: companyGeneralPhone,
+          general_email: companyGeneralEmail,
+          createdAt: new Date().toISOString()
+        };
+
+        const compRef = await safeAddDoc('companies', newCompPayload);
+        await logAudit(compRef.id, 'company', 'create', null, newCompPayload, []);
+
+        if (setCompanies) {
+          const createdComp: Company = { id: compRef.id, ...newCompPayload };
+          setCompanies(prev => [createdComp, ...prev.filter(c => c.id !== compRef.id)]);
+        }
+
+        // Update active form company state immediately
+        setCompanyId(compRef.id);
+        setCompanySearch(display_name);
+        setCountry(countryVal);
+        setProjectLocation(city);
+        
+        await processContactPhase(compRef.id, display_name);
+      } catch (err: any) {
+        console.error('Error confirming & registering entities:', err);
+        alert('Failed to register new entities: ' + err.message);
+        return;
+      }
     }
   };
 
@@ -2766,10 +2796,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={() => setUnregisteredEntities(null)}
-                  className="p-1 hover:bg-slate-200/60 rounded-lg text-slate-400 hover:text-slate-600 transition"
+                  className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition border border-transparent hover:border-red-100 flex items-center space-x-1"
                   title="Dismiss confirmation"
                 >
-                  <X className="w-4 h-4" />
+                  <span className="text-[11px] font-bold">Discard / Ignore AI Suggestion</span>
+                  <X className="w-4 h-4 inline" />
                 </button>
               </div>
 
@@ -2779,45 +2810,79 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                     <span className="font-bold text-slate-800 flex items-center gap-1.5">
                       <Building className="w-4 h-4 text-blue-600" />
-                      <span>New Company Account</span>
+                      <span>1. Company Resolution</span>
                     </span>
-                    <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">
-                      Unregistered
-                    </span>
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button 
+                        type="button"
+                        onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'create'})}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode !== 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Create New
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'link'})}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode === 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Link Existing
+                      </button>
+                    </div>
                   </div>
                   
-                  <div className="space-y-2">
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
-                      <input
-                        type="text"
-                        value={unregisteredEntities.companyName || ''}
-                        onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
-                      />
+                  {unregisteredEntities.companyResolutionMode === 'link' ? (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Search Existing Company</label>
+                        <select
+                          value={unregisteredEntities.linkedCompanyId || ''}
+                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, linkedCompanyId: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="">-- Select Company --</option>
+                          {companies.map(c => (
+                            <option key={c.id} value={c.id}>{c.display_name} ({c.city}, {c.country})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-sans italic">
+                        Select an existing company to link this contact and enquiry to.
+                      </p>
                     </div>
+                  ) : (
+                    <div className="space-y-2 animate-in fade-in duration-200">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
+                        <input
+                          type="text"
+                          value={unregisteredEntities.companyName || ''}
+                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">City / Location</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.city || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Country</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.country || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">City / Location</label>
+                          <input
+                            type="text"
+                            value={unregisteredEntities.city || ''}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Country</label>
+                          <input
+                            type="text"
+                            value={unregisteredEntities.country || ''}
+                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Contact Person Fields */}
@@ -2825,14 +2890,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                     <span className="font-bold text-slate-800 flex items-center gap-1.5">
                       <User className="w-4 h-4 text-emerald-600" />
-                      <span>Contact Personnel</span>
+                      <span>2. Contact Resolution</span>
                     </span>
-                    <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">
-                      Unregistered
-                    </span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={unregisteredEntities.ignoreContact || false}
+                        onChange={(e) => setUnregisteredEntities({...unregisteredEntities, ignoreContact: e.target.checked})}
+                        className="rounded border-slate-300 text-rose-500 focus:ring-rose-500" 
+                      />
+                      <span className="text-[10px] font-bold text-rose-600">Ignore/Do not register</span>
+                    </label>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className={`space-y-2 transition-opacity ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
                     <div>
                       <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
                       <input
@@ -2869,7 +2940,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Interactive Field Assignment Routing */}
               <div className="bg-white/80 p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex flex-wrap items-center gap-4">
+                <div className={`flex flex-wrap items-center gap-4 ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
                   <div className="flex items-center space-x-2">
                     <span className="font-semibold text-slate-700 text-[11px]">Route Email To:</span>
                     <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200 rounded-lg">
@@ -2913,11 +2984,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                 <button
                   type="button"
-                  onClick={handleConfirmRegisterEntities}
+                  onClick={() => handleConfirmRegisterEntities()}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-2 cursor-pointer"
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-100" />
-                  <span>Confirm & Register Company + Contact</span>
+                  <span>Process Entity Resolutions</span>
                 </button>
               </div>
             </div>
