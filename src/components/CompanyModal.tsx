@@ -2969,7 +2969,8 @@ export default function CompanyModal({
             </div>
 
             {/* Scrollable Form Body */}
-            <form onSubmit={submitCompany} className="flex-1 overflow-y-auto p-6 space-y-6">
+            <form onSubmit={submitCompany} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-2">
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
@@ -3119,29 +3120,38 @@ export default function CompanyModal({
                       <span>Add Phone</span>
                     </button>
                   </div>
-                  {companyPhones.map((ph, idx) => {
-                    const currentRestriction = getLineRestriction(editingRestrictedLines, ph.value);
+                  <datalist id="company-phone-tags">
+                  <option value="Landline" />
+                  <option value="Direct Line" />
+                  <option value="Mobile" />
+                  <option value="WhatsApp" />
+                  <option value="Fax" />
+                </datalist>
+                {companyPhones.map((ph, idx) => {
+                  const currentRestriction = getLineRestriction(editingRestrictedLines, ph.value);
 
-                    return (
-                      <div key={ph.id || idx} className="flex items-center space-x-2">
-                        <CustomLabelSelect
-                          value={ph.label}
-                          onChange={(val) => {
-                            setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
-                          }}
-                          options={PHONE_LABEL_DEFAULT_OPTIONS}
-                          className="w-36 shrink-0"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Phone number..."
-                          value={ph.value}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
-                          }}
-                          className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all min-w-0"
-                        />
+                  return (
+                    <div key={ph.id || idx} className="flex items-center space-x-2">
+                      <input
+                        list="company-phone-tags"
+                        value={ph.label}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
+                        }}
+                        placeholder="Tag"
+                        className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Phone number..."
+                        value={ph.value}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
+                        }}
+                        className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      />
 
                         <button
                           type="button"
@@ -3201,36 +3211,45 @@ export default function CompanyModal({
                       <span>Add Email</span>
                     </button>
                   </div>
-                  {companyEmails.map((em, idx) => (
-                    <div key={em.id || idx} className="flex items-center space-x-2">
-                      <CustomLabelSelect
-                        value={em.label}
-                        onChange={(val) => {
-                          setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
-                        }}
-                        options={EMAIL_LABEL_DEFAULT_OPTIONS}
-                        className="w-36 shrink-0"
-                      />
-                      <input
-                        type="email"
-                        placeholder="Email address..."
-                        value={em.value}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
-                        }}
-                        className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                      />
-                      {companyEmails.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setCompanyEmails(prev => prev.filter((_, i) => i !== idx))}
-                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
-                          title="Remove Email"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                  <datalist id="company-email-tags">
+                  <option value="Work" />
+                  <option value="Main" />
+                  <option value="Inquiries" />
+                  <option value="Sales" />
+                  <option value="Support" />
+                </datalist>
+                {companyEmails.map((em, idx) => (
+                  <div key={em.id || idx} className="flex items-center space-x-2">
+                    <input
+                      list="company-email-tags"
+                      value={em.label}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
+                      }}
+                      placeholder="Tag"
+                      className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email address..."
+                      value={em.value}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
+                      }}
+                      className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    />
+                    {companyEmails.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setCompanyEmails(prev => prev.filter((_, i) => i !== idx))}
+                        className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                        title="Remove Email"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     </div>
                   ))}
                 </div>
@@ -3308,12 +3327,14 @@ export default function CompanyModal({
                   />
                 </div>
 
-                {/* Sticky Footer */}
-                <div className="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 mt-6 flex justify-end gap-3 z-10">
+                </div>
+
+                {/* Fixed Footer */}
+                <div className="bg-slate-950/90 border-t border-slate-800 p-4 flex justify-end gap-3 shrink-0 z-10">
                   <button
                     type="button"
                     onClick={closeCompanyModal}
-                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -3322,7 +3343,7 @@ export default function CompanyModal({
                     disabled={isSavingCompany || !activeWorkspace?.id}
                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center space-x-2 cursor-pointer shadow-md"
                   >
-                    {isSavingCompany && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isSavingCompany && <Loader2 className="w-4 h-4 animate-spin"/>}
                     <span>{isSavingCompany ? 'Saving Record...' : 'Save Canonical Record'}</span>
                   </button>
                 </div>
