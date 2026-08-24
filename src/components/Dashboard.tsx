@@ -99,7 +99,7 @@ export default function Dashboard({
   // 2. Win rate calculation: Won / (Won + Lost)
   const totalClosedCount = enquiries.filter((e) => ['Order Received', 'Lost'].includes(e.status)).length;
   const wonCount = enquiries.filter((e) => e.status === 'Order Received').length;
-  const winRate = totalClosedCount > 0 ? Math.round((wonCount / totalClosedCount) * 100) : 0;
+  const winRate = totalClosedCount > 0 ? (Math.round((wonCount / totalClosedCount) * 100) || 0) : 0;
 
   // 3. Overdue follow-ups
   const today = new Date().toISOString().split('T')[0];
@@ -179,7 +179,7 @@ export default function Dashboard({
 
     (enquiries || []).forEach((e) => {
       if (e.status === 'Active' && e.next_followup_date) {
-        const key = `enq_${e.id}_${e.next_followup_date}`;
+        const key = `enq_${e.id || e.sn}_${e.next_followup_date}`;
         if (!seenKeys.has(key)) {
           let compName = companyMap.get(e.company_id);
           let contName = '';
@@ -328,7 +328,7 @@ export default function Dashboard({
   }, {} as { [key: string]: number });
 
   const salespersonChartData = salespersons.map((s, idx) => ({
-    id: s.id || `sp-${idx}-${s.initials}`,
+    id: s.id || `sp-${idx}-${s.initials || 'UNK'}`,
     initials: s.initials,
     name: s.full_name,
     value: salespersonValueMap[s.initials] || 0
