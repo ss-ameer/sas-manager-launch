@@ -10,7 +10,6 @@ import {
   Calendar,
   Filter,
   ArrowUpDown,
-  AlertTriangle,
   ChevronRight,
   ChevronLeft,
   ChevronsLeft,
@@ -183,8 +182,8 @@ export default function EnquiryList({
         // 1. Search Query
         const q = searchQuery.toLowerCase();
         const compName = (companyMap.get(e.company_id) || '').toLowerCase();
-        const ref = e.quote_ref_no.toLowerCase();
-        const matchText = compName.includes(q) || ref.includes(q) || e.sn.toString().includes(q);
+        const ref = (e.quote_ref_no || '').toLowerCase();
+        const matchText = compName.includes(q) || ref.includes(q) || (e.sn && e.sn.toString().includes(q));
 
         // 2. Status
         const matchStatus = statusFilter === 'All' || e.status === statusFilter;
@@ -639,7 +638,6 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
                     </div>
                   </th>
-                  <th className="py-4 px-6">Next Follow-up</th>
                   <th className="py-4 px-6">Status Badge</th>
                   <th onClick={() => handleSort('value_aed')} className="py-4 px-6 cursor-pointer hover:text-slate-800 transition text-right">
                     <div className="flex items-center space-x-1 justify-end">
@@ -653,8 +651,6 @@ export default function EnquiryList({
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
                 {paginatedEnquiries.map((e) => {
                   const companyName = companyMap.get(e.company_id) || 'Unknown Client';
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  const isOverdue = e.status === 'Active' && e.next_followup_date && e.next_followup_date < todayStr;
                   const isChecked = selectedEnquiryIds.includes(e.id!);
 
                   return (
@@ -690,16 +686,6 @@ export default function EnquiryList({
                         })()}
                       </td>
                       <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400">{e.enquiry_date}</td>
-                      <td className="py-4 px-6 font-mono text-xs">
-                        {isOverdue ? (
-                          <span className="text-rose-600 dark:text-rose-400 font-bold flex items-center space-x-1">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                            <span>{e.next_followup_date}</span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 dark:text-slate-400">{e.next_followup_date || '—'}</span>
-                        )}
-                      </td>
                       <td className="py-4 px-6">
                         <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full uppercase ${getStatusBadgeClass(e.status)}`}>
                           {e.status}
