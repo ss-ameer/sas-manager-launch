@@ -1755,8 +1755,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           executed_at: nowIso,
           updatedAt: nowIso,
           last_modified_by_uid: userUid,
-          last_modified_by_name: userName,
-          next_followup_date: undefined
+          last_modified_by_name: userName
         };
 
         await safeSetDoc('activity_logs', activeLog.id, updatedExistingLog);
@@ -1776,7 +1775,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             channel: channel,
             interaction_type: interactionTypeMap[channel] || 'call',
             purpose: purpose || 'Follow-Up',
-            requirement_notes: followupIntent.trim() || '',
+            requirement_notes: followupIntent.trim() || notes.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             company_id: resolvedCompanyId || activeLog.company_id,
             company_name: resolvedCompanyName || activeLog.company_name,
@@ -1868,7 +1867,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             date: followupIsoDate,
             status: 'Scheduled / Planned' as CallStatus,
             outcome: 'Follow-Up Scheduled',
-            requirement_notes: followupIntent.trim() || '',
+            requirement_notes: followupIntent.trim() || notes.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             next_followup_date: undefined,
             createdAt: nowIso,
