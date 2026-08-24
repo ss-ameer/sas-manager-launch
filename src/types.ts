@@ -318,6 +318,7 @@ export interface Enquiry extends SoftDeleteFields {
   workspace_id?: string | 'unassigned';
   sn: number;
   enquiry_date: string;
+  logged_date?: string;
   sales_person_id?: string;
   sales_person?: string; // initials (e.g. PV, NS) or display name
   company_id: string;

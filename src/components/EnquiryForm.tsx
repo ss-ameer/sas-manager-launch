@@ -249,6 +249,7 @@ export default function EnquiryForm({
   // Parent state fields
   const [sn, setSn] = useState(nextSn);
   const [enquiryDate, setEnquiryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loggedDate, setLoggedDate] = useState(new Date().toISOString().split('T')[0]);
   const [salesPerson, setSalesPerson] = useState('');
   const [concernedPersons, setConcernedPersons] = useState<string[]>([]);
   const [companyId, setCompanyId] = useState('');
@@ -722,6 +723,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     if (enquiryToEdit) {
       setSn(enquiryToEdit.sn);
       setEnquiryDate(enquiryToEdit.enquiry_date);
+      setLoggedDate(enquiryToEdit.logged_date || new Date().toISOString().split('T')[0]);
       setSalesPerson(enquiryToEdit.sales_person_id || enquiryToEdit.sales_person || '');
       setConcernedPersons(enquiryToEdit.concerned_persons || (enquiryToEdit.concerned_person ? [enquiryToEdit.concerned_person] : []));
       setCompanyId(enquiryToEdit.company_id);
@@ -2040,6 +2042,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       workspace_id: activeWorkspace.id,
       sn: Number(sn),
       enquiry_date: enquiryDate,
+      logged_date: loggedDate,
       sales_person_id: spId,
       sales_person: spInitialsOrName,
       concerned_persons: concernedPersons,
@@ -2666,58 +2669,98 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               Log Metadata
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div>
-                <MarqueeLabel>S/N (Legacy Ident)</MarqueeLabel>
-                <input
-                  type="number"
-                  required
-                  disabled={!!enquiryToEdit}
-                  value={sn}
-                  onChange={(e) => setSn(Number(e.target.value))}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50"
-                />
-              </div>
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
+              <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <MarqueeLabel>S/N</MarqueeLabel>
+                  <input
+                    type="number"
+                    required
+                    disabled={!!enquiryToEdit}
+                    value={sn}
+                    onChange={(e) => setSn(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50"
+                  />
+                </div>
 
-              <div id="field-received_date">
-                <MarqueeLabel required title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
-                <input
-                  type="date"
-                  required
-                  placeholder="YYYY-MM-DD"
-                  value={enquiryDate}
-                  onChange={(e) => setEnquiryDate(e.target.value)}
-                  style={{ colorScheme: 'dark' }}
-                  className={`[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono ${getHighlightClasses('received_date')}`}
-                />
-              </div>
+                <div id="field-received_date">
+                  <MarqueeLabel required title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
+                  <input
+                    type="date"
+                    required
+                    placeholder="YYYY-MM-DD"
+                    value={enquiryDate}
+                    onChange={(e) => setEnquiryDate(e.target.value)}
+                    style={{ colorScheme: 'dark' }}
+                    className={`[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono ${getHighlightClasses('received_date')}`}
+                  />
+                </div>
 
-              <div>
-                <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')}>Salesperson</MarqueeLabel>
-                <select
-                  value={salesPerson}
-                  onChange={(e) => setSalesPerson(e.target.value)}
-                  disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans ${
-                    user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
-                  }`}
-                >
-                  {sortedSalespersons.map((s) => (
-                    <option key={s.id || s.initials} value={s.id || s.initials}>
-                      {s.full_name}
-                    </option>
-                  ))}
-                </select>
-                {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
-                  <p className="text-[10px] text-amber-700 font-sans mt-1">
-                    🔒 Registered automatically under your account. (Reassignment restricted by Admin)
-                  </p>
-                )}
+                <div>
+                  <MarqueeLabel title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
+                  <input
+                    type="date"
+                    required
+                    placeholder="YYYY-MM-DD"
+                    value={loggedDate}
+                    onChange={(e) => setLoggedDate(e.target.value)}
+                    style={{ colorScheme: 'dark' }}
+                    className="[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')}>Salesperson</MarqueeLabel>
+                  <select
+                    value={salesPerson}
+                    onChange={(e) => setSalesPerson(e.target.value)}
+                    disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
+                    className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans ${
+                      user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {sortedSalespersons.map((s) => (
+                      <option key={s.id || s.initials} value={s.id || s.initials}>
+                        {s.full_name}
+                      </option>
+                    ))}
+                  </select>
+                  {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
+                    <p className="text-[10px] text-amber-700 font-sans mt-1">
+                      🔒 Registered automatically under your account. (Reassignment restricted by Admin)
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')}>Enquiry Source</MarqueeLabel>
+                  <select
+                    value={enquirySource}
+                    onChange={(e) => setEnquirySource(e.target.value)}
+                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                  >
+                    {sortedSources.map((src) => (
+                      <option key={src} value={src}>{src}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <MarqueeLabel>Enquiry Currency</MarqueeLabel>
+                  <select
+                    value={formCurrency}
+                    onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
+                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                  >
+                    <option value="AED">AED (Dirhams)</option>
+                    <option value="USD">USD (Dollars)</option>
+                  </select>
+                </div>
               </div>
 
               {/* Concerned Persons / Additional Team Members Selection */}
-              <div className="md:col-span-2 bg-slate-50/80 border border-slate-200 p-3 rounded-xl space-y-2">
-                <MarqueeLabel>Concerned Persons / Additional Team Members</MarqueeLabel>
+              <div className="w-full lg:w-[35%] shrink-0 bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2 shadow-sm">
+                <MarqueeLabel>Additional Team</MarqueeLabel>
                 <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1 bg-white border border-slate-200 rounded-lg">
                   {salespersons.map((s) => {
                     const val = s.id || s.initials || s.full_name;
@@ -2752,31 +2795,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <p className="text-[10px] text-slate-500 font-sans">
                   Click team members to tag them as concerned persons. Tagged persons get full view & access permissions to this proposal.
                 </p>
-              </div>
-
-              <div>
-                <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')}>Enquiry Source</MarqueeLabel>
-                <select
-                  value={enquirySource}
-                  onChange={(e) => setEnquirySource(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
-                >
-                  {sortedSources.map((src) => (
-                    <option key={src} value={src}>{src}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <MarqueeLabel>Enquiry Currency</MarqueeLabel>
-                <select
-                  value={formCurrency}
-                  onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
-                >
-                  <option value="AED">AED (Dirhams)</option>
-                  <option value="USD">USD (Dollars)</option>
-                </select>
               </div>
             </div>
           </div>
@@ -3282,7 +3300,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           {/* Section 3: Proposal Location and identifiers */}
           <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
             <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Proposal & Company Location Identifiers
+              Location & Identifiers
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -3302,7 +3320,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <div className="flex justify-between items-center mb-1">
                   <div className="flex-1 min-w-0 mr-2">
                     <MarqueeLabel>
-                      Company Location / City
+                      City
                     </MarqueeLabel>
                   </div>
                   {renderConfidenceBadge('project_location')}
@@ -3318,7 +3336,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div id="field-quote_ref_no">
-                <MarqueeLabel>Quote Reference Number</MarqueeLabel>
+                <MarqueeLabel>Quote Ref</MarqueeLabel>
                 <input
                   type="text"
                   required
@@ -3345,7 +3363,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div>
-                <MarqueeLabel>Customer Reference Code (Optional)</MarqueeLabel>
+                <MarqueeLabel>Client Ref</MarqueeLabel>
                 <input
                   type="text"
                   placeholder="e.g. PO-8902-X / RFQ-2026"
@@ -3356,7 +3374,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div>
-                <MarqueeLabel>Proposal Option Designation</MarqueeLabel>
+                <MarqueeLabel>Option</MarqueeLabel>
                 <select
                   value={proposalOption}
                   onChange={(e) => setProposalOption(e.target.value)}
