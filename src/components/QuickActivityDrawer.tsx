@@ -1951,7 +1951,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
               <div>
                 <h2 className="text-base font-bold text-slate-100">
-                  {existingLog || logToEdit ? 'Edit Activity Log' : 'Quick Activity Logger'}
+                  {existingLog || logToEdit ? 'Edit Activity Log' : 'Activity Logger'}
                 </h2>
                 <p className="text-xs text-slate-400">
                   Record calls, emails, or visits with instant CRM auto-registration
@@ -2037,6 +2037,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
                         <Building2 className="h-4 w-4 text-blue-400 shrink-0" />
                         <span>{selectedCompanyName || companyName || 'Company Account'}</span>
+                        <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || companyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
                       </div>
                       {selectedEnquiryQuoteRef && (
                         <div className="flex items-center gap-1.5 text-xs text-purple-300 bg-purple-950/60 px-2.5 py-1 rounded-md border border-purple-800/60 font-mono">
@@ -2091,7 +2092,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           <div className="flex items-center gap-2">
                             <Building2 className="h-4 w-4 text-blue-400 shrink-0" />
                             <div>
-                              <span className="font-bold text-slate-100">{selectedCompanyName}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-100">{selectedCompanyName}</span>
+                                <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
+                              </div>
                               <p className="text-[10px] text-slate-400 font-mono">Selected Account</p>
                             </div>
                           </div>
@@ -2796,9 +2800,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Company Name <span className="text-amber-400">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-300">Company Name <span className="text-amber-400">*</span></label>
+                      {expressCompanyName.trim() && (
+                        <a href={`https://www.google.com/search?q=${encodeURIComponent(expressCompanyName.trim())}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-amber-900/50 hover:bg-amber-800 text-amber-300 border border-amber-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={expressCompanyName}

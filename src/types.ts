@@ -120,6 +120,7 @@ export interface Company extends SoftDeleteFields {
   general_emails?: ContactMethod[];
   phones?: ContactMethod[] | LabeledPhone[] | any[];
   emails?: ContactMethod[] | LabeledEmail[] | any[];
+  links?: { id: string; label: string; url: string }[];
   relationship?: CompanyRelationship;
   temperature?: CompanyTemperature;
   notes?: string;

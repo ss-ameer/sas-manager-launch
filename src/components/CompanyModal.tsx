@@ -538,6 +538,7 @@ export default function CompanyModal({
   const [generalEmail, setGeneralEmail] = useState('');
   const [companyPhones, setCompanyPhones] = useState<ContactMethod[]>([{ id: 'init_p1', label: 'Landline', value: '' }]);
   const [companyEmails, setCompanyEmails] = useState<ContactMethod[]>([{ id: 'init_e1', label: 'Work', value: '' }]);
+  const [companyLinks, setCompanyLinks] = useState<{ id: string; label: string; url: string }[]>([]);
   const [editingRestrictedLines, setEditingRestrictedLines] = useState<Record<string, 'DNC' | 'Invalid'>>({});
 
   const togglePhoneRestriction = (phoneVal: string) => {
@@ -613,6 +614,7 @@ export default function CompanyModal({
     setGeneralEmail('');
     setCompanyPhones([{ id: generateCmId(), label: 'Landline', value: '' }]);
     setCompanyEmails([{ id: generateCmId(), label: 'Work', value: '' }]);
+    setCompanyLinks([{ id: generateCmId(), label: 'Website', url: '' }]);
     setEditingRestrictedLines({});
     setRelationship('Prospect');
     setTemperature('Cold');
@@ -633,6 +635,7 @@ export default function CompanyModal({
     setGeneralEmail('');
     setCompanyPhones([{ id: generateCmId(), label: 'Landline', value: '' }]);
     setCompanyEmails([{ id: generateCmId(), label: 'Work', value: '' }]);
+    setCompanyLinks([{ id: generateCmId(), label: 'Website', url: '' }]);
     setEditingRestrictedLines({});
     setRelationship('Prospect');
     setTemperature('Cold');
@@ -659,6 +662,7 @@ export default function CompanyModal({
     setWebsite(comp.website || '');
     setGeneralPhone(comp.general_phone || comp.phone || '');
     setGeneralEmail(comp.general_email || comp.email || '');
+    setCompanyLinks(comp.links?.length ? comp.links : [{ id: generateCmId(), label: 'Website', url: comp.website || '' }]);
     if (comp.restricted_lines) {
       const normMap: Record<string, 'DNC' | 'Invalid'> = {};
       Object.entries(comp.restricted_lines).forEach(([k, v]) => {
@@ -752,6 +756,7 @@ export default function CompanyModal({
 
     const validPhones = companyPhones.filter((p) => p.value.trim() !== '');
     const validEmails = companyEmails.filter((e) => e.value.trim() !== '');
+    const validLinks = companyLinks.filter((l) => l.url.trim() !== '');
 
     const legacyPhones = validPhones.map((p) => ({ id: p.id, label: p.label, number: p.value, value: p.value }));
     const legacyEmails = validEmails.map((e) => ({ id: e.id, label: e.label, email: e.value, value: e.value }));
@@ -770,7 +775,8 @@ export default function CompanyModal({
       aliases: aliasesArr,
       country: country.trim(),
       city: city.trim(),
-      website: website.trim(),
+      links: validLinks,
+      website: validLinks.find((l) => l.label === 'Website')?.url || '',
       general_phone: primaryPhoneVal,
       general_email: primaryEmailVal,
       phone: primaryPhoneVal,
@@ -2925,6 +2931,12 @@ export default function CompanyModal({
                 <h3 className="text-lg font-bold text-slate-100 font-sans">
                   {editingCompany ? 'Edit Canonical Company' : 'Add Canonical Company'}
                 </h3>
+                {canonicalName.trim() && (
+                  <a href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`} target="_blank" rel="noopener noreferrer" className="ml-2 px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google">
+                    <Search className="w-3 h-3" />
+                    <span>Google Search</span>
+                  </a>
+                )}
               </div>
               <button
                 type="button"
@@ -3194,6 +3206,65 @@ export default function CompanyModal({
                           onClick={() => setCompanyEmails(prev => prev.filter((_, i) => i !== idx))}
                           className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
                           title="Remove Email"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Link Tagging System */}
+                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                      Company Links & Portals
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setCompanyLinks(prev => [...prev, { id: generateCmId(), label: 'Portal', url: '' }])}
+                      className="text-xs text-blue-500 hover:text-blue-400 font-semibold flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Link</span>
+                    </button>
+                  </div>
+                  <datalist id="company-link-tags">
+                    <option value="Website" />
+                    <option value="LinkedIn" />
+                    <option value="Facebook" />
+                    <option value="Instagram" />
+                    <option value="Twitter" />
+                    <option value="Portal" />
+                  </datalist>
+                  {companyLinks.map((link, idx) => (
+                    <div key={link.id || idx} className="flex items-center space-x-2">
+                      <input
+                        list="company-link-tags"
+                        placeholder="Tag..."
+                        value={link.label}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
+                        }}
+                        className="w-36 shrink-0 px-3 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      />
+                      <input
+                        type="url"
+                        placeholder="https://..."
+                        value={link.url}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, url: val } : item));
+                        }}
+                        className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      />
+                      {companyLinks.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setCompanyLinks(prev => prev.filter((_, i) => i !== idx))}
+                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
+                          title="Remove Link"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
