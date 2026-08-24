@@ -2034,6 +2034,27 @@ export default function CompanyModal({
                       </div>
                     </div>
 
+                    {/* Portals & Links Display */}
+                    {selectedCompany.links && selectedCompany.links.length > 0 && (
+                      <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Portals & Links</span>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedCompany.links.map((lnk, idx) => (
+                            <a
+                              key={idx}
+                              href={lnk.url.startsWith('http') ? lnk.url : `https://${lnk.url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-blue-500"/>
+                              <span>{lnk.label}: {lnk.url.replace(/^https?:\/\//, '').split('/')[0]}</span>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Aliases List */}
                     <div className="space-y-2">
                       <h4 className="text-xs font-mono text-slate-400 dark:text-slate-500 uppercase tracking-widest">Duplicate Lookup Aliases</h4>
@@ -3215,39 +3236,40 @@ export default function CompanyModal({
                 </div>
 
                 {/* Link Tagging System */}
-                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+                <datalist id="company-link-tags">
+                  <option value="Website" />
+                  <option value="LinkedIn" />
+                  <option value="Facebook" />
+                  <option value="Instagram" />
+                  <option value="Twitter" />
+                  <option value="Portal" />
+                </datalist>
+
+                <div className="space-y-3 pt-4 border-t border-slate-800">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
                       Company Links & Portals
                     </label>
                     <button
                       type="button"
-                      onClick={() => setCompanyLinks(prev => [...prev, { id: generateCmId(), label: 'Portal', url: '' }])}
-                      className="text-xs text-blue-500 hover:text-blue-400 font-semibold flex items-center space-x-1 cursor-pointer"
+                      onClick={() => setCompanyLinks(prev => [...prev, { id: generateCmId(), label: 'Website', url: '' }])}
+                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-3.5 h-3.5"/>
                       <span>Add Link</span>
                     </button>
                   </div>
-                  <datalist id="company-link-tags">
-                    <option value="Website" />
-                    <option value="LinkedIn" />
-                    <option value="Facebook" />
-                    <option value="Instagram" />
-                    <option value="Twitter" />
-                    <option value="Portal" />
-                  </datalist>
                   {companyLinks.map((link, idx) => (
                     <div key={link.id || idx} className="flex items-center space-x-2">
                       <input
                         list="company-link-tags"
-                        placeholder="Tag..."
                         value={link.label}
                         onChange={(e) => {
                           const val = e.target.value;
                           setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
                         }}
-                        className="w-36 shrink-0 px-3 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                        placeholder="Tag (e.g. Website)"
+                        className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
                       />
                       <input
                         type="url"
@@ -3257,16 +3279,16 @@ export default function CompanyModal({
                           const val = e.target.value;
                           setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, url: val } : item));
                         }}
-                        className="flex-1 px-4 py-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                        className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                       />
                       {companyLinks.length > 1 && (
                         <button
                           type="button"
                           onClick={() => setCompanyLinks(prev => prev.filter((_, i) => i !== idx))}
-                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer"
+                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
                           title="Remove Link"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4"/>
                         </button>
                       )}
                     </div>

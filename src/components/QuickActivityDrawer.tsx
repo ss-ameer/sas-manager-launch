@@ -28,7 +28,8 @@ import {
   Plus,
   Trash2,
   Briefcase,
-  UserPlus
+  UserPlus,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
@@ -272,6 +273,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [expressCompanyEmails, setExpressCompanyEmails] = useState<ExpressEmailItem[]>(() => [
     { id: makeExpressId('ece'), label: 'Main', email: '' }
   ]);
+  const [expressCompanyLinks, setExpressCompanyLinks] = useState<{ id: string; label: string; url: string }[]>(() => [{ id: makeExpressId('ecl'), label: 'Website', url: '' }]);
 
   const expressCompanyDup = useMemo(() => {
     if (!expressCompanyName || expressCompanyName.trim().length < 2) return null;
@@ -358,6 +360,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       prev.map((e) => (e.id === id ? { ...e, [field]: value } : e))
     );
   };
+
+  const handleAddCompanyLink = () => setExpressCompanyLinks(prev => [...prev, { id: makeExpressId('ecl'), label: 'Website', url: '' }]);
+  const handleRemoveCompanyLink = (id: string) => setExpressCompanyLinks(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const handleCompanyLinkChange = (id: string, field: 'label' | 'url', value: string) => setExpressCompanyLinks(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
 
   const handleAddContactPhone = () => {
     setExpressContactPhones((prev) => [
@@ -481,6 +487,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setExpressCompanyName('');
         setExpressCompanyPhones([{ id: makeExpressId('ecp'), label: 'Main', number: '' }]);
         setExpressCompanyEmails([{ id: makeExpressId('ece'), label: 'Main', email: '' }]);
+        setExpressCompanyLinks([{ id: makeExpressId('ecl'), label: 'Website', url: '' }]);
         setExpressContactName('');
         setExpressContactRole('');
         setExpressContactPhones([{ id: makeExpressId('ctp'), label: 'Direct Line', number: '' }]);
@@ -892,6 +899,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setExpressCompanyName('');
     setExpressCompanyPhones([{ id: makeExpressId('ecp'), label: 'Main', number: '' }]);
     setExpressCompanyEmails([{ id: makeExpressId('ece'), label: 'Main', email: '' }]);
+    setExpressCompanyLinks([{ id: makeExpressId('ecl'), label: 'Website', url: '' }]);
     setExpressContactName('');
     setExpressContactRole('');
     setExpressContactPhones([{ id: makeExpressId('ctp'), label: 'Direct Line', number: '' }]);
@@ -1378,6 +1386,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         const compName = expressCompanyName.trim();
         const validCompPhones = expressCompanyPhones.filter((p) => p.number.trim() !== '');
         const validCompEmails = expressCompanyEmails.filter((e) => e.email.trim() !== '');
+        const validCompLinks = expressCompanyLinks.filter((l) => l.url.trim() !== '');
 
         const cName = expressContactName.trim();
         const cRole = expressContactRole.trim();
@@ -1428,6 +1437,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               general_email: primaryCompEmail,
               phones: validCompPhones.map((p) => ({ id: p.id, label: p.label || 'Main', number: p.number.trim() })),
               emails: validCompEmails.map((e) => ({ id: e.id, label: e.label || 'Main', email: e.email.trim() })),
+              links: validCompLinks.map(l => ({ id: l.id, label: l.label || 'Website', url: l.url.trim() })),
               relationship: expressRelationship || 'Prospect',
               temperature: expressTemperature || 'Cold',
               createdAt: nowIso,
@@ -1468,6 +1478,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               allEmailsToAppend
             );
             if (enrichedComp) {
+              const newLinksToAppend = validCompLinks.filter(vl => !(enrichedComp.links || []).some(el => el.url === vl.url.trim()));
+              if (newLinksToAppend.length > 0) {
+                enrichedComp.links = [...(enrichedComp.links || []), ...newLinksToAppend.map(l => ({ id: l.id, label: l.label || 'Website', url: l.url.trim() }))];
+              }
               if (expressRelationship || expressTemperature) {
                 enrichedComp.relationship = expressRelationship || enrichedComp.relationship || 'Prospect';
                 enrichedComp.temperature = expressTemperature || enrichedComp.temperature || 'Cold';
@@ -2017,8 +2031,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
                     }`}
                   >
-                    <User className="w-3.5 h-3.5" />
-                    <span>⚡ Express Lead Entry (Auto-CRM)</span>
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Express Lead Entry (Auto-CRM)</span>
                   </button>
                 </div>
               </div>
@@ -3031,6 +3045,54 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     >
                       <Plus className="h-3 w-3" />
                       <span>+ Add Company Email</span>
+                    </button>
+                  </div>
+
+                  {/* Company Links */}
+                  <div className="space-y-1.5 pt-1">
+                    <label className="block text-xs font-medium text-slate-300">Company Portals & Links</label>
+                    <datalist id="express-link-tags">
+                      <option value="Website" />
+                      <option value="LinkedIn" />
+                      <option value="Facebook" />
+                      <option value="Instagram" />
+                      <option value="Twitter" />
+                      <option value="Portal" />
+                    </datalist>
+                    {expressCompanyLinks.map((linkItem, idx) => (
+                      <div key={linkItem.id || `ecl_${idx}`} className="flex items-center gap-1.5">
+                        <input
+                          list="express-link-tags"
+                          value={linkItem.label}
+                          onChange={(e) => handleCompanyLinkChange(linkItem.id, 'label', e.target.value)}
+                          placeholder="Tag (e.g. Website)"
+                          className="w-28 sm:w-32 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none shrink-0"
+                        />
+                        <input
+                          type="url"
+                          value={linkItem.url}
+                          onChange={(e) => handleCompanyLinkChange(linkItem.id, 'url', e.target.value)}
+                          placeholder="https://..."
+                          className="flex-1 min-w-0 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                        />
+                        {expressCompanyLinks.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCompanyLink(linkItem.id)}
+                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="h-3.5 w-3.5"/>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={handleAddCompanyLink}
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3"/>
+                      <span>+ Add Link</span>
                     </button>
                   </div>
                 </div>
