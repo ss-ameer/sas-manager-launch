@@ -59,9 +59,7 @@ export default function CallLogReportModal({
       (log as any).completed_at,
       (log as any).completedAt,
       (log as any).executed_at,
-      log.date,
-      log.updatedAt,
-      log.createdAt
+      log.date
     ].filter(Boolean);
 
     if (rawCandidates.length === 0) return [];
