@@ -192,6 +192,14 @@ export default function CallLogReportModal({
 
   // Filter logs based on selection
   const filteredLogs = callLogs.filter((l) => {
+    // Exclude pending scheduled queue tasks from the daily operational log by default
+    const st = (l.status || '').toLowerCase();
+    if (statusFilter === 'all' || statusFilter === '') {
+      if (st === 'scheduled' || st === 'scheduled / planned' || st.includes('scheduled') || st.includes('planned')) {
+        return false;
+      }
+    }
+
     // Date filter
     const logDates = getLogDateStrings(l);
     if (logDates.length > 0) {
