@@ -56,10 +56,7 @@ export default function CallLogReportModal({
   // Helper to extract candidate YYYY-MM-DD date strings from a log
   const getLogDateStrings = (log: CallLogEntry): string[] => {
     const rawCandidates = [
-      (log as any).completed_at,
-      (log as any).completedAt,
-      (log as any).executed_at,
-      log.date
+      log.date || log.createdAt || (log as any).timestamp
     ].filter(Boolean);
 
     if (rawCandidates.length === 0) return [];

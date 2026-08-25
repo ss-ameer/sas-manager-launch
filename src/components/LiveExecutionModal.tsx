@@ -119,9 +119,9 @@ export default function LiveExecutionModal({
       const validStatuses = getStatusesForChannel(taskChan);
       const defaultStatus = validStatuses.find((s) => isSuccessStatus(s)) || validStatuses[0] || 'Completed / Connected';
       setCallStatus(defaultStatus);
-      setCallOutcome('');
+      setCallOutcome(task.outcome || '');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
-      setNotes('');
+      setNotes(task.requirement_notes || task.notes || '');
       
       // Default next follow-up date to tomorrow at 10:00 AM
       const tomorrow = new Date();
@@ -201,7 +201,7 @@ export default function LiveExecutionModal({
 
   const activeChannel = currentChannel;
   const isCompletedState = isSuccessStatus(callStatus);
-  const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
+  const availableOutcomes = getOutcomesForStatus(callStatus, activeChannel);
 
   const handleChannelChange = (newChan: string) => {
     setCurrentChannel(newChan);
