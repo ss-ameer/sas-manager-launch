@@ -201,7 +201,7 @@ export default function LiveExecutionModal({
 
   const activeChannel = currentChannel;
   const isCompletedState = isSuccessStatus(callStatus);
-  const availableOutcomes = getOutcomesForStatus(callStatus, activeChannel);
+  const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
   const handleChannelChange = (newChan: string) => {
     setCurrentChannel(newChan);
@@ -242,7 +242,7 @@ export default function LiveExecutionModal({
     if (!task || !task.id || isSubmitting) return;
 
     // Validation: Block execution if completed/connected state and outcome not selected
-    if (resolutionAction === 'complete' && isCompletedState && (!callOutcome || !callOutcome.trim())) {
+    if (resolutionAction === 'complete' && isCompletedState && availableOutcomes.length > 0 && (!callOutcome || !callOutcome.trim())) {
       alert(`Please select an outcome before completing this ${activeChannel.toLowerCase()}.`);
       return;
     }
@@ -720,7 +720,7 @@ export default function LiveExecutionModal({
               </div>
 
               {/* Dynamic Outcome Select Dropdown */}
-              {isCompletedState && (
+              {isCompletedState && availableOutcomes.length > 0 && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     {activeChannel} Outcome <span className="text-rose-500">*</span>
