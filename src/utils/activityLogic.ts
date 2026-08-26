@@ -38,7 +38,8 @@ export const NEUTRAL_OUTCOMES = [
   'Collateral / Material Left',
   'Follow-up Scheduled',
   'Requested Call Back',
-  'Information Gathered'
+  'Information Gathered',
+  'No Current Requirement'
 ] as const;
 
 export const NEGATIVE_OUTCOMES = [

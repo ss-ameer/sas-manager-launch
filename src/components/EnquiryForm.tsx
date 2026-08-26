@@ -2880,8 +2880,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   ) : (
                     <div className="space-y-2 animate-in fade-in duration-200">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-2">
+                      <div className="flex flex-wrap gap-2">
+                        <div className="flex-1 min-w-[250px]">
                           <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
                           <input
                             type="text"
@@ -2890,7 +2890,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
                           />
                         </div>
-                        <div>
+                        <div className="flex-1 min-w-[150px]">
                           <label className="text-[10px] font-semibold text-slate-500 uppercase">Legal Suffix</label>
                           <select
                             value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
@@ -2975,8 +2975,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
 
                   <div className={`space-y-2 transition-opacity ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="flex-1 min-w-[250px]">
                         <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
                         <input
                           type="text"
@@ -2985,7 +2985,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
                         />
                       </div>
-                      <div>
+                      <div className="flex-1 min-w-[150px]">
                         <label className="text-[10px] font-semibold text-slate-500 uppercase">Designation / Job Title</label>
                         <input
                           type="text"
