@@ -35,6 +35,7 @@ export const POSITIVE_OUTCOMES = [
 export const NEUTRAL_OUTCOMES = [
   'Active Negotiation',
   'Quote / Info Sent',
+  'Message Sent / Awaiting Reply',
   'Collateral / Material Left',
   'Follow-up Scheduled',
   'Requested Call Back',

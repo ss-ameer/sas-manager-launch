@@ -241,7 +241,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    if (outcome && !isSuccessStatus(activeStatus)) {
+    const normChan = interactionChannel.toLowerCase();
+    const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+    const isSentStatus = activeStatus.toLowerCase().includes('sent') || activeStatus.toLowerCase().includes('delivered');
+
+    if (isAsyncChannel && isSentStatus && outcome !== 'Message Sent / Awaiting Reply') {
+      setOutcome('Message Sent / Awaiting Reply');
+    } else if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
     }
   }, [interactionChannel, status, purpose, outcome]);
@@ -970,7 +976,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
     }
 
-    if (isCompletedState && (!outcome || !outcome.trim())) {
+    const normChan = channel.toLowerCase();
+    const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+    const isSentStatus = status.toLowerCase().includes('sent') || status.toLowerCase().includes('delivered');
+    const isOutcomeRequired = !(isAsyncChannel && isSentStatus);
+
+    if (isCompletedState && isOutcomeRequired && (!outcome || !outcome.trim())) {
       setValidationError('Please select an outcome for this completed activity.');
       return;
     }

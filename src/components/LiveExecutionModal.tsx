@@ -152,11 +152,18 @@ export default function LiveExecutionModal({
   useEffect(() => {
     if (isOpen) {
       const validOutcomes = getOutcomesForStatus(callStatus);
-      if (callOutcome && !validOutcomes.includes(callOutcome)) {
+      
+      const normChan = currentChannel.toLowerCase();
+      const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+      const isSentStatus = callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered');
+      
+      if (isAsyncChannel && isSentStatus && callOutcome !== 'Message Sent / Awaiting Reply') {
+        setCallOutcome('Message Sent / Awaiting Reply');
+      } else if (callOutcome && !validOutcomes.includes(callOutcome)) {
         setCallOutcome('');
       }
     }
-  }, [callStatus, callOutcome, isOpen]);
+  }, [callStatus, callOutcome, isOpen, currentChannel]);
 
   // Fetch company history logs if not already provided in callLogs prop
   useEffect(() => {
@@ -252,7 +259,12 @@ export default function LiveExecutionModal({
     if (!task || !task.id || isSubmitting) return;
 
     // Validation: Block execution if completed/connected state and outcome not selected
-    if (resolutionAction === 'complete' && isCompletedState && availableOutcomes.length > 0 && (!callOutcome || !callOutcome.trim())) {
+    const normChan = activeChannel.toLowerCase();
+    const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+    const isSentStatus = callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered');
+    const isOutcomeRequired = !(isAsyncChannel && isSentStatus);
+
+    if (resolutionAction === 'complete' && isCompletedState && availableOutcomes.length > 0 && isOutcomeRequired && (!callOutcome || !callOutcome.trim())) {
       alert(`Please select an outcome before completing this ${activeChannel.toLowerCase()}.`);
       return;
     }
@@ -760,7 +772,10 @@ export default function LiveExecutionModal({
               {isCompletedState && availableOutcomes.length > 0 && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    {activeChannel} Outcome <span className="text-rose-500">*</span>
+                    {activeChannel} Outcome 
+                    {!(activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered'))) && (
+                      <span className="text-rose-500 ml-1">*</span>
+                    )}
                   </label>
                   <select
                     id="activity-outcome-select"
