@@ -3384,7 +3384,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   onChange={(e) => setPurpose(e.target.value)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                 >
-                  {PURPOSES.map((p) => (
+                  {getPurposesForChannel(interactionChannel).map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>

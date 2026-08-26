@@ -36,7 +36,8 @@ import {
   NEGATIVE_OUTCOMES,
   getStatusesForChannel,
   getOutcomesForStatus,
-  isSuccessStatus
+  isSuccessStatus,
+  getPurposesForChannel
 } from '../utils/activityLogic';
 import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
@@ -80,6 +81,10 @@ export default function LiveExecutionModal({
     return getStatusesForChannel(currentChannel).filter(s => s !== 'Scheduled' && s !== 'Scheduled / Planned');
   }, [currentChannel]);
 
+  const availablePurposes = useMemo(() => {
+    return getPurposesForChannel(currentChannel);
+  }, [currentChannel]);
+
   // Default completed status
   const defaultCompletedStatus = useMemo(() => {
     return (
@@ -92,6 +97,7 @@ export default function LiveExecutionModal({
   const [resolutionAction, setResolutionAction] = useState<'complete' | 'reschedule' | 'cancel'>('complete');
   const [callStatus, setCallStatus] = useState<string>(defaultCompletedStatus);
   const [callOutcome, setCallOutcome] = useState<string>('');
+  const [purpose, setPurpose] = useState<string>('');
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
@@ -120,6 +126,8 @@ export default function LiveExecutionModal({
       const validStatuses = getStatusesForChannel(taskChan);
       const defaultStatus = validStatuses.find((s) => isSuccessStatus(s)) || validStatuses[0] || 'Completed / Connected';
       setCallStatus(defaultStatus);
+      const validPurposes = getPurposesForChannel(taskChan);
+      setPurpose(task.purpose || validPurposes[0] || 'Discovery / Validation');
       setCallOutcome(task.outcome || '');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes(task.requirement_notes || task.notes || '');
@@ -367,6 +375,7 @@ export default function LiveExecutionModal({
         contact_phone: activeContactPhone || task.contact_phone,
         status: updatedStatus as CallStatus,
         outcome: updatedOutcome,
+        purpose: purpose,
         requirement_notes: finalNotes,
         date: resolutionAction === 'complete' ? nowIso : task.date,
         updatedAt: nowIso,
@@ -699,6 +708,26 @@ export default function LiveExecutionModal({
           {/* Conditional Form Fields */}
           {resolutionAction === 'complete' && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
+              {/* Dynamic Purpose Select Dropdown */}
+              {availablePurposes.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    {activeChannel} Purpose <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={purpose}
+                    onChange={(e) => setPurpose(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition cursor-pointer font-medium"
+                  >
+                    {availablePurposes.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Dynamic Status / Disposition Toggle */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
