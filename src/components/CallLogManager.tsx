@@ -1760,7 +1760,7 @@ export default function CallLogManager({
               return (
                 <div
                   key={item.id}
-                  className={`p-5 rounded-2xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                  className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                     isOverdue
                       ? 'bg-rose-50/40 border-rose-300 shadow-sm ring-1 ring-rose-200'
                       : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
@@ -1832,14 +1832,14 @@ export default function CallLogManager({
                       </div>
 
                       {item.requirement_notes && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 pt-1 font-sans">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 truncate pt-1 font-sans">
                           {item.requirement_notes}
                         </p>
                       )}
                   </div>
 
                   {/* Fast Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200 opacity-40 group-hover:opacity-100 transition-opacity">
                     {canUserClickRecord(user, item, salespersons) ? (
                       <>
                         {item.contact_phone && (
@@ -1848,7 +1848,7 @@ export default function CallLogManager({
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition flex items-center justify-center"
+                            className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition flex items-center justify-center"
                             title="Call Now (Tap to Call)"
                           >
                             <PhoneCall className="w-4 h-4" />
@@ -1859,7 +1859,7 @@ export default function CallLogManager({
                           onClick={() => {
                             setSelectedDetailEntry(item);
                           }}
-                          className="p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
+                          className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
                           title="View Call Log"
                         >
                           <Eye className="w-4 h-4" />
@@ -1868,7 +1868,7 @@ export default function CallLogManager({
                         {canEditOrDeleteRecord(user, item) && (
                           <button
                             onClick={() => handleEditActivityLog(item)}
-                            className="p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
                             title="Edit Activity Log"
                           >
                             <Edit3 className="w-4 h-4" />
@@ -1894,7 +1894,7 @@ export default function CallLogManager({
                                 }
                               }
                             }}
-                            className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl border border-slate-200 transition flex items-center justify-center bg-white"
+                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
                             title="Delete Scheduled Call"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1903,7 +1903,7 @@ export default function CallLogManager({
 
                         <button
                           onClick={() => openFastQueueLogger(item)}
-                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-2"
+                          className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shadow-md transition flex items-center space-x-2 cursor-pointer"
                         >
                           <Zap className="w-4 h-4 text-amber-400" />
                           <span>Execute Task</span>
@@ -2101,7 +2101,7 @@ export default function CallLogManager({
               return (
                 <div
                   key={log.id}
-                  className={`p-5 rounded-2xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                  className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                     isSelected
                       ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
                       : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
@@ -2208,7 +2208,7 @@ export default function CallLogManager({
                       </div>
 
                       {log.requirement_notes && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 pt-1 font-sans">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 truncate pt-1 font-sans">
                           {log.requirement_notes}
                         </p>
                       )}
@@ -2216,7 +2216,7 @@ export default function CallLogManager({
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200 dark:border-slate-800 opacity-40 group-hover:opacity-100 transition-opacity">
                     {canUserClickRecord(user, log, salespersons) ? (
                       <>
                         <button
@@ -2224,7 +2224,7 @@ export default function CallLogManager({
                           onClick={() => {
                             setSelectedDetailEntry(log);
                           }}
-                          className="p-2.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
+                          className="p-2 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
                           title="View Call Log"
                         >
                           <Eye className="w-4 h-4" />
@@ -2234,7 +2234,7 @@ export default function CallLogManager({
                           <button
                             type="button"
                             onClick={() => handleEditActivityLog(log)}
-                            className="p-2.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
+                            className="p-2 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
                             title="Edit Activity Log"
                           >
                             <Edit3 className="w-4 h-4" />
@@ -2261,7 +2261,7 @@ export default function CallLogManager({
                                 }
                               }
                             }}
-                            className="p-2.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-xl transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
+                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
                             title="Delete Log"
                           >
                             <Trash2 className="w-4 h-4" />
