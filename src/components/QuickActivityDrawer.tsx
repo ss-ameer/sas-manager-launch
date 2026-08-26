@@ -3300,7 +3300,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {interactionChannel.toUpperCase()} STATUS / DISPOSITION
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                {getStatusesForChannel(interactionChannel).map((st) => (
+                {getStatusesForChannel(interactionChannel)
+                  .filter(st => drawerMode === 'execute' ? (st !== 'Scheduled' && st !== 'Scheduled / Planned') : true)
+                  .map((st) => (
                   <button
                     key={st}
                     type="button"

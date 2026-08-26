@@ -77,7 +77,7 @@ export default function LiveExecutionModal({
 
   // Dynamically get available statuses based on channel from activityLogic
   const availableStatuses = useMemo(() => {
-    return getStatusesForChannel(currentChannel);
+    return getStatusesForChannel(currentChannel).filter(s => s !== 'Scheduled' && s !== 'Scheduled / Planned');
   }, [currentChannel]);
 
   // Default completed status
@@ -372,7 +372,9 @@ export default function LiveExecutionModal({
         updatedAt: nowIso,
         last_modified_by_uid: userUid,
         last_modified_by_name: userName,
-        ...(resolutionAction === 'complete' ? { completed_at: nowIso, completedAt: nowIso, executed_at: nowIso } : {}),
+        completed_at: nowIso,
+        completedAt: nowIso,
+        executed_at: nowIso,
         ...(nextFollowUpDate && resolutionAction !== 'cancel' ? { next_followup_date: nextFollowUpDate } : {})
       };
 
