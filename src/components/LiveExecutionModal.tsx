@@ -401,8 +401,12 @@ export default function LiveExecutionModal({
           status: 'Scheduled / Planned' as CallStatus,
           outcome: 'Follow-Up Scheduled',
           purpose: task.purpose || 'Follow-up / Check-in',
-          requirement_notes: followUpIntent.trim() || '',
-          followup_intent: followUpIntent.trim() || undefined,
+          requirement_notes: followUpIntent.trim() 
+            ? followUpIntent.trim() 
+            : (resolutionAction === 'reschedule' ? (task.requirement_notes || '') : ''),
+          followup_intent: followUpIntent.trim() 
+            ? followUpIntent.trim() 
+            : (resolutionAction === 'reschedule' ? task.followup_intent : undefined),
           logged_by: userName,
           sales_person: userName,
           created_by_uid: userUid,
