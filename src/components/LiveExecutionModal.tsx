@@ -94,6 +94,7 @@ export default function LiveExecutionModal({
   const [callOutcome, setCallOutcome] = useState<string>('');
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
+  const [followUpIntent, setFollowUpIntent] = useState<string>('');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -122,6 +123,7 @@ export default function LiveExecutionModal({
       setCallOutcome(task.outcome || '');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes(task.requirement_notes || task.notes || '');
+      setFollowUpIntent('');
       
       // Default next follow-up date to tomorrow at 10:00 AM
       const tomorrow = new Date();
@@ -399,8 +401,8 @@ export default function LiveExecutionModal({
           status: 'Scheduled / Planned' as CallStatus,
           outcome: 'Follow-Up Scheduled',
           purpose: task.purpose || 'Follow-up / Check-in',
-          requirement_notes: notes.trim() || task.requirement_notes || 'Scheduled Follow-Up Task',
-          followup_intent: notes.trim() || task.followup_intent || undefined,
+          requirement_notes: followUpIntent.trim() || '',
+          followup_intent: followUpIntent.trim() || undefined,
           logged_by: userName,
           sales_person: userName,
           created_by_uid: userUid,
@@ -826,6 +828,20 @@ export default function LiveExecutionModal({
                 <p className="text-[10px] text-emerald-700 dark:text-emerald-400">
                   Setting a date creates a linked task in your queue automatically.
                 </p>
+                {nextFollowUpDate && (
+                  <div className="pt-2 border-t border-emerald-100/50 dark:border-emerald-800/30">
+                    <label className="block text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 mb-1">
+                      Follow-Up Intent / Agenda
+                    </label>
+                    <input
+                      type="text"
+                      value={followUpIntent}
+                      onChange={(e) => setFollowUpIntent(e.target.value)}
+                      placeholder="e.g. Discuss revised proposal, finalize contract..."
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
