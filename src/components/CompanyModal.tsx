@@ -530,7 +530,7 @@ export default function CompanyModal({
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [canonicalName, setCanonicalName] = useState('');
-  const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('LLC');
+  const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [country, setCountry] = useState('UAE');
   const [city, setCity] = useState('');
   const [website, setWebsite] = useState('');

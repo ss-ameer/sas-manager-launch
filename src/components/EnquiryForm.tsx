@@ -688,7 +688,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   const [isEditingCompany, setIsEditingCompany] = useState(false);
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [subCompanyName, setSubCompanyName] = useState('');
-  const [subLegalSuffix, setSubLegalSuffix] = useState('LLC');
+  const [subLegalSuffix, setSubLegalSuffix] = useState('None / To Be Added Later');
   const [subCountry, setSubCountry] = useState('UAE');
   const [subCity, setSubCity] = useState('');
   const [subGeneralPhone, setSubGeneralPhone] = useState('');
@@ -1063,8 +1063,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       if (!unregisteredEntities.companyName) return;
 
       const compName = unregisteredEntities.companyName.trim();
-      const suf = (unregisteredEntities.legalSuffix || 'LLC') as LegalSuffix;
-      const display_name = suf === 'None / Other' ? compName : `${compName} ${suf}`;
+      const suf = unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later';
+      const display_name = (suf === 'None / Other' || suf === 'None / To Be Added Later') ? compName : `${compName} ${suf}`;
       const city = unregisteredEntities.city?.trim() || 'Dubai';
       const countryVal = unregisteredEntities.country?.trim() || 'UAE';
       const companyGeneralPhone = unregisteredEntities.phoneDestination === 'company' ? (unregisteredEntities.generalPhone || unregisteredEntities.contactMobile) : undefined;
@@ -1346,7 +1346,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           // Company matched, but contact is new/unregistered!
           setUnregisteredEntities({
             companyName: companyMatched.display_name,
-            legalSuffix: companyMatched.legal_suffix || 'LLC',
+            legalSuffix: companyMatched.legal_suffix || 'None / To Be Added Later',
             city: companyMatched.city || '',
             country: companyMatched.country || 'UAE',
             contactName: data.contact_name || '',
@@ -1362,7 +1362,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
       } else {
         setSubCompanyName(data.company_name);
-        setSubLegalSuffix(data.legal_suffix || 'LLC');
+        setSubLegalSuffix(data.legal_suffix || 'None / To Be Added Later');
         setSubCountry(data.country || data.project_location || 'UAE');
         setSubCity(data.project_location || '');
         setSubContactName(data.contact_name || '');
@@ -1371,7 +1371,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         setUnregisteredEntities({
           companyName: data.company_name,
-          legalSuffix: data.legal_suffix || 'LLC',
+          legalSuffix: data.legal_suffix || 'None / To Be Added Later',
           city: data.project_location || '',
           country: data.country || 'UAE',
           contactName: data.contact_name || '',
@@ -1656,7 +1656,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           received_date: extractedDate || new Date().toISOString().split('T')[0],
           salesperson: salesperson || '',
           company_name: extractedCompany || 'Prospective Client',
-          legal_suffix: 'LLC',
+          legal_suffix: 'None / To Be Added Later',
           contact_name: extractedContact || '',
           contact_email: extractedEmail || '',
           contact_phone: extractedPhone || '',
@@ -2892,12 +2892,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                         <div>
                           <label className="text-[10px] font-semibold text-slate-500 uppercase">Legal Suffix</label>
-                          <input
-                            type="text"
-                            value={unregisteredEntities.legalSuffix || 'LLC'}
+                          <select
+                            value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                          />
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+                          >
+                            {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
+                              <option key={suf} value={suf}>{suf}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
@@ -3131,7 +3134,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     }
                                   }
                                   setSubCompanyName(baseName);
-                                  setSubLegalSuffix(comp.legal_suffix || 'LLC');
+                                  setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
                                   setSubCity(comp.city);
                                   setSubCountry(comp.country);
                                   setSubGeneralPhone(comp.general_phone || '');
@@ -3152,7 +3155,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             onClick={() => {
                               setCompanyMenuOpen(false);
                               setSubCompanyName(companySearch);
-                              setSubLegalSuffix('LLC');
+                              setSubLegalSuffix('None / To Be Added Later');
                               setSubCity('');
                               setSubCountry('UAE');
                               setSubGeneralPhone('');
@@ -4263,7 +4266,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     onChange={(e) => setSubLegalSuffix(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                   >
-                    {['LLC', 'FZE', 'FZCO', 'PJSC', 'JSC', 'Corp', 'Ltd', 'None / Other'].map((suf) => (
+                    {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
                       <option key={suf} value={suf}>{suf}</option>
                     ))}
                   </select>
@@ -5071,12 +5074,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Legal Suffix</label>
-                      <input
-                        type="text"
-                        value={unregisteredEntities.legalSuffix || 'LLC'}
+                      <select
+                        value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
                         onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
-                      />
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 font-sans cursor-pointer"
+                      >
+                        {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
+                          <option key={suf} value={suf}>{suf}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Country</label>

@@ -264,7 +264,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const makeExpressId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
   const [expressCompanyName, setExpressCompanyName] = useState<string>('');
-  const [expressLegalSuffix, setExpressLegalSuffix] = useState<string>('LLC');
+  const [expressLegalSuffix, setExpressLegalSuffix] = useState<string>('None / To Be Added Later');
   const [expressCity, setExpressCity] = useState<string>('Dubai');
   const [expressCountry, setExpressCountry] = useState<string>('United Arab Emirates');
   const [expressCompanyPhones, setExpressCompanyPhones] = useState<ExpressPhoneItem[]>(() => [
@@ -1429,7 +1429,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               workspace_id: activeWorkspaceId,
               canonical_name: compName,
               display_name: compName,
-              legal_suffix: expressLegalSuffix || 'LLC',
+              legal_suffix: expressLegalSuffix || 'None / To Be Added Later',
               aliases: [],
               country: expressCountry || 'United Arab Emirates',
               city: expressCity || 'Dubai',
@@ -2848,6 +2848,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         onChange={(e) => setExpressLegalSuffix(e.target.value)}
                         className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none"
                       >
+                        <option value="None / To Be Added Later">None / To Be Added Later</option>
                         <option value="LLC">LLC</option>
                         <option value="FZE">FZE</option>
                         <option value="FZC">FZC</option>
