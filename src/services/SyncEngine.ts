@@ -32,13 +32,13 @@ class SyncEngine {
       });
 
 
-      // Purge massive audit_log queue items that are blocking
+      // Purge massive queue items that are blocking
       getPendingMutations().then(async (queue) => {
         for (const item of queue) {
-          if (item.entity === 'audit_logs') {
+          if (item.entity === 'audit_logs' || item.entity === 'enquiries') {
             const size = JSON.stringify(item.payload).length;
-            if (size > 500000) {
-              console.warn('[SyncEngine] Proactively dropping oversized audit_logs mutation from queue:', item.id);
+            if (size > 800000) {
+              console.warn(`[SyncEngine] Proactively dropping oversized ${item.entity} mutation from queue:`, item.id);
               await removeLocalMutation(item.id);
             }
           }

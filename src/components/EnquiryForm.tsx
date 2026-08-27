@@ -2194,6 +2194,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const spId = selectedSp?.id || (salesPerson && salesPerson.length > 5 ? salesPerson : undefined);
     const spInitialsOrName = selectedSp?.initials || selectedSp?.full_name || salesPerson;
 
+    const cleanAttachments = attachments.map(att => {
+      if (att.url && att.url.startsWith('data:')) {
+        return { ...att, url: '' };
+      }
+      return att;
+    });
+
     const payload: Omit<Enquiry, 'id'> = {
       workspace_id: activeWorkspace.id,
       sn: Number(sn),
@@ -2208,7 +2215,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       project_location: projectLocation,
       enquiry_source: enquirySource,
       status,
-      raw_source_text: pastedSourceText || undefined,
+      raw_source_text: pastedSourceText && pastedSourceText.length > 800000 
+        ? pastedSourceText.substring(0, 800000) + '\n\n[TEXT_TRUNCATED_DUE_TO_SIZE_LIMIT]' 
+        : pastedSourceText || undefined,
       quote_ref_no: quoteRefNo.trim(),
       subject: subject.trim() || undefined,
       customer_reference_code: customerReferenceCode.trim() || undefined,
@@ -2223,7 +2232,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       payment_status: paymentStatus.trim() || undefined,
       custom_project_details: customProjectDetails.filter(d => d.key.trim() && d.value.trim()),
       line_items: cleanLineItems,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments: cleanAttachments.length > 0 ? cleanAttachments : undefined,
       parent_id: parentId ?? enquiryToEdit?.parent_id ?? null,
       revision_number: typeof revisionNumber === 'number' ? revisionNumber : (enquiryToEdit?.revision_number ?? (parentId ? 1 : 0)),
       created_by_uid: enquiryToEdit?.created_by_uid || enquiryToEdit?.createdByUid || user?.uid || '',
@@ -4261,35 +4270,39 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between text-xs font-mono text-slate-700">
                     <div 
                       onClick={() => {
-                        setActivePreviewUrl(file.url);
-                        setPreviewFileName(file.name);
-                        setPreviewFileType(file.type || 'application/pdf');
+                        if (file.url) {
+                          setActivePreviewUrl(file.url);
+                          setPreviewFileName(file.name);
+                          setPreviewFileType(file.type || 'application/pdf');
+                        }
                       }}
-                      className="flex items-center space-x-2 truncate mr-2 cursor-pointer hover:text-blue-600 transition"
-                      title="Click to preview side-by-side"
+                      className={`flex items-center space-x-2 truncate mr-2 transition ${file.url ? 'cursor-pointer hover:text-blue-600' : 'text-slate-500'}`}
+                      title={file.url ? "Click to preview side-by-side" : "Attachment stored offline"}
                     >
                       <FileText className="w-4 h-4 text-blue-600 shrink-0" />
                       <span className="truncate font-sans font-medium text-slate-700 hover:underline">{file.name}</span>
                       <span className="text-[10px] text-slate-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
                     </div>
                     <div className="flex items-center space-x-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActivePreviewUrl(file.url);
-                          setPreviewFileName(file.name);
-                          setPreviewFileType(file.type || 'application/pdf');
-                        }}
-                        className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border ${
-                          activePreviewUrl === file.url 
-                            ? 'bg-blue-600 text-white border-blue-600' 
-                            : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                        }`}
-                        title="Open side-by-side preview panel"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>{activePreviewUrl === file.url ? 'Previewing' : 'View'}</span>
-                      </button>
+                      {file.url && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActivePreviewUrl(file.url);
+                            setPreviewFileName(file.name);
+                            setPreviewFileType(file.type || 'application/pdf');
+                          }}
+                          className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border ${
+                            activePreviewUrl === file.url 
+                              ? 'bg-blue-600 text-white border-blue-600' 
+                              : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                          }`}
+                          title="Open side-by-side preview panel"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>{activePreviewUrl === file.url ? 'Previewing' : 'View'}</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"

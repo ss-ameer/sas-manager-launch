@@ -665,15 +665,17 @@ export default function EnquiryDetail({
                         <span className="truncate font-semibold">{file.name}</span>
                         <span className="text-[10px] text-slate-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
                       </div>
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-150 rounded-lg text-slate-500 hover:text-slate-800 transition flex items-center justify-center shadow-sm"
-                        title="Download Proposal Document"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </a>
+                      {file.url && (
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-150 rounded-lg text-slate-500 hover:text-slate-800 transition flex items-center justify-center shadow-sm"
+                          title="Download Proposal Document"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                      )}
                     </div>
                   ))}
                 </div>
