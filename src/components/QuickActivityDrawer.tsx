@@ -1714,7 +1714,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         workspace_id: activeWorkspaceId,
         date: activityIsoDate,
         status: finalStatus,
-        outcome: isCompletedState ? (outcome || '') : '',
+        outcome: isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || '')) : '',
         channel: channel,
         requirement_notes: notes.trim(),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
@@ -1758,7 +1758,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           id: activeLog.id,
           date: activityIsoDate,
           status: (status && status !== 'Scheduled / Planned' && status !== 'Scheduled') ? status : 'Completed',
-          outcome: outcome || activeLog.outcome || 'Completed',
+          outcome: isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed'),
           purpose: purpose || activeLog.purpose || 'Discovery / Validation',
           requirement_notes: notes.trim(),
           completed_at: nowIso,
@@ -3337,8 +3337,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             </div>
 
             {/* Outcome & Purpose Grid */}
-            <div className={`grid gap-3 ${isCompletedState ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-              {isCompletedState && (
+            <div className={`grid gap-3 ${isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                     {interactionChannel.toUpperCase()} OUTCOME

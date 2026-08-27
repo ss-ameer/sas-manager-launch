@@ -75,6 +75,7 @@ interface CompanyModalProps {
   initialSelectedCompanyId?: string | null;
   initialOpenEdit?: boolean;
   companyEditTrigger?: number;
+  onClearCompanyEditContext?: () => void;
   onOpenActivityDrawer?: (context: {
     companyId?: string;
     companyName?: string;
@@ -138,6 +139,7 @@ export default function CompanyModal({
   initialSelectedCompanyId,
   initialOpenEdit,
   companyEditTrigger,
+  onClearCompanyEditContext,
   onOpenActivityDrawer,
   onOpenMobileMenu
 }: CompanyModalProps) {
@@ -604,6 +606,7 @@ export default function CompanyModal({
   const generateCmId = () => `cm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
   const closeCompanyModal = () => {
+    if (onClearCompanyEditContext) onClearCompanyEditContext();
     setShowAddCompany(false);
     setEditingCompany(null);
     setCanonicalName('');

@@ -298,7 +298,7 @@ export default function LiveExecutionModal({
       } else {
         // resolutionAction === 'complete'
         updatedStatus = callStatus;
-        updatedOutcome = isCompletedState ? (callOutcome || '') : '';
+        updatedOutcome = isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (callOutcome || '')) : '';
         finalNotes = notes.trim()
           ? finalNotes
             ? `${finalNotes}\n[Execution Notes]: ${notes.trim()}`
@@ -597,11 +597,25 @@ export default function LiveExecutionModal({
                               </span>
                             );
                           })()}
-                          {log.outcome && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              {log.outcome}
-                            </span>
-                          )}
+                          {(() => {
+                            const normChan = (log.channel || log.interaction_type || '').toLowerCase();
+                            const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+                            if (isAsync && log.purpose) {
+                              return (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  {log.purpose}
+                                </span>
+                              );
+                            }
+                            if (log.outcome) {
+                              return (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  {log.outcome}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                       {log.requirement_notes && (
@@ -769,13 +783,11 @@ export default function LiveExecutionModal({
               </div>
 
               {/* Dynamic Outcome Select Dropdown */}
-              {isCompletedState && availableOutcomes.length > 0 && (
+              {isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     {activeChannel} Outcome 
-                    {!(activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered'))) && (
-                      <span className="text-rose-500 ml-1">*</span>
-                    )}
+                    <span className="text-rose-500 ml-1">*</span>
                   </label>
                   <select
                     id="activity-outcome-select"

@@ -714,11 +714,25 @@ export default function Company360Modal({
                                 </span>
                               );
                             })()}
-                            {log.outcome && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                {log.outcome}
-                              </span>
-                            )}
+                            {(() => {
+                              const normChan = (log.channel || log.interaction_type || '').toLowerCase();
+                              const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+                              if (isAsync && log.purpose) {
+                                return (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                    {log.purpose}
+                                  </span>
+                                );
+                              }
+                              if (log.outcome) {
+                                return (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    {log.outcome}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
 
                           <span className="text-xs text-slate-500 font-semibold">

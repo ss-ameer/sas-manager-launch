@@ -1451,6 +1451,7 @@ export default function App() {
             initialSelectedCompanyId={companyEditContext?.id}
             initialOpenEdit={companyEditContext?.openEdit}
             companyEditTrigger={companyEditContext?.timestamp}
+            onClearCompanyEditContext={() => setCompanyEditContext(null)}
             onOpenActivityDrawer={(context) => {
               setActivityDrawerContext(context);
               setIsActivityDrawerOpen(true);

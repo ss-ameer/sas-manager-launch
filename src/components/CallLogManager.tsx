@@ -652,6 +652,18 @@ export default function CallLogManager({
     );
   };
 
+  const renderPurposeBadge = (purpose?: string) => {
+    if (!purpose) return null;
+    return (
+      <span
+        className="inline-block px-2 py-0.5 rounded text-[10px] font-bold border max-w-[200px] truncate bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+        title={purpose}
+      >
+        {purpose}
+      </span>
+    );
+  };
+
   const renderChannelBadge = (channel?: string) => {
     if (!channel) {
       return (
@@ -818,7 +830,7 @@ export default function CallLogManager({
 
     if (isDnc || isContactDnc || temperature === 'DNC') {
       return (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-950 text-rose-200 border border-rose-600 ring-1 ring-rose-500 shadow-xs tracking-wider">
+        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shadow-xs tracking-wider">
           DNC 🚫
         </span>
       );
@@ -827,20 +839,20 @@ export default function CallLogManager({
     const tempLower = (temperature || 'Cold').toLowerCase();
     if (tempLower === 'hot') {
       return (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white border border-rose-600 shadow-xs">
+        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shadow-xs">
           Hot 🔥
         </span>
       );
     }
     if (tempLower === 'warm') {
       return (
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-slate-950 border border-amber-600 shadow-xs">
+        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shadow-xs">
           Warm 🌤️
         </span>
       );
     }
     return (
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-500 text-slate-950 border border-cyan-600 shadow-xs">
+      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shadow-xs">
         Cold ❄️
       </span>
     );
@@ -1442,7 +1454,7 @@ export default function CallLogManager({
         workspace_id: activeWorkspace.id,
         date: logFormDate,
         status: logFormStatus,
-        outcome: logFormOutcome || undefined,
+        outcome: (logFormInteractionType === 'email' || logFormInteractionType === 'message') ? 'Message Sent / Awaiting Reply' : (logFormOutcome || undefined),
         requirement_notes: logFormNotes.trim(),
         next_followup_date: logFormFollowupDate || undefined,
         company_id: logFormCompanyId,
@@ -2101,7 +2113,7 @@ export default function CallLogManager({
               return (
                 <div
                   key={log.id}
-                  className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                  className={`group p-2 md:p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
                     isSelected
                       ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
                       : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
@@ -2161,7 +2173,14 @@ export default function CallLogManager({
 
                         {renderCompanyTempPill(log)}
                         {renderStatusBadge(log.status)}
-                        {log.outcome && renderOutcomeBadge(log.outcome)}
+                        {(() => {
+                          const normChan = (log.channel || log.interaction_type || '').toLowerCase();
+                          const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+                          if (isAsync && log.purpose) {
+                            return renderPurposeBadge(log.purpose);
+                          }
+                          return log.outcome ? renderOutcomeBadge(log.outcome) : null;
+                        })()}
                       </div>
 
                       <div className="flex items-center space-x-3 pt-0.5 text-xs flex-wrap gap-y-1">
@@ -2208,7 +2227,7 @@ export default function CallLogManager({
                       </div>
 
                       {log.requirement_notes && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 truncate pt-1 font-sans">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 whitespace-normal pt-1 font-sans">
                           {log.requirement_notes}
                         </p>
                       )}
@@ -2216,7 +2235,7 @@ export default function CallLogManager({
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200 dark:border-slate-800 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-200 dark:border-slate-800 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     {canUserClickRecord(user, log, salespersons) ? (
                       <>
                         <button
@@ -2224,20 +2243,20 @@ export default function CallLogManager({
                           onClick={() => {
                             setSelectedDetailEntry(log);
                           }}
-                          className="p-2 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
+                          className="p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
                           title="View Call Log"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
 
                         {canEditOrDeleteRecord(user, log) && (
                           <button
                             type="button"
                             onClick={() => handleEditActivityLog(log)}
-                            className="p-2 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
+                            className="p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
                             title="Edit Activity Log"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                         )}
 
@@ -2261,10 +2280,10 @@ export default function CallLogManager({
                                 }
                               }
                             }}
-                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
                             title="Delete Log"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </>
@@ -3059,9 +3078,10 @@ export default function CallLogManager({
               </div>
 
               {/* Outcome (Preset & Custom) */}
+              {!(logFormInteractionType === 'email' || logFormInteractionType === 'message') && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  {logFormInteractionType === 'email' ? 'Email Outcome (1-Click Preset)' : logFormInteractionType === 'message' ? 'Message Outcome (1-Click Preset)' : 'Call Outcome (1-Click Preset)'}
+                  Call Outcome (1-Click Preset)
                 </label>
                 
                 <div className="flex flex-wrap gap-1.5 mb-2">
@@ -3140,6 +3160,7 @@ export default function CallLogManager({
                   </div>
                 )}
               </div>
+              )}
 
               {/* Optional Link to Enquiry (if Enquiries Enabled) */}
               {activeWorkspace.modules?.enquiriesEnabled !== false && (
@@ -3282,7 +3303,7 @@ export default function CallLogManager({
                                     onClick={() => {
                                       if (canClick) setSelectedDetailEntry(pl);
                                     }}
-                                    className={`p-3 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs space-y-1 transition ${
+                                    className={`p-2.5 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs space-y-1 transition ${
                                       canClick ? 'hover:border-blue-400 hover:shadow-md cursor-pointer group' : 'opacity-90'
                                     }`}
                                   >
@@ -3294,7 +3315,7 @@ export default function CallLogManager({
                                     </div>
                                     <p className="text-[11px] text-slate-600 font-medium">Logged by: {pl.logged_by || 'Staff'}</p>
                                     {pl.contact_name && <p className="text-[11px] text-slate-500">Contact: {pl.contact_name}</p>}
-                                    {pl.notes && <p className="text-[11px] text-slate-500 italic bg-slate-50 p-2 rounded-lg border border-slate-100 mt-1 line-clamp-3">"{pl.notes}"</p>}
+                                    {pl.notes && <p className="text-[11px] text-slate-500 italic bg-slate-50 p-2 rounded-lg border border-slate-100 mt-1 line-clamp-2">"{pl.notes}"</p>}
                                     {canClick ? (
                                       <div className="text-[10px] font-bold text-blue-600 group-hover:underline flex items-center justify-end space-x-1 pt-1">
                                         <span>View Details</span>
@@ -3329,7 +3350,7 @@ export default function CallLogManager({
                                         onSelectEnquiry(pe.id);
                                       }
                                     }}
-                                    className={`p-3 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs space-y-1 transition ${
+                                    className={`p-2.5 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs space-y-1 transition ${
                                       canClick ? 'hover:border-purple-400 hover:shadow-md cursor-pointer group' : 'opacity-90'
                                     }`}
                                   >
