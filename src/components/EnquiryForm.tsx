@@ -53,6 +53,142 @@ import {
 } from 'lucide-react';
 
 // Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
+
+const FormattedNumberInput = ({ value, onChange, className, ...props }: any) => {
+  const [displayValue, setDisplayValue] = React.useState('');
+
+  React.useEffect(() => {
+    if (value !== undefined && value !== null) {
+      const parsedDisplay = parseFloat(displayValue.replace(/,/g, ''));
+      if (parsedDisplay !== value || isNaN(parsedDisplay)) {
+        setDisplayValue(Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+      }
+    } else {
+      setDisplayValue('');
+    }
+  }, [value]);
+
+  const handleBlur = () => {
+    if (value !== undefined && value !== null) {
+      setDisplayValue(Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setDisplayValue(val);
+    const raw = val.replace(/,/g, '');
+    if (raw === '' || raw === '-') {
+      onChange(0);
+      return;
+    }
+    const num = parseFloat(raw);
+    if (!isNaN(num)) {
+      onChange(num);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      value={displayValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+      {...props}
+    />
+  );
+};
+
+const CreatableCombobox = ({ value, onChange, options, placeholder, className }: any) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [inputValue, setInputValue] = React.useState(value || '');
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    setInputValue(value || '');
+  }, [value]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredOptions = options.filter((opt: string) => 
+    opt.toLowerCase().includes(inputValue.toLowerCase())
+  );
+  
+  // Custom sorting to prioritize "starts with"
+  filteredOptions.sort((a: string, b: string) => {
+    const aStarts = a.toLowerCase().startsWith(inputValue.toLowerCase());
+    const bStarts = b.toLowerCase().startsWith(inputValue.toLowerCase());
+    if (aStarts && !bStarts) return -1;
+    if (!aStarts && bStarts) return 1;
+    return a.localeCompare(b);
+  });
+  
+  const showCreateOption = inputValue && !options.some((opt: string) => opt.toLowerCase() === inputValue.toLowerCase());
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <input
+        type="text"
+        value={inputValue}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+          onChange(e.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+        className={className}
+        placeholder={placeholder}
+      />
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {filteredOptions.length > 0 && filteredOptions.map((opt: string) => (
+            <div
+              key={opt}
+              className="px-3 py-2 text-sm cursor-pointer hover:bg-slate-100 text-slate-800"
+              onMouseDown={(e) => {
+                e.preventDefault(); // prevent input blur
+                setInputValue(opt);
+                onChange(opt);
+                setIsOpen(false);
+              }}
+            >
+              {opt}
+            </div>
+          ))}
+          {showCreateOption && (
+            <div
+              className="px-3 py-2 text-sm cursor-pointer bg-blue-50 text-blue-700 hover:bg-blue-100 border-t border-slate-100"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setInputValue(inputValue);
+                onChange(inputValue);
+                setIsOpen(false);
+              }}
+            >
+              + Create "{inputValue}"
+            </div>
+          )}
+          {filteredOptions.length === 0 && !showCreateOption && (
+            <div className="px-3 py-2 text-sm text-slate-500 italic">
+              No matching options
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 const dataUrlBlobCache = new Map<string, string>();
 
 /**
@@ -2676,10 +2812,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <input
                     type="number"
                     required
-                    disabled={!!enquiryToEdit}
                     value={sn}
                     onChange={(e) => setSn(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50"
+                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20"
                   />
                 </div>
 
@@ -2692,7 +2827,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     value={enquiryDate}
                     onChange={(e) => setEnquiryDate(e.target.value)}
                     style={{ colorScheme: 'dark' }}
-                    className={`[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono ${getHighlightClasses('received_date')}`}
+                    className={`[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono ${getHighlightClasses('received_date')}`}
                   />
                 </div>
 
@@ -2705,7 +2840,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     value={loggedDate}
                     onChange={(e) => setLoggedDate(e.target.value)}
                     style={{ colorScheme: 'dark' }}
-                    className="[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                    className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
                   />
                 </div>
 
@@ -2715,7 +2850,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     value={salesPerson}
                     onChange={(e) => setSalesPerson(e.target.value)}
                     disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
-                    className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans ${
+                    className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans ${
                       user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
                     }`}
                   >
@@ -2737,7 +2872,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <select
                     value={enquirySource}
                     onChange={(e) => setEnquirySource(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
                   >
                     {sortedSources.map((src) => (
                       <option key={src} value={src}>{src}</option>
@@ -2750,7 +2885,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <select
                     value={formCurrency}
                     onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
                   >
                     <option value="AED">AED (Dirhams)</option>
                     <option value="USD">USD (Dollars)</option>
@@ -2866,7 +3001,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <select
                           value={unregisteredEntities.linkedCompanyId || ''}
                           onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, linkedCompanyId: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                         >
                           <option value="">-- Select Company --</option>
                           {companies.map(c => (
@@ -2887,7 +3022,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             type="text"
                             value={unregisteredEntities.companyName || ''}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
                           />
                         </div>
                         <div className="flex-1 min-w-[150px]">
@@ -2895,7 +3030,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <select
                             value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
                           >
                             {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
                               <option key={suf} value={suf}>{suf}</option>
@@ -2911,7 +3046,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             type="text"
                             value={unregisteredEntities.city || ''}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -2920,7 +3055,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             type="text"
                             value={unregisteredEntities.country || 'UAE'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -2931,7 +3066,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <select
                             value={unregisteredEntities.relationship || 'Prospect'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, relationship: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                           >
                             <option value="Prospect">Prospect</option>
                             <option value="Client">Client</option>
@@ -2944,7 +3079,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <select
                             value={unregisteredEntities.temperature || 'Cold ❄️'}
                             onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, temperature: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                           >
                             <option value="Cold ❄️">Cold ❄️</option>
                             <option value="Warm 🔥">Warm 🔥</option>
@@ -2982,7 +3117,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           type="text"
                           value={unregisteredEntities.contactName || ''}
                           onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
                         />
                       </div>
                       <div className="flex-1 min-w-[150px]">
@@ -2991,7 +3126,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           type="text"
                           value={unregisteredEntities.contactDesignation || ''}
                           onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactDesignation: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -3003,7 +3138,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           type="email"
                           value={unregisteredEntities.contactEmail || ''}
                           onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactEmail: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -3012,7 +3147,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           type="text"
                           value={unregisteredEntities.contactMobile || ''}
                           onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactMobile: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -3287,7 +3422,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={contactId}
                   onChange={(e) => setContactId(e.target.value)}
                   disabled={!companyId}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
+                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
                 >
                   <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
                   {companyContacts.map((ct) => (
@@ -3315,7 +3450,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. UAE / Oman"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('country')}`}
+                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('country')}`}
                 />
               </div>
 
@@ -3334,7 +3469,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Dubai / Muscat"
                   value={projectLocation}
                   onChange={(e) => setProjectLocation(e.target.value)}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('location')}`}
+                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('location')}`}
                 />
               </div>
 
@@ -3348,7 +3483,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setQuoteRefNo(e.target.value);
                     setIsQuoteRefCustom(true);
                   }}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('quote_ref_no')}`}
+                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('quote_ref_no')}`}
                 />
               </div>
             </div>
@@ -3361,7 +3496,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. RO Supply and Commissioning"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  className={`w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('subject')}`}
+                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('subject')}`}
                 />
               </div>
 
@@ -3372,7 +3507,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. PO-8902-X / RFQ-2026"
                   value={customerReferenceCode}
                   onChange={(e) => setCustomerReferenceCode(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
                 />
               </div>
 
@@ -3381,7 +3516,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <select
                   value={proposalOption}
                   onChange={(e) => setProposalOption(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
                 >
                   <option value="">None / Single Option</option>
                   <option value="Option A">Option A</option>
@@ -3550,7 +3685,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <select
                           value={item.item_type || 'product'}
                           onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
                         >
                           <option value="product">Product (Equipment)</option>
                           <option value="charge">Charge / Fee (Service)</option>
@@ -3582,12 +3717,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             <span>Product Type</span>
                             {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
                           </label>
-                          <input
-                            type="text"
-                            list="product-category-list"
+                          <CreatableCombobox
+                            options={sortedCategories}
                             value={item.product_type}
-                            onChange={(e) => handleLineItemChange(index, 'product_type', e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                            onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
                           />
                         </div>
                       )}
@@ -3599,7 +3733,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           required
                           value={item.quantity}
                           onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
                         />
                       </div>
 
@@ -3610,7 +3744,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           list="unit-list"
                           value={item.unit}
                           onChange={(e) => handleLineItemChange(index, 'unit', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans"
                         />
                       </div>
 
@@ -3624,13 +3758,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         }>
                           {`Unit Price (${formCurrency})`}
                         </MarqueeLabel>
-                        <input
-                          type="number"
+                        <FormattedNumberInput
                           required
-                          step="0.01"
                           value={item.unit_price}
-                          onChange={(e) => handleLineItemChange(index, 'unit_price', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
+                          onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
                         />
                       </div>
                     </div>
@@ -3643,7 +3775,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           placeholder="e.g. MMF 63''x67'', Design Pressure 10.5 Bar, ASME Stamped"
                           value={item.description}
                           onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
                         />
                       </div>
 
@@ -3654,7 +3786,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           placeholder="e.g. 8–10 Weeks Ex-Factory"
                           value={item.lead_time_note || ''}
                           onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
                         />
                       </div>
 
@@ -3663,7 +3795,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <select
                           value={item.option || ''}
                           onChange={(e) => handleLineItemChange(index, 'option', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
                         >
                           <option value="">Default / Included</option>
                           <option value="Option A">Option A</option>
@@ -3799,12 +3931,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                     <div className="flex items-center justify-end text-right text-xs font-mono text-slate-400 space-x-1.5 flex-wrap gap-y-1">
                       <span className="shrink-0">Line Total ({formCurrency}):</span>
-                      <input
-                        type="number"
-                        step="0.01"
+                      <FormattedNumberInput
                         value={item.total_price}
-                        onChange={(e) => handleLineItemChange(index, 'total_price', e.target.value)}
-                        className="w-28 bg-slate-50 border border-slate-200 rounded-lg py-1 px-2 text-xs font-semibold text-slate-800 text-right focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 shrink-0"
+                        onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
+                        className="w-28 bg-slate-50 border border-slate-300 rounded-lg py-1 px-2 text-xs font-semibold text-slate-800 text-right focus:outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 shrink-0"
                       />
                       {formCurrency === 'USD' ? (
                         <span className="text-blue-500 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {(item.total_price * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
@@ -3851,7 +3981,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
-                  className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                 >
                   {['Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO'].map((st) => (
                     <option key={st} value={st}>{st}</option>
@@ -3867,7 +3997,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={projectedOrderDate}
                   onChange={(e) => setProjectedOrderDate(e.target.value)}
                   style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                  className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                 />
               </div>
 
@@ -3879,7 +4009,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={nextFollowupDate}
                   onChange={(e) => setNextFollowupDate(e.target.value)}
                   style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                  className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                 />
               </div>
 
@@ -3894,13 +4024,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 }>
                   {`Package Value (${formCurrency})`}
                 </MarqueeLabel>
-                <div className={`p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-blue-600 font-mono ${getHighlightClasses('value')}`}>
+                <div className={`p-2 bg-white border border-slate-300 focus-within:border-slate-400 focus-within:ring-1 focus-within:ring-slate-400 rounded-xl text-sm font-semibold text-blue-600 font-mono ${getHighlightClasses('value')}`}>
                   {isLumpSum ? (
-                    <input
-                      type="number"
+                    <FormattedNumberInput
                       value={manualValue}
-                      onChange={(e) => setManualValue(Number(e.target.value))}
-                      className="w-full bg-transparent border-none text-blue-600 focus:outline-none font-mono"
+                      onChange={(val: number) => setManualValue(val)}
+                      className="w-full bg-transparent border-none text-blue-600 focus:outline-none font-mono py-0.5 px-1"
                     />
                   ) : (
                     <span>{formCurrency} {computedValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -3936,7 +4065,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Quotation sent. Customer requested 5% discount."
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                 />
               </div>
 
@@ -3948,7 +4077,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. PO-4500989583"
                     value={invoicePoNo}
                     onChange={(e) => setInvoicePoNo(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                   />
                 </div>
                 <div>
@@ -3958,7 +4087,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. 50% Advance, 50% PDC"
                     value={paymentStatus}
                     onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none"
+                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none"
                   />
                 </div>
               </div>
@@ -4254,7 +4383,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Al Naboodah"
                   value={subCompanyName}
                   onChange={(e) => setSubCompanyName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
                 />
               </div>
 
@@ -4264,7 +4393,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <select
                     value={subLegalSuffix}
                     onChange={(e) => setSubLegalSuffix(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                   >
                     {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
                       <option key={suf} value={suf}>{suf}</option>
@@ -4279,7 +4408,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. Dubai"
                     value={subCity}
                     onChange={(e) => setSubCity(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
                   />
                 </div>
               </div>
@@ -4293,7 +4422,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. UAE"
                     value={subCountry}
                     onChange={(e) => setSubCountry(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -4303,7 +4432,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. +971 4 123 4567"
                     value={subGeneralPhone}
                     onChange={(e) => setSubGeneralPhone(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                   />
                 </div>
               </div>
@@ -4315,7 +4444,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. procurement@alnaboodah.com"
                   value={subGeneralEmail}
                   onChange={(e) => setSubGeneralEmail(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                 />
               </div>
 
@@ -4326,7 +4455,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="Key relationships, legacy accounts, etc."
                   value={subNotes}
                   onChange={(e) => setSubNotes(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                 />
               </div>
             </div>
@@ -4484,7 +4613,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. John Doe"
                   value={subContactName}
                   onChange={(e) => setSubContactName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
                 />
               </div>
 
@@ -4495,7 +4624,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Procurement Manager"
                   value={subContactDesignation}
                   onChange={(e) => setSubContactDesignation(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
                 />
               </div>
 
@@ -4507,7 +4636,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. +971 50 123 4567"
                     value={subContactMobile}
                     onChange={(e) => setSubContactMobile(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                   />
                 </div>
                 <div>
@@ -4517,7 +4646,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     placeholder="e.g. john.doe@domain.com"
                     value={subContactEmail}
                     onChange={(e) => setSubContactEmail(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
                   />
                 </div>
               </div>
@@ -4694,7 +4823,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Aeration Systems"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
                 />
               </div>
             </div>
@@ -4821,7 +4950,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="Search by product name or description..."
                   value={catalogSearch}
                   onChange={(e) => setCatalogSearch(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl py-2 px-9 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-9 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
                 />
                 {catalogSearch && (
                   <button
@@ -4837,7 +4966,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <select
                   value={catalogCategory}
                   onChange={(e) => setCatalogCategory(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-700 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-700 focus:outline-none focus:border-blue-500"
                 >
                   <option value="All">All Categories</option>
                   {[
@@ -4983,7 +5112,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 value={rawTextInput}
                 onChange={(e) => setRawTextInput(e.target.value)}
                 placeholder="Paste raw Excel row or RFQ text here (e.g. 2792  2751-300626AA  Jul-2026...)"
-                className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 rounded-xl p-3 font-mono text-xs text-slate-800 focus:outline-none resize-y"
+                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 rounded-xl p-3 font-mono text-xs text-slate-800 focus:outline-none resize-y"
               />
             </div>
 
@@ -5067,7 +5196,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="text"
                       value={unregisteredEntities.companyName || ''}
                       onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
@@ -5077,7 +5206,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <select
                         value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
                         onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 font-sans cursor-pointer"
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 font-sans cursor-pointer"
                       >
                         {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
                           <option key={suf} value={suf}>{suf}</option>
@@ -5090,7 +5219,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         type="text"
                         value={unregisteredEntities.country || 'UAE'}
                         onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   </div>
@@ -5101,7 +5230,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="text"
                       value={unregisteredEntities.city || ''}
                       onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
@@ -5119,7 +5248,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="text"
                       value={unregisteredEntities.contactName || ''}
                       onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
@@ -5129,7 +5258,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="email"
                       value={unregisteredEntities.contactEmail || ''}
                       onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactEmail: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
@@ -5139,7 +5268,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="text"
                       value={unregisteredEntities.contactMobile || ''}
                       onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactMobile: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
