@@ -868,6 +868,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setProjectLocation(enquiryToEdit.project_location);
       setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
       setStatus(enquiryToEdit.status);
+      setPastedSourceText(enquiryToEdit.raw_source_text || null);
       setQuoteRefNo(enquiryToEdit.quote_ref_no);
       setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
       setNextFollowupDate(enquiryToEdit.next_followup_date || '');
@@ -2188,6 +2189,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       project_location: projectLocation,
       enquiry_source: enquirySource,
       status,
+      raw_source_text: pastedSourceText || undefined,
       quote_ref_no: quoteRefNo.trim(),
       subject: subject.trim() || undefined,
       customer_reference_code: customerReferenceCode.trim() || undefined,
@@ -4299,6 +4301,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             )}
           </div>
+
+          {/* Section 7.5: Original Pasted Source / Raw Context */}
+          {pastedSourceText && (
+            <div className="bg-white border border-slate-200 shadow-2xs rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-5 h-5 text-slate-400" />
+                  <h3 className="font-bold text-slate-800 text-sm font-sans uppercase tracking-wide">
+                    Original Pasted Source / Raw Context
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      navigator.clipboard.writeText(pastedSourceText);
+                      if (triggerToast) triggerToast('Copied raw context to clipboard!', 'info');
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition text-xs font-semibold"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy to Clipboard</span>
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap font-mono text-sm bg-slate-50 p-3 rounded-lg border border-slate-300 text-slate-800 max-h-60 overflow-y-auto">
+                {pastedSourceText}
+              </pre>
+            </div>
+          )}
 
           {/* Section 8: Save controls */}
           <div className="flex space-x-3 pt-4">

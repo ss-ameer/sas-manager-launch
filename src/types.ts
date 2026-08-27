@@ -320,6 +320,7 @@ export interface Enquiry extends SoftDeleteFields {
   sn: number;
   enquiry_date: string;
   logged_date?: string;
+  raw_source_text?: string;
   sales_person_id?: string;
   sales_person?: string; // initials (e.g. PV, NS) or display name
   company_id: string;
