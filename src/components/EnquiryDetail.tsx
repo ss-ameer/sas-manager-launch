@@ -27,7 +27,8 @@ import {
   ChevronRight,
   Maximize2,
   Minimize2,
-  ChevronsUpDown
+  ChevronsUpDown,
+  Copy
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -674,6 +675,33 @@ export default function EnquiryDetail({
                       </a>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Original Pasted Source */}
+              {enquiry.raw_source_text && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">Original Pasted Source</h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(enquiry.raw_source_text || '');
+                          alert('Copied raw context to clipboard!');
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }}
+                      className="flex items-center space-x-1.5 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition text-[10px] font-semibold"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy to Clipboard</span>
+                    </button>
+                  </div>
+                  <pre className="whitespace-pre-wrap font-mono text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-800 max-h-60 overflow-y-auto shadow-2xs">
+                    {enquiry.raw_source_text}
+                  </pre>
                 </div>
               )}
             </div>
