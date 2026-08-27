@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import { Company, Contact, Enquiry, UserProfile, LegalSuffix, Workspace, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, LabeledPhone, LabeledEmail, PhoneCategory, DropdownOption, CallLogEntry, Salesperson, ContactMethod, isSamePhoneNumber } from '../types';
 import { getReferenceId } from '../utils/refId';
@@ -1163,9 +1164,9 @@ export default function CompanyModal({
         changed_by_uid: user.uid,
         changed_by_name: user.username,
         timestamp: new Date().toISOString(),
-        before: before || {},
-        after: after || {},
-        changes
+        before: sanitizeAuditPayload(before || {}),
+        after: sanitizeAuditPayload(after || {}),
+        changes: sanitizeAuditPayload(changes || [])
       };
       await safeAddDoc('audit_logs', log);
     } catch (err) {

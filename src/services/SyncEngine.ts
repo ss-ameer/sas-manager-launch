@@ -31,6 +31,19 @@ class SyncEngine {
         this.notify();
       });
 
+
+      // Purge massive audit_log queue items that are blocking
+      getPendingMutations().then(async (queue) => {
+        for (const item of queue) {
+          if (item.entity === 'audit_logs') {
+            const size = JSON.stringify(item.payload).length;
+            if (size > 500000) {
+              console.warn('[SyncEngine] Proactively dropping oversized audit_logs mutation from queue:', item.id);
+              await removeLocalMutation(item.id);
+            }
+          }
+        }
+      });
       // Periodic queue check every 5 seconds
       this.timer = setInterval(() => {
         if (this.isOnline && !this.isSyncing) {

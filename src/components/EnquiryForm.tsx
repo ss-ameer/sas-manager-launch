@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -2310,9 +2311,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         changed_by_uid: user.uid,
         changed_by_name: user.username,
         timestamp: new Date().toISOString(),
-        before: before || {},
-        after: after || {},
-        changes
+        before: sanitizeAuditPayload(before || {}),
+        after: sanitizeAuditPayload(after || {}),
+        changes: sanitizeAuditPayload(changes || [])
       };
       await safeAddDoc('audit_logs', log);
       if (setAuditLogs) {

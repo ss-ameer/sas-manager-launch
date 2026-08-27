@@ -1,5 +1,6 @@
 import { safeAddDoc } from '../firebase';
 import { AuditLog, UserProfile, AuditDiff } from '../types';
+import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 
 export async function recordAuditLog({
   document_id,
@@ -32,9 +33,9 @@ export async function recordAuditLog({
       changed_by_name: user?.username || user?.email || 'Unknown User',
       changed_by_email: user?.email || '',
       timestamp: new Date().toISOString(),
-      before,
-      after,
-      changes,
+      before: sanitizeAuditPayload(before),
+      after: sanitizeAuditPayload(after),
+      changes: sanitizeAuditPayload(changes),
       details: details || `${action.toUpperCase()} ${entity_type}: "${entity_title}"`
     };
     await safeAddDoc('audit_logs', log);

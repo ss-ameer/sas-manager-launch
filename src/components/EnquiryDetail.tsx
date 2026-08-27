@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace } from '../types';
+import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
@@ -270,8 +271,8 @@ export default function EnquiryDetail({
           changed_by_uid: user.uid,
           changed_by_name: user.username,
           timestamp: new Date().toISOString(),
-          before: enquiry,
-          after: rollbackData,
+          before: sanitizeAuditPayload(enquiry),
+          after: sanitizeAuditPayload(rollbackData),
           changes: [
             {
               field: 'VERSION_ROLLBACK',

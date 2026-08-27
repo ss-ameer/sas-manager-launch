@@ -106,7 +106,7 @@ export async function safeGetDoc(collectionPath: string, docId: string) {
     const docRef = doc(db, collectionPath, docId);
     return await getDoc(docRef);
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
+        handleFirestoreError(error, OperationType.GET, path);
     return null;
   }
 }
@@ -125,7 +125,7 @@ export async function safeGetDocs(collectionPath: string, ...constraints: QueryC
     const q = query(colRef, ...constraints);
     return await getDocs(q);
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, collectionPath);
+        handleFirestoreError(error, OperationType.LIST, collectionPath);
     return null;
   }
 }
@@ -164,6 +164,13 @@ export async function safeAddDoc(collectionPath: string, data: any) {
     const colRef = collection(db, collectionPath);
     return await addDoc(colRef, cleanedData);
   } catch (error) {
+    if (collectionPath === 'audit_logs') {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes')) {
+        console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
+        return { id: localId } as any;
+      }
+    }
     handleFirestoreError(error, OperationType.CREATE, collectionPath);
     await syncEngine.enqueue(collectionPath, 'set', localId, cleanedData);
     return { id: localId } as any;
@@ -192,6 +199,13 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
     const docRef = doc(db, collectionPath, docId);
     return await setDoc(docRef, cleanedData, options);
   } catch (error) {
+    if (collectionPath === 'audit_logs') {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes')) {
+        console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
+        return null;
+      }
+    }
     handleFirestoreError(error, OperationType.WRITE, path);
     await syncEngine.enqueue(collectionPath, 'set', docId, cleanedData);
     return null;
@@ -220,7 +234,7 @@ export async function safeUpdateDoc(collectionPath: string, docId: string, data:
     const docRef = doc(db, collectionPath, docId);
     return await updateDoc(docRef, cleanedData);
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+        handleFirestoreError(error, OperationType.UPDATE, path);
     try {
       const docRef = doc(db, collectionPath, docId);
       return await setDoc(docRef, cleanedData, { merge: true });
@@ -256,7 +270,7 @@ export async function safeDeleteDoc(collectionPath: string, docId: string): Prom
     console.log(`[safeDeleteDoc Success] Successfully deleted document: ${path}`);
     return true;
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+        handleFirestoreError(error, OperationType.DELETE, path);
     console.error(`[safeDeleteDoc Failure] Failed to delete document ${path}. Enqueuing to syncEngine.`);
     await syncEngine.enqueue(collectionPath, 'delete', cleanId);
     return false;
