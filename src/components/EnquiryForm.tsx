@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
 import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquirySource, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, LegalSuffix, DropdownOption, Workspace } from '../types';
@@ -1933,6 +1934,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       console.log(`%c[AI Client-Side Extraction Start] Processing: ${fileData.name}`, "color: #3b82f6; font-weight: bold; font-size: 11px;");
       const isImage = fileData.type.startsWith('image/');
       const isPdf = fileData.type === 'application/pdf';
+      const isDocx = fileData.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileData.name.endsWith('.docx');
+      const isEml = fileData.type === 'message/rfc822' || fileData.name.endsWith('.eml');
       
       let requestPayload: any = {
         fileName: fileData.name,
@@ -1978,8 +1981,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         requestPayload.content = base64Content;
         requestPayload.isBase64 = true;
+      } else if (isDocx) {
+        console.log(`[Client Phase 1/4] Fetching DOCX file blob from: ${fileData.url}`);
+        const response = await fetch(fileData.url, { signal: controller.signal });
+        const arrayBuffer = await response.arrayBuffer();
+        fileFetchTime = Date.now() - fetchStart;
+        
+        const convertStart = Date.now();
+        console.log(`[Client Phase 2/4] Extracting text from DOCX...`);
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        const textContent = result.value;
+        fileConversionTime = Date.now() - convertStart;
+        console.log(`[Client Phase 2/4 Completed] Extracted DOCX text in ${fileConversionTime}ms. Size: ${(textContent.length / 1024).toFixed(2)} KB`);
+        
+        requestPayload.content = textContent;
+        requestPayload.isBase64 = false;
       } else {
-        // Fetch and read as text
+        // Fetch and read as text (including .eml)
         console.log(`[Client Phase 1/4] Fetching document as text from: ${fileData.url}`);
         const response = await fetch(fileData.url, { signal: controller.signal });
         fileFetchTime = Date.now() - fetchStart;
@@ -4116,7 +4134,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <input
                 type="file"
                 multiple
-                accept="application/pdf,image/png,image/jpeg,text/plain"
+                accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,message/rfc822,.eml"
                 onChange={handleFileUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
@@ -4139,7 +4157,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 )}
               </div>
               <span className="text-[10px] text-slate-400 font-mono mt-1 block">
-                Supports PDF, images, and text files (Real Storage Sync) • Click "Autofill Form" below to extract details with AI
+                Supports PDF, Word (.docx), Email (.eml), images, and text files (Real Storage Sync) • Click "Autofill Form" below to extract details with AI
               </span>
 
               {uploading && uploadProgress !== null && (
