@@ -49,6 +49,7 @@ import {
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
+import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
@@ -280,6 +281,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [expressCompanyName, setExpressCompanyName] = useState<string>('');
   const [expressLegalSuffix, setExpressLegalSuffix] = useState<string>('None / To Be Added Later');
   const [expressCity, setExpressCity] = useState<string>('Dubai');
+  const [expressIndustryType, setExpressIndustryType] = useState<string>('');
   const [expressCountry, setExpressCountry] = useState<string>('United Arab Emirates');
   const [expressCompanyPhones, setExpressCompanyPhones] = useState<ExpressPhoneItem[]>(() => [
     { id: makeExpressId('ecp'), label: 'Main', number: '' }
