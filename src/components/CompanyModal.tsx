@@ -1660,7 +1660,7 @@ export default function CompanyModal({
                       className="py-2 px-4 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm"
                     >
                       <Plus className="w-4 h-4" />
-                      <span>Add Canonical Company</span>
+                      <span>Add Company</span>
                     </button>
                   )}
                 </div>
@@ -3060,7 +3060,7 @@ export default function CompanyModal({
                   <Building2 className="w-5 h-5" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-100 font-sans">
-                  {editingCompany ? 'Edit Canonical Company' : 'Add Canonical Company'}
+                  {editingCompany ? 'Edit Company' : 'Add Company'}
                 </h3>
                 {canonicalName.trim() && (
                   <a href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`} target="_blank" rel="noopener noreferrer" className="ml-2 px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google">
@@ -3156,7 +3156,7 @@ export default function CompanyModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-4 items-end">
                   <div>
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Industry / Type
@@ -3179,7 +3179,7 @@ export default function CompanyModal({
                           }
                         }
                       }}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                       placeholder="e.g. Technology"
                     />
                   </div>
@@ -3190,7 +3190,7 @@ export default function CompanyModal({
                     <select
                       value={relationship}
                       onChange={(e) => setRelationship(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       {(companyRelationships || []).map((r) => (
                         <option key={r.id} value={r.name}>{r.name}</option>
@@ -3204,7 +3204,7 @@ export default function CompanyModal({
                     <select
                       value={temperature}
                       onChange={(e) => setTemperature(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       <option value="Cold">Cold ❄️</option>
                       <option value="Warm">Warm 🌤️</option>
