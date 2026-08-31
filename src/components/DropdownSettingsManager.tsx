@@ -13,6 +13,7 @@ interface DropdownSettingsProps {
   units: DropdownOption[];
   callStatuses?: DropdownOption[];
   callOutcomes?: DropdownOption[];
+  callPurposes?: DropdownOption[];
   companyRelationships?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   enquiries: Enquiry[];
@@ -27,6 +28,7 @@ interface DropdownSettingsProps {
   setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallStatuses?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setCallPurposes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyRelationships?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyTemperatures?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -41,6 +43,7 @@ export default function DropdownSettingsManager({
   units = [],
   callStatuses = [],
   callOutcomes = [],
+  callPurposes = [],
   companyRelationships = [],
   companyTemperatures = [],
   enquiries = [],
@@ -55,6 +58,7 @@ export default function DropdownSettingsManager({
   setUnits,
   setCallStatuses,
   setCallOutcomes,
+  setCallPurposes,
   setCompanyRelationships,
   setCompanyTemperatures,
   setEnquiries,
@@ -72,7 +76,7 @@ export default function DropdownSettingsManager({
 
   const isAdmin = isWorkspaceAdmin(user, activeWorkspaceId, activeWorkspace);
 
-  const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures') => {
+  const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'purposes') => {
     const norm = normalizeOptionName(optionName);
     if (tab === 'statuses') {
       return SYSTEM_CALL_STATUSES.some(s => normalizeOptionName(s) === norm);
@@ -149,6 +153,7 @@ export default function DropdownSettingsManager({
 
     const trimmed = newOptionName.trim();
     const collectionName = 
+      activeSubTab === 'purposes' ? 'dropdown_call_purposes' :
       activeSubTab === 'sources' ? 'dropdown_enquiry_sources' :
       activeSubTab === 'categories' ? 'dropdown_product_categories' : 
       activeSubTab === 'units' ? 'dropdown_units' :
@@ -162,6 +167,7 @@ export default function DropdownSettingsManager({
       activeSubTab === 'categories' ? productCategories :
       activeSubTab === 'units' ? units :
       activeSubTab === 'statuses' ? callStatuses :
+    activeSubTab === 'purposes' ? callPurposes :
       activeSubTab === 'outcomes' ? callOutcomes :
       activeSubTab === 'relationships' ? companyRelationships :
       companyTemperatures;
@@ -234,6 +240,7 @@ export default function DropdownSettingsManager({
     }
 
     const collectionName = 
+      activeSubTab === 'purposes' ? 'dropdown_call_purposes' :
       activeSubTab === 'sources' ? 'dropdown_enquiry_sources' :
       activeSubTab === 'categories' ? 'dropdown_product_categories' : 
       activeSubTab === 'units' ? 'dropdown_units' :
@@ -355,6 +362,15 @@ export default function DropdownSettingsManager({
                   updateCount++;
                 }
               });
+            } else if (activeSubTab === 'purposes') {
+              const matchingCallLogs = callLogs.filter(c => c.purpose === opt.name);
+              matchingCallLogs.forEach(c => {
+                if (c.id) {
+                  const ref = doc(db, 'call_logs', c.id);
+                  batch.update(ref, { purpose: trimmedNewName });
+                  updateCount++;
+                }
+              });
             } else if (activeSubTab === 'relationships') {
               const matchingCompanies = companies.filter(c => c.relationship === opt.name);
               matchingCompanies.forEach(c => {
@@ -455,6 +471,13 @@ export default function DropdownSettingsManager({
               prev.map((c) => (c.outcome === opt.name ? { ...c, outcome: trimmedNewName } : c))
             );
           }
+        } else if (activeSubTab === 'purposes' && typeof setCallPurposes !== 'undefined') {
+          setCallPurposes((prev) => prev.map((o) => (o.id === opt.id ? { ...o, name: trimmedNewName, color: editingColor } : o)));
+          if (setCallLogs) {
+            setCallLogs((prev) =>
+              prev.map((c) => (c.purpose === opt.name ? { ...c, purpose: trimmedNewName } : c))
+            );
+          }
         } else if (activeSubTab === 'relationships' && setCompanyRelationships) {
           setCompanyRelationships((prev) => prev.map((o) => (o.id === opt.id ? { ...o, name: trimmedNewName, color: editingColor } : o)));
           if (setCompanies) {
@@ -542,7 +565,8 @@ export default function DropdownSettingsManager({
         setSubmitting(true);
         try {
           const collectionName = 
-            activeSubTab === 'sources' ? 'dropdown_enquiry_sources' :
+      activeSubTab === 'purposes' ? 'dropdown_call_purposes' :
+      activeSubTab === 'sources' ? 'dropdown_enquiry_sources' :
             activeSubTab === 'categories' ? 'dropdown_product_categories' : 
             activeSubTab === 'units' ? 'dropdown_units' :
             activeSubTab === 'statuses' ? 'dropdown_call_statuses' :
@@ -594,6 +618,7 @@ export default function DropdownSettingsManager({
     if (activeSubTab === 'categories') return 'Product Categories';
     if (activeSubTab === 'units') return 'Standard Measurement Units';
     if (activeSubTab === 'statuses') return 'Call Statuses';
+    if (activeSubTab === 'purposes') return 'Call Purposes';
     if (activeSubTab === 'outcomes') return 'Call Outcomes';
     if (activeSubTab === 'relationships') return 'Company Relationships';
     return 'Company Priority Temperatures';
@@ -603,6 +628,7 @@ export default function DropdownSettingsManager({
     if (activeSubTab === 'sources') return 'Manage incoming inquiry channels (e.g. Email, Phone, WhatsApp).';
     if (activeSubTab === 'categories') return 'Manage item classification types used to group standard catalog and proposal products.';
     if (activeSubTab === 'units') return 'Manage valid unit quantities available for proposal line items (e.g. Nos, M3, Kg).';
+    if (activeSubTab === 'purposes') return 'Manage interaction objectives and intent types.';
     if (activeSubTab === 'statuses') return 'Manage call schedule lifecycle statuses (e.g. Scheduled, Completed, Cancelled, Follow-Up Required).';
     if (activeSubTab === 'outcomes') return 'Manage 1-click outcome preset chips and result classifications logged by operators.';
     if (activeSubTab === 'relationships') return 'Manage strategic business classification (e.g. Prospect, Active Customer, Former Customer, Partner / Reseller, Vendor / Supplier, Competitor).';

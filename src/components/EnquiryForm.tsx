@@ -252,6 +252,8 @@ interface EnquiryFormProps {
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   setAuditLogs?: React.Dispatch<React.SetStateAction<any[]>>;
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setEnquirySources?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setSalespersons?: React.Dispatch<React.SetStateAction<Salesperson[]>>;
   activeWorkspace?: Workspace;
   allowUserSalespersonSelection?: boolean;
@@ -275,6 +277,8 @@ export default function EnquiryForm({
   setContacts,
   setAuditLogs,
   setProductCategories,
+  setEnquirySources,
+  setUnits,
   setSalespersons,
   activeWorkspace,
   allowUserSalespersonSelection = false
@@ -2899,15 +2903,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                 <div>
                   <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')}>Enquiry Source</MarqueeLabel>
-                  <select
+                  <CreatableCombobox
+                    options={sortedSources}
                     value={enquirySource}
-                    onChange={(e) => setEnquirySource(e.target.value)}
+                    onChange={(val: string) => setEnquirySource(val)}
+                    onCreateOption={async (val: string) => {
+                      setEnquirySource(val);
+                      if (setEnquirySources) {
+                        try {
+                          const docRef = await safeAddDoc('dropdown_enquiry_sources', { name: val });
+                          setEnquirySources((prev) => {
+                            if (prev.some(s => s.name.toLowerCase() === val.toLowerCase())) return prev;
+                            return [...prev, { id: docRef?.id || ('src_' + Date.now()), name: val }];
+                          });
+                        } catch (e) {
+                          console.warn('Failed to save new source', e);
+                        }
+                      }
+                    }}
                     className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
-                  >
-                    {sortedSources.map((src) => (
-                      <option key={src} value={src}>{src}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
@@ -3679,11 +3694,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <option key={type} value={type} />
                   ))}
                 </datalist>
-                <datalist id="unit-list">
-                  {sortedUnits.map((u) => (
-                    <option key={u} value={u} />
-                  ))}
-                </datalist>
+                
                 {lineItems.map((item, index) => (
                   <div key={index} className="bg-white border border-slate-200 p-4 rounded-xl space-y-3 shadow-sm">
                     {/* Card Header Bar */}
@@ -3751,6 +3762,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             options={sortedCategories}
                             value={item.product_type}
                             onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                            onCreateOption={async (val: string) => {
+                              handleLineItemChange(index, 'product_type', val);
+                              if (setProductCategories) {
+                                try {
+                                  const docRef = await safeAddDoc('dropdown_product_categories', { name: val });
+                                  setProductCategories((prev) => {
+                                    if (prev.some(c => c.name.toLowerCase() === val.toLowerCase())) return prev;
+                                    return [...prev, { id: docRef?.id || ('cat_' + Date.now()), name: val }];
+                                  });
+                                } catch (e) {
+                                  console.warn('Failed to save new category', e);
+                                }
+                              }
+                            }}
                             className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
                           />
                         </div>
@@ -3769,11 +3794,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                       <div>
                         <MarqueeLabel badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>UNIT</MarqueeLabel>
-                        <input
-                          type="text"
-                          list="unit-list"
+                        <CreatableCombobox
+                          options={sortedUnits}
                           value={item.unit}
-                          onChange={(e) => handleLineItemChange(index, 'unit', e.target.value)}
+                          onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                          onCreateOption={async (val: string) => {
+                            handleLineItemChange(index, 'unit', val);
+                            if (setUnits) {
+                              try {
+                                const docRef = await safeAddDoc('dropdown_units', { name: val });
+                                setUnits((prev) => {
+                                  if (prev.some(u => u.name.toLowerCase() === val.toLowerCase())) return prev;
+                                  return [...prev, { id: docRef?.id || ('unit_' + Date.now()), name: val }];
+                                });
+                              } catch (e) {
+                                console.warn('Failed to save new unit', e);
+                              }
+                            }
+                          }}
                           className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans"
                         />
                       </div>

@@ -105,6 +105,9 @@ export interface QuickActivityDrawerProps {
   currentUserName?: string;
   user?: any;
   onSaveSuccess: () => void;
+  callStatuses?: { name: string }[];
+  callOutcomes?: { name: string }[];
+  callPurposes?: { name: string }[];
   companies?: Company[];
   contacts?: Contact[];
   enquiries?: Enquiry[];
@@ -181,6 +184,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   initialChannel,
   initialStatus,
   activeWorkspaceId,
+  callStatuses = [],
+  callOutcomes = [],
+  callPurposes = [],
   currentSalespersonId,
   currentUserInitials,
   currentUserUid,
@@ -211,7 +217,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
-    const available = getStatusesForChannel(newChannel);
+    const available = callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(newChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -229,7 +235,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   };
 
   useEffect(() => {
-    const available = getStatusesForChannel(interactionChannel);
+    const available = callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -3311,7 +3317,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {interactionChannel.toUpperCase()} STATUS / DISPOSITION
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                {getStatusesForChannel(interactionChannel)
+                {(callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
                   .filter(st => drawerMode === 'execute' ? (st !== 'Scheduled' && st !== 'Scheduled / Planned') : true)
                   .map((st) => (
                   <button
@@ -3395,7 +3401,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   onChange={(e) => setPurpose(e.target.value)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                 >
-                  {getPurposesForChannel(interactionChannel).map((p) => (
+                  {(callPurposes?.length ? callPurposes.map(p => p.name) : getPurposesForChannel(interactionChannel)).map((p) => (
                     <option key={p} value={p}>
                       {p}
                     </option>

@@ -73,6 +73,7 @@ interface SettingsHubProps {
   units: DropdownOption[];
   callStatuses?: DropdownOption[];
   callOutcomes?: DropdownOption[];
+  callPurposes?: DropdownOption[];
   companyRelationships?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   enquiries: Enquiry[];
@@ -88,6 +89,7 @@ interface SettingsHubProps {
   setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallStatuses?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setCallPurposes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyRelationships?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyTemperatures?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -117,6 +119,7 @@ export default function SettingsHub({
   units,
   callStatuses = [],
   callOutcomes = [],
+  callPurposes = [],
   companyRelationships = [],
   companyTemperatures = [],
   enquiries,
@@ -509,6 +512,7 @@ export default function SettingsHub({
             units={units}
             callStatuses={callStatuses}
             callOutcomes={callOutcomes}
+            callPurposes={callPurposes}
             companyRelationships={companyRelationships}
             companyTemperatures={companyTemperatures}
             enquiries={enquiries}
@@ -523,6 +527,7 @@ export default function SettingsHub({
             setUnits={setUnits}
             setCallStatuses={setCallStatuses}
             setCallOutcomes={setCallOutcomes}
+            setCallPurposes={setCallPurposes}
             setCompanyRelationships={setCompanyRelationships}
             setCompanyTemperatures={setCompanyTemperatures}
             setEnquiries={setEnquiries}

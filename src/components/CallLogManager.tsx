@@ -201,6 +201,7 @@ interface CallLogManagerProps {
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   callStatuses?: DropdownOption[];
   callOutcomes?: DropdownOption[];
+  callPurposes?: DropdownOption[];
   setCallStatuses?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -239,6 +240,7 @@ export default function CallLogManager({
   setContacts,
   callStatuses = [],
   callOutcomes = [],
+  callPurposes = [],
   setCallStatuses,
   setCallOutcomes,
   setEnquiries,
@@ -3591,6 +3593,9 @@ export default function CallLogManager({
         setCompanies={setCompanies}
         setContacts={setContacts}
         setCallLogs={setCallLogs}
+        callStatuses={callStatuses}
+        callOutcomes={callOutcomes}
+        callPurposes={callPurposes}
         onSave={handleLogSaved}
         onUpdate={handleLogSaved}
         onSaveSuccess={() => {
@@ -3614,6 +3619,9 @@ export default function CallLogManager({
         setCompanies={setCompanies}
         setContacts={setContacts}
         setCallLogs={setCallLogs}
+        callStatuses={callStatuses}
+        callOutcomes={callOutcomes}
+        callPurposes={callPurposes}
       />
 
       {/* Reusable Confirmation Dialog Overlay */}

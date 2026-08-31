@@ -197,6 +197,16 @@ export default function App() {
     const healed = healDropdownOptions(cached, FALLBACK_CALL_STATUSES, 'cs');
     return healed.mergedList;
   });
+  const [callPurposes, setCallPurposes] = useState<DropdownOption[]>(() => {
+    return getLocalCache('omni_call_purposes', [
+      { id: 'purp_0', name: 'Inbound Enquiry' },
+      { id: 'purp_1', name: 'Introduction / Pitch' },
+      { id: 'purp_2', name: 'Discovery / Qualification' },
+      { id: 'purp_3', name: 'Follow-up / Check-in' },
+      { id: 'purp_4', name: 'Closing / Negotiation' },
+      { id: 'purp_5', name: 'Issue Resolution' }
+    ]);
+  });
   const [callOutcomes, setCallOutcomes] = useState<DropdownOption[]>(() => {
     const cached = getLocalCache<DropdownOption[]>('omni_call_outcomes', []);
     const healed = healDropdownOptions(cached, FALLBACK_CALL_OUTCOMES, 'co');
@@ -585,6 +595,7 @@ export default function App() {
   useEffect(() => { setLocalCache('omni_units', units); }, [units]);
   useEffect(() => { setLocalCache('omni_call_statuses', callStatuses); }, [callStatuses]);
   useEffect(() => { setLocalCache('omni_call_outcomes', callOutcomes); }, [callOutcomes]);
+  useEffect(() => { setLocalCache('omni_call_purposes', callPurposes); }, [callPurposes]);
   useEffect(() => { setLocalCache('omni_company_relationships', companyRelationships); }, [companyRelationships]);
   useEffect(() => { setLocalCache('omni_company_temperatures', companyTemperatures); }, [companyTemperatures]);
 
@@ -674,6 +685,7 @@ export default function App() {
     units: (() => void) | null;
     callStatuses: (() => void) | null;
     callOutcomes: (() => void) | null;
+    callPurposes: (() => void) | null;
   }>({
     userProfile: null,
     workspaces: null,
@@ -709,6 +721,7 @@ export default function App() {
     if (refs.units) { refs.units(); refs.units = null; }
     if (refs.callStatuses) { refs.callStatuses(); refs.callStatuses = null; }
     if (refs.callOutcomes) { refs.callOutcomes(); refs.callOutcomes = null; }
+    if (refs.callPurposes) { refs.callPurposes(); refs.callPurposes = null; }
   };
 
   // Auth monitoring listener
@@ -1094,7 +1107,13 @@ export default function App() {
 
     // Call Outcomes
     if (!refs.callOutcomes) {
-      refs.callOutcomes = onSnapshot(collection(db, 'dropdown_call_outcomes'), (snap) => {
+      if (!refs.callPurposes) {
+      refs.callPurposes = onSnapshot(collection(db, 'dropdown_call_purposes'), (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DropdownOption[];
+        if (list.length > 0) setCallPurposes(list.sort((a,b) => a.name.localeCompare(b.name)));
+      });
+    }
+    refs.callOutcomes = onSnapshot(collection(db, 'dropdown_call_outcomes'), (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
         const healed = healDropdownOptions(list, FALLBACK_CALL_OUTCOMES, 'co');
         setCallOutcomes(healed.mergedList);
@@ -1380,8 +1399,10 @@ export default function App() {
               setContacts={setContacts}
               callStatuses={callStatuses}
               callOutcomes={callOutcomes}
+              callPurposes={callPurposes}
               setCallStatuses={setCallStatuses}
               setCallOutcomes={setCallOutcomes}
+              setCallPurposes={setCallPurposes}
               setEnquiries={setEnquiries}
               companyRelationships={companyRelationships}
               companyTemperatures={companyTemperatures}
@@ -1497,6 +1518,7 @@ export default function App() {
             units={units}
             callStatuses={callStatuses}
             callOutcomes={callOutcomes}
+            callPurposes={callPurposes}
             companyRelationships={companyRelationships}
             companyTemperatures={companyTemperatures}
             enquiries={workspaceEnquiries}
@@ -1512,6 +1534,7 @@ export default function App() {
             setUnits={setUnits}
             setCallStatuses={setCallStatuses}
             setCallOutcomes={setCallOutcomes}
+            setCallPurposes={setCallPurposes}
             setCompanyRelationships={setCompanyRelationships}
             setCompanyTemperatures={setCompanyTemperatures}
             setEnquiries={setEnquiries}
@@ -1601,6 +1624,8 @@ export default function App() {
           setContacts={setContacts}
           setAuditLogs={setAuditLogs}
           setProductCategories={setProductCategories}
+          setEnquirySources={setEnquirySources}
+          setUnits={setUnits}
           setSalespersons={setSalespersons}
           activeWorkspace={activeWorkspace}
           allowUserSalespersonSelection={allowUserSalespersonSelection}
@@ -1747,6 +1772,9 @@ export default function App() {
         setCompanies={setCompanies}
         setContacts={setContacts}
         setCallLogs={setCallLogs}
+        callStatuses={callStatuses}
+        callOutcomes={callOutcomes}
+        callPurposes={callPurposes}
         onOpen360={(companyId) => setSelected360CompanyId(companyId)}
         onInspectCompany={(companyId) => setSelected360CompanyId(companyId)}
         onSave={(savedLog) => {
