@@ -206,6 +206,7 @@ interface CallLogManagerProps {
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   companyRelationships?: DropdownOption[];
+  industryTypes?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   onSelectEnquiry?: (enquiryId: string) => void;
   onOpenActivityDrawer?: (context: {
@@ -241,6 +242,7 @@ export default function CallLogManager({
   callStatuses = [],
   callOutcomes = [],
   callPurposes = [],
+  industryTypes = [],
   setCallStatuses,
   setCallOutcomes,
   setEnquiries,
@@ -3596,6 +3598,7 @@ export default function CallLogManager({
         callStatuses={callStatuses}
         callOutcomes={callOutcomes}
         callPurposes={callPurposes}
+        industryTypes={industryTypes}
         onSave={handleLogSaved}
         onUpdate={handleLogSaved}
         onSaveSuccess={() => {
