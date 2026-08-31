@@ -15,6 +15,7 @@ interface DropdownSettingsProps {
   callOutcomes?: DropdownOption[];
   callPurposes?: DropdownOption[];
   companyRelationships?: DropdownOption[];
+  industryTypes?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   enquiries: Enquiry[];
   products: Product[];
@@ -30,6 +31,7 @@ interface DropdownSettingsProps {
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallPurposes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyRelationships?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setIndustryTypes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyTemperatures?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
@@ -45,6 +47,7 @@ export default function DropdownSettingsManager({
   callOutcomes = [],
   callPurposes = [],
   companyRelationships = [],
+  industryTypes = [],
   companyTemperatures = [],
   enquiries = [],
   products = [],
@@ -60,6 +63,7 @@ export default function DropdownSettingsManager({
   setCallOutcomes,
   setCallPurposes,
   setCompanyRelationships,
+  setIndustryTypes,
   setCompanyTemperatures,
   setEnquiries,
   setProducts,
@@ -76,7 +80,7 @@ export default function DropdownSettingsManager({
 
   const isAdmin = isWorkspaceAdmin(user, activeWorkspaceId, activeWorkspace);
 
-  const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'purposes') => {
+  const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'purposes' | 'industry_types') => {
     const norm = normalizeOptionName(optionName);
     if (tab === 'statuses') {
       return SYSTEM_CALL_STATUSES.some(s => normalizeOptionName(s) === norm);
@@ -380,6 +384,15 @@ export default function DropdownSettingsManager({
                   updateCount++;
                 }
               });
+            } else if (activeSubTab === 'industry_types') {
+              const matchingCompanies = companies.filter(c => c.industry_type === opt.name);
+              matchingCompanies.forEach(c => {
+                if (c.id) {
+                  const ref = doc(db, 'companies', c.id);
+                  batch.update(ref, { industry_type: trimmedNewName });
+                  updateCount++;
+                }
+              });
             } else if (activeSubTab === 'temperatures') {
               const matchingCompanies = companies.filter(c => c.temperature === opt.name);
               matchingCompanies.forEach(c => {
@@ -483,6 +496,13 @@ export default function DropdownSettingsManager({
           if (setCompanies) {
             setCompanies((prev) =>
               prev.map((c) => (c.relationship === opt.name ? { ...c, relationship: trimmedNewName } : c))
+            );
+          }
+        } else if (activeSubTab === 'industry_types' && typeof setIndustryTypes !== 'undefined') {
+          setIndustryTypes((prev) => prev.map((o) => (o.id === opt.id ? { ...o, name: trimmedNewName, color: editingColor } : o)));
+          if (setCompanies) {
+            setCompanies((prev) =>
+              prev.map((c) => (c.industry_type === opt.name ? { ...c, industry_type: trimmedNewName } : c))
             );
           }
         } else if (activeSubTab === 'temperatures' && setCompanyTemperatures) {

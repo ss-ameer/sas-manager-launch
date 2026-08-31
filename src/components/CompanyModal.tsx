@@ -69,7 +69,9 @@ interface CompanyModalProps {
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   setSalespersons?: React.Dispatch<React.SetStateAction<Salesperson[]>>;
   setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
+  setIndustryTypes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   activeWorkspace?: Workspace;
+  industryTypes?: DropdownOption[];
   companyRelationships?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   onOpenCompany360?: (companyId: string) => void;
@@ -133,7 +135,9 @@ export default function CompanyModal({
   setEnquiries,
   setSalespersons,
   setCallLogs,
+  setIndustryTypes,
   activeWorkspace,
+  industryTypes = [],
   companyRelationships,
   companyTemperatures,
   onOpenCompany360,
@@ -536,6 +540,7 @@ export default function CompanyModal({
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [country, setCountry] = useState('UAE');
   const [city, setCity] = useState('');
+  const [industryType, setIndustryType] = useState<string>('');
   const [website, setWebsite] = useState('');
   const [generalPhone, setGeneralPhone] = useState('');
   const [generalEmail, setGeneralEmail] = useState('');
@@ -614,6 +619,7 @@ export default function CompanyModal({
     setLegalSuffix('None / To Be Added Later');
     setCountry('UAE');
     setCity('');
+    setIndustryType('');
     setGeneralPhone('');
     setGeneralEmail('');
     setCompanyPhones([{ id: generateCmId(), label: 'Landline', value: '' }]);
@@ -779,6 +785,7 @@ export default function CompanyModal({
       aliases: aliasesArr,
       country: country.trim(),
       city: city.trim(),
+      industry_type: industryType.trim(),
       links: validLinks,
       website: validLinks.find((l) => l.label === 'Website')?.url || '',
       general_phone: primaryPhoneVal,
@@ -1358,6 +1365,7 @@ export default function CompanyModal({
       (c.general_email && c.general_email.toLowerCase().includes(q)) ||
       phonesList.some(p => p.includes(q)) ||
       emailsList.some(e => e.includes(q)) ||
+      (c.industry_type && c.industry_type.toLowerCase().includes(q)) ||
       (c.relationship && c.relationship.toLowerCase().includes(q)) ||
       (c.temperature && c.temperature.toLowerCase().includes(q)) ||
       c.aliases.some((a) => a.toLowerCase().includes(q));
@@ -1657,6 +1665,7 @@ export default function CompanyModal({
                         <tr>
                           <th className="py-3.5 px-4">Ref ID</th>
                           <th className="py-3.5 px-4">Company Name & City</th>
+                          <th className="py-3.5 px-4">Industry / Type</th>
                           <th className="py-3.5 px-4">Relationship & Temp</th>
                           <th className="py-3.5 px-4">Phones & Emails</th>
                           <th className="py-3.5 px-4">Activity</th>
@@ -1689,6 +1698,11 @@ export default function CompanyModal({
                                   <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span>{c.city}, {c.country}</span>
                                 </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-1 rounded text-xs font-medium border border-slate-200 dark:border-slate-700 max-w-[150px] truncate" title={c.industry_type || '-'}>
+                                  {c.industry_type || '-'}
+                                </span>
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
                                 <div className="flex flex-col gap-1.5 items-start">
@@ -1786,6 +1800,9 @@ export default function CompanyModal({
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                 {relVal}
                               </span>
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                {c.industry_type || '-'}
+                              </span>
                             </div>
                           </div>
 
@@ -1821,6 +1838,11 @@ export default function CompanyModal({
                         <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                         <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
                       </span>
+                      {selectedCompany.industry_type && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          {selectedCompany.industry_type}
+                        </span>
+                      )}
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
                       </span>
@@ -3050,7 +3072,33 @@ export default function CompanyModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+                      Industry / Type
+                    </label>
+                    <CreatableCombobox
+                      options={industryTypes.map(i => i.name)}
+                      value={industryType}
+                      onChange={(val: string) => setIndustryType(val)}
+                      onCreateOption={async (val: string) => {
+                        setIndustryType(val);
+                        if (setIndustryTypes) {
+                          try {
+                            const docRef = await safeAddDoc('dropdown_industry_types', { name: val });
+                            setIndustryTypes((prev) => {
+                              if (prev.some(i => i.name.toLowerCase() === val.toLowerCase())) return prev;
+                              return [...prev, { id: docRef?.id || ('ind_' + Date.now()), name: val }];
+                            });
+                          } catch (e) {
+                            console.warn('Failed to save new industry type', e);
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      placeholder="e.g. Technology"
+                    />
+                  </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Relationship (Required)

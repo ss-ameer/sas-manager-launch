@@ -75,6 +75,7 @@ interface SettingsHubProps {
   callOutcomes?: DropdownOption[];
   callPurposes?: DropdownOption[];
   companyRelationships?: DropdownOption[];
+  industryTypes?: DropdownOption[];
   companyTemperatures?: DropdownOption[];
   enquiries: Enquiry[];
   products: Product[];
@@ -121,6 +122,7 @@ export default function SettingsHub({
   callOutcomes = [],
   callPurposes = [],
   companyRelationships = [],
+  industryTypes = [],
   companyTemperatures = [],
   enquiries,
   products,
@@ -514,6 +516,7 @@ export default function SettingsHub({
             callOutcomes={callOutcomes}
             callPurposes={callPurposes}
             companyRelationships={companyRelationships}
+            industryTypes={industryTypes}
             companyTemperatures={companyTemperatures}
             enquiries={enquiries}
             products={products}

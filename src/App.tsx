@@ -217,6 +217,20 @@ export default function App() {
     const healed = healDropdownOptions(cached, SYSTEM_COMPANY_RELATIONSHIPS, 'cr', SYSTEM_RELATIONSHIP_COLORS);
     return healed.mergedList;
   });
+  const [industryTypes, setIndustryTypes] = useState<DropdownOption[]>(() => {
+    return getLocalCache('omni_industry_types', [
+      { id: 'ind_0', name: 'Hospitality & Leisure' },
+      { id: 'ind_1', name: 'Property & Facility Management' },
+      { id: 'ind_2', name: 'Contracting & Construction' },
+      { id: 'ind_3', name: 'Engineering & Utilities' },
+      { id: 'ind_4', name: 'Manufacturing & Industrial' },
+      { id: 'ind_5', name: 'Trading, Wholesale & Distribution' },
+      { id: 'ind_6', name: 'Government & Public Infrastructure' },
+      { id: 'ind_7', name: 'Healthcare & Education' },
+      { id: 'ind_8', name: 'Professional & Technical Services' },
+      { id: 'ind_9', name: 'Other' }
+    ]);
+  });
   const [companyTemperatures, setCompanyTemperatures] = useState<DropdownOption[]>(() => {
     const cached = getLocalCache<DropdownOption[]>('omni_company_temperatures', []);
     const healed = healDropdownOptions(cached, SYSTEM_COMPANY_TEMPERATURES, 'ct', SYSTEM_TEMPERATURE_COLORS);
@@ -598,6 +612,7 @@ export default function App() {
   useEffect(() => { setLocalCache('omni_call_purposes', callPurposes); }, [callPurposes]);
   useEffect(() => { setLocalCache('omni_company_relationships', companyRelationships); }, [companyRelationships]);
   useEffect(() => { setLocalCache('omni_company_temperatures', companyTemperatures); }, [companyTemperatures]);
+  useEffect(() => { setLocalCache('omni_industry_types', industryTypes); }, [industryTypes]);
 
   // Silent Auto-Provisioning: Automatically create salespersons record for active workspace if missing
   const autoProvisionedKeysRef = React.useRef<Set<string>>(new Set());
@@ -1405,7 +1420,8 @@ export default function App() {
               setCallPurposes={setCallPurposes}
               setEnquiries={setEnquiries}
               companyRelationships={companyRelationships}
-              companyTemperatures={companyTemperatures}
+              industryTypes={industryTypes}
+            companyTemperatures={companyTemperatures}
               onEditCompany={handleEditCompanyFrom360}
               onOpenActivityDrawer={(ctx) => {
                 setActivityDrawerContext(ctx || {});
@@ -1467,6 +1483,7 @@ export default function App() {
             setCallLogs={setCallLogs}
             activeWorkspace={activeWorkspace}
             companyRelationships={companyRelationships}
+            industryTypes={industryTypes}
             companyTemperatures={companyTemperatures}
             onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
             initialSelectedCompanyId={companyEditContext?.id}
@@ -1520,6 +1537,7 @@ export default function App() {
             callOutcomes={callOutcomes}
             callPurposes={callPurposes}
             companyRelationships={companyRelationships}
+            industryTypes={industryTypes}
             companyTemperatures={companyTemperatures}
             enquiries={workspaceEnquiries}
             products={workspaceProducts}
@@ -1536,6 +1554,7 @@ export default function App() {
             setCallOutcomes={setCallOutcomes}
             setCallPurposes={setCallPurposes}
             setCompanyRelationships={setCompanyRelationships}
+            setIndustryTypes={setIndustryTypes}
             setCompanyTemperatures={setCompanyTemperatures}
             setEnquiries={setEnquiries}
             setProducts={setProducts}
