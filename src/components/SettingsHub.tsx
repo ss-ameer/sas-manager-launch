@@ -92,6 +92,7 @@ interface SettingsHubProps {
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallPurposes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyRelationships?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setIndustryTypes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCompanyTemperatures?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
@@ -137,7 +138,9 @@ export default function SettingsHub({
   setUnits,
   setCallStatuses,
   setCallOutcomes,
+  setCallPurposes,
   setCompanyRelationships,
+  setIndustryTypes,
   setCompanyTemperatures,
   setEnquiries,
   setProducts,
@@ -532,6 +535,7 @@ export default function SettingsHub({
             setCallOutcomes={setCallOutcomes}
             setCallPurposes={setCallPurposes}
             setCompanyRelationships={setCompanyRelationships}
+            setIndustryTypes={setIndustryTypes}
             setCompanyTemperatures={setCompanyTemperatures}
             setEnquiries={setEnquiries}
             setProducts={setProducts}
