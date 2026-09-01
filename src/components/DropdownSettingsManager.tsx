@@ -73,9 +73,11 @@ export default function DropdownSettingsManager({
   const [activeSubTab, setActiveSubTab] = useState<'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures'>('sources');
   const [newOptionName, setNewOptionName] = useState('');
   const [newOptionColor, setNewOptionColor] = useState('#64748b');
+  const [newOptionSentiment, setNewOptionSentiment] = useState<'positive' | 'neutral' | 'negative'>('neutral');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingColor, setEditingColor] = useState('#64748b');
+  const [editingSentiment, setEditingSentiment] = useState<'positive' | 'neutral' | 'negative'>('neutral');
   const [submitting, setSubmitting] = useState(false);
 
   const isAdmin = isWorkspaceAdmin(user, activeWorkspaceId, activeWorkspace);
@@ -205,6 +207,7 @@ export default function DropdownSettingsManager({
 
       setNewOptionName('');
       setNewOptionColor('#64748b');
+      setNewOptionSentiment('neutral');
     } catch (err: any) {
       alert('Failed to add option: ' + err.message);
     } finally {
@@ -237,8 +240,9 @@ export default function DropdownSettingsManager({
     const trimmedNewName = editingName.trim();
     const isNameChanged = trimmedNewName !== opt.name;
     const isColorChanged = editingColor !== opt.color;
+    const isSentimentChanged = activeSubTab === 'outcomes' && editingSentiment !== opt.sentiment;
 
-    if (!isNameChanged && !isColorChanged) {
+    if (!isNameChanged && !isColorChanged && !isSentimentChanged) {
       setEditingId(null);
       return;
     }
@@ -285,7 +289,9 @@ export default function DropdownSettingsManager({
 
           // 1. Update the option itself
           const optionRef = doc(db, collectionName, opt.id);
-          batch.set(optionRef, { name: trimmedNewName, color: editingColor }, { merge: true });
+          const updatePayload: any = { name: trimmedNewName, color: editingColor };
+          if (activeSubTab === 'outcomes') updatePayload.sentiment = editingSentiment;
+          batch.set(optionRef, updatePayload, { merge: true });
 
           // 2. Cascade update referenced entries
           if (isNameChanged) {
@@ -478,7 +484,7 @@ export default function DropdownSettingsManager({
             );
           }
         } else if (activeSubTab === 'outcomes' && setCallOutcomes) {
-          setCallOutcomes((prev) => prev.map((o) => (o.id === opt.id ? { ...o, name: trimmedNewName, color: editingColor } : o)));
+          setCallOutcomes((prev) => prev.map((o) => (o.id === opt.id ? { ...o, name: trimmedNewName, color: editingColor, sentiment: editingSentiment } : o)));
           if (setCallLogs) {
             setCallLogs((prev) =>
               prev.map((c) => (c.outcome === opt.name ? { ...c, outcome: trimmedNewName } : c))
@@ -765,7 +771,41 @@ export default function DropdownSettingsManager({
                             </button>
                           </div>
                           
-                          {showColorPicker && (
+
+                          {activeSubTab === 'outcomes' && (
+                            <div className="flex items-center space-x-2 pt-1 border-t border-slate-200">
+                              <span className="text-[10px] text-slate-400 font-mono">Sentiment:</span>
+                              <select 
+                                value={editingSentiment} 
+                                onChange={(e) => setEditingSentiment(e.target.value as any)}
+                                className="bg-white border border-slate-300 rounded text-[10px] text-slate-800 focus:outline-none p-1"
+                              >
+                                <option value="positive">Positive (🟢)</option>
+                                <option value="neutral">Neutral (🟡)</option>
+                                <option value="negative">Negative (🔴)</option>
+                              </select>
+                            </div>
+                          )}
+              
+            {activeSubTab === 'outcomes' && (
+              <div>
+                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+                  Sentiment Category
+                </label>
+                <select
+                  disabled={!isAdmin}
+                  value={newOptionSentiment}
+                  onChange={(e) => setNewOptionSentiment(e.target.value as any)}
+                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none font-mono cursor-pointer"
+                >
+                  <option value="positive">Positive (🟢 Wins / Advancements)</option>
+                  <option value="neutral">Neutral (🟡 In-Progress / Ongoing)</option>
+                  <option value="negative">Negative (🔴 Losses / Objections)</option>
+                </select>
+              </div>
+            )}
+
+            {showColorPicker && (
                             <div className="flex items-center space-x-2 pt-1 border-t border-slate-200">
                               <span className="text-[10px] text-slate-400 font-mono">Custom Color:</span>
                               <input

@@ -204,6 +204,7 @@ interface CallLogManagerProps {
   callPurposes?: DropdownOption[];
   setCallStatuses?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setCallOutcomes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setCallPurposes?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   companyRelationships?: DropdownOption[];
   industryTypes?: DropdownOption[];

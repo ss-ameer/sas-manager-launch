@@ -107,7 +107,7 @@ export interface QuickActivityDrawerProps {
   user?: any;
   onSaveSuccess: () => void;
   callStatuses?: { name: string }[];
-  callOutcomes?: { name: string }[];
+  callOutcomes?: { name: string, sentiment?: string }[];
   callPurposes?: { name: string }[];
   industryTypes?: { name: string }[];
   companies?: Company[];
@@ -220,7 +220,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
-    const available = callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(newChannel);
+    const newChanStr = newChannel as string;
+    const isCall = newChanStr === 'Call' || newChanStr === 'Phone Call';
+    const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(newChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -232,13 +234,25 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    if (outcome && (!isSuccessStatus(activeStatus) || !OUTCOMES.includes(outcome as any))) {
+    const normChan = newChanStr.toLowerCase();
+    const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+    
+    const validOutcomes = callOutcomes?.length ? callOutcomes.map(o => o.name) : OUTCOMES;
+    if (isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
       setOutcome('');
     }
+    
+    if (newChanStr !== 'Email') setEmailSubject('');
+    if (newChanStr !== 'WhatsApp' && newChanStr !== 'Message (WhatsApp/SMS)') setWhatsappDraft('');
+    if (newChanStr !== 'Meeting' && newChanStr !== 'Site Visit') setLocationOrLink('');
+    
+    setValidationError(null);
   };
 
   useEffect(() => {
-    const available = callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
+    const interChanStr = interactionChannel as string;
+    const isCall = interChanStr === 'Call' || interChanStr === 'Phone Call';
+    const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
@@ -251,11 +265,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const normChan = interactionChannel.toLowerCase();
-    const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
-    const isSentStatus = activeStatus.toLowerCase().includes('sent') || activeStatus.toLowerCase().includes('delivered');
+    const isAsyncChannel = !!normChan.match(/email|message|whatsapp|sms/);
 
-    if (isAsyncChannel && isSentStatus && outcome !== 'Message Sent / Awaiting Reply') {
-      setOutcome('Message Sent / Awaiting Reply');
+    if (isAsyncChannel) {
+      if (outcome) setOutcome('');
     } else if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
     }
@@ -987,9 +1000,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const normChan = channel.toLowerCase();
-    const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
-    const isSentStatus = status.toLowerCase().includes('sent') || status.toLowerCase().includes('delivered');
-    const isOutcomeRequired = !(isAsyncChannel && isSentStatus);
+    const isAsyncChannel = !!normChan.match(/email|message|whatsapp|sms/);
+    const isOutcomeRequired = !isAsyncChannel;
 
     if (isCompletedState && isOutcomeRequired && (!outcome || !outcome.trim())) {
       setValidationError('Please select an outcome for this completed activity.');
@@ -3334,7 +3346,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {interactionChannel.toUpperCase()} STATUS / DISPOSITION
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                {(callStatuses?.length ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
+                {(((interactionChannel as string === 'Call' || interactionChannel as string === 'Phone Call') && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
                   .filter(st => drawerMode === 'execute' ? (st !== 'Scheduled' && st !== 'Scheduled / Planned') : true)
                   .map((st) => (
                   <button
@@ -3377,31 +3389,43 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <option value="" disabled>
                       Select an outcome...
                     </option>
-                    {(() => {
-                      const availableOutcomes = OUTCOMES;
+                                        {(() => {
+                      const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
+                      const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
+                      const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
+                      const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
+                      
+                      const allNames = dynamicOutcomes.map(o => o.name);
+                      const legacyOption = outcome && !allNames.includes(outcome) ? outcome : null;
+
                       return (
                         <>
                           <optgroup label="🟢 POSITIVE / WINS">
-                            {POSITIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
+                            {pos.map((o) => (
+                              <option key={o.name} value={o.name}>
+                                {o.name}
                               </option>
                             ))}
                           </optgroup>
                           <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                            {NEUTRAL_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
+                            {neu.map((o) => (
+                              <option key={o.name} value={o.name}>
+                                {o.name}
                               </option>
                             ))}
                           </optgroup>
                           <optgroup label="🔴 NEGATIVE / LOSSES">
-                            {NEGATIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
+                            {neg.map((o) => (
+                              <option key={o.name} value={o.name}>
+                                {o.name}
                               </option>
                             ))}
                           </optgroup>
+                          {legacyOption && (
+                            <optgroup label="⚪ LEGACY OUTCOME">
+                              <option value={legacyOption}>{legacyOption}</option>
+                            </optgroup>
+                          )}
                         </>
                       );
                     })()}
@@ -3502,24 +3526,26 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 return (
                   <div className="flex flex-col justify-end h-full">
                     <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                        <span>Next Follow-up Date</span>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Next Follow-up Date
+                      </label>
+                      <div className="flex items-center gap-2">
                         {isFollowupMissing && (
                           <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-500/50 animate-pulse">
                             <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
                             <span>Required for {status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
                           </span>
                         )}
-                      </label>
-                      {followupDate && (
-                        <button
-                          type="button"
-                          onClick={() => setFollowupDate('')}
-                          className="text-[10px] text-slate-400 hover:text-rose-300 font-semibold cursor-pointer"
-                        >
-                          Clear
-                        </button>
-                      )}
+                        {followupDate && (
+                          <button
+                            type="button"
+                            onClick={() => setFollowupDate('')}
+                            className="text-[10px] text-slate-400 hover:text-rose-300 font-semibold cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <input
                       type="datetime-local"

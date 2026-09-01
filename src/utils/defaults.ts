@@ -8,20 +8,23 @@ export const SYSTEM_CALL_STATUSES = [
   'Invalid Number'
 ];
 
-export const SYSTEM_CALL_OUTCOMES = [
-  'Connected',
-  'Interested',
-  'Interested - Quote Requested',
-  'Left Voicemail',
-  'Follow-Up Scheduled',
-  'Proposal / Quote Requested',
-  'Deal Closed / Won',
-  'General Support / Inquiry',
-  'Call Back Later',
-  'Call Dropped / Disconnected',
-  'Not Interested',
-  'Wrong Number / Invalid',
-  'Do Not Call (DNC)'
+export const SYSTEM_CALL_OUTCOMES: any[] = [
+  { id: 'co_pos_1', name: 'Lead Qualified', sentiment: 'positive' },
+  { id: 'co_pos_2', name: 'Meeting Booked', sentiment: 'positive' },
+  { id: 'co_pos_3', name: 'Quote Requested', sentiment: 'positive' },
+  { id: 'co_pos_4', name: 'Deal Won', sentiment: 'positive' },
+  
+  { id: 'co_neu_1', name: 'Info Requested', sentiment: 'neutral' },
+  { id: 'co_neu_2', name: 'Pending Review', sentiment: 'neutral' },
+  { id: 'co_neu_3', name: 'Active Negotiation', sentiment: 'neutral' },
+  { id: 'co_neu_4', name: 'Requested Call Back', sentiment: 'neutral' },
+  { id: 'co_neu_5', name: 'Status Update', sentiment: 'neutral' },
+  { id: 'co_neu_6', name: 'Gathered Info', sentiment: 'neutral' },
+  
+  { id: 'co_neg_1', name: 'Not Interested', sentiment: 'negative' },
+  { id: 'co_neg_2', name: 'Lost to Competitor', sentiment: 'negative' },
+  { id: 'co_neg_3', name: 'Pricing / Timing Issue', sentiment: 'negative' },
+  { id: 'co_neg_4', name: 'Not Qualified', sentiment: 'negative' },
 ];
 
 export const SYSTEM_CALL_PURPOSES = [
@@ -82,6 +85,7 @@ export interface DropdownOption {
   id: string;
   name: string;
   color?: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
 }
 
 export const SYSTEM_COMPANY_RELATIONSHIPS = [
@@ -118,17 +122,20 @@ export const SYSTEM_TEMPERATURE_COLORS: Record<string, string> = {
 
 export function healDropdownOptions(
   currentList: DropdownOption[],
-  defaults: string[],
+  defaults: any[],
   prefix: string,
   defaultColors?: Record<string, string>
 ): { mergedList: DropdownOption[]; changed: boolean } {
   const list = currentList ? [...currentList] : [];
   let changed = false;
 
-  defaults.forEach((defName, i) => {
-    const docId = prefix + '_' + i;
+  defaults.forEach((defItem, i) => {
+    const isObject = typeof defItem === 'object' && defItem !== null;
+    const defName = isObject ? (defItem.label || defItem.name) : defItem;
+    const docId = isObject ? (defItem.id || prefix + '_' + i) : prefix + '_' + i;
     const normDef = normalizeOptionName(defName);
     const defColor = defaultColors ? defaultColors[defName] : undefined;
+    const defSentiment = isObject ? defItem.sentiment : undefined;
     
     // Check if there is an item with the exact ID
     const existingByIdIndex = list.findIndex(item => item.id === docId);
@@ -145,6 +152,10 @@ export function healDropdownOptions(
         updatedItem.color = defColor;
         itemChanged = true;
       }
+      if (defSentiment && existingById.sentiment !== defSentiment) {
+        updatedItem.sentiment = defSentiment;
+        itemChanged = true;
+      }
 
       if (itemChanged) {
         list[existingByIdIndex] = updatedItem;
@@ -158,12 +169,18 @@ export function healDropdownOptions(
         list[existingByNameIndex] = {
           ...existingByName,
           id: docId,
-          color: existingByName.color || defColor
+          color: existingByName.color || defColor,
+          sentiment: existingByName.sentiment || defSentiment
         };
         changed = true;
       } else {
         // Completely missing, append it!
-        list.push({ id: docId, name: defName, color: defColor });
+        list.push({
+          id: docId,
+          name: defName,
+          ...(defColor ? { color: defColor } : {}),
+          ...(defSentiment ? { sentiment: defSentiment } : {})
+        });
         changed = true;
       }
     }

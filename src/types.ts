@@ -361,6 +361,7 @@ export interface DropdownOption {
   id: string;
   name: string;
   color?: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
 }
 
 export interface Invite {

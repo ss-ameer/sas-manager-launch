@@ -56,6 +56,9 @@ export interface LiveExecutionModalProps {
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
+  callStatuses?: { name: string }[];
+  callPurposes?: { name: string }[];
+  callOutcomes?: { name: string, sentiment?: string }[];
 }
 
 export default function LiveExecutionModal({
@@ -70,7 +73,10 @@ export default function LiveExecutionModal({
   enquiries = [],
   setCompanies,
   setContacts,
-  setCallLogs
+  setCallLogs,
+  callStatuses,
+  callPurposes,
+  callOutcomes
 }: LiveExecutionModalProps) {
   // Read active channel from task.channel with fallback to 'Phone Call'
   const initialTaskChannel: string = task?.channel || 'Phone Call';
@@ -151,15 +157,13 @@ export default function LiveExecutionModal({
   // Update outcomes when status changes
   useEffect(() => {
     if (isOpen) {
-      const validOutcomes = getOutcomesForStatus(callStatus);
-      
       const normChan = currentChannel.toLowerCase();
       const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
       const isSentStatus = callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered');
       
       if (isAsyncChannel && isSentStatus && callOutcome !== 'Message Sent / Awaiting Reply') {
         setCallOutcome('Message Sent / Awaiting Reply');
-      } else if (callOutcome && !validOutcomes.includes(callOutcome)) {
+      } else if (callOutcome && !isSuccessStatus(callStatus)) {
         setCallOutcome('');
       }
     }
@@ -799,32 +803,45 @@ export default function LiveExecutionModal({
                       Select an outcome...
                     </option>
                     {(() => {
-                      return (
-                        <>
-                          <optgroup label="🟢 POSITIVE / WINS">
-                            {POSITIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                            {NEUTRAL_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="🔴 NEGATIVE / LOSSES">
-                            {NEGATIVE_OUTCOMES.filter((o) => availableOutcomes.includes(o)).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </optgroup>
-                        </>
-                      );
-                    })()}
+                        const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
+                        const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
+                        const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
+                        const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
+                        
+                        const allNames = dynamicOutcomes.map(o => o.name);
+                        const legacyOption = callOutcome && !allNames.includes(callOutcome) ? callOutcome : null;
+
+                        return (
+                          <>
+                            <optgroup label="🟢 POSITIVE / WINS">
+                              {pos.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
+                              {neu.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🔴 NEGATIVE / LOSSES">
+                              {neg.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            {legacyOption && (
+                              <optgroup label="⚪ LEGACY OUTCOME">
+                                <option value={legacyOption}>{legacyOption}</option>
+                              </optgroup>
+                            )}
+                          </>
+                        );
+                      })()}
                   </select>
                 </div>
               )}
