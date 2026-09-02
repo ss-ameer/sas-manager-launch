@@ -264,7 +264,7 @@ export default function CallLogManager({
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
   
   // Table vs Card View
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => (localStorage.getItem('callLogViewMode') as 'card' | 'table') || 'card');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -2037,7 +2037,7 @@ export default function CallLogManager({
               <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg">
                 <button
                   type="button"
-                  onClick={() => setViewMode('card')}
+                  onClick={() => { setViewMode('card'); localStorage.setItem('callLogViewMode', 'card'); }}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
                     viewMode === 'card' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
@@ -2047,7 +2047,7 @@ export default function CallLogManager({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setViewMode('table')}
+                  onClick={() => { setViewMode('table'); localStorage.setItem('callLogViewMode', 'table'); }}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
                     viewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
@@ -2222,7 +2222,7 @@ export default function CallLogManager({
                   user,
                   activeWorkspace
                 );
-                const type = (log.interaction_type || 'call').toLowerCase();
+                const type = (log.channel || log.interaction_type || 'call').toLowerCase();
                 const isSelected = !!(log.id && selectedLogIds.includes(log.id));
 
                 const company = companies?.find(c => c.id === log.company_id);
@@ -2238,8 +2238,27 @@ export default function CallLogManager({
                 }
 
                 let ChannelIcon = Phone;
-                if (type === 'email') ChannelIcon = Mail;
-                else if (type === 'message') ChannelIcon = MessageSquare;
+                let channelColorClass = 'text-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400';
+                if (type === 'email') {
+                  ChannelIcon = Mail;
+                  channelColorClass = 'text-purple-500 bg-purple-50 dark:bg-purple-900/30 dark:text-purple-400';
+                }
+                else if (type === 'message' || type === 'whatsapp' || type === 'sms') {
+                  ChannelIcon = MessageSquare;
+                  channelColorClass = 'text-green-500 bg-green-50 dark:bg-green-900/30 dark:text-green-400';
+                }
+                else if (type === 'meeting' || type.includes('meet')) {
+                  ChannelIcon = Users;
+                  channelColorClass = 'text-orange-500 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-400';
+                }
+                else if (type === 'site visit' || type.includes('site')) {
+                  ChannelIcon = MapPin;
+                  channelColorClass = 'text-teal-500 bg-teal-50 dark:bg-teal-900/30 dark:text-teal-400';
+                }
+                else if (type === 'internal task' || type === 'admin' || type.includes('task')) {
+                  ChannelIcon = FileText;
+                  channelColorClass = 'text-gray-500 bg-gray-50 dark:bg-gray-900/30 dark:text-gray-400';
+                }
 
                 return (
                   <div
@@ -2315,7 +2334,7 @@ export default function CallLogManager({
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tempColorClass}`} title={`Temperature: ${temp}`}>
                           <TempIcon className="w-4 h-4" />
                         </div>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-indigo-50 text-indigo-500 dark:bg-indigo-900/30 dark:text-indigo-400" title={`Channel: ${type}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${channelColorClass}`} title={`Channel: ${type}`}>
                           <ChannelIcon className="w-4 h-4" />
                         </div>
                       </div>
@@ -2324,8 +2343,7 @@ export default function CallLogManager({
                         <div className="flex items-center space-x-1">
                           <button
                             onClick={() => {
-                              setSelectedEntry(log);
-                              setShowLogModal(true);
+                              setSelectedDetailEntry(log);
                             }}
                             title="View Details"
                             className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
@@ -2456,8 +2474,7 @@ export default function CallLogManager({
                               <div className="flex items-center justify-end space-x-1">
                                 <button
                                   onClick={() => {
-                                    setSelectedEntry(log);
-                                    setShowLogModal(true);
+                                    setSelectedDetailEntry(log);
                                   }}
                                   title="View Details"
                                   className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"

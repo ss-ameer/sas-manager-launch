@@ -1769,7 +1769,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         createdAt: nowIso,
         updatedAt: nowIso,
         ...(completedAtIso ? { completedAt: completedAtIso } : {}),
-        ...(isDncOptOut ? { dnc: true, opt_out: true } : {})
+        ...(isDncOptOut ? { dnc: true, opt_out: true, is_dnc: true } : { dnc: false, opt_out: false, is_dnc: false }) as any
       };
 
       if (drawerMode === 'execute' && activeLog && activeLog.id) {
