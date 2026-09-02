@@ -41,6 +41,7 @@ import {
   Users,
   Briefcase,
   LayoutGrid,
+  List,
   Table,
   Loader2,
   History
@@ -257,6 +258,14 @@ export default function CallLogManager({
   const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
   const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
+  
+  // Table vs Card View
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(50);
+
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
     if (setCallLogs) {
@@ -477,6 +486,11 @@ export default function CallLogManager({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [outcomeFilter, setOutcomeFilter] = useState<string>('all');
   const [geographyFilter, setGeographyFilter] = useState<string>('all');
+
+  // Reset page to 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, outcomeFilter, geographyFilter]);
 
   // Modals & Drawers
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
@@ -1586,6 +1600,14 @@ export default function CallLogManager({
     });
   }, [workspaceCallLogs, statusFilter, outcomeFilter, geographyFilter, searchTerm, historySortOrder]);
 
+  // Pagination Logic
+  const totalItems = filteredHistoryLogs.length;
+  const paginatedLogs = useMemo(() => {
+    if (itemsPerPage === 'All') return filteredHistoryLogs;
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredHistoryLogs.slice(start, start + itemsPerPage);
+  }, [filteredHistoryLogs, currentPage, itemsPerPage]);
+
   return (
     <>
       <PageHeader
@@ -1989,7 +2011,6 @@ export default function CallLogManager({
                 </div>
               );
             })}
-
             {queueItems.length === 0 && (
               <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
                 <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
@@ -2008,72 +2029,101 @@ export default function CallLogManager({
       {/* VIEW 2: FULL CALL LOG HISTORY & SEARCH */}
       {subTab === 'log' && (
         <div className="space-y-4">
-          {/* Filters Bar */}
-          <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by company, contact, phone, notes..."
-                className="w-full pl-9 pr-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+          {/* Faceted Search & Filters */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
+                <Filter className="w-4 h-4" />
+                <span>Faceted Search & Filters</span>
+              </div>
+              <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('card')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
+                    viewMode === 'card' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
+                    viewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+              </div>
             </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div className="relative md:col-span-4">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search by company, contact, phone, notes..."
+                  className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+              
+              <div className="md:col-span-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                >
+                  <option value="all">All Statuses</option>
+                  {activeStatuses.map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="md:col-span-2">
+                <select
+                  value={outcomeFilter}
+                  onChange={(e) => setOutcomeFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                >
+                  <option value="all">All Outcomes</option>
+                  {activeOutcomes.map((oc) => (
+                    <option key={oc} value={oc}>{oc}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 font-semibold"
-              >
-                <option value="all">All Statuses</option>
-                {activeStatuses.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
+              <div className="md:col-span-2">
+                <select
+                  value={geographyFilter}
+                  onChange={(e) => setGeographyFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                >
+                  <option value="all">All Locations</option>
+                  {(activeWorkspace.geography_options || []).map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
 
-              <select
-                value={outcomeFilter}
-                onChange={(e) => setOutcomeFilter(e.target.value)}
-                className="px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 font-semibold"
-              >
-                <option value="all">All Outcomes</option>
-                {activeOutcomes.map((oc) => (
-                  <option key={oc} value={oc}>
-                    {oc}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={geographyFilter}
-                onChange={(e) => setGeographyFilter(e.target.value)}
-                className="px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 font-semibold"
-              >
-                <option value="all">All Locations</option>
-                {(activeWorkspace.geography_options || []).map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-
-              {/* History Sort Order */}
-              <select
-                value={historySortOrder}
-                onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
-                className="px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 font-semibold cursor-pointer"
-              >
-                <option value="newest">Date: Newest First</option>
-                <option value="oldest">Date: Oldest First</option>
-              </select>
+              <div className="md:col-span-2">
+                <select
+                  value={historySortOrder}
+                  onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Call History Card List */}
           <div className="space-y-3">
             {/* Select All & Batch Actions Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-500">
@@ -2097,14 +2147,12 @@ export default function CallLogManager({
                   />
                   <span>Select All ({filteredHistoryLogs.length})</span>
                 </label>
-
                 {selectedLogIds.length > 0 && (
                   <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 rounded-full font-mono">
                     {selectedLogIds.length} Selected
                   </span>
                 )}
               </div>
-
               {selectedLogIds.length > 0 ? (
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400 mr-1">Batch Actions:</span>
@@ -2124,11 +2172,15 @@ export default function CallLogManager({
                   <button
                     type="button"
                     onClick={async () => {
+                      if (getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace) === 'Viewer') {
+                        triggerToast('Read-only viewers cannot delete records.', 'error');
+                        return;
+                      }
                       const confirmDelete = await askConfirm(
                         'Batch Delete Logs',
-                        `Are you sure you want to delete ${selectedLogIds.length} selected interaction log(s)? This action cannot be undone.`,
+                        `Are you sure you want to permanently delete ${selectedLogIds.length} log(s)? This action cannot be undone.`,
                         true,
-                        'Delete All',
+                        'Delete Logs',
                         'Cancel'
                       );
                       if (!confirmDelete) return;
@@ -2162,249 +2214,241 @@ export default function CallLogManager({
                 <span>Showing {filteredHistoryLogs.length} interaction logs</span>
               )}
             </div>
+            
+            {viewMode === 'card' ? (
+              paginatedLogs.map((log) => {
+                const isSuppressed = isEntrySuppressedByDNC(log);
+                const handledBy = getWorkspaceInitials(
+                  log.handled_by_team_member_name || log.logged_by || log.sales_person,
+                  salespersons,
+                  user,
+                  activeWorkspace
+                );
+                const type = (log.interaction_type || 'call').toLowerCase();
+                const isSelected = !!(log.id && selectedLogIds.includes(log.id));
 
-            {filteredHistoryLogs.map((log) => {
-              const isSuppressed = isEntrySuppressedByDNC(log);
-              const handledBy = getWorkspaceInitials(
-                log.handled_by_team_member_name || log.logged_by || log.sales_person,
-                salespersons,
-                user,
-                activeWorkspace
-              );
-              const type = (log.interaction_type || 'call').toLowerCase();
-              const isSelected = !!(log.id && selectedLogIds.includes(log.id));
-
-              return (
-                <div
-                  key={log.id}
-                  className={`group p-2 md:p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-                    isSelected
-                      ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
-                      : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
-                  }`}
-                >
-                  <div className="flex items-start space-x-3 flex-1 min-w-0">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(chk) => {
-                        if (!log.id) return;
-                        if (chk.target.checked) {
-                          setSelectedLogIds((prev) => [...prev, log.id!]);
-                        } else {
-                          setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
-                        }
-                      }}
-                      className="mt-1 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                    />
-
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700">
-                          {getReferenceId('CL', log, callLogs)}
-                        </span>
-                        {renderChannelBadge(log.channel || log.interaction_type)}
-                        <span className="font-black text-slate-900 dark:text-slate-100 text-base">
-                          {log.company_id || log.company_name ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (log.company_id) {
-                                  setSelected360CompanyId(log.company_id);
-                                } else {
-                                  const match = workspaceCompanies.find(
-                                    (c) => c.display_name.toLowerCase() === (log.company_name || '').toLowerCase()
-                                  );
-                                  if (match?.id) setSelected360CompanyId(match.id);
-                                  else triggerToast(`Company profile not found for ${log.company_name}`, 'info');
-                                }
-                              }}
-                              className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left font-bold"
-                            >
-                              {getResolvedCompanyName(log)}
-                            </button>
-                          ) : (
-                            getResolvedCompanyName(log)
-                          )}
-                        </span>
-
-                        {log.contact_name && (
-                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
-                            Attn: {log.contact_name}
-                          </span>
-                        )}
-
-                        {renderCompanyTempPill(log)}
-                        {renderStatusBadge(log.status)}
-                        {(() => {
-                          const normChan = (log.channel || log.interaction_type || '').toLowerCase();
-                          const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
-                          if (isAsync && log.purpose) {
-                            return renderPurposeBadge(log.purpose);
+                return (
+                  <div
+                    key={log.id}
+                    className={`group p-2 md:p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
+                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(chk) => {
+                          if (!log.id) return;
+                          if (chk.target.checked) {
+                            setSelectedLogIds((prev) => [...prev, log.id!]);
+                          } else {
+                            setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
                           }
-                          return log.outcome ? renderOutcomeBadge(log.outcome) : null;
-                        })()}
-                      </div>
-
-                      <div className="flex items-center space-x-3 pt-0.5 text-xs flex-wrap gap-y-1">
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {formatActivityDate(log.date)} &bull; By <span className="font-bold text-slate-900 dark:text-slate-100">{handledBy}</span>
-                        </span>
-
-                        {log.channel === 'Email' || log.interaction_type === 'email' ? (
-                          log.email_address ? (
-                            <a
-                              href={`mailto:${log.email_address}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center space-x-1 font-mono font-bold text-purple-700 dark:text-purple-300 hover:underline bg-purple-50 dark:bg-purple-950/80 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800 text-[11px]"
-                            >
-                              <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                              <span>{log.email_address}</span>
-                            </a>
-                          ) : (
-                            <span className="inline-flex items-center space-x-1 font-mono font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
-                               <Mail className="w-3 h-3 text-slate-400" />
-                               <span>No email logged</span>
-                            </span>
-                          )
-                        ) : log.channel === 'Message (WhatsApp/SMS)' || log.channel === 'WhatsApp' ? (
-                          log.contact_phone ? (
-                             <a
-                              href={`https://wa.me/${log.contact_phone.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center space-x-1 font-mono font-bold text-emerald-700 dark:text-emerald-300 hover:underline bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 text-[11px]"
-                             >
-                               <MessageSquare className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                               <span>{log.contact_phone}</span>
-                             </a>
-                          ) : (
-                             <span className="inline-flex items-center space-x-1 font-mono font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
-                               <MessageSquare className="w-3 h-3 text-slate-400" />
-                               <span>No phone logged</span>
-                            </span>
-                          )
-                        ) : log.contact_phone ? (
-                          <a
-                            href={`tel:${log.contact_phone}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1 font-mono font-bold text-blue-700 dark:text-blue-300 hover:underline bg-blue-50 dark:bg-blue-950/80 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 text-[11px]"
-                          >
-                            <PhoneCall className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                            <span>{log.contact_phone}</span>
-                          </a>
-                        ) : log.email_address ? (
-                          <a
-                            href={`mailto:${log.email_address}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1 font-mono font-bold text-purple-700 dark:text-purple-300 hover:underline bg-purple-50 dark:bg-purple-950/80 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800 text-[11px]"
-                          >
-                            <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                            <span>{log.email_address}</span>
-                          </a>
-                        ) : null}
-
-                        {log.geography && (
-                          <span className="text-[11px] text-slate-500 font-medium flex items-center space-x-1">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{log.geography}</span>
+                        }}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {getResolvedCompanyName(log) || 'Unlinked Account'}
                           </span>
-                        )}
-
-                        {log.enquiry_quote_ref && (
-                          <span className="text-[11px] text-purple-700 dark:text-purple-300 font-bold bg-purple-50 dark:bg-purple-950/80 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                            Quote: {log.enquiry_quote_ref}
+                          <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                            {formatActivityDate(log.date || log.createdAt)}
                           </span>
-                        )}
+                          {isSuppressed && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                              <ShieldAlert className="w-2.5 h-2.5 mr-1" />
+                              DNC
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 flex items-center space-x-1.5 mt-1">
+                          <span className="truncate">{log.contact_name || log.contact_phone || 'No Contact Info'}</span>
+                          <span>•</span>
+                          <span className="font-medium text-blue-600 dark:text-blue-400">
+                            {type === 'email' ? 'Email' : type === 'message' ? 'Message' : 'Call'}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2 mt-1.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            isSuccessStatus(log.status)
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-50 text-slate-600 border-slate-200'
+                          }`}>
+                            {log.status}
+                          </span>
+                          {log.outcome && (
+                            <span className="text-[10px] text-slate-500 font-medium">→ {log.outcome}</span>
+                          )}
+                        </div>
                       </div>
-
-                      {log.requirement_notes && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 whitespace-normal pt-1 font-sans">
-                          {log.requirement_notes}
-                        </p>
-                      )}
                     </div>
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-200 dark:border-slate-800 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    {canUserClickRecord(user, log, salespersons) ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedDetailEntry(log);
-                          }}
-                          className="p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
-                          title="View Call Log"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-
-                        {canEditOrDeleteRecord(user, log) && (
+                    
+                    <div className="flex items-center justify-end space-x-2 w-full md:w-auto">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                        {handledBy}
+                      </span>
+                      {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
+                        <>
                           <button
-                            type="button"
-                            onClick={() => handleEditActivityLog(log)}
-                            className="p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition flex items-center justify-center bg-white cursor-pointer"
-                            title="Edit Activity Log"
+                            onClick={() => {
+                              setEditingLog(log);
+                              setDrawerMode('edit');
+                              if (onOpenActivityDrawer) {
+                                onOpenActivityDrawer({ channel: log.channel || 'Call', drawerMode: 'edit' });
+                              } else {
+                                openNewLogModal();
+                              }
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-
-                        {canEditOrDeleteRecord(user, log) && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (log.id) {
-                                const confirmDelete = await askConfirm(
-                                  'Delete Call Log Entry',
-                                  'Are you sure you want to delete this call log entry? This action cannot be undone.',
-                                  true,
-                                  'Delete Entry'
-                                );
-                                if (confirmDelete) {
-                                  await safeUpdateDoc('call_logs', log.id, {
-                                    is_deleted: true,
-                                    deleted_at: new Date().toISOString(),
-                                    deleted_by_uid: user?.uid || null,
-                                    deleted_by_name: user?.full_name || user?.username || 'Unknown'
-                                  });
-                                  if (setCallLogs) {
-                                    setCallLogs((prev) => prev.filter((x) => x.id !== log.id));
-                                  }
-                                  triggerToast('Call log deleted', 'info');
-                                }
-                              }
-                            }}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center justify-center bg-white dark:bg-slate-900 cursor-pointer"
-                            title="Delete Log"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                        Restricted View
-                      </span>
-                    )}
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                          Restricted View
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-
-            {filteredHistoryLogs.length === 0 && (
+                );
+              })
+            ) : (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
+                  <thead className="bg-slate-50 dark:bg-slate-950/50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-3 w-10"></th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Client</th>
+                      <th className="px-4 py-3">Contact</th>
+                      <th className="px-4 py-3">Status / Outcome</th>
+                      <th className="px-4 py-3">Agent</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {paginatedLogs.map((log) => {
+                      const isSelected = !!(log.id && selectedLogIds.includes(log.id));
+                      const handledBy = getWorkspaceInitials(log.handled_by_team_member_name || log.logged_by || log.sales_person, salespersons, user, activeWorkspace);
+                      
+                      return (
+                        <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(chk) => {
+                                if (!log.id) return;
+                                if (chk.target.checked) setSelectedLogIds(prev => [...prev, log.id!]);
+                                else setSelectedLogIds(prev => prev.filter(id => id !== log.id));
+                              }}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
+                            {formatActivityDate(log.date || log.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                            {getResolvedCompanyName(log) || 'Unlinked'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {log.contact_name || log.contact_phone || '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{log.status}</span>
+                              <span className="text-[10px] text-slate-500">{log.outcome || '-'}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              {handledBy}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => {
+                                setEditingLog(log);
+                                setDrawerMode('edit');
+                                if (onOpenActivityDrawer) {
+                                  onOpenActivityDrawer({ channel: log.channel || 'Call', drawerMode: 'edit' });
+                                } else {
+                                  openNewLogModal();
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {paginatedLogs.length === 0 && (
               <div className="p-8 text-center text-slate-400 italic bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800">
                 No call log entries match the search or filters.
+              </div>
+            )}
+            
+            {paginatedLogs.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl mt-4 gap-4">
+                <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                  Showing <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
+                  <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
+                  <span className="font-bold text-slate-950 dark:text-slate-100">{totalItems}</span> logs
+                </div>
+                
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Show:</span>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setItemsPerPage(val === 'All' ? 'All' : Number(val));
+                        setCurrentPage(1);
+                      }}
+                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
+                      <option value={500}>500</option>
+                      <option value="All">All</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" />
+                    </button>
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 min-w-[3rem] text-center">
+                      {currentPage} / {itemsPerPage === 'All' ? 1 : Math.ceil(totalItems / itemsPerPage) || 1}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(p => p + 1)}
+                      disabled={itemsPerPage === 'All' || currentPage >= Math.ceil(totalItems / itemsPerPage)}
+                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
