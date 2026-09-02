@@ -3514,7 +3514,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
 
               {(() => {
+                const isCurScheduled = status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft';
                 const isFollowupEncouraged =
+                  isCurScheduled ||
                   status === 'No Answer' ||
                   status === 'Busy' ||
                   outcome === 'Call Back Later' ||
