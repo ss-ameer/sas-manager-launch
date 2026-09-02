@@ -107,7 +107,7 @@ export default function LiveExecutionModal({
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
-  const [primaryActivityDate, setPrimaryActivityDate] = useState<string>('');
+
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -137,18 +137,7 @@ export default function LiveExecutionModal({
       const validPurposes = getPurposesForChannel(taskChan);
       setPurpose(task.purpose || validPurposes[0] || 'Discovery / Validation');
       
-      if (task.date) {
-        const d = new Date(task.date);
-        if (!isNaN(d.getTime())) {
-          const offset = d.getTimezoneOffset() * 60000;
-          const localIso = new Date(d.getTime() - offset).toISOString().slice(0, 16);
-          setPrimaryActivityDate(localIso);
-        } else {
-          setPrimaryActivityDate('');
-        }
-      } else {
-        setPrimaryActivityDate('');
-      }
+
       setCallOutcome(task.outcome || '');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes(task.requirement_notes || task.notes || '');
@@ -862,19 +851,7 @@ export default function LiveExecutionModal({
                 </div>
               )}
 
-              {resolutionAction === 'complete' && ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus) && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Primary Activity Date & Time (Future Scheduling)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={primaryActivityDate}
-                    onChange={(e) => setPrimaryActivityDate(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition font-mono"
-                  />
-                </div>
-              )}
+
 
               {/* Notes Textarea */}
               <div>
@@ -915,7 +892,11 @@ export default function LiveExecutionModal({
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-300 flex items-center space-x-1.5">
                     <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Next Follow-Up Date & Time (Optional Spawner)</span>
+                    <span>
+                      {resolutionAction === 'complete' && ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus) 
+                        ? 'Scheduled Date & Time (Spawner) *' 
+                        : 'Next Follow-Up Date & Time (Optional Spawner)'}
+                    </span>
                   </label>
                   {nextFollowUpDate && (
                     <button
@@ -930,6 +911,7 @@ export default function LiveExecutionModal({
                 <input
                   type="datetime-local"
                   id="next-followup-datetime"
+                  required={resolutionAction === 'complete' && ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus)}
                   value={nextFollowUpDate}
                   onChange={(e) => setNextFollowUpDate(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition font-mono"

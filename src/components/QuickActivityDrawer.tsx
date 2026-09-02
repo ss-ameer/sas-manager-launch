@@ -3507,11 +3507,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   type="datetime-local"
                   value={activityDate}
                   onChange={(e) => setActivityDate(e.target.value)}
-                  max={
-                    status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft'
-                      ? undefined
-                      : getLocalDateTimeString()
-                  }
+                  max={getLocalDateTimeString()}
                   style={{ colorScheme: 'dark' }}
                   className="[color-scheme:dark] w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden font-mono"
                 />
@@ -3532,7 +3528,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <div className="flex flex-col mb-2 gap-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          Next Follow-up Date
+                          {isCurScheduled ? 'Scheduled Date & Time *' : 'Next Follow-up Date'}
                         </label>
                         {followupDate && (
                           <button
@@ -3548,7 +3544,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         <div className="w-full">
                           <span className="text-[10px] font-bold text-amber-400 inline-flex items-center gap-1.5 bg-amber-950/80 px-2 py-1 rounded border border-amber-500/50 animate-pulse">
                             <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
-                            <span>Required for {status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
+                            <span>Required for {isCurScheduled ? 'Scheduled tasks' : status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
                           </span>
                         </div>
                       )}

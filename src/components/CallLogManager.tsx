@@ -876,13 +876,15 @@ export default function CallLogManager({
       })
       .sort((a, b) => {
         // Overdue first (isTaskOverdue)
-        const isAOverdue = isTaskOverdue(a.date);
-        const isBOverdue = isTaskOverdue(b.date);
+        const dateA = a.next_followup_date || a.date;
+        const dateB = b.next_followup_date || b.date;
+        const isAOverdue = isTaskOverdue(dateA);
+        const isBOverdue = isTaskOverdue(dateB);
         if (isAOverdue && !isBOverdue) return -1;
         if (!isAOverdue && isBOverdue) return 1;
 
-        const timeA = parseTaskScheduledDate(a.date)?.getTime() || 0;
-        const timeB = parseTaskScheduledDate(b.date)?.getTime() || 0;
+        const timeA = parseTaskScheduledDate(dateA)?.getTime() || 0;
+        const timeB = parseTaskScheduledDate(dateB)?.getTime() || 0;
         return timeA - timeB;
       });
   }, [workspaceCallLogs, companyMap, contactMap]);
@@ -891,13 +893,13 @@ export default function CallLogManager({
   const queueItems = useMemo(() => {
     let base = allScheduledQueueItems;
     if (queueTimeframe === 'today') {
-      base = allScheduledQueueItems.filter((i) => isTaskDueTodayOrOverdue(i.date));
+      base = allScheduledQueueItems.filter((i) => isTaskDueTodayOrOverdue(i.next_followup_date || i.date));
     } else if (queueTimeframe === 'upcoming') {
-      base = allScheduledQueueItems.filter((i) => isTaskUpcoming(i.date));
+      base = allScheduledQueueItems.filter((i) => isTaskUpcoming(i.next_followup_date || i.date));
     }
     return [...base].sort((a, b) => {
-      const timeA = parseTaskScheduledDate(a.date)?.getTime() || 0;
-      const timeB = parseTaskScheduledDate(b.date)?.getTime() || 0;
+      const timeA = parseTaskScheduledDate(a.next_followup_date || a.date)?.getTime() || 0;
+      const timeB = parseTaskScheduledDate(b.next_followup_date || b.date)?.getTime() || 0;
       if (queueSortOrder === 'oldest') {
         return timeA - timeB;
       } else {
@@ -1728,7 +1730,7 @@ export default function CallLogManager({
                 }`}
               >
                 <Clock className="w-3.5 h-3.5 text-blue-500" />
-                <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.date)).length})</span>
+                <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.next_followup_date || i.date)).length})</span>
               </button>
               <button
                 type="button"
@@ -1740,7 +1742,7 @@ export default function CallLogManager({
                 }`}
               >
                 <Calendar className="w-3.5 h-3.5 text-amber-500" />
-                <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.date)).length})</span>
+                <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.next_followup_date || i.date)).length})</span>
               </button>
               <button
                 type="button"
@@ -3094,11 +3096,7 @@ export default function CallLogManager({
                     required
                     value={logFormDate}
                     onChange={(e) => setLogFormDate(e.target.value)}
-                    max={
-                      ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(logFormStatus)
-                        ? undefined
-                        : todayStr
-                    }
+                    max={todayStr}
                     style={{ colorScheme: 'dark' }}
                     className="[color-scheme:dark] w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 rounded-xl font-semibold"
                   />
@@ -3311,10 +3309,13 @@ export default function CallLogManager({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Schedule Next Follow-Up Date (Optional)
+                  {['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(logFormStatus) 
+                    ? 'Scheduled Target Date *' 
+                    : 'Schedule Next Follow-Up Date (Optional)'}
                 </label>
                 <input
                   type="date"
+                  required={['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(logFormStatus)}
                   value={logFormFollowupDate}
                   onChange={(e) => setLogFormFollowupDate(e.target.value)}
                   style={{ colorScheme: 'dark' }}
