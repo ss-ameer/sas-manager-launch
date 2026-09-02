@@ -537,7 +537,7 @@ export default function SalespersonProfiles({
 
     const pendingLogs = (callLogs || []).filter(
       (c) =>
-        (c.status === 'Scheduled' ||
+        (['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(c.status) ||
           c.status === 'Follow-Up Required' ||
           Boolean(c.next_followup_date)) &&
         ((c as any).sales_person_id === targetId ||

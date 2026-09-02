@@ -130,10 +130,11 @@ export default function Dashboard({
     const seenKeys = new Set<string>();
 
     (callLogs || []).forEach((l) => {
-      const fDate = l.next_followup_date || (l as any).next_follow_up || (l as any).follow_up_date;
+      const isCurScheduled = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status);
+      const fDate = l.next_followup_date || (l as any).next_follow_up || (l as any).follow_up_date || (isCurScheduled ? l.date : null);
       if (!fDate) return;
       const isClosed = ['Completed', 'Cancelled', 'Closed', 'Closed - Deal Made'].includes(l.status);
-      if (isClosed) return;
+      if (isClosed && !isCurScheduled) return;
 
       let compName = l.company_id ? (companyMap.get(l.company_id) || l.company_name) : l.company_name;
 
@@ -415,7 +416,7 @@ export default function Dashboard({
 
   const complianceMetrics = useMemo(() => {
     const scheduled = filteredCallLogs.filter(
-      (l) => l.next_followup_date || (l as any).next_follow_up || (l as any).follow_up_date
+      (l) => l.next_followup_date || (l as any).next_follow_up || (l as any).follow_up_date || ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status)
     );
     const totalScheduled = scheduled.length;
     const completedScheduled = scheduled.filter((l) =>

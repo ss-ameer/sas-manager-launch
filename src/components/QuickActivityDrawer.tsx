@@ -1728,8 +1728,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       let completedAtIso: string | undefined = undefined;
 
       const isCurScheduled = finalStatus === 'Scheduled' || finalStatus === 'Scheduled / Planned' || finalStatus?.toLowerCase().includes('scheduled');
-      if (drawerMode === 'execute' || finalStatus === 'Completed' || (!isCurScheduled && drawerMode !== 'edit')) {
-        finalStatus = (status && status !== 'Scheduled / Planned' && status !== 'Scheduled') ? status : 'Completed';
+      if (!isCurScheduled && (drawerMode === 'execute' || finalStatus === 'Completed' || drawerMode !== 'edit')) {
+        finalStatus = (status && status !== 'Scheduled / Planned' && status !== 'Scheduled' && !status.toLowerCase().includes('scheduled')) ? status : 'Completed';
         completedAtIso = nowIso;
       }
 
@@ -1780,7 +1780,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           ...payload,
           id: activeLog.id,
           date: activityIsoDate,
-          status: (status && status !== 'Scheduled / Planned' && status !== 'Scheduled') ? status : 'Completed',
+          status: finalStatus as any,
           outcome: isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed'),
           purpose: purpose || activeLog.purpose || 'Discovery / Validation',
           requirement_notes: notes.trim(),
@@ -3347,7 +3347,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                 {(((interactionChannel as string === 'Call' || interactionChannel as string === 'Phone Call') && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
-                  .filter(st => drawerMode === 'execute' ? (st !== 'Scheduled' && st !== 'Scheduled / Planned') : true)
+                  
                   .map((st) => (
                   <button
                     key={st}
@@ -3507,6 +3507,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   type="datetime-local"
                   value={activityDate}
                   onChange={(e) => setActivityDate(e.target.value)}
+                  max={
+                    status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft'
+                      ? undefined
+                      : getLocalDateTimeString()
+                  }
                   style={{ colorScheme: 'dark' }}
                   className="[color-scheme:dark] w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden font-mono"
                 />
@@ -3516,7 +3521,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 const isFollowupEncouraged =
                   status === 'No Answer' ||
                   status === 'Busy' ||
-                  status === 'Scheduled' ||
                   outcome === 'Call Back Later' ||
                   outcome === 'Line Busy' ||
                   outcome === 'No Answer' ||

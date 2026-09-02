@@ -107,6 +107,7 @@ export default function LiveExecutionModal({
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
+  const [primaryActivityDate, setPrimaryActivityDate] = useState<string>('');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -129,11 +130,25 @@ export default function LiveExecutionModal({
       const taskChan = task.channel || 'Phone Call';
       setCurrentChannel(taskChan);
       setResolutionAction('complete');
-      const validStatuses = getStatusesForChannel(taskChan);
-      const defaultStatus = validStatuses.find((s) => isSuccessStatus(s)) || validStatuses[0] || 'Completed / Connected';
+      const isCall = taskChan === 'Call' || taskChan === 'Phone Call';
+      const validStatusesForDefault = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(taskChan);
+      const defaultStatus = validStatusesForDefault.find((s) => isSuccessStatus(s)) || validStatusesForDefault[0] || 'Completed / Connected';
       setCallStatus(defaultStatus);
       const validPurposes = getPurposesForChannel(taskChan);
       setPurpose(task.purpose || validPurposes[0] || 'Discovery / Validation');
+      
+      if (task.date) {
+        const d = new Date(task.date);
+        if (!isNaN(d.getTime())) {
+          const offset = d.getTimezoneOffset() * 60000;
+          const localIso = new Date(d.getTime() - offset).toISOString().slice(0, 16);
+          setPrimaryActivityDate(localIso);
+        } else {
+          setPrimaryActivityDate('');
+        }
+      } else {
+        setPrimaryActivityDate('');
+      }
       setCallOutcome(task.outcome || '');
       setIsDnc(Boolean(task.is_dnc || task.dnc));
       setNotes(task.requirement_notes || task.notes || '');
@@ -226,7 +241,8 @@ export default function LiveExecutionModal({
 
   const handleChannelChange = (newChan: string) => {
     setCurrentChannel(newChan);
-    const newStatuses = getStatusesForChannel(newChan);
+    const isCall = newChan === 'Call' || newChan === 'Phone Call';
+    const newStatuses = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(newChan);
     if (!newStatuses.includes(callStatus)) {
       const defaultSt = newStatuses.find((s) => isSuccessStatus(s)) || newStatuses[0] || 'Completed / Connected';
       setCallStatus(defaultSt);
@@ -843,6 +859,20 @@ export default function LiveExecutionModal({
                         );
                       })()}
                   </select>
+                </div>
+              )}
+
+              {resolutionAction === 'complete' && ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus) && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Primary Activity Date & Time (Future Scheduling)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={primaryActivityDate}
+                    onChange={(e) => setPrimaryActivityDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition font-mono"
+                  />
                 </div>
               )}
 

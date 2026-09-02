@@ -870,7 +870,7 @@ export default function CallLogManager({
   const allScheduledQueueItems = useMemo(() => {
     return workspaceCallLogs
       .filter((entry) => {
-        if (entry.status !== 'Scheduled' && entry.status !== 'Scheduled / Planned') return false;
+        if (!['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(entry.status)) return false;
         if (isEntrySuppressedByDNC(entry)) return false; // Hard DNC Suppression
         return true;
       })
@@ -3094,6 +3094,11 @@ export default function CallLogManager({
                     required
                     value={logFormDate}
                     onChange={(e) => setLogFormDate(e.target.value)}
+                    max={
+                      ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(logFormStatus)
+                        ? undefined
+                        : todayStr
+                    }
                     style={{ colorScheme: 'dark' }}
                     className="[color-scheme:dark] w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 rounded-xl font-semibold"
                   />
