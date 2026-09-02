@@ -24,7 +24,7 @@ import {
   Calendar,
   Globe
 } from 'lucide-react';
-import { safeDeleteDoc, safeSetDoc } from '../firebase';
+import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
@@ -110,9 +110,20 @@ export default function Company360Modal({
     }
     try {
       if (setContacts) {
-        setContacts((prev) => prev.filter((item) => item.id !== targetId));
+        setContacts((prev) => prev.map((item) => item.id === targetId ? {
+          ...item,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : item));
       }
-      await safeDeleteDoc('contacts', targetId);
+      await safeUpdateDoc('contacts', targetId, {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by_uid: user?.uid || null,
+        deleted_by_name: user?.full_name || user?.username || 'Unknown'
+      });
       try {
         await recordAuditLog({
           document_id: targetId,
@@ -131,11 +142,11 @@ export default function Company360Modal({
 
   if (!companyId || !company) return null;
 
-  const companyContacts = contacts.filter((c) => c.company_id === company.id);
+  const companyContacts = contacts.filter((c) => !c.is_deleted && c.company_id === company.id);
   const companyCallLogs = callLogs.filter(
-    (l) => l.company_id === company.id || (l.company_name && l.company_name.toLowerCase() === company.display_name.toLowerCase())
+    (l) => !l.is_deleted && (l.company_id === company.id || (l.company_name && l.company_name.toLowerCase() === company.display_name.toLowerCase()))
   );
-  const companyEnquiries = enquiries.filter((e) => e.company_id === company.id);
+  const companyEnquiries = enquiries.filter((e) => !e.is_deleted && e.company_id === company.id);
 
   const handleOutboundInteraction = (
     e: React.MouseEvent,

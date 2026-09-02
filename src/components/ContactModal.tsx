@@ -477,10 +477,21 @@ export default function ContactModal({
     setIsSaving(true);
     try {
       if (setContacts) {
-        setContacts((prev) => prev.filter((c) => c.id !== targetId));
+        setContacts((prev) => prev.map((c) => c.id === targetId ? {
+          ...c,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : c));
       }
 
-      await safeDeleteDoc('contacts', targetId);
+      await safeUpdateDoc('contacts', targetId, {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by_uid: user?.uid || null,
+        deleted_by_name: user?.full_name || user?.username || 'Unknown'
+      });
 
       try {
         await recordAuditLog({

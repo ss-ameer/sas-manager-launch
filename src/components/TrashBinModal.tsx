@@ -16,6 +16,7 @@ interface TrashBinModalProps {
   products: Product[];
   callLogs: CallLogEntry[];
   onRefreshData: () => void;
+  activeWorkspaceId?: string;
 }
 
 type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs';
@@ -29,7 +30,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   contacts,
   products,
   callLogs,
-  onRefreshData
+  onRefreshData,
+  activeWorkspaceId
 }) => {
   const [activeTab, setActiveTab] = useState<CategoryTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,12 +43,20 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
 
   const isAdmin = currentUser?.role === 'Admin';
 
-  // Extract soft-deleted items
-  const deletedEnquiries = enquiries.filter((e) => e.is_deleted);
-  const deletedCompanies = companies.filter((c) => c.is_deleted);
-  const deletedContacts = contacts.filter((c) => c.is_deleted);
-  const deletedProducts = products.filter((p) => p.is_deleted);
-  const deletedCallLogs = callLogs.filter((l) => l.is_deleted);
+  // Helper to check workspace boundary
+  const isWsMatch = (wsId: string | undefined) => {
+    if (!activeWorkspaceId) return true;
+    const itemWs = wsId || 'ws_default';
+    const currentWs = activeWorkspaceId || 'ws_default';
+    return itemWs === currentWs;
+  };
+
+  // Extract soft-deleted items (filtered by workspace)
+  const deletedEnquiries = enquiries.filter((e) => e.is_deleted && isWsMatch(e.workspace_id || (e as any).workspaceId));
+  const deletedCompanies = companies.filter((c) => c.is_deleted && isWsMatch(c.workspace_id || (c as any).workspaceId));
+  const deletedContacts = contacts.filter((c) => c.is_deleted && isWsMatch(c.workspace_id || (c as any).workspaceId));
+  const deletedProducts = products.filter((p) => p.is_deleted && isWsMatch(p.workspace_id || (p as any).workspaceId));
+  const deletedCallLogs = callLogs.filter((l) => l.is_deleted && isWsMatch(l.workspace_id));
 
   const totalDeletedCount =
     deletedEnquiries.length +

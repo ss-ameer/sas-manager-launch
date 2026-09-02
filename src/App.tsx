@@ -432,6 +432,7 @@ export default function App() {
   // Workspace-filtered views
   const workspaceCompanies = useMemo(() => {
     return companies.filter((c) => {
+      if (c.is_deleted) return false;
       const wId = c.workspace_id || (c as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
@@ -441,6 +442,7 @@ export default function App() {
 
   const workspaceContacts = useMemo(() => {
     return contacts.filter((c) => {
+      if (c.is_deleted) return false;
       const wId = c.workspace_id || (c as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
@@ -448,6 +450,7 @@ export default function App() {
 
   const workspaceEnquiries = useMemo(() => {
     return enquiries.filter((e) => {
+      if (e.is_deleted) return false;
       const wId = e.workspace_id || (e as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
@@ -462,6 +465,7 @@ export default function App() {
 
   const workspaceProducts = useMemo(() => {
     return products.filter((p) => {
+      if (p.is_deleted) return false;
       const wId = p.workspace_id || (p as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
@@ -1193,7 +1197,13 @@ export default function App() {
     try {
       // 1. Immediately update local state and local cache for instant UI feedback
       setEnquiries((prev) => {
-        const next = prev.filter((e) => e.id !== cleanId);
+        const next = prev.map((e) => e.id === cleanId ? {
+          ...e,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : e);
         setLocalCache('omni_enquiries', next);
         return next;
       });
@@ -1202,10 +1212,16 @@ export default function App() {
         setSelectedEnquiryId(null);
       }
 
-      // 2. Perform Firestore document deletion
-      const success = await safeDeleteDoc('enquiries', cleanId);
-      if (!success) {
-        console.warn(`[handleDeleteEnquiry] Firestore delete returned false for enquiry ${cleanId}. Local state already purged.`);
+      // 2. Perform Firestore document soft deletion
+      try {
+        await safeUpdateDoc('enquiries', cleanId, {
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        });
+      } catch (err) {
+        console.warn(`[handleDeleteEnquiry] Firestore soft delete returned false for enquiry ${cleanId}.`);
       }
 
       // 3. Record Audit Log
@@ -1254,26 +1270,42 @@ export default function App() {
     try {
       // 1. Immediately update local state & local cache
       setEnquiries((prev) => {
-        const next = prev.filter((e) => e.id && !validIds.includes(e.id));
+        const next = prev.map((e) => validIds.includes(e.id) ? {
+          ...e,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : e);
         setLocalCache('omni_enquiries', next);
         return next;
       });
       setSelectedEnquiryId(null);
 
-      // 2. Perform Firestore deletes
+      // 2. Perform Firestore soft deletes
       try {
         const batch = writeBatch(db);
         validIds.forEach((id) => {
           if (!id.startsWith('local_') && !id.startsWith('temp_')) {
-            batch.delete(doc(db, 'enquiries', id));
+            batch.update(doc(db, 'enquiries', id), {
+              is_deleted: true,
+              deleted_at: new Date().toISOString(),
+              deleted_by_uid: user?.uid || null,
+              deleted_by_name: user?.full_name || user?.username || 'Unknown'
+            });
           }
         });
         await batch.commit();
-        console.log(`[handleBulkDeleteEnquiries] Successfully committed batch delete for ${validIds.length} enquiries`);
+        console.log(`[handleBulkDeleteEnquiries] Successfully committed batch soft delete for ${validIds.length} enquiries`);
       } catch (batchErr) {
-        console.warn('[handleBulkDeleteEnquiries] Batch delete failed, falling back to safeDeleteDoc loop:', batchErr);
+        console.warn('[handleBulkDeleteEnquiries] Batch soft-delete failed, falling back to safeUpdateDoc loop:', batchErr);
         for (const id of validIds) {
-          await safeDeleteDoc('enquiries', id);
+          await safeUpdateDoc('enquiries', id, {
+            is_deleted: true,
+            deleted_at: new Date().toISOString(),
+            deleted_by_uid: user?.uid || null,
+            deleted_by_name: user?.full_name || user?.username || 'Unknown'
+          });
         }
       }
 
@@ -1743,6 +1775,7 @@ export default function App() {
         contacts={contacts}
         products={products}
         callLogs={callLogs}
+        activeWorkspaceId={activeWorkspace?.id}
         onRefreshData={async () => {
           // Re-sync local cache repositories
           try {

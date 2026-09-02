@@ -3525,17 +3525,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                 return (
                   <div className="flex flex-col justify-end h-full">
-                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                        Next Follow-up Date
-                      </label>
-                      <div className="flex items-center gap-2">
-                        {isFollowupMissing && (
-                          <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-500/50 animate-pulse">
-                            <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
-                            <span>Required for {status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
-                          </span>
-                        )}
+                    <div className="flex flex-col mb-2 gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                          Next Follow-up Date
+                        </label>
                         {followupDate && (
                           <button
                             type="button"
@@ -3546,6 +3540,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           </button>
                         )}
                       </div>
+                      {isFollowupMissing && (
+                        <div className="w-full">
+                          <span className="text-[10px] font-bold text-amber-400 inline-flex items-center gap-1.5 bg-amber-950/80 px-2 py-1 rounded border border-amber-500/50 animate-pulse">
+                            <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                            <span>Required for {status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <input
                       type="datetime-local"

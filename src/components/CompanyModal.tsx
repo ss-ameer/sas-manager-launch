@@ -983,11 +983,22 @@ export default function CompanyModal({
       }
 
       if (setContacts) {
-        setContacts((prev) => prev.filter((c) => c.id !== contactId));
+        setContacts((prev) => prev.map((c) => c.id === contactId ? {
+          ...c,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : c));
       }
       setSelectedContactIds((prev) => prev.filter((id) => id !== contactId));
 
-      await safeDeleteDoc('contacts', contactId);
+      await safeUpdateDoc('contacts', contactId, {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by_uid: user?.uid || null,
+        deleted_by_name: user?.full_name || user?.username || 'Unknown'
+      });
 
       try {
         await recordAuditLog({
@@ -1031,7 +1042,12 @@ export default function CompanyModal({
     try {
       const idsToDelete = [...selectedContactIds];
       for (const id of idsToDelete) {
-        await safeDeleteDoc('contacts', id);
+        await safeUpdateDoc('contacts', id, {
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid || null,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        });
         const targetCt = contacts.find((c) => c.id === id);
         if (targetCt) {
           try {
@@ -1049,7 +1065,13 @@ export default function CompanyModal({
       }
 
       if (setContacts) {
-        setContacts((prev) => prev.filter((c) => !idsToDelete.includes(c.id!)));
+        setContacts((prev) => prev.map((c) => idsToDelete.includes(c.id!) ? {
+          ...c,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : c));
       }
       setSelectedContactIds([]);
     } catch (err: any) {
@@ -1378,11 +1400,22 @@ export default function CompanyModal({
         // Option A: Delete associated contacts too
         for (const ct of linkedContacts) {
           if (ct.id) {
-            await safeDeleteDoc('contacts', ct.id);
+            await safeUpdateDoc('contacts', ct.id, {
+              is_deleted: true,
+              deleted_at: new Date().toISOString(),
+              deleted_by_uid: user?.uid || null,
+              deleted_by_name: user?.full_name || user?.username || 'Unknown'
+            });
           }
         }
         if (setContacts) {
-          setContacts((prev) => prev.filter((ct) => ct.company_id !== id));
+          setContacts((prev) => prev.map((ct) => ct.company_id === id ? {
+            ...ct,
+            is_deleted: true,
+            deleted_at: new Date().toISOString(),
+            deleted_by_uid: user?.uid,
+            deleted_by_name: user?.full_name || user?.username || 'Unknown'
+          } : ct));
         }
       } else {
         // Option B: Keep contacts unlinked
@@ -1400,11 +1433,22 @@ export default function CompanyModal({
 
       // Immediately purge company from state
       if (setCompanies) {
-        setCompanies((prev) => prev.filter((c) => c.id !== id));
+        setCompanies((prev) => prev.map((c) => c.id === id ? {
+          ...c,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_uid: user?.uid,
+          deleted_by_name: user?.full_name || user?.username || 'Unknown'
+        } : c));
       }
 
-      // Delete company document
-      await safeDeleteDoc('companies', id);
+      // Soft delete company document
+      await safeUpdateDoc('companies', id, {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by_uid: user?.uid || null,
+        deleted_by_name: user?.full_name || user?.username || 'Unknown'
+      });
 
       // Audit Log
       if (targetComp) {
@@ -1432,6 +1476,7 @@ export default function CompanyModal({
 
   // Computed views
   const filteredCompanies = companies.filter((c) => {
+    if (c.is_deleted) return false;
     const q = searchQuery.toLowerCase();
     const refId = getReferenceId('CMP', c, companies).toLowerCase();
 
@@ -3940,9 +3985,20 @@ export default function CompanyModal({
           }}
           onDelete={async (id) => {
             try {
-              await safeDeleteDoc('call_logs', id);
+              await safeUpdateDoc('call_logs', id, {
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+                deleted_by_uid: user?.uid || null,
+                deleted_by_name: user?.full_name || user?.username || 'Unknown'
+              });
               if (setCallLogs) {
-                setCallLogs((prev) => prev.filter((cl) => cl.id !== id));
+                setCallLogs((prev) => prev.map((cl) => cl.id === id ? {
+                  ...cl,
+                  is_deleted: true,
+                  deleted_at: new Date().toISOString(),
+                  deleted_by_uid: user?.uid,
+                  deleted_by_name: user?.full_name || user?.username || 'Unknown'
+                } : cl));
               }
               setSelectedCallLogDetail(null);
             } catch (err: any) {

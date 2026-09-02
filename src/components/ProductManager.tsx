@@ -234,9 +234,20 @@ export default function ProductManager({ products, productCategories: propCatego
       onConfirm: async () => {
         try {
           if (setProducts) {
-            setProducts((prev) => prev.filter((prod) => prod.id !== targetId));
+            setProducts((prev) => prev.map((prod) => prod.id === targetId ? {
+              ...prod,
+              is_deleted: true,
+              deleted_at: new Date().toISOString(),
+              deleted_by_uid: user?.uid,
+              deleted_by_name: user?.full_name || user?.username || 'Unknown'
+            } : prod));
           }
-          await safeDeleteDoc('products', targetId);
+          await safeUpdateDoc('products', targetId, {
+            is_deleted: true,
+            deleted_at: new Date().toISOString(),
+            deleted_by_uid: user?.uid || null,
+            deleted_by_name: user?.full_name || user?.username || 'Unknown'
+          });
         } catch (err: any) {
           alert('Failed to delete product: ' + err.message);
         }
