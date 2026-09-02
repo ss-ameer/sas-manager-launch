@@ -20,6 +20,7 @@ export const SYSTEM_CALL_OUTCOMES: any[] = [
   { id: 'co_neu_4', name: 'Requested Call Back', sentiment: 'neutral' },
   { id: 'co_neu_5', name: 'Status Update', sentiment: 'neutral' },
   { id: 'co_neu_6', name: 'Gathered Info', sentiment: 'neutral' },
+  { id: 'co_neu_7', name: 'No Current Need', sentiment: 'neutral' },
   
   { id: 'co_neg_1', name: 'Not Interested', sentiment: 'negative' },
   { id: 'co_neg_2', name: 'Lost to Competitor', sentiment: 'negative' },

@@ -40,7 +40,8 @@ export const NEUTRAL_OUTCOMES = [
   'Follow-up Scheduled',
   'Requested Call Back',
   'Information Gathered',
-  'No Current Requirement'
+  'No Current Requirement',
+  'No Current Need'
 ] as const;
 
 export const NEGATIVE_OUTCOMES = [
