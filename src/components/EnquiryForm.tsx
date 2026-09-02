@@ -2347,7 +2347,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   return (
     <div id="enquiry-form-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
-      <div className={`h-screen flex bg-white border-l border-slate-200 shadow-2xl relative animate-in slide-in-from-right duration-200 transition-all max-w-[98vw] w-[98vw]`}>
+      <div className={`h-[100dvh] flex bg-white border-l border-slate-200 shadow-2xl relative animate-in slide-in-from-right duration-200 transition-all max-w-[98vw] w-[98vw]`}>
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (

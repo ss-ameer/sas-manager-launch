@@ -232,7 +232,7 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop Persistent Sidebar */}
-      <aside id="sidebar-layout" className="hidden md:flex w-64 border-r border-slate-200 flex-col h-screen shrink-0 sticky top-0 bg-white">
+      <aside id="sidebar-layout" className="hidden md:flex w-64 border-r border-slate-200 flex-col h-[100dvh] shrink-0 sticky top-0 bg-white">
         {sidebarContent}
       </aside>
 

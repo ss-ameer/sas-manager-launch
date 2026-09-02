@@ -329,7 +329,7 @@ export default function EnquiryDetail({
 
   return (
     <div id="enquiry-detail-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
-      <div className={`w-full ${isExpandedWidth ? 'max-w-6xl lg:max-w-7xl' : 'max-w-3xl lg:max-w-4xl'} bg-white border-l border-slate-200 h-screen flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
+      <div className={`w-full ${isExpandedWidth ? 'max-w-6xl lg:max-w-7xl' : 'max-w-3xl lg:max-w-4xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Header Block */}
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">

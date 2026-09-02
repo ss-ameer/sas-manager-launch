@@ -79,7 +79,7 @@ export const ModalContentContainer: React.FC<ModalContentContainerProps> = ({
 
   return (
     <div
-      className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${paddingClasses[padding]} ${className}`}
+      className={`bg-white rounded-2xl border border-slate-200 shadow-2xl max-h-[90vh] overflow-y-auto ${paddingClasses[padding]} ${className}`}
     >
       {children}
     </div>

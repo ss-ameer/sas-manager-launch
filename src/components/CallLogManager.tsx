@@ -42,6 +42,10 @@ import {
   Briefcase,
   LayoutGrid,
   List,
+  Flame,
+  Sun,
+  Cloud,
+  Snowflake,
   Table,
   Loader2,
   History
@@ -1441,13 +1445,7 @@ export default function CallLogManager({
     }
   };
 
-  const openNewLogModal = () => {
-    setDrawerMode('create');
-    setEditingLog(null);
-    if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({ channel: 'Call', drawerMode: 'create' });
-    }
-  };
+
 
   const handleSaveFullLogModal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1626,7 +1624,7 @@ export default function CallLogManager({
             if (onOpenActivityDrawer) {
               onOpenActivityDrawer({ channel: 'Call', drawerMode: 'create' });
             } else {
-              openNewLogModal();
+              setIsActivityDrawerOpen(true);
             }
           }
         }}
@@ -2031,7 +2029,7 @@ export default function CallLogManager({
         <div className="space-y-4">
           {/* Faceted Search & Filters */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
               <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
                 <Filter className="w-4 h-4" />
                 <span>Faceted Search & Filters</span>
@@ -2227,10 +2225,26 @@ export default function CallLogManager({
                 const type = (log.interaction_type || 'call').toLowerCase();
                 const isSelected = !!(log.id && selectedLogIds.includes(log.id));
 
+                const company = companies?.find(c => c.id === log.company_id);
+                const temp = company?.temperature || 'Cold';
+                let TempIcon = Snowflake;
+                let tempColorClass = 'text-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400';
+                if (temp === 'Hot') {
+                  TempIcon = Flame;
+                  tempColorClass = 'text-orange-500 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-400';
+                } else if (temp === 'Warm') {
+                  TempIcon = Sun;
+                  tempColorClass = 'text-amber-500 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-400';
+                }
+
+                let ChannelIcon = Phone;
+                if (type === 'email') ChannelIcon = Mail;
+                else if (type === 'message') ChannelIcon = MessageSquare;
+
                 return (
                   <div
                     key={log.id}
-                    className={`group p-2 md:p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                    className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
                       isSelected
                         ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
                         : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
@@ -2252,7 +2266,14 @@ export default function CallLogManager({
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2">
-                          <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                          <span 
+                            className={`text-sm font-semibold truncate hover:text-blue-600 transition cursor-pointer ${log.company_name ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                            onClick={() => {
+                              if (log.company_id) {
+                                setSelected360CompanyId(log.company_id);
+                              }
+                            }}
+                          >
                             {getResolvedCompanyName(log) || 'Unlinked Account'}
                           </span>
                           <span className="text-[10px] text-slate-500 whitespace-nowrap">
@@ -2266,13 +2287,11 @@ export default function CallLogManager({
                           )}
                         </div>
                         <div className="text-[11px] text-slate-500 flex items-center space-x-1.5 mt-1">
-                          <span className="truncate">{log.contact_name || log.contact_phone || 'No Contact Info'}</span>
-                          <span>•</span>
-                          <span className="font-medium text-blue-600 dark:text-blue-400">
-                            {type === 'email' ? 'Email' : type === 'message' ? 'Message' : 'Call'}
+                          <span className={`truncate ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                            {log.contact_name || log.contact_phone || 'No Contact Info'}
                           </span>
                         </div>
-                        <div className="flex items-center space-x-2 mt-1.5">
+                        <div className="flex items-center space-x-2 mt-2">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
                             isSuccessStatus(log.status)
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -2286,28 +2305,83 @@ export default function CallLogManager({
                         </div>
                       </div>
                     </div>
-                    
+                      
                     <div className="flex items-center justify-end space-x-2 w-full md:w-auto">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                        {handledBy}
-                      </span>
+                      {/* Visual Metadata Cluster */}
+                      <div className="flex items-center space-x-1 mr-2">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold" title={`Handled by ${handledBy}`}>
+                          {handledBy}
+                        </div>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tempColorClass}`} title={`Temperature: ${temp}`}>
+                          <TempIcon className="w-4 h-4" />
+                        </div>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-indigo-50 text-indigo-500 dark:bg-indigo-900/30 dark:text-indigo-400" title={`Channel: ${type}`}>
+                          <ChannelIcon className="w-4 h-4" />
+                        </div>
+                      </div>
+
                       {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
-                        <>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setSelectedEntry(log);
+                              setShowLogModal(true);
+                            }}
+                            title="View Details"
+                            className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => {
                               setEditingLog(log);
                               setDrawerMode('edit');
                               if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ channel: log.channel || 'Call', drawerMode: 'edit' });
+                                onOpenActivityDrawer({ 
+                                  channel: log.channel || 'Call', 
+                                  drawerMode: 'edit',
+                                  existingLog: log,
+                                  logToEdit: log,
+                                  companyId: log.company_id
+                                });
                               } else {
-                                openNewLogModal();
+                                setIsActivityDrawerOpen(true);
                               }
                             }}
+                            title="Edit"
                             className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Edit3 className="w-4 h-4" />
                           </button>
-                        </>
+                          {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                            <button
+                              onClick={async () => {
+                                const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
+                                if (confirmDelete) {
+                                  try {
+                                    await safeUpdateDoc('call_logs', log.id!, {
+                                      is_deleted: true,
+                                      deleted_at: new Date().toISOString(),
+                                      deleted_by_uid: user?.uid || null,
+                                      deleted_by_name: user?.full_name || user?.username || 'Unknown'
+                                    });
+                                    if (setCallLogs) {
+                                      setCallLogs(prev => prev.filter(l => l.id !== log.id));
+                                    }
+                                    triggerToast('Log entry deleted successfully', 'success');
+                                  } catch (err) {
+                                    triggerToast('Failed to delete log entry', 'error');
+                                  }
+                                }
+
+                              }}
+                              title="Delete"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
                           Restricted View
@@ -2318,7 +2392,7 @@ export default function CallLogManager({
                 );
               })
             ) : (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
+              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
                   <thead className="bg-slate-50 dark:bg-slate-950/50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200 dark:border-slate-800">
                     <tr>
@@ -2353,10 +2427,17 @@ export default function CallLogManager({
                           <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
                             {formatActivityDate(log.date || log.createdAt)}
                           </td>
-                          <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                          <td 
+                            className={`px-4 py-3 font-semibold hover:text-blue-600 transition cursor-pointer ${log.company_name ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                            onClick={() => {
+                              if (log.company_id) {
+                                setSelected360CompanyId(log.company_id);
+                              }
+                            }}
+                          >
                             {getResolvedCompanyName(log) || 'Unlinked'}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className={`px-4 py-3 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
                             {log.contact_name || log.contact_phone || '-'}
                           </td>
                           <td className="px-4 py-3">
@@ -2371,20 +2452,71 @@ export default function CallLogManager({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <button
-                              onClick={() => {
-                                setEditingLog(log);
-                                setDrawerMode('edit');
-                                if (onOpenActivityDrawer) {
-                                  onOpenActivityDrawer({ channel: log.channel || 'Call', drawerMode: 'edit' });
-                                } else {
-                                  openNewLogModal();
+                          {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
+                              <div className="flex items-center justify-end space-x-1">
+                                <button
+                                  onClick={() => {
+                                    setSelectedEntry(log);
+                                    setShowLogModal(true);
+                                  }}
+                                  title="View Details"
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingLog(log);
+                                    setDrawerMode('edit');
+                                    if (onOpenActivityDrawer) {
+                                      onOpenActivityDrawer({ 
+                                        channel: log.channel || 'Call', 
+                                        drawerMode: 'edit',
+                                        existingLog: log,
+                                        logToEdit: log,
+                                        companyId: log.company_id
+                                      });
+                                    } else {
+                                      setIsActivityDrawerOpen(true);
+                                    }
+                                  }}
+                                  title="Edit"
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                                  <button
+                              onClick={async () => {
+                                const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
+                                if (confirmDelete) {
+                                  try {
+                                    await safeUpdateDoc('call_logs', log.id!, {
+                                      is_deleted: true,
+                                      deleted_at: new Date().toISOString(),
+                                      deleted_by_uid: user?.uid || null,
+                                      deleted_by_name: user?.full_name || user?.username || 'Unknown'
+                                    });
+                                    if (setCallLogs) {
+                                      setCallLogs(prev => prev.filter(l => l.id !== log.id));
+                                    }
+                                    triggerToast('Log entry deleted successfully', 'success');
+                                  } catch (err) {
+                                    triggerToast('Failed to delete log entry', 'error');
+                                  }
                                 }
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+
+                                    }}
+                                    title="Delete"
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-semibold">Restricted</span>
+                            )}
                           </td>
                         </tr>
                       );
