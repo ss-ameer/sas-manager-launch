@@ -156,7 +156,8 @@ export const channelStatuses: Record<string, string[]> = {
   Meeting: getStatusesForChannel('Meeting (Virtual/In-Person)'),
   'Site Visit': getStatusesForChannel('Site Visit'),
   'Internal Task / Admin': getStatusesForChannel('Internal Task / Admin'),
-  Task: getStatusesForChannel('Internal Task / Admin')
+  Task: getStatusesForChannel('Internal Task / Admin'),
+  internal_task: getStatusesForChannel('Internal Task / Admin')
 };
 
 export const isPhoneChannel = (ch?: ActivityChannel | string): boolean => {
@@ -171,6 +172,11 @@ export const isMessageChannel = (ch?: ActivityChannel | string): boolean => {
 
 export const isPhoneOrMessageChannel = (ch?: ActivityChannel | string): boolean => {
   return isPhoneChannel(ch) || isMessageChannel(ch);
+};
+
+export const isInternalTaskChannel = (ch?: ActivityChannel | string): boolean => {
+  const norm = String(ch || '').toLowerCase().trim();
+  return norm.includes('internal') || norm.includes('task') || norm.includes('admin');
 };
 
 const getLocalDateTimeString = (d: Date = new Date()): string => {
@@ -233,6 +239,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 }) => {
   const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
   const interactionChannel = channel;
+  const isInternalTask = isInternalTaskChannel(interactionChannel);
   const [outcome, setOutcome] = useState<string>('');
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
   const [purpose, setPurpose] = useState<string>('Discovery / Validation');
@@ -256,9 +263,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const isAsync = isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('email');
+    const isInternal = isInternalTaskChannel(newChanStr);
     
     const validOutcomes = callOutcomes?.length ? callOutcomes.map(o => o.name) : OUTCOMES;
-    if (isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
+    if (isInternal || isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
       setOutcome('');
     }
     
@@ -285,8 +293,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
 
     const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
+    const isInternal = isInternalTaskChannel(interactionChannel);
 
-    if (isAsyncChannel) {
+    if (isInternal || isAsyncChannel) {
       if (outcome) setOutcome('');
     } else if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
@@ -1070,9 +1079,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
     }
 
+    const isInternalTask = isInternalTaskChannel(channel);
     const normChan = channel.toLowerCase();
     const isAsyncChannel = !!normChan.match(/email|message|whatsapp|sms/);
-    const isOutcomeRequired = !isAsyncChannel;
+    const isOutcomeRequired = !isAsyncChannel && !isInternalTask;
 
     if (isCompletedState && isOutcomeRequired && (!outcome || !outcome.trim())) {
       setValidationError('Please select an outcome for this completed activity.');
@@ -1094,7 +1104,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         Meeting: 'call',
         'Meeting (Virtual/In-Person)': 'call',
         'Site Visit': 'call',
-        'Internal Task / Admin': 'call'
+        'Internal Task / Admin': 'call',
+        Task: 'call',
+        internal_task: 'call'
       };
 
       const isInvalidNumberCall =
@@ -1816,7 +1828,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         workspace_id: activeWorkspaceId,
         date: activityIsoDate,
         status: finalStatus,
-        outcome: isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || '')) : '',
+        outcome: isInternalTask
+          ? undefined
+          : (isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || '')) : ''),
         channel: channel,
         requirement_notes: notes.trim(),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
@@ -1840,7 +1854,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         handled_by_salesperson_id: currentSalespersonId || undefined,
         handled_by_team_member_name: currentUserInitials || undefined,
         interaction_type: interactionTypeMap[channel] || 'call',
-        purpose: purpose,
+        purpose: isInternalTask ? undefined : (purpose || undefined),
         created_by_uid: userUid,
         created_by_name: userName,
         last_modified_by_uid: userUid,
@@ -1860,8 +1874,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           id: activeLog.id,
           date: activityIsoDate,
           status: finalStatus as any,
-          outcome: isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed'),
-          purpose: purpose || activeLog.purpose || 'Discovery / Validation',
+          outcome: isInternalTask ? undefined : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed')),
+          purpose: isInternalTask ? undefined : (purpose || activeLog.purpose || 'Discovery / Validation'),
           requirement_notes: notes.trim(),
           completed_at: nowIso,
           completedAt: nowIso,
@@ -1870,6 +1884,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           last_modified_by_uid: userUid,
           last_modified_by_name: userName
         };
+
+        if (isInternalTask) {
+          delete (updatedExistingLog as any).outcome;
+          delete (updatedExistingLog as any).purpose;
+        }
 
         await safeSetDoc('activity_logs', activeLog.id, updatedExistingLog);
         await safeSetDoc('call_logs', activeLog.id, updatedExistingLog);
@@ -1884,10 +1903,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
             date: followupIsoDate,
             status: 'Scheduled / Planned',
-            outcome: 'Follow-Up Scheduled',
+            outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
             channel: channel,
             interaction_type: interactionTypeMap[channel] || 'call',
-            purpose: purpose || 'Follow-Up',
+            purpose: isInternalTask ? undefined : (purpose || 'Follow-Up'),
             requirement_notes: followupIntent.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             company_id: resolvedCompanyId || activeLog.company_id,
@@ -1911,6 +1930,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             createdAt: nowIso,
             updatedAt: nowIso
           };
+
+          if (isInternalTask) {
+            delete (spawnedFollowUpLog as any).outcome;
+            delete (spawnedFollowUpLog as any).purpose;
+          }
 
           await safeSetDoc('activity_logs', newFollowUpId, spawnedFollowUpLog);
           await safeSetDoc('call_logs', newFollowUpId, spawnedFollowUpLog);
@@ -1943,6 +1967,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           last_modified_by_uid: userUid,
           last_modified_by_name: userName
         };
+
+        if (isInternalTask) {
+          delete (updatedEntry as any).outcome;
+          delete (updatedEntry as any).purpose;
+        }
+
         await safeSetDoc('activity_logs', activeLog.id, updatedEntry);
         await safeSetDoc('call_logs', activeLog.id, updatedEntry);
         await CallLogRepository.save(updatedEntry);
@@ -1964,6 +1994,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           ...payload,
           id: newId
         };
+
+        if (isInternalTask) {
+          delete (newEntry as any).outcome;
+          delete (newEntry as any).purpose;
+        }
+
         await safeSetDoc('activity_logs', newId, newEntry);
         await safeSetDoc('call_logs', newId, newEntry);
         await CallLogRepository.save(newEntry);
@@ -1979,13 +2015,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             company_name: resolvedCompanyName || payload.company_name,
             date: followupIsoDate,
             status: 'Scheduled / Planned' as CallStatus,
-            outcome: 'Follow-Up Scheduled',
+            outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
+            purpose: isInternalTask ? undefined : payload.purpose,
             requirement_notes: followupIntent.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             next_followup_date: undefined,
             createdAt: nowIso,
             updatedAt: nowIso
           };
+
+          if (isInternalTask) {
+            delete (spawnedFollowUpLog as any).outcome;
+            delete (spawnedFollowUpLog as any).purpose;
+          }
+
           await safeSetDoc('activity_logs', scheduledLogId, spawnedFollowUpLog);
           await safeSetDoc('call_logs', scheduledLogId, spawnedFollowUpLog);
           await CallLogRepository.save(spawnedFollowUpLog);
@@ -3344,7 +3387,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     channel === ch ||
                     (isPhoneChannel(ch) && isPhoneChannel(channel)) ||
                     (isMessageChannel(ch) && isMessageChannel(channel)) ||
-                    (ch.toLowerCase().includes('meeting') && String(channel).toLowerCase().includes('meeting'));
+                    (ch.toLowerCase().includes('meeting') && String(channel).toLowerCase().includes('meeting')) ||
+                    (isInternalTaskChannel(ch) && isInternalTaskChannel(channel));
 
                   const renderIcon = () => {
                     const norm = ch.toLowerCase();
@@ -3379,7 +3423,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             {/* Dynamic Status / Disposition Toggle */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                {(isMessageChannel(interactionChannel) ? "MESSAGE" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
+                {(isMessageChannel(interactionChannel) ? "MESSAGE" : isInternalTask ? "TASK" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                 {((isPhoneChannel(interactionChannel) && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
@@ -3408,90 +3452,92 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             </div>
 
             {/* Outcome & Purpose Grid */}
-            <div className={`grid gap-3 ${isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-              {isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
+            {!isInternalTask && (
+              <div className={`grid gap-3 ${isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      {interactionChannel.toUpperCase()} OUTCOME
+                    </label>
+                    <select
+                      value={outcome}
+                      onChange={(e) => {
+                        setOutcome(e.target.value);
+                        setValidationError(null);
+                      }}
+                      className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        Select an outcome...
+                      </option>
+                      {(() => {
+                        const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
+                        const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
+                        const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
+                        const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
+                        
+                        const allNames = dynamicOutcomes.map(o => o.name);
+                        const legacyOption = outcome && !allNames.includes(outcome) ? outcome : null;
+
+                        return (
+                          <>
+                            <optgroup label="🟢 POSITIVE / WINS">
+                              {pos.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
+                              {neu.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🔴 NEGATIVE / LOSSES">
+                              {neg.map((o) => (
+                                <option key={o.name} value={o.name}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                            {legacyOption && (
+                              <optgroup label="⚪ LEGACY OUTCOME">
+                                <option value={legacyOption}>{legacyOption}</option>
+                              </optgroup>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    {interactionChannel.toUpperCase()} OUTCOME
+                    {interactionChannel.toUpperCase()} PURPOSE
                   </label>
                   <select
-                    value={outcome}
-                    onChange={(e) => {
-                      setOutcome(e.target.value);
-                      setValidationError(null);
-                    }}
+                    value={purpose}
+                    onChange={(e) => setPurpose(e.target.value)}
                     className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                   >
-                    <option value="" disabled>
-                      Select an outcome...
-                    </option>
-                                        {(() => {
-                      const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
-                      const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
-                      const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
-                      const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
-                      
-                      const allNames = dynamicOutcomes.map(o => o.name);
-                      const legacyOption = outcome && !allNames.includes(outcome) ? outcome : null;
-
-                      return (
-                        <>
-                          <optgroup label="🟢 POSITIVE / WINS">
-                            {pos.map((o) => (
-                              <option key={o.name} value={o.name}>
-                                {o.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                            {neu.map((o) => (
-                              <option key={o.name} value={o.name}>
-                                {o.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="🔴 NEGATIVE / LOSSES">
-                            {neg.map((o) => (
-                              <option key={o.name} value={o.name}>
-                                {o.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                          {legacyOption && (
-                            <optgroup label="⚪ LEGACY OUTCOME">
-                              <option value={legacyOption}>{legacyOption}</option>
-                            </optgroup>
-                          )}
-                        </>
-                      );
-                    })()}
+                    {(callPurposes?.length ? callPurposes.map(p => p.name) : getPurposesForChannel(interactionChannel)).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
                   </select>
                 </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                  {interactionChannel.toUpperCase()} PURPOSE
-                </label>
-                <select
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
-                >
-                  {(callPurposes?.length ? callPurposes.map(p => p.name) : getPurposesForChannel(interactionChannel)).map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
               </div>
-            </div>
+            )}
 
             {/* Requirement Notes & Voice Dictation */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Activity & Requirement Notes
+                  {isInternalTask ? 'Task Details & Requirement Notes' : 'Activity & Requirement Notes'}
                 </label>
                 <div className="flex items-center gap-2">
                   {recognitionRef.current && (
@@ -3527,9 +3573,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                placeholder="Log discussion points, customer feedback, project specifications..."
-                className="w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                rows={isInternalTask ? 5 : 3}
+                placeholder={isInternalTask ? "Document task details, internal checklist, admin progress, or deliverables..." : "Log discussion points, customer feedback, project specifications..."}
+                className={`w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 transition-all ${
+                  isInternalTask ? 'min-h-[120px]' : 'min-h-[80px]'
+                }`}
               />
             </div>
 
