@@ -6,6 +6,8 @@ import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
+import { IndustryBadge } from '../utils/taxonomy';
+import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import {
   FileText,
   Building,
@@ -60,6 +62,7 @@ interface EnquiryDetailProps {
     existingLog?: any;
     logToEdit?: any;
   }) => void;
+  onInitiateActivity?: (options: InitiateActivityOptions) => void;
 }
 
 export default function EnquiryDetail({
@@ -77,8 +80,11 @@ export default function EnquiryDetail({
   onDeleteEnquiry,
   onEditEnquiry,
   onSelectEnquiry,
-  onOpenActivityDrawer
+  onOpenActivityDrawer,
+  onInitiateActivity
 }: EnquiryDetailProps) {
+  const launcher = useActivityLauncher();
+  const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [activeTab, setActiveTab] = useState<'details' | 'items' | 'history' | 'revisions'>('details');
   const [reverting, setReverting] = useState(false);
   const [revertSuccess, setRevertSuccess] = useState(false);
@@ -345,36 +351,41 @@ export default function EnquiryDetail({
                 {matchedCompany?.display_name || 'Unassigned Account'}
               </h3>
               {matchedCompany && (
-                <TemperatureBadge
-                  companyId={matchedCompany.id}
-                  temperature={matchedCompany.temperature}
-                  isDnc={matchedCompany.is_dnc}
-                  variant="compact"
-                  companies={companies}
-                  setCompanies={setCompanies}
-                />
+                <>
+                  <TemperatureBadge
+                    companyId={matchedCompany.id}
+                    temperature={matchedCompany.temperature}
+                    isDnc={matchedCompany.is_dnc}
+                    variant="compact"
+                    companies={companies}
+                    setCompanies={setCompanies}
+                  />
+                  <IndustryBadge company={matchedCompany} size="sm" showEmpty />
+                </>
               )}
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            {onOpenActivityDrawer && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenActivityDrawer({
-                    companyId: matchedCompany?.id || enquiry.company_id,
-                    companyName: matchedCompany?.display_name,
-                    contactId: matchedContact?.id || enquiry.contact_id,
-                    enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn)
-                  });
-                }}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer mr-1"
-                title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Log Activity</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                handleInitiate({
+                  companyId: matchedCompany?.id || enquiry.company_id,
+                  companyName: matchedCompany?.display_name,
+                  company: matchedCompany,
+                  contactId: matchedContact?.id || enquiry.contact_id,
+                  contactName: matchedContact?.full_name,
+                  contact: matchedContact,
+                  enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn),
+                  e
+                });
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer mr-1"
+              title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Log Activity</span>
+            </button>
             <button
               type="button"
               onClick={handleCreateRevision}

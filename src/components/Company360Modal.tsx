@@ -26,9 +26,11 @@ import {
 } from 'lucide-react';
 import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { IndustryBadge } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
 import TemperatureBadge from './TemperatureBadge';
+import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 
 function sanitizeWhatsAppNumber(phone: string): string {
   if (!phone) return '';
@@ -69,6 +71,7 @@ interface Company360ModalProps {
     existingLog?: any;
     logToEdit?: any;
   }) => void;
+  onInitiateActivity?: (options: InitiateActivityOptions) => void;
 }
 
 export default function Company360Modal({
@@ -89,8 +92,11 @@ export default function Company360Modal({
   onLogCallForCompany,
   onCreateEnquiryForCompany,
   onEditCompany,
-  onOpenActivityDrawer
+  onOpenActivityDrawer,
+  onInitiateActivity
 }: Company360ModalProps) {
+  const launcher = useActivityLauncher();
+  const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [activeSubTab, setActiveSubTab] = useState<'contacts' | 'call_logs' | 'enquiries'>('contacts');
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [selectedContactToEdit, setSelectedContactToEdit] = useState<Contact | null>(null);
@@ -153,20 +159,24 @@ export default function Company360Modal({
     e: React.MouseEvent,
     channel: 'Call' | 'WhatsApp' | 'Email',
     contact: Contact | null,
-    externalUrl?: string
+    externalUrl?: string,
+    contactPhone?: string,
+    contactEmail?: string
   ) => {
-    e.stopPropagation();
-    if (externalUrl) {
-      window.open(externalUrl, '_blank', 'noopener,noreferrer');
-    }
-    if (onOpenActivityDrawer) {
-      onOpenActivityDrawer({
-        companyId: company.id,
-        companyName: company.display_name,
-        contactId: contact?.id,
-        channel
-      });
-    }
+    handleInitiate({
+      companyId: company.id,
+      companyName: company.display_name,
+      company,
+      contactId: contact?.id,
+      contactName: contact?.full_name,
+      contact: contact || undefined,
+      targetType: contact ? 'contact' : 'company_mainline',
+      channel,
+      contactPhone,
+      contactEmail,
+      externalUrl,
+      e
+    });
   };
 
   const relationshipVal = company.relationship || 'Prospect';
@@ -249,6 +259,9 @@ export default function Company360Modal({
                   companies={companies}
                   setCompanies={setCompanies}
                 />
+
+                {/* Two-Tier Industry Taxonomy Badge */}
+                <IndustryBadge company={company} size="sm" showEmpty />
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2">
@@ -339,24 +352,22 @@ export default function Company360Modal({
           </div>
 
           <div className="flex items-center space-x-2 flex-shrink-0">
-            {(onOpenActivityDrawer || onLogCallForCompany) && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenActivityDrawer) {
-                    onOpenActivityDrawer({
-                      companyId: company.id,
-                      companyName: company.display_name
-                    });
-                  } else if (onLogCallForCompany) {
-                    onLogCallForCompany(company);
-                  }
-                }}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <span>⚡ Log Activity</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                handleInitiate({
+                  companyId: company.id,
+                  companyName: company.display_name,
+                  company,
+                  targetType: 'company_mainline',
+                  channel: 'Call',
+                  e
+                });
+              }}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <span>⚡ Log Activity</span>
+            </button>
             {onEditCompany && (
               <button
                 type="button"
@@ -421,25 +432,24 @@ export default function Company360Modal({
           </div>
 
           <div className="flex items-center space-x-2">
-            {(onOpenActivityDrawer || onLogCallForCompany) && (
-              <button
-                onClick={() => {
-                  onClose();
-                  if (onOpenActivityDrawer) {
-                    onOpenActivityDrawer({
-                      companyId: company.id,
-                      companyName: company.display_name
-                    });
-                  } else if (onLogCallForCompany) {
-                    onLogCallForCompany(company);
-                  }
-                }}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition cursor-pointer"
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>+ Log Call</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                onClose();
+                handleInitiate({
+                  companyId: company.id,
+                  companyName: company.display_name,
+                  company,
+                  targetType: 'company_mainline',
+                  channel: 'Call',
+                  e
+                });
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition cursor-pointer"
+            >
+              <PhoneCall className="w-3.5 h-3.5" />
+              <span>+ Log Call</span>
+            </button>
 
             {onCreateEnquiryForCompany && (
               <button

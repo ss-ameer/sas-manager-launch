@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, DropdownOption, Workspace, CallLogEntry, CallStatus } from './types';
+import {
+  ActivityLauncherProvider,
+  InitiateActivityOptions,
+  ActivityDrawerContextState,
+  normalizeActivityChannel
+} from './context/ActivityLauncherContext';
 import { INITIAL_COMPANIES, INITIAL_CONTACTS, INITIAL_ENQUIRIES, INITIAL_SALESPERSONS } from './seed';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
@@ -293,19 +299,91 @@ export default function App() {
     setCompanyEditContext({ id: company.id, openEdit: true, timestamp: Date.now() });
     setCurrentTab('companies');
   };
-  const [activityDrawerContext, setActivityDrawerContext] = useState<{
-    companyId?: string;
-    companyName?: string;
-    contactId?: string;
-    contactName?: string;
-    contactPhone?: string;
-    enquiryId?: string;
-    channel?: 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Site Visit';
-    initialStatus?: CallStatus;
-    existingLog?: CallLogEntry | null;
-    logToEdit?: CallLogEntry | null;
-    drawerMode?: 'create' | 'edit' | 'execute';
-  }>({});
+  const [activityDrawerContext, setActivityDrawerContext] = useState<ActivityDrawerContextState>({});
+
+  const initiateActivity = useCallback(
+    (options: InitiateActivityOptions) => {
+      if (options.e) {
+        options.e.stopPropagation();
+      }
+
+      if (options.externalUrl) {
+        try {
+          window.open(options.externalUrl, '_blank', 'noopener,noreferrer');
+        } catch {
+          // ignore popup blocker in sandbox
+        }
+      }
+
+      let compId = options.companyId || options.company?.id || '';
+      let compName = options.companyName || options.company?.display_name || options.company?.canonical_name || '';
+
+      if (!compId && options.contact?.company_id) {
+        compId = options.contact.company_id;
+      }
+
+      if (compId && !compName && companies.length > 0) {
+        const found = companies.find((c) => c.id === compId);
+        if (found) {
+          compName = found.display_name || found.canonical_name || '';
+        }
+      }
+
+      let ctId = options.contactId || options.contact?.id || '';
+      let ctName = options.contactName || options.contact?.full_name || '';
+      let ctPhone = options.contactPhone || options.contact?.mobile || options.contact?.landline || '';
+      let ctEmail = options.contactEmail || options.contact?.email || '';
+
+      if (ctId && (!ctName || !ctPhone || !ctEmail) && contacts.length > 0) {
+        const foundCt = contacts.find((c) => c.id === ctId);
+        if (foundCt) {
+          ctName = ctName || foundCt.full_name || '';
+          ctPhone = ctPhone || foundCt.mobile || foundCt.landline || '';
+          ctEmail = ctEmail || foundCt.email || '';
+          if (!compId && foundCt.company_id) {
+            compId = foundCt.company_id;
+          }
+        }
+      }
+
+      if (options.detail) {
+        const det = options.detail.trim();
+        if (det.includes('@')) {
+          ctEmail = det;
+        } else {
+          ctPhone = det;
+        }
+      }
+
+      const targetType: 'contact' | 'company_mainline' =
+        options.targetType ||
+        (ctId || options.contact
+          ? 'contact'
+          : compId && !ctId
+          ? 'company_mainline'
+          : 'contact');
+
+      const channel = normalizeActivityChannel(options.channel);
+
+      setActivityDrawerContext({
+        companyId: compId,
+        companyName: compName,
+        contactId: ctId,
+        contactName: ctName,
+        contactPhone: ctPhone,
+        contactEmail: ctEmail,
+        targetType,
+        enquiryId: options.enquiryId,
+        channel,
+        initialStatus: options.initialStatus,
+        existingLog: options.existingLog || null,
+        logToEdit: options.logToEdit || null,
+        drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create')
+      });
+      setIsActivityDrawerOpen(true);
+    },
+    [companies, contacts]
+  );
 
   // Global toast notifications
   const [toast, setToast] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -1328,7 +1406,15 @@ export default function App() {
   };
 
   return (
-    <div className="flex bg-slate-50 text-slate-900 h-screen overflow-hidden">
+    <ActivityLauncherProvider
+      isActivityDrawerOpen={isActivityDrawerOpen}
+      setIsActivityDrawerOpen={setIsActivityDrawerOpen}
+      activityDrawerContext={activityDrawerContext}
+      setActivityDrawerContext={setActivityDrawerContext}
+      companies={visibleCompanies}
+      contacts={contacts}
+    >
+      <div className="flex bg-slate-50 text-slate-900 h-screen overflow-hidden">
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
@@ -1459,6 +1545,7 @@ export default function App() {
                 setActivityDrawerContext(ctx || {});
                 setIsActivityDrawerOpen(true);
               }}
+              onInitiateActivity={initiateActivity}
               onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             />
           )}
@@ -1496,6 +1583,7 @@ export default function App() {
               setActivityDrawerContext(context);
               setIsActivityDrawerOpen(true);
             }}
+            onInitiateActivity={initiateActivity}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}
@@ -1527,6 +1615,7 @@ export default function App() {
               setActivityDrawerContext(context);
               setIsActivityDrawerOpen(true);
             }}
+            onInitiateActivity={initiateActivity}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}
@@ -1634,6 +1723,7 @@ export default function App() {
             setActivityDrawerContext(context);
             setIsActivityDrawerOpen(true);
           }}
+          onInitiateActivity={initiateActivity}
         />
       )}
 
@@ -1653,6 +1743,7 @@ export default function App() {
             setActivityDrawerContext(context);
             setIsActivityDrawerOpen(true);
           }}
+          onInitiateActivity={initiateActivity}
           onOpenEnquiry={(enquiryId) => setSelectedEnquiryId(enquiryId)}
           onEditCompany={handleEditCompanyFrom360}
         />
@@ -1812,6 +1903,8 @@ export default function App() {
         contactId={activityDrawerContext.contactId}
         contactName={activityDrawerContext.contactName}
         contactPhone={activityDrawerContext.contactPhone}
+        contactEmail={activityDrawerContext.contactEmail}
+        targetType={activityDrawerContext.targetType}
         enquiryId={activityDrawerContext.enquiryId}
         initialChannel={activityDrawerContext.channel}
         initialStatus={activityDrawerContext.initialStatus}
@@ -1890,6 +1983,7 @@ export default function App() {
         workspaces={workspaces}
       />
     </div>
+    </ActivityLauncherProvider>
   );
 }
 

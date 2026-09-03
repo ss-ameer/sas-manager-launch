@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
+import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import { Company, Contact, Enquiry, UserProfile, LegalSuffix, Workspace, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, LabeledPhone, LabeledEmail, PhoneCategory, DropdownOption, CallLogEntry, Salesperson, ContactMethod, isSamePhoneNumber } from '../types';
 import { getReferenceId } from '../utils/refId';
@@ -9,6 +10,7 @@ import ContactModal, { normalizePhoneKey, getLineRestriction } from './ContactMo
 import ContactDetailModal from './ContactDetailModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import TemperatureBadge from './TemperatureBadge';
+import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge } from '../utils/taxonomy';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import {
@@ -177,6 +179,7 @@ interface CompanyModalProps {
     existingLog?: any;
     logToEdit?: any;
   }) => void;
+  onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onOpenMobileMenu?: () => void;
 }
 
@@ -232,8 +235,11 @@ export default function CompanyModal({
   companyEditTrigger,
   onClearCompanyEditContext,
   onOpenActivityDrawer,
+  onInitiateActivity,
   onOpenMobileMenu
 }: CompanyModalProps) {
+  const launcher = useActivityLauncher();
+  const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
 
@@ -282,6 +288,7 @@ export default function CompanyModal({
     };
   };
   const [viewMode, setViewMode] = useState<'companies' | 'contacts' | 'phones'>('companies');
+  const [industryFilter, setIndustryFilter] = useState<string>('ALL');
   const [relationshipFilter, setRelationshipFilter] = useState<string>('ALL');
   const [temperatureFilter, setTemperatureFilter] = useState<string>('ALL');
   const [companyViewStyle, setCompanyViewStyle] = useState<'cards' | 'table'>('table');
@@ -626,7 +633,10 @@ export default function CompanyModal({
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [country, setCountry] = useState('UAE');
   const [city, setCity] = useState('');
+  const [industryParent, setIndustryParent] = useState<string>('');
+  const [businessTypeRaw, setBusinessTypeRaw] = useState<string>('');
   const [industryType, setIndustryType] = useState<string>('');
+  const distinctRawBusinessTypes = useMemo(() => getDistinctRawBusinessTypes(companies), [companies]);
   const [website, setWebsite] = useState('');
   const [generalPhone, setGeneralPhone] = useState('');
   const [generalEmail, setGeneralEmail] = useState('');
@@ -705,6 +715,8 @@ export default function CompanyModal({
     setLegalSuffix('None / To Be Added Later');
     setCountry('UAE');
     setCity('');
+    setIndustryParent('');
+    setBusinessTypeRaw('');
     setIndustryType('');
     setGeneralPhone('');
     setGeneralEmail('');
@@ -727,6 +739,9 @@ export default function CompanyModal({
     setLegalSuffix('None / To Be Added Later');
     setCountry('UAE');
     setCity('');
+    setIndustryParent('');
+    setBusinessTypeRaw('');
+    setIndustryType('');
     setGeneralPhone('');
     setGeneralEmail('');
     setCompanyPhones([{ id: generateCmId(), label: 'Landline', value: '' }]);
@@ -755,6 +770,10 @@ export default function CompanyModal({
     setLegalSuffix(comp.legal_suffix);
     setCountry(comp.country);
     setCity(comp.city);
+    setIndustryParent(comp.industry_parent || '');
+    const rawVal = comp.business_type_raw || comp.industry || comp.industry_type || '';
+    setBusinessTypeRaw(rawVal);
+    setIndustryType(rawVal);
     setWebsite(comp.website || '');
     setGeneralPhone(comp.general_phone || comp.phone || '');
     setGeneralEmail(comp.general_email || comp.email || '');
@@ -871,7 +890,10 @@ export default function CompanyModal({
       aliases: aliasesArr,
       country: country.trim(),
       city: city.trim(),
-      industry_type: industryType.trim(),
+      industry_parent: industryParent || undefined,
+      business_type_raw: businessTypeRaw.trim() || undefined,
+      industry_type: businessTypeRaw.trim() || industryType.trim() || undefined,
+      industry: businessTypeRaw.trim() || industryType.trim() || undefined,
       links: validLinks,
       website: validLinks.find((l) => l.label === 'Website')?.url || '',
       general_phone: primaryPhoneVal,
@@ -1496,10 +1518,17 @@ export default function CompanyModal({
       (c.general_email && c.general_email.toLowerCase().includes(q)) ||
       phonesList.some(p => p.includes(q)) ||
       emailsList.some(e => e.includes(q)) ||
+      (c.industry_parent && c.industry_parent.toLowerCase().includes(q)) ||
+      (c.business_type_raw && c.business_type_raw.toLowerCase().includes(q)) ||
+      (c.industry && c.industry.toLowerCase().includes(q)) ||
       (c.industry_type && c.industry_type.toLowerCase().includes(q)) ||
       (c.relationship && c.relationship.toLowerCase().includes(q)) ||
       (c.temperature && c.temperature.toLowerCase().includes(q)) ||
       c.aliases.some((a) => a.toLowerCase().includes(q));
+
+    const matchesIndustry =
+      industryFilter === 'ALL' ||
+      c.industry_parent === industryFilter;
 
     const matchesRelationship =
       relationshipFilter === 'ALL' ||
@@ -1509,7 +1538,7 @@ export default function CompanyModal({
       temperatureFilter === 'ALL' ||
       (c.temperature || 'Cold') === temperatureFilter;
 
-    return matchesSearch && matchesRelationship && matchesTemperature;
+    return matchesSearch && matchesIndustry && matchesRelationship && matchesTemperature;
   });
 
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
@@ -1745,7 +1774,7 @@ export default function CompanyModal({
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                  <div className="relative md:col-span-8">
+                  <div className="relative md:col-span-5">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                     <input
                       type="text"
@@ -1754,6 +1783,21 @@ export default function CompanyModal({
                       placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
                       className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     />
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <select
+                      value={industryFilter}
+                      onChange={(e) => setIndustryFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                    >
+                      <option value="ALL">All Macro Industries</option>
+                      {PARENT_INDUSTRIES.map((pi) => (
+                        <option key={pi.id} value={pi.id}>
+                          {pi.icon} {pi.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   
                   <div className="md:col-span-2">
@@ -1827,9 +1871,7 @@ export default function CompanyModal({
                                 </div>
                               </td>
                               <td className="py-4 px-4">
-                                <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-1 rounded text-xs font-medium border border-slate-200 dark:border-slate-700 max-w-[150px] truncate" title={c.industry_type || '-'}>
-                                  {c.industry_type || '-'}
-                                </span>
+                                <IndustryBadge company={c} />
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
                                 <div className="flex flex-col gap-1.5 items-start">
@@ -1937,9 +1979,7 @@ export default function CompanyModal({
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                 {relVal}
                               </span>
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                {c.industry_type || '-'}
-                              </span>
+                              <IndustryBadge company={c} />
                             </div>
                           </div>
 
@@ -1975,11 +2015,7 @@ export default function CompanyModal({
                         <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                         <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
                       </span>
-                      {selectedCompany.industry_type && (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          {selectedCompany.industry_type}
-                        </span>
-                      )}
+                      <IndustryBadge company={selectedCompany} size="sm" showEmpty />
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
                       </span>
@@ -1998,21 +2034,23 @@ export default function CompanyModal({
                   </div>
 
                   <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
-                    {onOpenActivityDrawer && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onOpenActivityDrawer({
-                            companyId: selectedCompany.id,
-                            companyName: selectedCompany.display_name
-                          });
-                        }}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Log Activity</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        handleInitiate({
+                          companyId: selectedCompany.id,
+                          companyName: selectedCompany.display_name,
+                          company: selectedCompany,
+                          targetType: 'company_mainline',
+                          channel: 'Call',
+                          e
+                        });
+                      }}
+                      className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Log Activity</span>
+                    </button>
                     {onOpenCompany360 && selectedCompany?.id && (
                       <button
                         type="button"
@@ -2094,15 +2132,24 @@ export default function CompanyModal({
                                         {ph.number}
                                       </span>
                                     ) : (
-                                      <a
-                                        href={`tel:${ph.number}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          handleInitiate({
+                                            companyId: selectedCompany.id,
+                                            companyName: selectedCompany.display_name,
+                                            company: selectedCompany,
+                                            targetType: 'company_mainline',
+                                            contactPhone: ph.number,
+                                            channel: 'Call',
+                                            externalUrl: `tel:${ph.number}`,
+                                            e
+                                          });
+                                        }}
+                                        className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-left"
                                       >
                                         {ph.number}
-                                      </a>
+                                      </button>
                                     )}
                                     <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
                                       {ph.label || 'Telephone'}
@@ -2119,27 +2166,45 @@ export default function CompanyModal({
                                   </div>
                                   {!isRestricted && (
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      <a
-                                        href={`tel:${ph.number}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="p-1.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition"
-                                        title="1-Click Dial"
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          handleInitiate({
+                                            companyId: selectedCompany.id,
+                                            companyName: selectedCompany.display_name,
+                                            company: selectedCompany,
+                                            targetType: 'company_mainline',
+                                            contactPhone: ph.number,
+                                            channel: 'Call',
+                                            externalUrl: `tel:${ph.number}`,
+                                            e
+                                          });
+                                        }}
+                                        className="p-1.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition cursor-pointer"
+                                        title="1-Click Dial & Log Activity"
                                       >
                                         <Phone className="w-3 h-3" />
-                                      </a>
+                                      </button>
                                       {cleanNum && (
-                                        <a
-                                          href={`https://wa.me/${cleanNum}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="p-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition"
-                                          title="1-Click WhatsApp"
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            handleInitiate({
+                                              companyId: selectedCompany.id,
+                                              companyName: selectedCompany.display_name,
+                                              company: selectedCompany,
+                                              targetType: 'company_mainline',
+                                              contactPhone: ph.number,
+                                              channel: 'WhatsApp',
+                                              externalUrl: `https://wa.me/${cleanNum}`,
+                                              e
+                                            });
+                                          }}
+                                          className="p-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
+                                          title="1-Click WhatsApp & Log Activity"
                                         >
                                           <MessageSquare className="w-3 h-3" />
-                                        </a>
+                                        </button>
                                       )}
                                     </div>
                                   )}
@@ -2329,15 +2394,27 @@ export default function CompanyModal({
                                               {ph.number}
                                             </span>
                                           ) : (
-                                            <a
-                                              href={`tel:${ph.number}`}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                handleInitiate({
+                                                  companyId: selectedCompany.id,
+                                                  companyName: selectedCompany.display_name,
+                                                  company: selectedCompany,
+                                                  contactId: c.id,
+                                                  contactName: c.full_name,
+                                                  contact: c,
+                                                  targetType: 'contact',
+                                                  contactPhone: ph.number,
+                                                  channel: 'Call',
+                                                  externalUrl: `tel:${ph.number}`,
+                                                  e
+                                                });
+                                              }}
+                                              className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-left"
                                             >
                                               {ph.number}
-                                            </a>
+                                            </button>
                                           )}
                                           <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
                                             {ph.label}
@@ -2354,27 +2431,51 @@ export default function CompanyModal({
                                         </div>
                                         {!isRestricted && (
                                           <div className="flex items-center gap-1 shrink-0">
-                                            <a
-                                              href={`tel:${ph.number}`}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              onClick={(e) => e.stopPropagation()}
-                                              className="p-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition"
-                                              title="1-Click Dial"
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                handleInitiate({
+                                                  companyId: selectedCompany.id,
+                                                  companyName: selectedCompany.display_name,
+                                                  company: selectedCompany,
+                                                  contactId: c.id,
+                                                  contactName: c.full_name,
+                                                  contact: c,
+                                                  targetType: 'contact',
+                                                  contactPhone: ph.number,
+                                                  channel: 'Call',
+                                                  externalUrl: `tel:${ph.number}`,
+                                                  e
+                                                });
+                                              }}
+                                              className="p-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition cursor-pointer"
+                                              title="1-Click Dial & Log Activity"
                                             >
                                               <Phone className="w-3 h-3" />
-                                            </a>
+                                            </button>
                                             {cleanNum && (
-                                              <a
-                                                href={`https://wa.me/${cleanNum}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition"
-                                                title="1-Click WhatsApp"
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  handleInitiate({
+                                                    companyId: selectedCompany.id,
+                                                    companyName: selectedCompany.display_name,
+                                                    company: selectedCompany,
+                                                    contactId: c.id,
+                                                    contactName: c.full_name,
+                                                    contact: c,
+                                                    targetType: 'contact',
+                                                    contactPhone: ph.number,
+                                                    channel: 'WhatsApp',
+                                                    externalUrl: `https://wa.me/${cleanNum}`,
+                                                    e
+                                                  });
+                                                }}
+                                                className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
+                                                title="1-Click WhatsApp & Log Activity"
                                               >
                                                 <MessageSquare className="w-3 h-3" />
-                                              </a>
+                                              </button>
                                             )}
                                           </div>
                                         )}
@@ -2385,31 +2486,55 @@ export default function CompanyModal({
                                     <div key={eIdx} className="flex items-center justify-between text-xs py-0.5">
                                       <div className="flex items-center space-x-2 overflow-hidden">
                                         <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        <a
-                                          href={`mailto:${em.email}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="truncate text-slate-800 dark:text-slate-200 hover:underline font-mono"
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            handleInitiate({
+                                              companyId: selectedCompany.id,
+                                              companyName: selectedCompany.display_name,
+                                              company: selectedCompany,
+                                              contactId: c.id,
+                                              contactName: c.full_name,
+                                              contact: c,
+                                              targetType: 'contact',
+                                              contactEmail: em.email,
+                                              channel: 'Email',
+                                              externalUrl: `mailto:${em.email}`,
+                                              e
+                                            });
+                                          }}
+                                          className="truncate text-slate-800 dark:text-slate-200 hover:underline font-mono cursor-pointer text-left"
                                         >
                                           {em.email}
-                                        </a>
+                                        </button>
                                         {em.label && (
                                           <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium shrink-0">
                                             {em.label}
                                           </span>
                                         )}
                                       </div>
-                                      <a
-                                        href={`mailto:${em.email}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="p-1 rounded bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition shrink-0 ml-1"
-                                        title="1-Click Email"
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          handleInitiate({
+                                            companyId: selectedCompany.id,
+                                            companyName: selectedCompany.display_name,
+                                            company: selectedCompany,
+                                            contactId: c.id,
+                                            contactName: c.full_name,
+                                            contact: c,
+                                            targetType: 'contact',
+                                            contactEmail: em.email,
+                                            channel: 'Email',
+                                            externalUrl: `mailto:${em.email}`,
+                                            e
+                                          });
+                                        }}
+                                        className="p-1 rounded bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition cursor-pointer"
+                                        title="1-Click Email & Log Activity"
                                       >
                                         <Mail className="w-3 h-3" />
-                                      </a>
+                                      </button>
                                     </div>
                                   ))}
                                 </div>
@@ -2782,25 +2907,47 @@ export default function CompanyModal({
                     {ct.mobile && (
                       <div className="flex items-center space-x-1.5">
                         <PhoneCall className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <a
-                          href={`tel:${ct.mobile}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="hover:underline font-bold text-blue-600"
-                        >{ct.mobile}</a>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            handleInitiate({
+                              companyId: ct.company_id,
+                              companyName: ct.companyName,
+                              contactId: ct.id,
+                              contactName: ct.full_name,
+                              contact: ct,
+                              targetType: 'contact',
+                              contactPhone: ct.mobile,
+                              channel: 'Call',
+                              externalUrl: `tel:${ct.mobile}`,
+                              e
+                            });
+                          }}
+                          className="hover:underline font-bold text-blue-600 cursor-pointer text-left"
+                        >{ct.mobile}</button>
                       </div>
                     )}
                     {ct.email && (
                       <div className="flex items-center space-x-1.5 truncate">
                         <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <a
-                          href={`mailto:${ct.email}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="hover:underline text-slate-700 dark:text-slate-300 truncate"
-                        >{ct.email}</a>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            handleInitiate({
+                              companyId: ct.company_id,
+                              companyName: ct.companyName,
+                              contactId: ct.id,
+                              contactName: ct.full_name,
+                              contact: ct,
+                              targetType: 'contact',
+                              contactEmail: ct.email,
+                              channel: 'Email',
+                              externalUrl: `mailto:${ct.email}`,
+                              e
+                            });
+                          }}
+                          className="hover:underline text-slate-700 dark:text-slate-300 truncate cursor-pointer text-left"
+                        >{ct.email}</button>
                       </div>
                     )}
                   </div>
@@ -2891,16 +3038,27 @@ export default function CompanyModal({
                     </td>
                     <td className="py-4 px-4">
                       {ct.mobile ? (
-                        <a
-                          href={`tel:${ct.mobile}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-mono text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center space-x-1"
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            handleInitiate({
+                              companyId: ct.company_id,
+                              companyName: ct.companyName,
+                              contactId: ct.id,
+                              contactName: ct.full_name,
+                              contact: ct,
+                              targetType: 'contact',
+                              contactPhone: ct.mobile,
+                              channel: 'Call',
+                              externalUrl: `tel:${ct.mobile}`,
+                              e
+                            });
+                          }}
+                          className="font-mono text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center space-x-1 cursor-pointer"
                         >
                           <PhoneCall className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span>{ct.mobile}</span>
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-slate-400 italic text-xs">—</span>
                       )}
@@ -2914,15 +3072,26 @@ export default function CompanyModal({
                     </td>
                     <td className="py-4 px-4">
                       {ct.email ? (
-                        <a
-                          href={`mailto:${ct.email}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-xs"
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            handleInitiate({
+                              companyId: ct.company_id,
+                              companyName: ct.companyName,
+                              contactId: ct.id,
+                              contactName: ct.full_name,
+                              contact: ct,
+                              targetType: 'contact',
+                              contactEmail: ct.email,
+                              channel: 'Email',
+                              externalUrl: `mailto:${ct.email}`,
+                              e
+                            });
+                          }}
+                          className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-xs cursor-pointer text-left"
                         >
                           {ct.email}
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-slate-400 italic text-xs">—</span>
                       )}
@@ -3066,16 +3235,26 @@ export default function CompanyModal({
                       <td className="py-4 px-4 text-slate-500 dark:text-slate-400">{p.location || <span className="italic text-slate-400">—</span>}</td>
                       <td className="py-4 px-4 text-right">
                         {!isRestricted ? (
-                          <a
-                            href={`tel:${p.number}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md text-xs transition shadow-xs"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              handleInitiate({
+                                companyId: p.companyId,
+                                companyName: p.subText,
+                                contactId: p.contactId,
+                                contactName: p.contactId ? p.entityName : undefined,
+                                targetType: p.contactId ? 'contact' : 'company_mainline',
+                                contactPhone: p.number,
+                                channel: 'Call',
+                                externalUrl: `tel:${p.number}`,
+                                e
+                              });
+                            }}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md text-xs transition shadow-xs cursor-pointer"
                           >
                             <PhoneCall className="w-3.5 h-3.5" />
                             <span>Call</span>
-                          </a>
+                          </button>
                         ) : (
                           <span className="text-xs text-slate-400 font-sans italic">Disabled</span>
                         )}
@@ -3204,33 +3383,51 @@ export default function CompanyModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 items-end">
+                {/* Two-Tier Industry Taxonomy Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                      Industry / Type
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
+                      <span>Macro Parent Category</span>
+                      <span className="text-slate-500 font-sans lowercase font-normal">(Standardized Tier 1)</span>
                     </label>
-                    <CreatableCombobox
-                      options={industryTypes.map(i => i.name)}
-                      value={industryType}
-                      onChange={(val: string) => setIndustryType(val)}
-                      onCreateOption={async (val: string) => {
-                        setIndustryType(val);
-                        if (setIndustryTypes) {
-                          try {
-                            const docRef = await safeAddDoc('dropdown_industry_types', { name: val });
-                            setIndustryTypes((prev) => {
-                              if (prev.some(i => i.name.toLowerCase() === val.toLowerCase())) return prev;
-                              return [...prev, { id: docRef?.id || ('ind_' + Date.now()), name: val }];
-                            });
-                          } catch (e) {
-                            console.warn('Failed to save new industry type', e);
-                          }
-                        }
-                      }}
-                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                      placeholder="e.g. Technology"
-                    />
+                    <select
+                      value={industryParent}
+                      onChange={(e) => setIndustryParent(e.target.value)}
+                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
+                    >
+                      <option value="">Select Parent Industry (Optional)</option>
+                      {PARENT_INDUSTRIES.map((pi) => (
+                        <option key={pi.id} value={pi.id}>
+                          {pi.icon} {pi.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
+                      <span>Raw Business Type</span>
+                      <span className="text-slate-500 font-sans lowercase font-normal">(GBP Sub-Type Child)</span>
+                    </label>
+                    <input
+                      type="text"
+                      list="company-raw-subtypes-list"
+                      value={businessTypeRaw}
+                      onChange={(e) => {
+                        setBusinessTypeRaw(e.target.value);
+                        setIndustryType(e.target.value);
+                      }}
+                      placeholder="e.g. Restaurant, Swimming pool contractor, MEP Consultant"
+                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                    />
+                    <datalist id="company-raw-subtypes-list">
+                      {distinctRawBusinessTypes.map((st) => (
+                        <option key={st} value={st} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 items-end">
                   <div>
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
                       Relationship (Required)

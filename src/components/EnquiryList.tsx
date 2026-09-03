@@ -27,6 +27,8 @@ import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import { isRecordOwner, canEditOrDeleteRecord } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
+import { IndustryBadge } from '../utils/taxonomy';
+import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
@@ -52,6 +54,7 @@ interface EnquiryListProps {
     existingLog?: any;
     logToEdit?: any;
   }) => void;
+  onInitiateActivity?: (options: InitiateActivityOptions) => void;
 }
 
 export default function EnquiryList({
@@ -66,8 +69,11 @@ export default function EnquiryList({
   onBulkDeleteEnquiries,
   user,
   onOpenMobileMenu,
-  onOpenActivityDrawer
+  onOpenActivityDrawer,
+  onInitiateActivity
 }: EnquiryListProps) {
+  const launcher = useActivityLauncher();
+  const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -685,14 +691,17 @@ export default function EnquiryList({
                             const linkedComp = companies.find((c) => c.id === e.company_id);
                             if (!linkedComp) return null;
                             return (
-                              <TemperatureBadge
-                                companyId={linkedComp.id}
-                                temperature={linkedComp.temperature}
-                                isDnc={linkedComp.is_dnc}
-                                variant="compact"
-                                companies={companies}
-                                setCompanies={setCompanies}
-                              />
+                              <>
+                                <TemperatureBadge
+                                  companyId={linkedComp.id}
+                                  temperature={linkedComp.temperature}
+                                  isDnc={linkedComp.is_dnc}
+                                  variant="compact"
+                                  companies={companies}
+                                  setCompanies={setCompanies}
+                                />
+                                <IndustryBadge company={linkedComp} size="sm" />
+                              </>
                             );
                           })()}
                         </div>

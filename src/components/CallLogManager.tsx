@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
+import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { recordAuditLog } from '../utils/auditLogger';
 import { getReferenceId } from '../utils/refId';
@@ -57,6 +58,7 @@ import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
 import LiveExecutionModal from './LiveExecutionModal';
 import TemperatureBadge from './TemperatureBadge';
+import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
 
@@ -229,6 +231,7 @@ interface CallLogManagerProps {
     logToEdit?: any;
     drawerMode?: 'create' | 'edit' | 'execute';
   }) => void;
+  onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onEditCompany?: (company: Company) => void;
   onOpenMobileMenu?: () => void;
 }
@@ -255,9 +258,12 @@ export default function CallLogManager({
   setEnquiries,
   onSelectEnquiry,
   onOpenActivityDrawer,
+  onInitiateActivity,
   onEditCompany,
   onOpenMobileMenu
 }: CallLogManagerProps) {
+  const launcher = useActivityLauncher();
+  const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
   const [editingLog, setEditingLog] = useState<CallLogEntry | null>(null);
   const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
@@ -488,6 +494,7 @@ export default function CallLogManager({
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
+  const [industryFilter, setIndustryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [outcomeFilter, setOutcomeFilter] = useState<string>('all');
   const [geographyFilter, setGeographyFilter] = useState<string>('all');
@@ -495,7 +502,7 @@ export default function CallLogManager({
   // Reset page to 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, outcomeFilter, geographyFilter]);
+  }, [searchTerm, industryFilter, statusFilter, outcomeFilter, geographyFilter]);
 
   // Modals & Drawers
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
@@ -1548,12 +1555,22 @@ export default function CallLogManager({
       if (outcomeFilter !== 'all' && l.outcome !== outcomeFilter) return false;
       if (geographyFilter !== 'all' && l.geography !== geographyFilter) return false;
 
+      const comp = l.company_id ? companies.find((c) => c.id === l.company_id) : null;
+
+      if (industryFilter !== 'all') {
+        if (!comp || comp.industry_parent !== industryFilter) {
+          return false;
+        }
+      }
+
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
         const callRefId = getReferenceId('CL', l, callLogs).toLowerCase();
         const compRefId = l.company_id ? getReferenceId('CMP', { id: l.company_id }, companies).toLowerCase() : '';
         const contRefId = l.contact_id ? getReferenceId('CT', { id: l.contact_id }, contacts).toLowerCase() : '';
         const enqRefId = l.enquiry_id ? getReferenceId('EQ', { id: l.enquiry_id }, enquiries).toLowerCase() : '';
+        const indRaw = (comp?.business_type_raw || comp?.industry_type || comp?.industry || '').toLowerCase();
+        const indParent = (comp?.industry_parent || '').toLowerCase();
 
         return (
           callRefId.includes(q) ||
@@ -1562,6 +1579,8 @@ export default function CallLogManager({
           enqRefId.includes(q) ||
           (l.id || '').toLowerCase().includes(q) ||
           getResolvedCompanyName(l).toLowerCase().includes(q) ||
+          indRaw.includes(q) ||
+          indParent.includes(q) ||
           (l.contact_name || '').toLowerCase().includes(q) ||
           (l.contact_phone || '').includes(q) ||
           (l.requirement_notes || '').toLowerCase().includes(q) ||
@@ -1581,7 +1600,7 @@ export default function CallLogManager({
         return dateA.localeCompare(dateB);
       }
     });
-  }, [workspaceCallLogs, statusFilter, outcomeFilter, geographyFilter, searchTerm, historySortOrder]);
+  }, [workspaceCallLogs, statusFilter, outcomeFilter, geographyFilter, industryFilter, searchTerm, historySortOrder, companies, callLogs, contacts, enquiries]);
 
   // Pagination Logic
   const totalItems = filteredHistoryLogs.length;
@@ -1798,6 +1817,9 @@ export default function CallLogManager({
                       {renderChannelBadge(item.channel || item.interaction_type)}
                       <span className="font-black text-slate-900 dark:text-slate-100 text-base">{getResolvedCompanyName(item)}</span>
                       {renderCompanyTempPill(item)}
+                      {item.company_id && (
+                        <IndustryBadge company={companies.find((c) => c.id === item.company_id)} size="sm" />
+                      )}
                       {item.contact_name && (
                         <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
                           Attn: {item.contact_name}
@@ -1844,44 +1866,74 @@ export default function CallLogManager({
                           )
                         ) : item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp' ? (
                           item.contact_phone ? (
-                             <a
-                              href={`https://wa.me/${item.contact_phone.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-emerald-700 hover:underline bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200"
+                             <button
+                              type="button"
+                              onClick={(e) => {
+                                handleInitiate({
+                                  companyId: item.company_id,
+                                  companyName: item.company_name,
+                                  contactId: item.contact_id,
+                                  contactName: item.contact_name,
+                                  contactPhone: item.contact_phone,
+                                  enquiryId: item.enquiry_id,
+                                  channel: 'WhatsApp',
+                                  externalUrl: `https://wa.me/${item.contact_phone.replace(/\D/g, '')}`,
+                                  e
+                                });
+                              }}
+                              className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-emerald-700 hover:underline bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 cursor-pointer"
                              >
                                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
                                <span>{item.contact_phone}</span>
-                             </a>
+                             </button>
                           ) : (
                              <span className="inline-flex items-center space-x-1.5 text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                                <MessageSquare className="w-3 h-3 text-slate-400" />
                                <span>No phone logged</span>
-                            </span>
+                             </span>
                           )
                         ) : item.contact_phone ? (
-                          <a
-                            href={`tel:${item.contact_phone}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-blue-700 hover:underline bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              handleInitiate({
+                                companyId: item.company_id,
+                                companyName: item.company_name,
+                                contactId: item.contact_id,
+                                contactName: item.contact_name,
+                                contactPhone: item.contact_phone,
+                                enquiryId: item.enquiry_id,
+                                channel: 'Call',
+                                externalUrl: `tel:${item.contact_phone}`,
+                                e
+                              });
+                            }}
+                            className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-blue-700 hover:underline bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 cursor-pointer"
                           >
                             <PhoneCall className="w-3.5 h-3.5 text-blue-600" />
                             <span>{item.contact_phone}</span>
-                          </a>
+                          </button>
                         ) : item.email_address ? (
-                          <a
-                            href={`mailto:${item.email_address}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-purple-700 hover:underline bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              handleInitiate({
+                                companyId: item.company_id,
+                                companyName: item.company_name,
+                                contactId: item.contact_id,
+                                contactName: item.contact_name,
+                                contactEmail: item.email_address,
+                                enquiryId: item.enquiry_id,
+                                channel: 'Email',
+                                externalUrl: `mailto:${item.email_address}`,
+                                e
+                              });
+                            }}
+                            className="inline-flex items-center space-x-1.5 text-xs font-mono font-bold text-purple-700 hover:underline bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200 cursor-pointer"
                           >
                             <Mail className="w-3.5 h-3.5 text-purple-600" />
                             <span>{item.email_address}</span>
-                          </a>
+                          </button>
                         ) : (
                           <span className="text-xs text-amber-600 italic font-medium">
                             No contact info
@@ -1914,16 +1966,28 @@ export default function CallLogManager({
                     {canUserClickRecord(user, item, salespersons) ? (
                       <>
                         {item.contact_phone && (
-                          <a
-                            href={`tel:${item.contact_phone}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition flex items-center justify-center"
-                            title="Call Now (Tap to Call)"
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              handleInitiate({
+                                companyId: item.company_id,
+                                companyName: item.company_name,
+                                contactId: item.contact_id,
+                                contactName: item.contact_name,
+                                contactPhone: item.contact_phone,
+                                enquiryId: item.enquiry_id,
+                                channel: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp' ? 'WhatsApp' : 'Call',
+                                externalUrl: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp'
+                                  ? `https://wa.me/${item.contact_phone.replace(/\D/g, '')}`
+                                  : `tel:${item.contact_phone}`,
+                                e
+                              });
+                            }}
+                            className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition flex items-center justify-center cursor-pointer"
+                            title="Execute Activity (Tap to Open Activity Drawer)"
                           >
                             <PhoneCall className="w-4 h-4" />
-                          </a>
+                          </button>
                         )}
 
                         <button
@@ -2043,19 +2107,34 @@ export default function CallLogManager({
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              <div className="relative md:col-span-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search by company, contact, phone, notes..."
+                  placeholder="Search logs..."
                   className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
               </div>
+
+              <div>
+                <select
+                  value={industryFilter}
+                  onChange={(e) => setIndustryFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                >
+                  <option value="all">All Industries</option>
+                  {PARENT_INDUSTRIES.map((pi) => (
+                    <option key={pi.id} value={pi.id}>
+                      {pi.icon} {pi.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               
-              <div className="md:col-span-2">
+              <div>
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
@@ -2068,7 +2147,7 @@ export default function CallLogManager({
                 </select>
               </div>
               
-              <div className="md:col-span-2">
+              <div>
                 <select
                   value={outcomeFilter}
                   onChange={(e) => setOutcomeFilter(e.target.value)}
@@ -2081,7 +2160,7 @@ export default function CallLogManager({
                 </select>
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <select
                   value={geographyFilter}
                   onChange={(e) => setGeographyFilter(e.target.value)}
@@ -2094,7 +2173,7 @@ export default function CallLogManager({
                 </select>
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <select
                   value={historySortOrder}
                   onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
@@ -2289,6 +2368,9 @@ export default function CallLogManager({
                               DNC
                             </span>
                           )}
+                          {log.company_id && (
+                            <IndustryBadge company={companies.find((c) => c.id === log.company_id)} size="sm" />
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-500 flex items-center space-x-1.5 mt-1">
                           <span className={`truncate ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
@@ -2446,7 +2528,10 @@ export default function CallLogManager({
                               }
                             }}
                           >
-                            {getResolvedCompanyName(log) || 'Unlinked'}
+                            <div className="flex items-center space-x-2">
+                              <span>{getResolvedCompanyName(log) || 'Unlinked'}</span>
+                              <IndustryBadge company={company} size="sm" />
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-center">
                             {log.company_id ? (

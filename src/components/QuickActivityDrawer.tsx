@@ -49,11 +49,13 @@ import {
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
+import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes } from '../utils/taxonomy';
 import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
 import { SYSTEM_CALL_PURPOSES } from '../utils/defaults';
+import { normalizeActivityChannel } from '../context/ActivityLauncherContext';
 import {
   CHANNELS,
   PURPOSES,
@@ -96,8 +98,10 @@ export interface QuickActivityDrawerProps {
   contactId?: string;
   contactName?: string;
   contactPhone?: string;
+  contactEmail?: string;
+  targetType?: 'contact' | 'company_mainline';
   enquiryId?: string;
-  initialChannel?: ActivityChannel;
+  initialChannel?: ActivityChannel | string;
   initialStatus?: CallStatus;
   activeWorkspaceId: string;
   currentSalespersonId: string;
@@ -182,6 +186,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   contactId,
   contactName,
   contactPhone,
+  contactEmail,
+  targetType,
   enquiryId,
   initialChannel,
   initialStatus,
@@ -294,7 +300,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [expressCompanyName, setExpressCompanyName] = useState<string>('');
   const [expressLegalSuffix, setExpressLegalSuffix] = useState<string>('None / To Be Added Later');
   const [expressCity, setExpressCity] = useState<string>('Dubai');
+  const [expressIndustryParent, setExpressIndustryParent] = useState<string>('');
   const [expressIndustryType, setExpressIndustryType] = useState<string>('');
+  const expressDistinctSubtypes = useMemo(() => getDistinctRawBusinessTypes(companies), [companies]);
   const [expressCountry, setExpressCountry] = useState<string>('United Arab Emirates');
   const [expressCompanyPhones, setExpressCompanyPhones] = useState<ExpressPhoneItem[]>(() => [
     { id: makeExpressId('ecp'), label: 'Main', number: '' }
@@ -522,7 +530,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setExpressContactPhones([{ id: makeExpressId('ctp'), label: 'Direct Line', number: '' }]);
         setExpressContactEmails([{ id: makeExpressId('cte'), label: 'Direct', email: '' }]);
 
-        setChannel(initialChannel || 'Call');
+        const effChannel = normalizeActivityChannel(initialChannel || 'Call');
+        setChannel(effChannel);
         setStatus(initialStatus || 'Completed');
         setOutcome('');
         setPurpose('Discovery / Validation');
@@ -540,11 +549,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setCompanySearchQuery('');
         setIsComboboxOpen(false);
 
+        const effTargetType = targetType || (contactId ? 'contact' : (contactPhone ? 'company_mainline' : 'contact'));
+        setCrmTargetType(effTargetType);
+
         setSelectedCompanyId(companyId || '');
         setSelectedCompanyName(companyName || '');
         setSelectedContactId(contactId || '');
         setSelectedContactName(contactName || '');
         setSelectedContactPhone(contactPhone || '');
+        setSelectedContactEmail(contactEmail || '');
         setSelectedEnquiryId(enquiryId || '');
         setSelectedEnquiryQuoteRef('');
         setNewContactDesignation('');
@@ -562,6 +575,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     contactId,
     contactName,
     contactPhone,
+    contactEmail,
+    targetType,
     enquiryId,
     initialChannel,
     initialStatus
@@ -612,6 +627,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       return;
     }
 
+    // Do not force contact lookup if targeting company mainline directly
+    if (crmTargetType === 'company_mainline') {
+      return;
+    }
+
     const companyContacts = (contacts || []).filter(
       (c) => c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId)
     );
@@ -620,11 +640,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       const currentCt = companyContacts.find((c) => c.id === selectedContactId);
       if (currentCt) {
         setSelectedContactName(currentCt.full_name || '');
-        const phones = getContactPhones(currentCt);
-        setSelectedContactPhone(currentCt.mobile || currentCt.landline || phones[0]?.number || '');
-        const emails = getContactEmails(currentCt);
-        setSelectedContactEmail(currentCt.email || emails[0]?.email || '');
-      } else {
+        if (!selectedContactPhone) {
+          const phones = getContactPhones(currentCt);
+          setSelectedContactPhone(currentCt.mobile || currentCt.landline || phones[0]?.number || '');
+        }
+        if (!selectedContactEmail) {
+          const emails = getContactEmails(currentCt);
+          setSelectedContactEmail(currentCt.email || emails[0]?.email || '');
+        }
+      } else if (!contactId && !contactPhone) {
         const primary = companyContacts.find((c) => c.is_primary) || companyContacts[0];
         if (primary) {
           setSelectedContactId(primary.id || '');
@@ -647,7 +671,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setSelectedContactPhone('');
       setSelectedContactEmail('');
     }
-  }, [isOpen, selectedCompanyId, contacts]);
+  }, [isOpen, selectedCompanyId, contacts, crmTargetType]);
 
   // Automatic Quote Reference Resolution
   useEffect(() => {
@@ -1471,7 +1495,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               phones: validCompPhones.map((p) => ({ id: p.id, label: p.label || 'Main', number: p.number.trim() })),
               emails: validCompEmails.map((e) => ({ id: e.id, label: e.label || 'Main', email: e.email.trim() })),
               links: validCompLinks.map(l => ({ id: l.id, label: l.label || 'Website', url: l.url.trim() })),
-              industry_type: expressIndustryType || undefined,
+              industry_parent: expressIndustryParent || undefined,
+              business_type_raw: expressIndustryType.trim() || undefined,
+              industry: expressIndustryType.trim() || undefined,
+              industry_type: expressIndustryType.trim() || undefined,
               relationship: expressRelationship || 'Prospect',
               temperature: expressTemperature || 'Cold',
               createdAt: nowIso,
@@ -2921,20 +2948,49 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     </div>
                   </div>
 
-                  {/* Relationship, Temperature, and Industry Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  {/* Two-Tier Industry Taxonomy Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                        Industry / Type
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                        <span>Macro Parent Category</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Tier 1</span>
                       </label>
-                      <CreatableCombobox
-                        options={industryTypes.map(i => i.name)}
-                        value={expressIndustryType}
-                        onChange={(val: string) => setExpressIndustryType(val)}
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-                        placeholder="e.g. Technology"
-                      />
+                      <select
+                        value={expressIndustryParent}
+                        onChange={(e) => setExpressIndustryParent(e.target.value)}
+                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Select Macro Parent...</option>
+                        {PARENT_INDUSTRIES.map((pi) => (
+                          <option key={pi.id} value={pi.id}>
+                            {pi.icon} {pi.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                        <span>Raw Business Type</span>
+                        <span className="text-[10px] text-slate-500 font-normal">GBP Sub-Type</span>
+                      </label>
+                      <input
+                        type="text"
+                        list="express-raw-subtypes-list"
+                        value={expressIndustryType}
+                        onChange={(e) => setExpressIndustryType(e.target.value)}
+                        placeholder="e.g. Restaurant, Pool contractor"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                      />
+                      <datalist id="express-raw-subtypes-list">
+                        {expressDistinctSubtypes.map((st) => (
+                          <option key={st} value={st} />
+                        ))}
+                      </datalist>
+                    </div>
+                  </div>
+
+                  {/* Relationship and Temperature Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                         Relationship

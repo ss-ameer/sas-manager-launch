@@ -110,6 +110,9 @@ export interface Company extends SoftDeleteFields {
   display_name: string;
   aliases: string[];
   industry_type?: string;
+  industry?: string;
+  industry_parent?: string;
+  business_type_raw?: string;
   country: string;
   city: string;
   website?: string;
