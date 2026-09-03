@@ -150,12 +150,27 @@ export const channelStatuses: Record<string, string[]> = {
   Call: getStatusesForChannel('Phone Call'),
   'Message (WhatsApp/SMS)': getStatusesForChannel('Message (WhatsApp/SMS)'),
   WhatsApp: getStatusesForChannel('Message (WhatsApp/SMS)'),
+  Message: getStatusesForChannel('Message (WhatsApp/SMS)'),
   Email: getStatusesForChannel('Email'),
   'Meeting (Virtual/In-Person)': getStatusesForChannel('Meeting (Virtual/In-Person)'),
   Meeting: getStatusesForChannel('Meeting (Virtual/In-Person)'),
   'Site Visit': getStatusesForChannel('Site Visit'),
   'Internal Task / Admin': getStatusesForChannel('Internal Task / Admin'),
   Task: getStatusesForChannel('Internal Task / Admin')
+};
+
+export const isPhoneChannel = (ch?: ActivityChannel | string): boolean => {
+  const norm = String(ch || '').toLowerCase();
+  return norm.includes('call') || norm.includes('phone');
+};
+
+export const isMessageChannel = (ch?: ActivityChannel | string): boolean => {
+  const norm = String(ch || '').toLowerCase();
+  return norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms');
+};
+
+export const isPhoneOrMessageChannel = (ch?: ActivityChannel | string): boolean => {
+  return isPhoneChannel(ch) || isMessageChannel(ch);
 };
 
 const getLocalDateTimeString = (d: Date = new Date()): string => {
@@ -227,7 +242,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
     const newChanStr = newChannel as string;
-    const isCall = newChanStr === 'Call' || newChanStr === 'Phone Call';
+    const isCall = isPhoneChannel(newChanStr);
     const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(newChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
@@ -240,8 +255,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const normChan = newChanStr.toLowerCase();
-    const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+    const isAsync = isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('email');
     
     const validOutcomes = callOutcomes?.length ? callOutcomes.map(o => o.name) : OUTCOMES;
     if (isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
@@ -249,7 +263,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
     
     if (newChanStr !== 'Email') setEmailSubject('');
-    if (newChanStr !== 'WhatsApp' && newChanStr !== 'Message (WhatsApp/SMS)') setWhatsappDraft('');
+    if (!isMessageChannel(newChanStr)) setWhatsappDraft('');
     if (newChanStr !== 'Meeting' && newChanStr !== 'Site Visit') setLocationOrLink('');
     
     setValidationError(null);
@@ -257,7 +271,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
   useEffect(() => {
     const interChanStr = interactionChannel as string;
-    const isCall = interChanStr === 'Call' || interChanStr === 'Phone Call';
+    const isCall = isPhoneChannel(interChanStr);
     const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
     let activeStatus = status;
     if (available.length > 0 && !available.includes(status)) {
@@ -270,8 +284,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setPurpose(validPurposes[0]);
     }
 
-    const normChan = interactionChannel.toLowerCase();
-    const isAsyncChannel = !!normChan.match(/email|message|whatsapp|sms/);
+    const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
 
     if (isAsyncChannel) {
       if (outcome) setOutcome('');
@@ -833,6 +846,40 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
   };
 
+  const renderPhoneActionButton = (phoneNumber: string) => {
+    const trimmed = (phoneNumber || '').trim();
+    if (!trimmed) return null;
+
+    const isMsg = isMessageChannel(channel);
+    const sanitizedNumber = trimmed.replace(/[^\d+]/g, '');
+    const cleanNumber = trimmed.replace(/[^\d]/g, '');
+
+    const handleAction = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isMsg) {
+        window.open(`https://wa.me/${cleanNumber}`, '_blank');
+      } else {
+        window.location.href = `tel:${sanitizedNumber}`;
+      }
+    };
+
+    return (
+      <button
+        type="button"
+        onClick={handleAction}
+        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
+        title={isMsg ? `WhatsApp ${trimmed}` : `Call ${trimmed}`}
+      >
+        {isMsg ? (
+          <MessageSquare className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+        ) : (
+          <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+        )}
+        <span>{isMsg ? 'WhatsApp' : 'Call'}</span>
+      </button>
+    );
+  };
+
   // AI Assist State
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isDraftingWhatsapp, setIsDraftingWhatsapp] = useState<boolean>(false);
@@ -1037,16 +1084,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setIsSubmitting(true);
     try {
       const nowIso = new Date().toISOString();
-      const interactionTypeMap: Record<ActivityChannel, 'call' | 'email' | 'message'> = {
+      const interactionTypeMap: Record<string, 'call' | 'email' | 'message'> = {
         Call: 'call',
+        'Phone Call': 'call',
         WhatsApp: 'message',
+        Message: 'message',
+        'Message (WhatsApp/SMS)': 'message',
         Email: 'email',
         Meeting: 'call',
-        'Site Visit': 'call'
+        'Meeting (Virtual/In-Person)': 'call',
+        'Site Visit': 'call',
+        'Internal Task / Admin': 'call'
       };
 
       const isInvalidNumberCall =
-        channel === 'Call' &&
+        isPhoneChannel(channel) &&
         (status === 'Invalid Number' ||
          status === 'Dead / Invalid Number' ||
          status?.toLowerCase().includes('invalid number') ||
@@ -2511,19 +2563,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-amber-500/50 px-3 py-2 text-xs text-amber-100 font-mono placeholder-slate-500 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
                                       autoFocus
                                     />
-                                    {selectedContactPhone.trim() && (
-                                      <a
-                                        href={`tel:${selectedContactPhone.replace(/[^\d+]/g, '')}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                                        title={`Call ${selectedContactPhone}`}
-                                      >
-                                        <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                        <span>Call</span>
-                                      </a>
-                                    )}
+                                    {renderPhoneActionButton(selectedContactPhone)}
                                   </div>
                                 </div>
                                 <div>
@@ -2589,19 +2629,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                   )}
                                   <option value="ADD_NEW_LINE" className="font-bold text-amber-400 bg-slate-900">+ Add New Company Line</option>
                                 </select>
-                                {selectedContactPhone.trim() && (
-                                  <a
-                                    href={`tel:${selectedContactPhone.replace(/[^\d+]/g, '')}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                                    title={`Call ${selectedContactPhone}`}
-                                  >
-                                    <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                    <span>Call</span>
-                                  </a>
-                                )}
+                                {renderPhoneActionButton(selectedContactPhone)}
                               </div>
                             </div>
                           )}
@@ -2609,7 +2637,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       )}
 
                       {/* Phone Detail Field for Contact Person Mode */}
-                      {crmTargetType === 'contact' && (channel === 'Call' || channel === 'WhatsApp') && (
+                      {crmTargetType === 'contact' && isPhoneOrMessageChannel(channel) && (
                         <div>
                           {isAddingNewContactPhone || isAddingNewContact ? (
                             <div className="space-y-2">
@@ -2649,19 +2677,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     <option value="Home">Home</option>
                                     <option value="Other">Other</option>
                                   </select>
-                                  {selectedContactPhone.trim() && (
-                                    <a
-                                      href={`tel:${selectedContactPhone.replace(/[^\d+]/g, '')}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                                      title={`Call ${selectedContactPhone}`}
-                                    >
-                                      <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                      <span>Call</span>
-                                    </a>
-                                  )}
+                                  {renderPhoneActionButton(selectedContactPhone)}
                                 </div>
                               </div>
                             </div>
@@ -2711,19 +2727,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                   )}
                                   <option value="ADD_NEW_DETAIL" className="font-bold text-blue-400 bg-slate-900">+ Add New Contact Detail</option>
                                 </select>
-                                {selectedContactPhone.trim() && (
-                                  <a
-                                    href={`tel:${selectedContactPhone.replace(/[^\d+]/g, '')}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                                    title={`Call ${selectedContactPhone}`}
-                                  >
-                                    <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                    <span>Call</span>
-                                  </a>
-                                )}
+                                {renderPhoneActionButton(selectedContactPhone)}
                               </div>
                             </div>
                           )}
@@ -3073,19 +3077,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           </span>
                           <span>{primaryDialedPhoneId === phoneItem.id ? '🎯 Dialed' : 'Set Dialed'}</span>
                         </button>
-                        {phoneItem.number.trim() && (
-                          <a
-                            href={`tel:${phoneItem.number.replace(/[^\d+]/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors"
-                            title={`Call ${phoneItem.number}`}
-                          >
-                            <Phone className="h-3 w-3 text-emerald-400" />
-                            <span className="hidden sm:inline">Call Now</span>
-                          </a>
-                        )}
+                        {renderPhoneActionButton(phoneItem.number)}
                         {expressCompanyPhones.length > 1 && (
                           <button
                             type="button"
@@ -3273,19 +3265,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           </span>
                           <span>{primaryDialedPhoneId === phoneItem.id ? '🎯 Dialed' : 'Set Dialed'}</span>
                         </button>
-                        {phoneItem.number.trim() && (
-                          <a
-                            href={`tel:${phoneItem.number.replace(/[^\d+]/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors"
-                            title={`Call ${phoneItem.number}`}
-                          >
-                            <Phone className="h-3 w-3 text-emerald-400" />
-                            <span className="hidden sm:inline">Call Now</span>
-                          </a>
-                        )}
+                        {renderPhoneActionButton(phoneItem.number)}
                         {expressContactPhones.length > 1 && (
                           <button
                             type="button"
@@ -3362,9 +3342,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {CHANNELS.map((ch) => {
                   const isSelected =
                     channel === ch ||
-                    (ch === 'Phone Call' && (channel as string) === 'Call') ||
-                    (ch === 'Message (WhatsApp/SMS)' && (channel as string) === 'WhatsApp') ||
-                    (ch === 'Meeting (Virtual/In-Person)' && ((channel as string) === 'Meeting' || (channel as string) === 'Meeting (Virtual/In-Person)'));
+                    (isPhoneChannel(ch) && isPhoneChannel(channel)) ||
+                    (isMessageChannel(ch) && isMessageChannel(channel)) ||
+                    (ch.toLowerCase().includes('meeting') && String(channel).toLowerCase().includes('meeting'));
 
                   const renderIcon = () => {
                     const norm = ch.toLowerCase();
@@ -3389,7 +3369,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       }`}
                     >
                       {renderIcon()}
-                      <span className="text-center leading-tight whitespace-normal text-[11px] font-bold">{ch}</span>
+                      <span className="text-center leading-tight whitespace-normal text-[11px] font-bold">{ch === "Message (WhatsApp/SMS)" ? "Message" : ch}</span>
                     </button>
                   );
                 })}
@@ -3399,10 +3379,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             {/* Dynamic Status / Disposition Toggle */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                {interactionChannel.toUpperCase()} STATUS / DISPOSITION
+                {(isMessageChannel(interactionChannel) ? "MESSAGE" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
               </label>
               <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                {(((interactionChannel as string === 'Call' || interactionChannel as string === 'Phone Call') && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
+                {((isPhoneChannel(interactionChannel) && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
                   
                   .map((st) => (
                   <button
