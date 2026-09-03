@@ -26,11 +26,13 @@ import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import { isRecordOwner, canEditOrDeleteRecord } from '../utils/permissions';
+import TemperatureBadge from './TemperatureBadge';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
   companies: Company[];
   salespersons: Salesperson[];
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   onSelectEnquiry: (id: string) => void;
   onAddEnquiry: () => void;
   onEditEnquiry: (enquiry: Enquiry) => void;
@@ -56,6 +58,7 @@ export default function EnquiryList({
   enquiries,
   companies,
   salespersons,
+  setCompanies,
   onSelectEnquiry,
   onAddEnquiry,
   onEditEnquiry,
@@ -675,8 +678,24 @@ export default function EnquiryList({
                         />
                       </td>
                       <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold">#{e.sn}</td>
-                      <td className="py-4 px-6 font-semibold text-slate-900 dark:text-slate-100 max-w-[200px] truncate">
-                        {companyName}
+                      <td className="py-4 px-6 font-semibold text-slate-900 dark:text-slate-100 max-w-[260px]">
+                        <div className="flex items-center space-x-2">
+                          <span className="truncate">{companyName}</span>
+                          {(() => {
+                            const linkedComp = companies.find((c) => c.id === e.company_id);
+                            if (!linkedComp) return null;
+                            return (
+                              <TemperatureBadge
+                                companyId={linkedComp.id}
+                                temperature={linkedComp.temperature}
+                                isDnc={linkedComp.is_dnc}
+                                variant="compact"
+                                companies={companies}
+                                setCompanies={setCompanies}
+                              />
+                            );
+                          })()}
+                        </div>
                       </td>
                       <td className="py-4 px-6 font-mono text-xs text-slate-600 dark:text-slate-300">{e.quote_ref_no}</td>
                       <td className="py-4 px-6 text-xs text-slate-500 dark:text-slate-400 font-semibold font-mono">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
 import LeadConversionModal from './LeadConversionModal';
+import TemperatureBadge from './TemperatureBadge';
 import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord } from '../utils/permissions';
 import {
@@ -43,6 +44,7 @@ interface CallLogDetailModalProps {
   onLogFollowup?: (entry: CallLogEntry) => void;
   onScheduleFollowUp?: () => void;
   companies: Company[];
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   contacts: Contact[];
   enquiries: Enquiry[];
   callLogs?: CallLogEntry[];
@@ -63,6 +65,7 @@ export default function CallLogDetailModal({
   onLogFollowup,
   onScheduleFollowUp,
   companies,
+  setCompanies,
   contacts,
   enquiries,
   callLogs = []
@@ -328,15 +331,27 @@ export default function CallLogDetailModal({
                 })()}
               </div>
 
-              <div className="font-bold text-slate-100 text-sm">
-                {linkedCompany ? (
-                  linkedCompany.display_name || linkedCompany.canonical_name
-                ) : entry.company_name ? (
-                  entry.company_name
-                ) : entry.unlinked_name ? (
-                  <span className="text-amber-300 font-bold">{entry.unlinked_name} <span className="text-xs font-normal text-amber-400/80">(Unsaved Lead)</span></span>
-                ) : (
-                  'Unspecified Target / Lead'
+              <div className="font-bold text-slate-100 text-sm flex items-center gap-2 flex-wrap">
+                <span>
+                  {linkedCompany ? (
+                    linkedCompany.display_name || linkedCompany.canonical_name
+                  ) : entry.company_name ? (
+                    entry.company_name
+                  ) : entry.unlinked_name ? (
+                    <span className="text-amber-300 font-bold">{entry.unlinked_name} <span className="text-xs font-normal text-amber-400/80">(Unsaved Lead)</span></span>
+                  ) : (
+                    'Unspecified Target / Lead'
+                  )}
+                </span>
+                {linkedCompany && (
+                  <TemperatureBadge
+                    companyId={linkedCompany.id}
+                    temperature={linkedCompany.temperature}
+                    isDnc={linkedCompany.is_dnc}
+                    variant="compact"
+                    companies={companies}
+                    setCompanies={setCompanies}
+                  />
                 )}
               </div>
 

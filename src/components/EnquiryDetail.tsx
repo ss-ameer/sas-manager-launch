@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
+import TemperatureBadge from './TemperatureBadge';
 import {
   FileText,
   Building,
@@ -35,6 +36,7 @@ import {
 interface EnquiryDetailProps {
   enquiry: Enquiry;
   companies: Company[];
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   contacts: Contact[];
   auditLogs: AuditLog[];
   salespersons: Salesperson[];
@@ -63,6 +65,7 @@ interface EnquiryDetailProps {
 export default function EnquiryDetail({
   enquiry,
   companies,
+  setCompanies,
   contacts,
   auditLogs,
   salespersons,
@@ -337,9 +340,21 @@ export default function EnquiryDetail({
             <span className="text-xs font-mono bg-slate-50 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-md font-bold">
               #{enquiry.sn}
             </span>
-            <h3 className="text-xl font-bold text-slate-900 font-sans truncate max-w-[320px] md:max-w-[480px]">
-              {matchedCompany?.display_name || 'Unassigned Account'}
-            </h3>
+            <div className="flex items-center space-x-2 truncate max-w-[320px] md:max-w-[480px]">
+              <h3 className="text-xl font-bold text-slate-900 font-sans truncate">
+                {matchedCompany?.display_name || 'Unassigned Account'}
+              </h3>
+              {matchedCompany && (
+                <TemperatureBadge
+                  companyId={matchedCompany.id}
+                  temperature={matchedCompany.temperature}
+                  isDnc={matchedCompany.is_dnc}
+                  variant="compact"
+                  companies={companies}
+                  setCompanies={setCompanies}
+                />
+              )}
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             {onOpenActivityDrawer && (
@@ -529,10 +544,20 @@ export default function EnquiryDetail({
               {/* Company switchboard metadata */}
               {matchedCompany && (
                 <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3">
-                  <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
-                    <Building className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Company switchboard</span>
-                  </h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
+                      <Building className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Company switchboard</span>
+                    </h4>
+                    <TemperatureBadge
+                      companyId={matchedCompany.id}
+                      temperature={matchedCompany.temperature}
+                      isDnc={matchedCompany.is_dnc}
+                      variant="pill"
+                      companies={companies}
+                      setCompanies={setCompanies}
+                    />
+                  </div>
                   <div className="grid grid-cols-2 gap-4 text-xs font-sans">
                     <div className="flex items-center space-x-2 text-slate-700">
                       <MapPin className="w-4 h-4 text-slate-400 shrink-0" />

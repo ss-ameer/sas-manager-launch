@@ -56,6 +56,7 @@ import Company360Modal from './Company360Modal';
 import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
 import LiveExecutionModal from './LiveExecutionModal';
+import TemperatureBadge from './TemperatureBadge';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
 
@@ -851,33 +852,17 @@ export default function CallLogManager({
       ? (liveCompany.temperature || 'Cold')
       : ((entry as any).company_temperature || (entry as any).temperature || 'Cold');
 
-    if (isDnc || isContactDnc || temperature === 'DNC') {
-      return (
-        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shadow-xs tracking-wider">
-          DNC 🚫
-        </span>
-      );
-    }
+    const targetCompId = liveCompany?.id || entry.company_id;
 
-    const tempLower = (temperature || 'Cold').toLowerCase();
-    if (tempLower === 'hot') {
-      return (
-        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 shadow-xs">
-          Hot 🔥
-        </span>
-      );
-    }
-    if (tempLower === 'warm') {
-      return (
-        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shadow-xs">
-          Warm 🌤️
-        </span>
-      );
-    }
     return (
-      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shadow-xs">
-        Cold ❄️
-      </span>
+      <TemperatureBadge
+        companyId={targetCompId}
+        temperature={temperature}
+        isDnc={isDnc || isContactDnc}
+        variant="compact"
+        companies={companies}
+        setCompanies={setCompanies}
+      />
     );
   };
 
@@ -2331,9 +2316,15 @@ export default function CallLogManager({
                         <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold" title={`Handled by ${handledBy}`}>
                           {handledBy}
                         </div>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tempColorClass}`} title={`Temperature: ${temp}`}>
-                          <TempIcon className="w-4 h-4" />
-                        </div>
+                        <TemperatureBadge
+                          companyId={log.company_id}
+                          temperature={temp}
+                          isDnc={company?.is_dnc}
+                          variant="icon"
+                          size="md"
+                          companies={companies}
+                          setCompanies={setCompanies}
+                        />
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center ${channelColorClass}`} title={`Channel: ${type}`}>
                           <ChannelIcon className="w-4 h-4" />
                         </div>
@@ -2417,6 +2408,7 @@ export default function CallLogManager({
                       <th className="px-4 py-3 w-10"></th>
                       <th className="px-4 py-3">Date</th>
                       <th className="px-4 py-3">Client</th>
+                      <th className="px-4 py-3 text-center">Temp</th>
                       <th className="px-4 py-3">Contact</th>
                       <th className="px-4 py-3">Status / Outcome</th>
                       <th className="px-4 py-3">Agent</th>
@@ -2427,6 +2419,7 @@ export default function CallLogManager({
                     {paginatedLogs.map((log) => {
                       const isSelected = !!(log.id && selectedLogIds.includes(log.id));
                       const handledBy = getWorkspaceInitials(log.handled_by_team_member_name || log.logged_by || log.sales_person, salespersons, user, activeWorkspace);
+                      const company = companies?.find(c => c.id === log.company_id);
                       
                       return (
                         <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
@@ -2454,6 +2447,23 @@ export default function CallLogManager({
                             }}
                           >
                             {getResolvedCompanyName(log) || 'Unlinked'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {log.company_id ? (
+                              <div className="flex items-center justify-center">
+                                <TemperatureBadge
+                                  companyId={log.company_id}
+                                  temperature={company?.temperature}
+                                  isDnc={company?.is_dnc}
+                                  variant="icon"
+                                  size="sm"
+                                  companies={companies}
+                                  setCompanies={setCompanies}
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">-</span>
+                            )}
                           </td>
                           <td className={`px-4 py-3 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
                             {log.contact_name || log.contact_phone || '-'}
@@ -3802,6 +3812,7 @@ export default function CallLogManager({
           setShowLogModal(true);
         }}
         companies={workspaceCompanies}
+        setCompanies={setCompanies}
         contacts={workspaceContacts}
         enquiries={workspaceEnquiries}
         currentUser={user}
@@ -3811,6 +3822,7 @@ export default function CallLogManager({
       <Company360Modal
         companyId={selected360CompanyId}
         companies={workspaceCompanies}
+        setCompanies={setCompanies}
         contacts={workspaceContacts}
         enquiries={workspaceEnquiries}
         callLogs={callLogs}

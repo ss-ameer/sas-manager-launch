@@ -8,6 +8,7 @@ import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import ContactModal, { normalizePhoneKey, getLineRestriction } from './ContactModal';
 import ContactDetailModal from './ContactDetailModal';
 import CallLogDetailModal from './CallLogDetailModal';
+import TemperatureBadge from './TemperatureBadge';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import {
@@ -1835,17 +1836,14 @@ export default function CompanyModal({
                                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                     {relVal}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCycleCompanyTemperature(c);
-                                    }}
-                                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide cursor-pointer transition hover:opacity-85 ${tempBadge.className}`}
-                                    title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
-                                  >
-                                    {tempBadge.label}
-                                  </button>
+                                  <TemperatureBadge
+                                    companyId={c.id}
+                                    temperature={c.temperature}
+                                    isDnc={c.is_dnc}
+                                    variant="pill"
+                                    companies={companies}
+                                    setCompanies={setCompanies}
+                                  />
                                 </div>
                               </td>
                               <td className="py-4 px-4 text-xs font-mono">
@@ -1901,10 +1899,18 @@ export default function CompanyModal({
                       const tempBadge = getCompanyTempBadge(c.temperature, c.is_dnc);
 
                       return (
-                        <button
+                        <div
                           key={c.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelectedCompanyId(c.id!)}
-                          className={`p-5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedCompanyId(c.id!);
+                            }
+                          }}
+                          className={`p-5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group cursor-pointer ${
                             isSelected
                               ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-500 text-slate-900 dark:text-white shadow-sm'
                               : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'
@@ -1913,9 +1919,14 @@ export default function CompanyModal({
                           <div className="space-y-2 w-full">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
-                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border shrink-0 ${tempBadge.className}`}>
-                                {tempBadge.label}
-                              </span>
+                              <TemperatureBadge
+                                companyId={c.id}
+                                temperature={c.temperature}
+                                isDnc={c.is_dnc}
+                                variant="pill"
+                                companies={companies}
+                                setCompanies={setCompanies}
+                              />
                             </div>
 
                             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
@@ -1938,7 +1949,7 @@ export default function CompanyModal({
                               {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
                             </span>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1972,19 +1983,14 @@ export default function CompanyModal({
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
                       </span>
-                      {(() => {
-                        const selBadge = getCompanyTempBadge(selectedCompany.temperature, selectedCompany.is_dnc);
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => handleCycleCompanyTemperature(selectedCompany)}
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border cursor-pointer transition hover:opacity-85 ${selBadge.className}`}
-                            title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
-                          >
-                            {selBadge.label}
-                          </button>
-                        );
-                      })()}
+                      <TemperatureBadge
+                        companyId={selectedCompany.id}
+                        temperature={selectedCompany.temperature}
+                        isDnc={selectedCompany.is_dnc}
+                        variant="pill"
+                        companies={companies}
+                        setCompanies={setCompanies}
+                      />
                     </div>
                     <p className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 w-fit">
                       Canonical Base: {selectedCompany.canonical_name}

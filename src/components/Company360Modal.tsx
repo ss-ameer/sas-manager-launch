@@ -28,6 +28,7 @@ import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
+import TemperatureBadge from './TemperatureBadge';
 
 function sanitizeWhatsAppNumber(phone: string): string {
   if (!phone) return '';
@@ -240,26 +241,14 @@ export default function Company360Modal({
                 </span>
 
                 {/* Interactive Temperature / DNC Badge */}
-                {(company.is_dnc || temperatureVal === 'DNC' || company.temperature === 'DNC') ? (
-                  <button
-                    type="button"
-                    onClick={handleCycleTemperature}
-                    className="px-2.5 py-0.5 rounded-md text-xs font-black bg-rose-900 text-white flex items-center space-x-1 border border-rose-700 cursor-pointer transition hover:scale-105"
-                    title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
-                  >
-                    <AlertTriangle className="w-3 h-3 text-rose-300" />
-                    <span>DO NOT CALL (DNC)</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleCycleTemperature}
-                    className={`px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider border flex items-center space-x-1 cursor-pointer transition hover:scale-105 ${badgeConfig.className}`}
-                    title="Click to cycle Temperature (Cold ❄️ -> Warm 🌤️ -> Hot 🔥 -> DNC 🚫)"
-                  >
-                    <span>{badgeConfig.label}</span>
-                  </button>
-                )}
+                <TemperatureBadge
+                  companyId={company.id}
+                  temperature={company.temperature}
+                  isDnc={company.is_dnc}
+                  variant="pill"
+                  companies={companies}
+                  setCompanies={setCompanies}
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2">

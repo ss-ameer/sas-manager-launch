@@ -1478,6 +1478,7 @@ export default function App() {
           <EnquiryList
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
+            setCompanies={setCompanies}
             salespersons={workspaceSalespersons}
             onSelectEnquiry={setSelectedEnquiryId}
             onAddEnquiry={() => {
@@ -1617,6 +1618,7 @@ export default function App() {
           activeWorkspace={activeWorkspace}
           activeWorkspaceId={activeWorkspace?.id}
           companies={workspaceCompanies}
+          setCompanies={setCompanies}
           contacts={workspaceContacts}
           salespersons={workspaceSalespersons}
           auditLogs={auditLogs}
@@ -1640,6 +1642,7 @@ export default function App() {
         <Company360Modal
           companyId={selected360CompanyId}
           companies={workspaceCompanies}
+          setCompanies={setCompanies}
           contacts={workspaceContacts}
           enquiries={workspaceEnquiries}
           callLogs={workspaceCallLogs}
