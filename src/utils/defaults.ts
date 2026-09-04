@@ -29,23 +29,17 @@ export const SYSTEM_CALL_OUTCOMES: any[] = [
 ];
 
 export const SYSTEM_CALL_PURPOSES = [
-  'Validation',
-  'Prospecting / Cold Outreach',
-  'Prospecting / Intro',
-  'Quote Follow-Up',
-  'Order Confirmation',
-  'Technical Review',
-  'Commercial Negotiation',
-  'Payment / Invoicing',
-  'Customer Care',
-  'Account Management',
-  'Re-engagement',
-  'Meeting / Demo',
-  'Complaint / Issue Resolution',
-  'Relationship Maintenance / Courtesy Call',
-  'General Inquiry',
-  'Other'
-];
+  'Inbound Enquiry',
+  'Introduction / Pitch',
+  'Discovery / Qualification',
+  'Follow-up / Check-in',
+  'Closing / Negotiation',
+  'Issue Resolution',
+  'Re-engagement / Win-Back',
+  'Order Fulfillment / Logistics'
+] as const;
+
+export type SystemCallPurpose = (typeof SYSTEM_CALL_PURPOSES)[number];
 
 export const SYSTEM_CALL_STATUS_DESCRIPTIONS: Record<string, string> = {
   'Scheduled': 'Call is planned for a future time',
@@ -130,7 +124,7 @@ export const SYSTEM_TEMPERATURE_COLORS: Record<string, string> = {
 
 export function healDropdownOptions(
   currentList: DropdownOption[],
-  defaults: any[],
+  defaults: readonly any[] | any[],
   prefix: string,
   defaultColors?: Record<string, string>
 ): { mergedList: DropdownOption[]; changed: boolean } {

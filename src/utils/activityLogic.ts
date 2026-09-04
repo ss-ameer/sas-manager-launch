@@ -1,4 +1,5 @@
 import { ActivityChannel, CallStatus } from '../types';
+import { SYSTEM_CALL_PURPOSES } from './defaults';
 
 export const CHANNELS = [
   'Phone Call',
@@ -11,17 +12,7 @@ export const CHANNELS = [
 
 export type MasterActivityChannel = (typeof CHANNELS)[number];
 
-export const PURPOSES = [
-  'Inbound Enquiry',
-  'Introduction / Pitch',
-  'Discovery / Qualification',
-  'Follow-up / Check-in',
-  'Closing / Negotiation',
-  'Issue Resolution',
-  'Re-engagement / Win-Back',
-  'Internal Prep / Quote Building',
-  'Order Fulfillment / Logistics'
-] as const;
+export const PURPOSES = SYSTEM_CALL_PURPOSES;
 
 export type MasterPurpose = (typeof PURPOSES)[number];
 

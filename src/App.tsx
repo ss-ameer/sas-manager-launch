@@ -43,7 +43,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
 import { isAdmin } from './utils/permissions';
-import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
+import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
 function getLocalCache<T>(key: string, defaultValue: T): T {
@@ -101,6 +101,7 @@ const FALLBACK_CATEGORIES = [
 const FALLBACK_UNITS = ['Nos', 'M3', 'MT', 'Set', 'LS', 'Kg'];
 const FALLBACK_CALL_STATUSES = SYSTEM_CALL_STATUSES;
 const FALLBACK_CALL_OUTCOMES = SYSTEM_CALL_OUTCOMES;
+const FALLBACK_CALL_PURPOSES = [...SYSTEM_CALL_PURPOSES];
 
 const WORKSPACE_BADGE_COLORS = [
   { dot: 'bg-blue-500', bg: 'bg-blue-50 border-blue-200 text-blue-700' },
@@ -207,14 +208,9 @@ export default function App() {
     return healed.mergedList;
   });
   const [callPurposes, setCallPurposes] = useState<DropdownOption[]>(() => {
-    return getLocalCache('omni_call_purposes', [
-      { id: 'purp_0', name: 'Inbound Enquiry' },
-      { id: 'purp_1', name: 'Introduction / Pitch' },
-      { id: 'purp_2', name: 'Discovery / Qualification' },
-      { id: 'purp_3', name: 'Follow-up / Check-in' },
-      { id: 'purp_4', name: 'Closing / Negotiation' },
-      { id: 'purp_5', name: 'Issue Resolution' }
-    ]);
+    const cached = getLocalCache<DropdownOption[]>('omni_call_purposes', []);
+    const healed = healDropdownOptions(cached, FALLBACK_CALL_PURPOSES, 'purp');
+    return healed.mergedList;
   });
   const [callOutcomes, setCallOutcomes] = useState<DropdownOption[]>(() => {
     const cached = getLocalCache<DropdownOption[]>('omni_call_outcomes', []);
@@ -1267,11 +1263,18 @@ export default function App() {
     // Call Outcomes
     if (!refs.callOutcomes) {
       if (!refs.callPurposes) {
-      refs.callPurposes = onSnapshot(collection(db, 'dropdown_call_purposes'), (snap) => {
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DropdownOption[];
-        if (list.length > 0) setCallPurposes(list.sort((a,b) => a.name.localeCompare(b.name)));
-      });
-    }
+        refs.callPurposes = onSnapshot(collection(db, 'dropdown_call_purposes'), (snap) => {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DropdownOption[];
+          const healed = healDropdownOptions(list, FALLBACK_CALL_PURPOSES, 'purp');
+          setCallPurposes(healed.mergedList);
+          setLocalCache('omni_call_purposes', healed.mergedList);
+        }, (error) => {
+          console.warn("Call purposes listener error (Quota/Offline):", error);
+          const cached = getLocalCache<DropdownOption[]>('omni_call_purposes', []);
+          const healed = healDropdownOptions(cached, FALLBACK_CALL_PURPOSES, 'purp');
+          setCallPurposes(healed.mergedList);
+        });
+      }
     refs.callOutcomes = onSnapshot(collection(db, 'dropdown_call_outcomes'), (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
         const healed = healDropdownOptions(list, FALLBACK_CALL_OUTCOMES, 'co');

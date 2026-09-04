@@ -50,7 +50,7 @@ import Company360Modal from './Company360Modal';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import TaskCallHistoryPanel from './TaskCallHistoryPanel';
 import { IndustryBadge } from '../utils/taxonomy';
-import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
+import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -184,8 +184,11 @@ export default function LiveExecutionModal({
   }, [currentChannel]);
 
   const availablePurposes = useMemo(() => {
-    return getPurposesForChannel(currentChannel);
-  }, [currentChannel]);
+    if (callPurposes && callPurposes.length > 0) {
+      return Array.from(new Set([...SYSTEM_CALL_PURPOSES, ...callPurposes.map(p => p.name)]));
+    }
+    return [...SYSTEM_CALL_PURPOSES];
+  }, [callPurposes]);
 
   // Default completed status
   const defaultCompletedStatus = useMemo(() => {
@@ -241,8 +244,11 @@ export default function LiveExecutionModal({
       const validStatusesForDefault = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(taskChan);
       const defaultStatus = validStatusesForDefault.find((s) => isSuccessStatus(s)) || validStatusesForDefault[0] || 'Completed / Connected';
       
-      const validPurposes = getPurposesForChannel(taskChan);
-      setPurpose(currentTask.purpose || validPurposes[0] || 'Discovery / Validation');
+      const rawPurpose = currentTask.purpose;
+      const normalizedPurpose = rawPurpose === 'Discovery / Validation'
+        ? 'Discovery / Qualification'
+        : (rawPurpose || availablePurposes[0] || 'Discovery / Qualification');
+      setPurpose(normalizedPurpose);
 
       // Initialize disposition based on existing task state
       if (currentTask.status === 'Invalid Number') {
@@ -706,7 +712,7 @@ export default function LiveExecutionModal({
           date: nextFollowUpDate,
           status: 'Scheduled / Planned' as CallStatus,
           outcome: 'Follow-Up Scheduled',
-          purpose: currentTask.purpose || 'Follow-up / Check-in',
+          purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
           requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : (notes.trim() ? `Follow up on: ${notes.trim()}` : ''),
           followup_intent: followUpIntent.trim() || undefined,
           logged_by: userName,
@@ -1011,15 +1017,24 @@ export default function LiveExecutionModal({
               </div>
 
               {/* Read-Only Original Agenda / Prior Notes */}
-              {originalAgenda && (
+              {(originalAgenda || currentTask?.purpose) && (
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-700/50">
-                  <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    <FileText className="w-3 h-3 text-slate-400" />
-                    <span>Prior Agenda / Interaction Intent</span>
+                  <div className="flex items-center justify-between space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    <div className="flex items-center space-x-1.5">
+                      <FileText className="w-3 h-3 text-slate-400" />
+                      <span>Prior Agenda / Interaction Intent</span>
+                    </div>
+                    {currentTask?.purpose && (
+                      <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 font-bold text-[10px] normal-case">
+                        Purpose: {currentTask.purpose}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
-                    {originalAgenda}
-                  </p>
+                  {originalAgenda && (
+                    <p className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+                      {originalAgenda}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1098,58 +1113,95 @@ export default function LiveExecutionModal({
                   })}
                 </div>
 
-                {/* Outcome Refinement / Fine-Tuning Dropdown */}
-                {isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
-                  <div className="pt-1">
+                {/* Interaction Purpose & Detailed Outcome Grid */}
+                <div className={`pt-1 grid gap-2.5 ${isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                  {/* Purpose Selector */}
+                  <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                        Detailed Outcome / Conversation Result
+                      <label htmlFor="live-execution-purpose-select" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                        Interaction Purpose
                       </label>
-                      <span className="text-[10px] text-slate-400">Optional refinement</span>
+                      <span className="text-[10px] text-slate-400">Operational focus</span>
                     </div>
                     <select
-                      id="activity-outcome-select"
-                      value={callOutcome}
-                      onChange={(e) => setCallOutcome(e.target.value)}
+                      id="live-execution-purpose-select"
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium transition cursor-pointer"
                     >
-                      <option value="" disabled>Select conversation outcome...</option>
                       {(() => {
-                        const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
-                        const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
-                        const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
-                        const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
-                        const allNames = dynamicOutcomes.map(o => o.name);
-                        const legacyOption = callOutcome && !allNames.includes(callOutcome) ? callOutcome : null;
-
+                        const legacyOption = purpose && !availablePurposes.includes(purpose) ? purpose : null;
                         return (
                           <>
-                            <optgroup label="🟢 POSITIVE / PROGRESS">
-                              {pos.map((o) => (
-                                <option key={o.name} value={o.name}>{o.name}</option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                              {neu.map((o) => (
-                                <option key={o.name} value={o.name}>{o.name}</option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🔴 OBJECTION / LOSS">
-                              {neg.map((o) => (
-                                <option key={o.name} value={o.name}>{o.name}</option>
-                              ))}
-                            </optgroup>
+                            {availablePurposes.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
                             {legacyOption && (
-                              <optgroup label="⚪ CURRENT OUTCOME">
-                                <option value={legacyOption}>{legacyOption}</option>
-                              </optgroup>
+                              <option key={legacyOption} value={legacyOption}>
+                                {legacyOption}
+                              </option>
                             )}
                           </>
                         );
                       })()}
                     </select>
                   </div>
-                )}
+
+                  {/* Outcome Refinement / Fine-Tuning Dropdown */}
+                  {isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label htmlFor="activity-outcome-select" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          Detailed Outcome / Result
+                        </label>
+                        <span className="text-[10px] text-slate-400">Optional refinement</span>
+                      </div>
+                      <select
+                        id="activity-outcome-select"
+                        value={callOutcome}
+                        onChange={(e) => setCallOutcome(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium transition cursor-pointer"
+                      >
+                        <option value="" disabled>Select conversation outcome...</option>
+                        {(() => {
+                          const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
+                          const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
+                          const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
+                          const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
+                          const allNames = dynamicOutcomes.map(o => o.name);
+                          const legacyOption = callOutcome && !allNames.includes(callOutcome) ? callOutcome : null;
+
+                          return (
+                            <>
+                              <optgroup label="🟢 POSITIVE / PROGRESS">
+                                {pos.map((o) => (
+                                  <option key={o.name} value={o.name}>{o.name}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
+                                {neu.map((o) => (
+                                  <option key={o.name} value={o.name}>{o.name}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="🔴 OBJECTION / LOSS">
+                                {neg.map((o) => (
+                                  <option key={o.name} value={o.name}>{o.name}</option>
+                                ))}
+                              </optgroup>
+                              {legacyOption && (
+                                <optgroup label="⚪ CURRENT OUTCOME">
+                                  <option value={legacyOption}>{legacyOption}</option>
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Live Notes Scratchpad & Quick Timestamps */}

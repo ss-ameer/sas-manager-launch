@@ -145,7 +145,7 @@ export interface ExpressEmailItem {
   email: string;
 }
 
-export const SYSTEM_CALL_PURPOSES_TAXONOMY = [...PURPOSES];
+export const SYSTEM_CALL_PURPOSES_TAXONOMY = [...SYSTEM_CALL_PURPOSES];
 
 export const channelStatuses: Record<string, string[]> = {
   'Phone Call': getStatusesForChannel('Phone Call'),
@@ -245,7 +245,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const isInternalTask = isInternalTaskChannel(interactionChannel);
   const [outcome, setOutcome] = useState<string>('');
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
-  const [purpose, setPurpose] = useState<string>('Discovery / Validation');
+  const availablePurposes = useMemo(() => {
+    if (callPurposes && callPurposes.length > 0) {
+      return Array.from(new Set([...SYSTEM_CALL_PURPOSES, ...callPurposes.map(p => p.name)]));
+    }
+    return [...SYSTEM_CALL_PURPOSES];
+  }, [callPurposes]);
+
+  const [purpose, setPurpose] = useState<string>('Discovery / Qualification');
 
   const isCompletedState = isSuccessStatus(status);
 
@@ -260,9 +267,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setStatus(activeStatus);
     }
 
-    const validPurposes = getPurposesForChannel(newChannel);
-    if (!validPurposes.includes(purpose)) {
-      setPurpose(validPurposes[0]);
+    if (!availablePurposes.includes(purpose)) {
+      setPurpose(availablePurposes[0] || 'Discovery / Qualification');
     }
 
     const isAsync = isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('email');
@@ -290,9 +296,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setStatus(activeStatus);
     }
 
-    const validPurposes = getPurposesForChannel(interactionChannel);
-    if (!validPurposes.includes(purpose)) {
-      setPurpose(validPurposes[0]);
+    if (purpose === 'Discovery / Validation') {
+      setPurpose('Discovery / Qualification');
     }
 
     const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
@@ -303,7 +308,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     } else if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
     }
-  }, [interactionChannel, status, purpose, outcome]);
+  }, [interactionChannel, status, purpose, outcome, availablePurposes]);
   const [notes, setNotes] = useState<string>('');
   const [activityDate, setActivityDate] = useState<string>(() => getLocalDateTimeString());
   const [followupDate, setFollowupDate] = useState<string>('');
@@ -513,7 +518,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setChannel((activeLog.channel as ActivityChannel) || initialChannel || 'Call');
         setStatus(activeLog.status || initialStatus || 'Completed');
         setOutcome(activeLog.outcome || '');
-        setPurpose(activeLog.purpose || 'Discovery / Validation');
+        const normalizedPurp = activeLog.purpose === 'Discovery / Validation'
+          ? 'Discovery / Qualification'
+          : (activeLog.purpose || 'Discovery / Qualification');
+        setPurpose(normalizedPurp);
         setNotes(activeLog.requirement_notes || (activeLog as any).notes || '');
         setWhatsappDraft(activeLog.whatsapp_draft || '');
         setEmailSubject(activeLog.email_subject || '');
@@ -559,7 +567,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setChannel(effChannel);
         setStatus(initialStatus || 'Completed');
         setOutcome('');
-        setPurpose('Discovery / Validation');
+        setPurpose('Discovery / Qualification');
         setNotes('');
         setActivityDate(getLocalDateTimeString());
         setFollowupDate('');
@@ -1018,7 +1026,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setChannel('Call');
     setOutcome('');
     setStatus('Completed');
-    setPurpose('Discovery / Validation');
+    setPurpose('Discovery / Qualification');
     setNotes('');
     setActivityDate(new Date().toISOString().slice(0, 16));
     setFollowupDate('');
@@ -1876,7 +1884,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           date: activityIsoDate,
           status: finalStatus as any,
           outcome: isInternalTask ? undefined : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed')),
-          purpose: isInternalTask ? undefined : (purpose || activeLog.purpose || 'Discovery / Validation'),
+          purpose: isInternalTask ? undefined : (purpose || (activeLog.purpose === 'Discovery / Validation' ? 'Discovery / Qualification' : activeLog.purpose) || 'Discovery / Qualification'),
           requirement_notes: notes.trim(),
           completed_at: nowIso,
           completedAt: nowIso,
@@ -1907,7 +1915,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
             channel: channel,
             interaction_type: interactionTypeMap[channel] || 'call',
-            purpose: isInternalTask ? undefined : (purpose || 'Follow-Up'),
+            purpose: isInternalTask ? undefined : (purpose || 'Follow-up / Check-in'),
             requirement_notes: followupIntent.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             company_id: resolvedCompanyId || activeLog.company_id,
@@ -3568,19 +3576,32 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label htmlFor="quick-activity-purpose-select" className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                     {interactionChannel.toUpperCase()} PURPOSE
                   </label>
                   <select
+                    id="quick-activity-purpose-select"
                     value={purpose}
                     onChange={(e) => setPurpose(e.target.value)}
                     className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                   >
-                    {(callPurposes?.length ? callPurposes.map(p => p.name) : getPurposesForChannel(interactionChannel)).map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
+                    {(() => {
+                      const legacyOption = purpose && !availablePurposes.includes(purpose) ? purpose : null;
+                      return (
+                        <>
+                          {availablePurposes.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                          {legacyOption && (
+                            <option key={legacyOption} value={legacyOption}>
+                              {legacyOption}
+                            </option>
+                          )}
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               </div>
