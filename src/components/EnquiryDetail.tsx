@@ -7,6 +7,7 @@ import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import {
@@ -354,6 +355,11 @@ export default function EnquiryDetail({
               </h3>
               {matchedCompany && (
                 <>
+                  <GoogleSearchButton
+                    companyName={matchedCompany.display_name}
+                    location={matchedCompany.city}
+                    size="sm"
+                  />
                   <TemperatureBadge
                     companyId={matchedCompany.id}
                     temperature={matchedCompany.temperature}
@@ -558,10 +564,17 @@ export default function EnquiryDetail({
               {matchedCompany && (
                 <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
-                      <Building className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Company switchboard</span>
-                    </h4>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
+                        <Building className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Company switchboard</span>
+                      </h4>
+                      <GoogleSearchButton
+                        companyName={matchedCompany.display_name}
+                        location={matchedCompany.city}
+                        size="xs"
+                      />
+                    </div>
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"

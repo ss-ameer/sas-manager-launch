@@ -28,6 +28,7 @@ import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import { isRecordOwner, canEditOrDeleteRecord } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 
@@ -699,6 +700,13 @@ export default function EnquiryList({
                           >
                             {companyName}
                           </span>
+                          {companyName && companyName !== 'Unknown Client' && (
+                            <GoogleSearchButton
+                              companyName={companyName}
+                              location={companies.find((c) => c.id === e.company_id)?.city}
+                              size="xs"
+                            />
+                          )}
                           {(() => {
                             const linkedComp = companies.find((c) => c.id === e.company_id);
                             if (!linkedComp) return null;

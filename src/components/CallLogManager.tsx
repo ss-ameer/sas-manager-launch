@@ -59,6 +59,7 @@ import CallLogReportModal from './CallLogReportModal';
 import QuickActivityDrawer from './QuickActivityDrawer';
 import LiveExecutionModal from './LiveExecutionModal';
 import TemperatureBadge from './TemperatureBadge';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
@@ -1818,6 +1819,13 @@ export default function CallLogManager({
                       </span>
                       {renderChannelBadge(item.channel || item.interaction_type)}
                       <span className="font-black text-slate-900 dark:text-slate-100 text-base">{getResolvedCompanyName(item)}</span>
+                      {getResolvedCompanyName(item) && getResolvedCompanyName(item) !== 'Direct Client' && (
+                        <GoogleSearchButton
+                          companyName={getResolvedCompanyName(item)}
+                          location={item.company_id ? companyMap.get(item.company_id)?.city : undefined}
+                          size="xs"
+                        />
+                      )}
                       {renderCompanyTempPill(item)}
                       {item.company_id && (
                         <IndustryBadge company={companies.find((c) => c.id === item.company_id)} size="sm" />
@@ -2361,6 +2369,13 @@ export default function CallLogManager({
                           >
                             {getResolvedCompanyName(log) || 'Unlinked Account'}
                           </span>
+                          {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked Account' && (
+                            <GoogleSearchButton
+                              companyName={getResolvedCompanyName(log)}
+                              location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
+                              size="xs"
+                            />
+                          )}
                           <span className="text-[10px] text-slate-500 whitespace-nowrap">
                             {formatActivityDate(log.date || log.createdAt)}
                           </span>
@@ -2532,6 +2547,13 @@ export default function CallLogManager({
                           >
                             <div className="flex items-center space-x-2">
                               <span>{getResolvedCompanyName(log) || 'Unlinked'}</span>
+                              {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked' && (
+                                <GoogleSearchButton
+                                  companyName={getResolvedCompanyName(log)}
+                                  location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
+                                  size="xs"
+                                />
+                              )}
                               <IndustryBadge company={company} size="sm" />
                             </div>
                           </td>

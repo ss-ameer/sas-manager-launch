@@ -30,6 +30,7 @@ import { IndustryBadge } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
 import TemperatureBadge from './TemperatureBadge';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 
 function sanitizeWhatsAppNumber(phone?: any): string {
@@ -227,16 +228,11 @@ export default function Company360Modal({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-black tracking-tight">{company.display_name}</h2>
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(company.canonical_name || company.display_name)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-0.5 rounded-md text-xs font-bold text-blue-500 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 flex items-center space-x-1 transition cursor-pointer"
-                  title="Search company on Google"
-                >
-                  <Globe className="w-3 h-3" />
-                  <span>Google Search</span>
-                </a>
+                <GoogleSearchButton
+                  companyName={company.canonical_name || company.display_name}
+                  location={company.city}
+                  size="sm"
+                />
                 <span className="px-2 py-0.5 rounded font-mono text-xs font-bold bg-slate-800 text-blue-300 border border-slate-700 flex items-center space-x-1">
                   <Tag className="w-3 h-3 text-blue-400" />
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>

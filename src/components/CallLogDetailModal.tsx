@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
 import LeadConversionModal from './LeadConversionModal';
 import TemperatureBadge from './TemperatureBadge';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord } from '../utils/permissions';
 import { useEntityEdit } from '../context/EntityEditContext';
@@ -359,6 +360,17 @@ export default function CallLogDetailModal({
                     'Unspecified Target / Lead'
                   )}
                 </span>
+                {(() => {
+                  const targetName = linkedCompany ? (linkedCompany.display_name || linkedCompany.canonical_name) : (entry.company_name || entry.unlinked_name);
+                  if (!targetName) return null;
+                  return (
+                    <GoogleSearchButton
+                      companyName={targetName}
+                      location={linkedCompany?.city}
+                      size="xs"
+                    />
+                  );
+                })()}
                 {linkedCompany && (
                   <TemperatureBadge
                     companyId={linkedCompany.id}

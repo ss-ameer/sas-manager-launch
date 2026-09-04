@@ -42,6 +42,7 @@ import {
 import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
+import GoogleSearchButton from './common/GoogleSearchButton';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -509,6 +510,13 @@ export default function LiveExecutionModal({
                 <span className="font-bold text-sm text-slate-900 dark:text-white">
                   {companyName}
                 </span>
+                {companyName && companyName !== 'No Company Account' && (
+                  <GoogleSearchButton
+                    companyName={companyName}
+                    location={task?.company_id && companies ? companies.find(c => c.id === task.company_id)?.city : undefined}
+                    size="xs"
+                  />
+                )}
               </div>
 
               {/* Contact with Sleek "+ Add Contact" Button */}

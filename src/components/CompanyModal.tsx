@@ -10,6 +10,7 @@ import ContactModal, { normalizePhoneKey, getLineRestriction } from './ContactMo
 import ContactDetailModal from './ContactDetailModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import TemperatureBadge from './TemperatureBadge';
+import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge } from '../utils/taxonomy';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
@@ -1865,7 +1866,10 @@ export default function CompanyModal({
                                 {getReferenceId('CMP', c, companies)}
                               </td>
                               <td className="py-4 px-4">
-                                <div className="font-semibold text-slate-900 dark:text-white font-sans text-sm">{c.display_name}</div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <div className="font-semibold text-slate-900 dark:text-white font-sans text-sm">{c.display_name}</div>
+                                  <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
+                                </div>
                                 <div className="text-slate-500 dark:text-slate-400 text-xs flex items-center space-x-1 mt-0.5">
                                   <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span>{c.city}, {c.country}</span>
@@ -1961,7 +1965,10 @@ export default function CompanyModal({
                         >
                           <div className="space-y-2 w-full">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
+                                <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
+                              </div>
                               <TemperatureBadge
                                 companyId={c.id}
                                 temperature={c.temperature}
@@ -2012,6 +2019,7 @@ export default function CompanyModal({
                   <div className="space-y-1.5">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
                       <h3 className="text-xl font-bold text-slate-900 dark:text-white font-sans">{selectedCompany.display_name}</h3>
+                      <GoogleSearchButton companyName={selectedCompany.display_name} location={selectedCompany.city} size="sm" />
                       <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
                         <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                         <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
