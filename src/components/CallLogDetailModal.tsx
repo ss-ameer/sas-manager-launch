@@ -6,6 +6,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord } from '../utils/permissions';
 import { useEntityEdit } from '../context/EntityEditContext';
+import { getWhatsAppUrl } from '../utils/defaults';
 import {
   PhoneCall,
   Building2,
@@ -480,6 +481,17 @@ export default function CallLogDetailModal({
                           >
                             {phoneVal}
                           </a>
+                          <a
+                            href={getWhatsAppUrl(phoneVal)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 text-[10px] font-sans font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                            title={`WhatsApp ${phoneVal}`}
+                          >
+                            <MessageSquare className="w-2.5 h-2.5 text-emerald-400" />
+                            <span>WhatsApp</span>
+                          </a>
                         </div>
                       ) : (
                         <div className="text-slate-500 text-xs italic">No phone logged</div>
@@ -511,18 +523,29 @@ export default function CallLogDetailModal({
                 return (
                   <div className="mt-3 pt-2 border-t border-slate-800/80">
                     <span className="text-[10px] font-semibold text-slate-400 block mb-1">Company Direct Lines:</span>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {companyPhones.map((ph, idx) => (
-                        <a
-                          key={`v_cp_${idx}`}
-                          href={`tel:${ph.number}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[10px] px-2 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 font-mono border border-blue-800/60 transition flex items-center gap-1"
-                          title={`Call ${ph.label || 'Company Line'}: ${ph.number}`}
-                        >
-                          <span className="text-slate-400 font-normal">{ph.label || 'Main'}:</span>
-                          <span className="font-bold">{ph.number}</span>
-                        </a>
+                        <div key={`v_cp_${idx}`} className="inline-flex items-center gap-0.5">
+                          <a
+                            href={`tel:${ph.number}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[10px] px-2 py-0.5 rounded-l bg-blue-950/60 hover:bg-blue-900 text-blue-300 font-mono border border-blue-800/60 transition flex items-center gap-1"
+                            title={`Call ${ph.label || 'Company Line'}: ${ph.number}`}
+                          >
+                            <span className="text-slate-400 font-normal">{ph.label || 'Main'}:</span>
+                            <span className="font-bold">{ph.number}</span>
+                          </a>
+                          <a
+                            href={getWhatsAppUrl(ph.number)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[10px] px-1.5 py-0.5 rounded-r bg-emerald-950/60 hover:bg-emerald-900 text-emerald-400 font-mono border border-emerald-800/60 border-l-0 transition flex items-center gap-1 cursor-pointer"
+                            title={`WhatsApp ${ph.number}`}
+                          >
+                            <MessageSquare className="w-2.5 h-2.5 text-emerald-400" />
+                          </a>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -594,27 +617,43 @@ export default function CallLogDetailModal({
                   <MessageSquare className="w-4 h-4 text-emerald-400" />
                   <span>WhatsApp Draft Preview</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(entry.whatsapp_draft!);
-                    setCopiedDraft(true);
-                    setTimeout(() => setCopiedDraft(false), 2000);
-                  }}
-                  className="text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1"
-                >
-                  {copiedDraft ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-slate-400" />
-                      <span>Copy Draft</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={getWhatsAppUrl(
+                      entry.contact_phone || entry.unlinked_contact_info || linkedContact?.mobile || linkedContact?.landline || '',
+                      entry.whatsapp_draft
+                    )}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    title="Open WhatsApp with this draft pre-filled"
+                  >
+                    <MessageSquare className="w-3 h-3 text-white" />
+                    <span>Send via WhatsApp</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(entry.whatsapp_draft!);
+                      setCopiedDraft(true);
+                      setTimeout(() => setCopiedDraft(false), 2000);
+                    }}
+                    className="text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1"
+                  >
+                    {copiedDraft ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3 text-slate-400" />
+                        <span>Copy Draft</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               <div className="text-xs text-emerald-100/90 font-sans leading-relaxed whitespace-pre-wrap bg-slate-950/80 p-3 rounded-lg border border-emerald-900/50">
                 {entry.whatsapp_draft}

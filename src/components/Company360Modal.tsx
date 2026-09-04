@@ -32,16 +32,7 @@ import { isSuccessStatus } from '../utils/activityLogic';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
-
-function sanitizeWhatsAppNumber(phone?: any): string {
-  if (!phone) return '';
-  const str = typeof phone === 'object' ? (phone.number || phone.value || '') : String(phone);
-  const digits = str.replace(/\D/g, '');
-  if (digits.startsWith('05') && digits.length === 10) {
-    return '971' + digits.substring(1);
-  }
-  return digits;
-}
+import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 
 interface Company360ModalProps {
   companyId: string | null;
@@ -276,6 +267,7 @@ export default function Company360Modal({
                 {compPhones.map((ph, idx) => {
                   const phoneVal = ph.value || ph.number || '';
                   const phoneTrim = phoneVal.trim();
+                  const compWaUrl = getWhatsAppUrl(phoneVal);
                   const restriction = company.restricted_lines?.[phoneVal] || company.restricted_lines?.[phoneTrim] || (company.is_dnc ? 'DNC' : undefined);
                   const isRestricted = Boolean(restriction);
                   const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
@@ -297,6 +289,17 @@ export default function Company360Modal({
                         >
                           {phoneVal}
                         </a>
+                      )}
+                      {!isRestricted && phoneTrim && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleOutboundInteraction(e, 'WhatsApp', null, compWaUrl)}
+                          className="px-1.5 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                          title="Send WhatsApp & Log Activity"
+                        >
+                          <MessageSquare className="w-2.5 h-2.5 text-emerald-400" />
+                          <span>WA</span>
+                        </button>
                       )}
                       <span className="text-[10px] bg-slate-800 text-blue-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-700">
                         {ph.label || 'Landline'}
@@ -557,7 +560,7 @@ export default function Company360Modal({
                             const phoneVal = p.value || p.number || '';
                             const phoneTrim = phoneVal.trim();
                             const cleanPhone = sanitizeWhatsAppNumber(phoneVal);
-                            const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}` : '';
+                            const waUrl = getWhatsAppUrl(phoneVal);
 
                             const restriction = contact.restricted_lines?.[phoneVal] ||
                                                 contact.restricted_lines?.[phoneTrim] ||

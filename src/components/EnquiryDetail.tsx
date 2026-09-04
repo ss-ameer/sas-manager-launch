@@ -10,6 +10,7 @@ import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
+import { getWhatsAppUrl } from '../utils/defaults';
 import {
   FileText,
   Building,
@@ -34,7 +35,8 @@ import {
   Maximize2,
   Minimize2,
   ChevronsUpDown,
-  Copy
+  Copy,
+  MessageSquare
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -636,7 +638,24 @@ export default function EnquiryDetail({
                     {matchedContact.mobile && (
                       <div className="flex items-center space-x-2">
                         <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span>{matchedContact.mobile}</span>
+                        <a
+                          href={`tel:${matchedContact.mobile}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline font-mono"
+                        >
+                          {matchedContact.mobile}
+                        </a>
+                        <a
+                          href={getWhatsAppUrl(matchedContact.mobile)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
+                          title={`WhatsApp ${matchedContact.full_name}`}
+                        >
+                          <MessageSquare className="w-3 h-3 text-emerald-600" />
+                          <span>WhatsApp</span>
+                        </a>
                       </div>
                     )}
                     {matchedContact.email && (

@@ -56,7 +56,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
-import { computeCanonicalName, generateCompanySearchTerms } from '../utils/defaults';
+import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
@@ -203,15 +203,7 @@ function formatHistoryDate(dateStr?: string): string {
   }
 }
 
-export function sanitizeWhatsAppNumber(phone?: any): string {
-  if (!phone) return '';
-  const str = typeof phone === 'object' ? (phone.number || phone.value || '') : String(phone);
-  const digits = str.replace(/\D/g, '');
-  if (digits.startsWith('05') && digits.length === 10) {
-    return '971' + digits.substring(1);
-  }
-  return digits;
-}
+export { sanitizeWhatsAppNumber, getWhatsAppUrl };
 
 export default function CompanyModal({
   companies,
@@ -2205,7 +2197,7 @@ export default function CompanyModal({
                                               targetType: 'company_mainline',
                                               contactPhone: ph.number,
                                               channel: 'WhatsApp',
-                                              externalUrl: `https://wa.me/${cleanNum}`,
+                                              externalUrl: getWhatsAppUrl(ph.number),
                                               e
                                             });
                                           }}
@@ -2476,7 +2468,7 @@ export default function CompanyModal({
                                                     targetType: 'contact',
                                                     contactPhone: ph.number,
                                                     channel: 'WhatsApp',
-                                                    externalUrl: `https://wa.me/${cleanNum}`,
+                                                    externalUrl: getWhatsAppUrl(ph.number),
                                                     e
                                                   });
                                                 }}

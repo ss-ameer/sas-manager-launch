@@ -46,6 +46,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { getWhatsAppUrl } from '../utils/defaults';
 
 interface DashboardProps {
   enquiries: Enquiry[];
@@ -677,7 +678,7 @@ export default function Dashboard({
 
                     {item.phone ? (
                       <a
-                        href={`https://wa.me/${item.phone.replace(/[^0-9]/g, '')}`}
+                        href={getWhatsAppUrl(item.phone)}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}

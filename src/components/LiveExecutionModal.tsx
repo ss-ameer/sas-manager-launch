@@ -50,6 +50,7 @@ import Company360Modal from './Company360Modal';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import TaskCallHistoryPanel from './TaskCallHistoryPanel';
 import { IndustryBadge } from '../utils/taxonomy';
+import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -476,9 +477,7 @@ export default function LiveExecutionModal({
   };
 
   const cleanWhatsAppUrl = (phoneStr: string) => {
-    if (!phoneStr) return '#';
-    const cleanDigits = phoneStr.replace(/[^\d]/g, '');
-    return `https://wa.me/${cleanDigits}`;
+    return getWhatsAppUrl(phoneStr);
   };
 
   // 1-Click Disposition Matrix Selection
@@ -931,6 +930,7 @@ export default function LiveExecutionModal({
                           href={cleanWhatsAppUrl(directPhone)}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
                           title={`WhatsApp message to ${displayContactName}`}
                         >
@@ -969,7 +969,7 @@ export default function LiveExecutionModal({
                     </div>
                   </div>
 
-                  {/* Mainline Number & 1-Click Call Button */}
+                  {/* Mainline Number & 1-Click Call / WhatsApp Buttons */}
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                     <div className="truncate">
                       <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
@@ -983,11 +983,24 @@ export default function LiveExecutionModal({
                         <a
                           id="company-mainline-call-button"
                           href={cleanTelUrl(companyMainPhone)}
-                          className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
                           title={`Call Switchboard (${companyMainPhone})`}
                         >
                           <Phone className="w-3.5 h-3.5" />
                           <span>Call</span>
+                        </a>
+                        <a
+                          id="company-mainline-whatsapp-button"
+                          href={cleanWhatsAppUrl(companyMainPhone)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                          title={`WhatsApp Switchboard (${companyMainPhone})`}
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
                         </a>
                       </div>
                     ) : (

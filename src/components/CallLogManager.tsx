@@ -63,6 +63,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
+import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 
 export function getOffsetDateString(offsetDays: number): string {
   const d = new Date();
@@ -1887,7 +1888,7 @@ export default function CallLogManager({
                                   contactPhone: item.contact_phone,
                                   enquiryId: item.enquiry_id,
                                   channel: 'WhatsApp',
-                                  externalUrl: `https://wa.me/${item.contact_phone.replace(/\D/g, '')}`,
+                                  externalUrl: getWhatsAppUrl(item.contact_phone),
                                   e
                                 });
                               }}
@@ -1988,7 +1989,7 @@ export default function CallLogManager({
                                 enquiryId: item.enquiry_id,
                                 channel: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp' ? 'WhatsApp' : 'Call',
                                 externalUrl: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp'
-                                  ? `https://wa.me/${item.contact_phone.replace(/\D/g, '')}`
+                                  ? getWhatsAppUrl(item.contact_phone)
                                   : `tel:${item.contact_phone}`,
                                 e
                               });

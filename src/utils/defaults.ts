@@ -462,4 +462,51 @@ export function normalizeCallLog(raw: any, activeWsId?: string, companies?: Comp
   };
 }
 
+/**
+ * Centralized WhatsApp number sanitizer.
+ * Strips non-digits, handles '00' prefixes, replaces UAE local '0' with +971,
+ * and handles 9-digit UAE numbers without leading zero.
+ */
+export function sanitizeWhatsAppNumber(phone?: any, defaultCountryCode = '971'): string {
+  if (!phone) return '';
+  const rawStr = typeof phone === 'object' && phone !== null ? ((phone as any).number || (phone as any).value || '') : String(phone || '');
+  // Strip all non-digit characters
+  let cleaned = rawStr.replace(/\D/g, '');
+
+  // Remove leading international prefix '00'
+  if (cleaned.startsWith('00')) {
+    cleaned = cleaned.substring(2);
+  }
+
+  // Handle UAE local prefix: if it starts with '0' (e.g., 050, 052, 054, 055, 056, 058)
+  if (cleaned.startsWith('0')) {
+    cleaned = defaultCountryCode + cleaned.substring(1);
+  }
+
+  // If user entered 9-digit UAE mobile without leading 0 (e.g., 501234567 or 521234567)
+  if (cleaned.length === 9 && (cleaned.startsWith('5') || cleaned.startsWith('4') || cleaned.startsWith('6'))) {
+    cleaned = defaultCountryCode + cleaned;
+  }
+
+  return cleaned;
+}
+
+/**
+ * Centralized WhatsApp URL generator.
+ * Generates https://wa.me/<sanitized_number> with optional pre-filled text.
+ */
+export function getWhatsAppUrl(phone: string, text?: string): string {
+  const sanitized = sanitizeWhatsAppNumber(phone);
+  if (!sanitized) {
+    if (text) {
+      return `https://wa.me/?text=${encodeURIComponent(text)}`;
+    }
+    return 'https://wa.me/';
+  }
+  if (text) {
+    return `https://wa.me/${sanitized}?text=${encodeURIComponent(text)}`;
+  }
+  return `https://wa.me/${sanitized}`;
+}
+
 

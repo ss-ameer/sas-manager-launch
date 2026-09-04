@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Contact, getContactPhones, getContactEmails, getContactHandles, CallLogEntry, Enquiry, UserProfile, Salesperson } from '../types';
 import { canEditOrDeleteRecord, isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
+import { getWhatsAppUrl } from '../utils/defaults';
 import {
   X,
   User,
@@ -135,9 +136,9 @@ export default function ContactDetailModal({
         <div className="p-6 space-y-5 flex-1 overflow-y-auto">
           {/* Quick Action Buttons */}
           <div className="grid grid-cols-3 gap-2">
-            {!isMaskedForBasic && whatsappPhone ? (
+            {!isMaskedForBasic && primaryPhone ? (
               <a
-                href={`https://wa.me/${whatsappPhone}`}
+                href={getWhatsAppUrl(primaryPhone)}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}

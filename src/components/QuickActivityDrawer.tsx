@@ -56,7 +56,7 @@ import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
-import { SYSTEM_CALL_PURPOSES } from '../utils/defaults';
+import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 import { normalizeActivityChannel } from '../context/ActivityLauncherContext';
 import {
   CHANNELS,
@@ -864,12 +864,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
     const isMsg = isMessageChannel(channel);
     const sanitizedNumber = trimmed.replace(/[^\d+]/g, '');
-    const cleanNumber = trimmed.replace(/[^\d]/g, '');
 
     const handleAction = (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isMsg) {
-        window.open(`https://wa.me/${cleanNumber}`, '_blank');
+        window.open(getWhatsAppUrl(trimmed), '_blank', 'noopener,noreferrer');
       } else {
         window.location.href = `tel:${sanitizedNumber}`;
       }
@@ -982,9 +981,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setCopiedWhatsapp(true);
     setTimeout(() => setCopiedWhatsapp(false), 2500);
 
-    const targetPhone = (selectedContactPhone || expressContactPhones[0]?.number || expressCompanyPhones[0]?.number || '').replace(/[^0-9]/g, '');
-    const encodedText = encodeURIComponent(whatsappDraft);
-    const targetUrl = targetPhone ? `https://wa.me/${targetPhone}?text=${encodedText}` : `https://wa.me/?text=${encodedText}`;
+    const rawTargetPhone = selectedContactPhone || expressContactPhones[0]?.number || expressCompanyPhones[0]?.number || '';
+    const targetUrl = getWhatsAppUrl(rawTargetPhone, whatsappDraft);
     window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 

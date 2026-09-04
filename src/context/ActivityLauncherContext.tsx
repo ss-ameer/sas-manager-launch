@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useCallback } from 'react';
 import { Company, Contact, CallLogEntry, ActivityChannel, CallStatus } from '../types';
+import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 
 export type UniversalChannel =
   | 'phone'
@@ -33,10 +34,7 @@ export function normalizeActivityChannel(raw?: string): ActivityChannel {
   return 'Call';
 }
 
-export function sanitizeWhatsAppNumber(num?: any): string {
-  if (!num) return '';
-  return String(typeof num === 'object' ? (num.number || num.value || '') : num).replace(/\D/g, '');
-}
+export { sanitizeWhatsAppNumber, getWhatsAppUrl };
 
 export interface InitiateActivityOptions {
   company?: Company | { id?: string; display_name?: string; canonical_name?: string; [key: string]: any } | null;
