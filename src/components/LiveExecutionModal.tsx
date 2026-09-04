@@ -21,7 +21,9 @@ import {
   Users,
   MapPin,
   Activity,
-  Briefcase
+  Briefcase,
+  PanelRightClose,
+  PanelRightOpen
 } from 'lucide-react';
 import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, isSamePhoneNumber } from '../types';
 import { safeSetDoc } from '../firebase';
@@ -43,6 +45,7 @@ import { formatActivityDate } from './CallLogManager';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import TaskCallHistoryPanel from './TaskCallHistoryPanel';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -121,6 +124,14 @@ export default function LiveExecutionModal({
   const [isContactModalOpen, setIsContactModalOpen] = useState<boolean>(false);
   const [isCompany360Open, setIsCompany360Open] = useState<boolean>(false);
 
+  // Expandable Call History Panel state (default: split-view on desktop, collapsed on mobile)
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return false;
+  });
+
   // Fetched history logs fallback if callLogs not passed
   const [fetchedCompanyLogs, setFetchedCompanyLogs] = useState<CallLogEntry[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
@@ -194,7 +205,7 @@ export default function LiveExecutionModal({
           const matching = allLogs
             .filter((l) => l.company_id === task.company_id && l.id !== task.id)
             .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
-            .slice(0, 5);
+            .slice(0, 100);
           setFetchedCompanyLogs(matching);
         }
       } catch (err) {
@@ -217,7 +228,7 @@ export default function LiveExecutionModal({
       return callLogs
         .filter((l) => l.company_id === task.company_id && l.id !== task.id)
         .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
-        .slice(0, 5);
+        .slice(0, 100);
     }
     return fetchedCompanyLogs;
   }, [task, callLogs, fetchedCompanyLogs]);
@@ -472,7 +483,9 @@ export default function LiveExecutionModal({
     >
       <div
         id="live-execution-modal-container"
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-150"
+        className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-h-[90vh] flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 animate-in zoom-in-95 duration-150 transition-all ${
+          isHistoryExpanded ? 'max-w-5xl' : 'max-w-2xl'
+        }`}
       >
         {/* Modal Top Bar (Sticky Header) */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 shrink-0">
@@ -489,19 +502,53 @@ export default function LiveExecutionModal({
               </p>
             </div>
           </div>
-          <button
-            id="close-live-execution-modal-button"
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center space-x-2">
+            {/* Previous Activity Toggle Button with Counter Badge */}
+            <button
+              type="button"
+              id="toggle-live-history-panel-button"
+              onClick={() => setIsHistoryExpanded((prev) => !prev)}
+              className={`inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                isHistoryExpanded
+                  ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 border border-slate-200 dark:border-slate-700 shadow-2xs'
+              }`}
+              title={isHistoryExpanded ? 'Collapse Previous Activity Panel' : 'Expand Previous Activity Panel'}
+              aria-label={isHistoryExpanded ? 'Collapse Previous Activity Panel' : 'Expand Previous Activity Panel'}
+            >
+              <History className="w-3.5 h-3.5 text-blue-500" />
+              <span className="hidden sm:inline">Previous Activity</span>
+              <span
+                id="header-history-logs-count"
+                className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-600 text-white dark:bg-blue-500"
+              >
+                {recentHistoryLogs.length}
+              </span>
+              {isHistoryExpanded ? (
+                <PanelRightClose className="w-3.5 h-3.5 ml-0.5 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <PanelRightOpen className="w-3.5 h-3.5 ml-0.5 text-slate-400" />
+              )}
+            </button>
+
+            <button
+              id="close-live-execution-modal-button"
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <form onSubmit={handleExecute} className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Modal Main Content Area: Split-pane when history is expanded */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+          {/* Active Dialing & Task Resolution Form (Left Pane) */}
+          <div className={`flex-1 flex flex-col overflow-hidden ${isHistoryExpanded ? 'md:w-7/12 lg:w-3/5' : 'w-full'}`}>
+            <form onSubmit={handleExecute} className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Target Task Briefing Card */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -566,13 +613,19 @@ export default function LiveExecutionModal({
               </p>
             </div>
 
-            {/* FEATURE 1: Recent Company History */}
-            <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  <History className="w-3 h-3 text-blue-500" />
-                  <span>Recent Company History</span>
-                </div>
+            {/* Previous Company History Quick Indicator & Expand Button */}
+            <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
+                <History className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <span className="font-semibold text-[11px] sm:text-xs">
+                  Previous Activity:
+                </span>
+                <span
+                  id="briefing-history-logs-count"
+                  className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                >
+                  {recentHistoryLogs.length} {recentHistoryLogs.length === 1 ? 'Log' : 'Logs'}
+                </span>
                 {isLoadingHistory && (
                   <span className="text-[10px] text-slate-400 flex items-center space-x-1">
                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -581,88 +634,37 @@ export default function LiveExecutionModal({
                 )}
               </div>
 
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {recentHistoryLogs.length > 0 ? (
-                  recentHistoryLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-xs space-y-1"
-                    >
-                      <div className="flex items-center justify-between gap-1 flex-wrap">
-                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                          {formatActivityDate(log.date || log.createdAt)}
-                        </span>
-                        <div className="flex items-center space-x-1.5">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                            {log.channel || 'Call'}
-                          </span>
-                          {(() => {
-                            const stLower = (log.status || '').toLowerCase();
-                            const isComp = stLower === 'completed log' || stLower === 'completed' || stLower.includes('conducted') || stLower.includes('sent');
-                            const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong');
-                            const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail');
-                            const badgeColor = isComp
-                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                              : isInv
-                              ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
-                              : isNoAns
-                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                              : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-                            return (
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${badgeColor}`}>
-                                {log.status}
-                              </span>
-                            );
-                          })()}
-                          {(() => {
-                            const normChan = (log.channel || log.interaction_type || '').toLowerCase();
-                            const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
-                            if (isAsync && log.purpose) {
-                              return (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                  {log.purpose}
-                                </span>
-                              );
-                            }
-                            if (log.outcome) {
-                              return (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  {log.outcome}
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                        </div>
-                      </div>
-                      {log.requirement_notes && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 italic">
-                          "{log.requirement_notes}"
-                        </p>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-2.5 text-center bg-slate-50 dark:bg-slate-800/40 rounded-lg text-[11px] text-slate-400">
-                    No prior activity logs recorded for this company account.
-                  </div>
-                )}
-              </div>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  id="briefing-toggle-history-panel-button"
+                  onClick={() => setIsHistoryExpanded((prev) => !prev)}
+                  className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    isHistoryExpanded
+                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                      : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 shadow-2xs'
+                  }`}
+                >
+                  <span>{isHistoryExpanded ? 'Collapse History' : 'Expand History Feed'}</span>
+                  {isHistoryExpanded ? (
+                    <PanelRightClose className="w-3.5 h-3.5 ml-0.5" />
+                  ) : (
+                    <PanelRightOpen className="w-3.5 h-3.5 ml-0.5" />
+                  )}
+                </button>
 
-              {/* View Full History Button */}
-              {task?.company_id && (
-                <div className="pt-2 flex justify-end">
+                {task?.company_id && (
                   <button
                     type="button"
                     id="open-company-360-history-button"
                     onClick={() => setIsCompany360Open(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50/80 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 transition cursor-pointer shadow-2xs"
+                    className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                    title="Open Complete Company 360 History"
                   >
-                    <History className="w-3.5 h-3.5" />
-                    <span>View Full History</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -1042,6 +1044,24 @@ export default function LiveExecutionModal({
             </button>
           </div>
         </form>
+      </div>
+
+          {/* Dedicated Expandable Call History Panel (Right Pane on Desktop / Split View) */}
+          {isHistoryExpanded && (
+            <div className="w-full md:w-5/12 lg:w-2/5 flex flex-col border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-800 max-h-[360px] md:max-h-none overflow-hidden shrink-0">
+              <TaskCallHistoryPanel
+                companyName={companyName}
+                companyId={task.company_id}
+                historyLogs={recentHistoryLogs}
+                isLoading={isLoadingHistory}
+                isExpanded={isHistoryExpanded}
+                onToggleExpand={() => setIsHistoryExpanded(false)}
+                onOpenCompany360={() => setIsCompany360Open(true)}
+                contacts={contacts}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Full Contact Creation Modal */}
