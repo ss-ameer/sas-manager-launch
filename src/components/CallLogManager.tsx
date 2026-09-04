@@ -4043,6 +4043,7 @@ export default function CallLogManager({
         isOpen={Boolean(executionModalTask)}
         onClose={() => setExecutionModalTask(null)}
         task={executionModalTask}
+        onSwitchTask={setExecutionModalTask}
         onSuccess={handleLogSaved}
         user={user}
         callLogs={workspaceCallLogs}
