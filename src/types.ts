@@ -159,9 +159,10 @@ export interface Contact extends SoftDeleteFields {
   updatedAt?: string;
 }
 
-export function normalizePhoneNumber(phone?: string): string {
+export function normalizePhoneNumber(phone?: any): string {
   if (!phone) return '';
-  return phone.replace(/\D/g, '');
+  const str = typeof phone === 'string' ? phone : (typeof phone === 'object' ? (phone.number || phone.value || '') : String(phone));
+  return str.replace(/\D/g, '');
 }
 
 export function isSamePhoneNumber(phoneA?: string, phoneB?: string): boolean {

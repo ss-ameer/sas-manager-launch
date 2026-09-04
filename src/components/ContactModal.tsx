@@ -9,9 +9,9 @@ import { recordAuditLog } from '../utils/auditLogger';
 import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export function normalizePhoneKey(phone?: string): string {
+export function normalizePhoneKey(phone?: any): string {
   if (!phone) return '';
-  const trimmed = phone.trim();
+  const trimmed = String(typeof phone === 'object' ? (phone.number || phone.value || '') : phone).trim();
   const hasLeadingPlus = trimmed.startsWith('+');
   const digitsOnly = trimmed.replace(/[^\d]/g, '');
   if (!digitsOnly) return '';
@@ -522,8 +522,17 @@ export default function ContactModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div
+        className="bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-950/80 sticky top-0 z-10">
           <div className="flex items-center space-x-3">

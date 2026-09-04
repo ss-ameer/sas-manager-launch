@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
+import { useEntityEdit } from '../context/EntityEditContext';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { recordAuditLog } from '../utils/auditLogger';
 import { getReferenceId } from '../utils/refId';
@@ -262,6 +263,7 @@ export default function CallLogManager({
   onEditCompany,
   onOpenMobileMenu
 }: CallLogManagerProps) {
+  const { openEditCompany, openEditContact } = useEntityEdit();
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
@@ -3915,9 +3917,10 @@ export default function CallLogManager({
         activeWorkspace={activeWorkspace}
         onClose={() => setSelected360CompanyId(null)}
         onEditCompany={(company) => {
-          setSelected360CompanyId(null);
           if (onEditCompany) {
             onEditCompany(company);
+          } else {
+            openEditCompany(company);
           }
         }}
         onOpenActivityDrawer={onOpenActivityDrawer}

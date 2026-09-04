@@ -4,7 +4,7 @@ import { collection, writeBatch, doc } from 'firebase/firestore';
 import { DropdownOption, Enquiry, Product, UserProfile, CallLogEntry, Company } from '../types';
 import { ShieldCheck, Plus, Trash2, Edit2, Check, X, AlertTriangle, Info } from 'lucide-react';
 import { CardPanel } from './layout/UiContainer';
-import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName } from '../utils/defaults';
+import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName } from '../utils/defaults';
 import { isWorkspaceAdmin } from '../utils/permissions';
 
 interface DropdownSettingsProps {
@@ -88,13 +88,19 @@ export default function DropdownSettingsManager({
       return SYSTEM_CALL_STATUSES.some(s => normalizeOptionName(s) === norm);
     }
     if (tab === 'outcomes') {
-      return SYSTEM_CALL_OUTCOMES.some(o => normalizeOptionName(o) === norm);
+      return SYSTEM_CALL_OUTCOMES.some(o => {
+        const oName = typeof o === 'object' && o !== null ? (o.name || o.label || o) : o;
+        return normalizeOptionName(oName) === norm;
+      });
     }
     if (tab === 'relationships') {
       return SYSTEM_COMPANY_RELATIONSHIPS.some(r => normalizeOptionName(r) === norm);
     }
     if (tab === 'temperatures') {
       return SYSTEM_COMPANY_TEMPERATURES.some(t => normalizeOptionName(t) === norm);
+    }
+    if (tab === 'purposes') {
+      return SYSTEM_CALL_PURPOSES.some(p => normalizeOptionName(p) === norm);
     }
     return false;
   };

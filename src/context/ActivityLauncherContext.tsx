@@ -33,8 +33,9 @@ export function normalizeActivityChannel(raw?: string): ActivityChannel {
   return 'Call';
 }
 
-export function sanitizeWhatsAppNumber(num: string): string {
-  return num.replace(/\D/g, '');
+export function sanitizeWhatsAppNumber(num?: any): string {
+  if (!num) return '';
+  return String(typeof num === 'object' ? (num.number || num.value || '') : num).replace(/\D/g, '');
 }
 
 export interface InitiateActivityOptions {

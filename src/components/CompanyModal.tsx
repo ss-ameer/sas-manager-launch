@@ -202,9 +202,10 @@ function formatHistoryDate(dateStr?: string): string {
   }
 }
 
-export function sanitizeWhatsAppNumber(phone: string): string {
+export function sanitizeWhatsAppNumber(phone?: any): string {
   if (!phone) return '';
-  const digits = phone.replace(/\D/g, '');
+  const str = typeof phone === 'object' ? (phone.number || phone.value || '') : String(phone);
+  const digits = str.replace(/\D/g, '');
   if (digits.startsWith('05') && digits.length === 10) {
     return '971' + digits.substring(1);
   }

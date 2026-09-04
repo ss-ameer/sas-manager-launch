@@ -30,6 +30,9 @@ import Company360Modal from './components/Company360Modal';
 import FreshAccountOnboardingModal from './components/FreshAccountOnboardingModal';
 import { SuperAdminConsoleModal } from './components/SuperAdminConsoleModal';
 import { QuickActivityDrawer } from './components/QuickActivityDrawer';
+import CompanyEditModal from './components/CompanyEditModal';
+import ContactModal from './components/ContactModal';
+import { EntityEditContext } from './context/EntityEditContext';
 import { EnquiryRepository } from './services/repositories/EnquiryRepository';
 import { CompanyRepository } from './services/repositories/CompanyRepository';
 import { CallLogRepository } from './services/repositories/CallLogRepository';
@@ -294,10 +297,69 @@ export default function App() {
   const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [companyEditContext, setCompanyEditContext] = useState<{ id: string; openEdit: boolean; timestamp?: number } | null>(null);
 
+  // Universal Global Company & Contact Edit Modal States (high z-index overlay)
+  const [globalEditCompanyModal, setGlobalEditCompanyModal] = useState<{
+    isOpen: boolean;
+    company?: Company | null;
+    companyId?: string;
+    onSavedCallback?: (savedCompany: Company) => void;
+  }>({ isOpen: false });
+
+  const [globalEditContactModal, setGlobalEditContactModal] = useState<{
+    isOpen: boolean;
+    contact?: Contact | null;
+    companyId?: string;
+    onSavedCallback?: (savedContact: Contact) => void;
+  }>({ isOpen: false });
+
+  const handleGlobalEditCompany = useCallback(
+    (companyOrId: Company | string, onSaved?: (savedComp: Company) => void) => {
+      let compObj: Company | null = null;
+      let compId: string | undefined = undefined;
+      if (typeof companyOrId === 'string') {
+        compId = companyOrId;
+        compObj = companies.find((c) => c.id === companyOrId) || null;
+      } else if (companyOrId && typeof companyOrId === 'object') {
+        compObj = companyOrId;
+        compId = companyOrId.id;
+      }
+      setGlobalEditCompanyModal({
+        isOpen: true,
+        company: compObj,
+        companyId: compId,
+        onSavedCallback: onSaved
+      });
+    },
+    [companies]
+  );
+
+  const handleGlobalEditContact = useCallback(
+    (companyId?: string, contactOrId?: Contact | string, onSaved?: (savedCt: Contact) => void) => {
+      let ctObj: Contact | null = null;
+      let effectiveCompanyId = companyId;
+      if (typeof contactOrId === 'string') {
+        ctObj = contacts.find((c) => c.id === contactOrId) || null;
+        if (!effectiveCompanyId && ctObj?.company_id) {
+          effectiveCompanyId = ctObj.company_id;
+        }
+      } else if (contactOrId && typeof contactOrId === 'object') {
+        ctObj = contactOrId;
+        if (!effectiveCompanyId && ctObj.company_id) {
+          effectiveCompanyId = ctObj.company_id;
+        }
+      }
+      setGlobalEditContactModal({
+        isOpen: true,
+        contact: ctObj,
+        companyId: effectiveCompanyId,
+        onSavedCallback: onSaved
+      });
+    },
+    [contacts]
+  );
+
   const handleEditCompanyFrom360 = (company: Company) => {
-    setSelected360CompanyId(null);
-    setCompanyEditContext({ id: company.id, openEdit: true, timestamp: Date.now() });
-    setCurrentTab('companies');
+    handleGlobalEditCompany(company);
   };
   const [activityDrawerContext, setActivityDrawerContext] = useState<ActivityDrawerContextState>({});
 
@@ -1406,14 +1468,20 @@ export default function App() {
   };
 
   return (
-    <ActivityLauncherProvider
-      isActivityDrawerOpen={isActivityDrawerOpen}
-      setIsActivityDrawerOpen={setIsActivityDrawerOpen}
-      activityDrawerContext={activityDrawerContext}
-      setActivityDrawerContext={setActivityDrawerContext}
-      companies={visibleCompanies}
-      contacts={contacts}
+    <EntityEditContext.Provider
+      value={{
+        openEditCompany: handleGlobalEditCompany,
+        openEditContact: handleGlobalEditContact
+      }}
     >
+      <ActivityLauncherProvider
+        isActivityDrawerOpen={isActivityDrawerOpen}
+        setIsActivityDrawerOpen={setIsActivityDrawerOpen}
+        activityDrawerContext={activityDrawerContext}
+        setActivityDrawerContext={setActivityDrawerContext}
+        companies={visibleCompanies}
+        contacts={contacts}
+      >
       <div className="flex bg-slate-50 text-slate-900 h-screen overflow-hidden">
       {/* Sidebar Navigation */}
       <Sidebar
@@ -1982,8 +2050,53 @@ export default function App() {
         onClose={() => setIsSuperAdminConsoleOpen(false)}
         workspaces={workspaces}
       />
+
+      {/* Universal Global Company Edit Modal */}
+      {user && (
+        <CompanyEditModal
+          isOpen={globalEditCompanyModal.isOpen}
+          onClose={() => setGlobalEditCompanyModal({ isOpen: false })}
+          company={globalEditCompanyModal.company}
+          companyId={globalEditCompanyModal.companyId}
+          companies={companies}
+          activeWorkspace={activeWorkspace}
+          user={user}
+          companyRelationships={companyRelationships}
+          industryTypes={industryTypes}
+          setCompanies={setCompanies}
+          setCallLogs={setCallLogs}
+          triggerToast={triggerToast}
+          onSaved={(saved) => {
+            if (globalEditCompanyModal.onSavedCallback) {
+              globalEditCompanyModal.onSavedCallback(saved);
+            }
+          }}
+        />
+      )}
+
+      {/* Universal Global Contact Modal */}
+      {user && (
+        <ContactModal
+          isOpen={globalEditContactModal.isOpen}
+          onClose={() => setGlobalEditContactModal({ isOpen: false })}
+          companyId={globalEditContactModal.companyId || globalEditContactModal.contact?.company_id || ''}
+          contact={globalEditContactModal.contact}
+          companies={companies}
+          activeWorkspaceId={activeWorkspace?.id || ''}
+          user={user}
+          setContacts={setContacts}
+          setCompanies={setCompanies}
+          setCallLogs={setCallLogs}
+          onSaved={(saved) => {
+            if (globalEditContactModal.onSavedCallback) {
+              globalEditContactModal.onSavedCallback(saved);
+            }
+          }}
+        />
+      )}
     </div>
     </ActivityLauncherProvider>
+    </EntityEditContext.Provider>
   );
 }
 

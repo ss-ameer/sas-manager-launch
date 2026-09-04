@@ -140,7 +140,7 @@ export function getReferenceId(
   }
 
   // Fallback if not matched in array
-  const sanitized = rawId.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const sanitized = String(rawId || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   const shortHash = sanitized.slice(-4).padStart(4, '0');
 
   return `${type}-${shortHash}`;

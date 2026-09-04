@@ -73,9 +73,16 @@ export const SYSTEM_CALL_OUTCOME_DESCRIPTIONS: Record<string, string> = {
   'Closed – Deal Made': 'Agreement reached / sale closed on the call'
 };
 
-export function normalizeOptionName(str: string): string {
-  if (!str) return '';
-  return str
+export function normalizeOptionName(str: any): string {
+  if (str == null) return '';
+  let val = str;
+  if (typeof val === 'object') {
+    val = val.name ?? val.label ?? val.value ?? val.title ?? '';
+  } else if (typeof val !== 'string') {
+    val = String(val);
+  }
+  if (!val || typeof val !== 'string') return '';
+  return val
     .replace(/[\u2010-\u2015-]/g, '-') // Normalize all hyphens/dashes to standard hyphen
     .replace(/\s+/g, ' ')             // Normalize whitespace
     .trim()
@@ -132,28 +139,29 @@ export function healDropdownOptions(
 
   defaults.forEach((defItem, i) => {
     const isObject = typeof defItem === 'object' && defItem !== null;
-    const defName = isObject ? (defItem.label || defItem.name) : defItem;
+    const rawName = isObject ? (defItem.label || defItem.name || '') : String(defItem || '');
+    const defName = typeof rawName === 'string' ? rawName : String(rawName);
     const docId = isObject ? (defItem.id || prefix + '_' + i) : prefix + '_' + i;
     const normDef = normalizeOptionName(defName);
-    const defColor = defaultColors ? defaultColors[defName] : undefined;
+    const defColor = defaultColors && typeof defName === 'string' ? defaultColors[defName] : (isObject ? defItem.color : undefined);
     const defSentiment = isObject ? defItem.sentiment : undefined;
     
     // Check if there is an item with the exact ID
-    const existingByIdIndex = list.findIndex(item => item.id === docId);
+    const existingByIdIndex = list.findIndex(item => item && item.id === docId);
     if (existingByIdIndex !== -1) {
       const existingById = list[existingByIdIndex];
       let itemChanged = false;
       let updatedItem = { ...existingById };
 
-      if (normalizeOptionName(existingById.name) !== normDef) {
+      if (normalizeOptionName(existingById?.name) !== normDef) {
         updatedItem.name = defName;
         itemChanged = true;
       }
-      if (defColor && !existingById.color) {
+      if (defColor && !existingById?.color) {
         updatedItem.color = defColor;
         itemChanged = true;
       }
-      if (defSentiment && existingById.sentiment !== defSentiment) {
+      if (defSentiment && existingById?.sentiment !== defSentiment) {
         updatedItem.sentiment = defSentiment;
         itemChanged = true;
       }
@@ -164,7 +172,7 @@ export function healDropdownOptions(
       }
     } else {
       // Check if there is an item with the same name anywhere in the list under a different ID
-      const existingByNameIndex = list.findIndex(item => normalizeOptionName(item.name) === normDef);
+      const existingByNameIndex = list.findIndex(item => item && normalizeOptionName(item.name) === normDef);
       if (existingByNameIndex !== -1) {
         const existingByName = list[existingByNameIndex];
         list[existingByNameIndex] = {
@@ -193,6 +201,7 @@ export function healDropdownOptions(
   const deduplicatedList: DropdownOption[] = [];
 
   for (const item of list) {
+    if (!item) continue;
     const normName = normalizeOptionName(item.name);
     if (!normName || seenNames.has(normName) || (item.id && seenIds.has(item.id))) {
       changed = true;
@@ -206,9 +215,11 @@ export function healDropdownOptions(
   return { mergedList: deduplicatedList, changed };
 }
 
-export function computeCanonicalName(displayName: string): string {
+export function computeCanonicalName(displayName: any): string {
   if (!displayName) return '';
-  let cleaned = displayName.toLowerCase();
+  const str = typeof displayName === 'string' ? displayName : String(displayName?.name || displayName || '');
+  if (!str) return '';
+  let cleaned = str.toLowerCase();
   cleaned = cleaned.replace(/\b(l\.?l\.?c\.?|fze|fzc|fz-llc|inc\.?|corp\.?|corporation|ltd\.?|limited|pjsc|p\.?j\.?s\.?c\.?|w\.?l\.?l\.?|est\.?|co\.?|company)\b/gi, '');
   cleaned = cleaned.replace(/[^\w\s]/gi, ' ');
   return cleaned.replace(/\s+/g, ' ').trim();

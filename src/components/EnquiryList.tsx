@@ -29,6 +29,7 @@ import { isRecordOwner, canEditOrDeleteRecord } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
+import { useEntityEdit } from '../context/EntityEditContext';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
@@ -73,6 +74,7 @@ export default function EnquiryList({
   onInitiateActivity
 }: EnquiryListProps) {
   const launcher = useActivityLauncher();
+  const { openEditCompany } = useEntityEdit();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -686,7 +688,17 @@ export default function EnquiryList({
                       <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold">#{e.sn}</td>
                       <td className="py-4 px-6 font-semibold text-slate-900 dark:text-slate-100 max-w-[260px]">
                         <div className="flex items-center space-x-2">
-                          <span className="truncate">{companyName}</span>
+                          <span 
+                            className={`truncate ${e.company_id ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : ''}`}
+                            onClick={() => {
+                              if (e.company_id) {
+                                openEditCompany(e.company_id);
+                              }
+                            }}
+                            title={e.company_id ? "View/Edit company details" : undefined}
+                          >
+                            {companyName}
+                          </span>
                           {(() => {
                             const linkedComp = companies.find((c) => c.id === e.company_id);
                             if (!linkedComp) return null;

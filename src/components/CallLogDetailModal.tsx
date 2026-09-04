@@ -4,6 +4,7 @@ import LeadConversionModal from './LeadConversionModal';
 import TemperatureBadge from './TemperatureBadge';
 import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord } from '../utils/permissions';
+import { useEntityEdit } from '../context/EntityEditContext';
 import {
   PhoneCall,
   Building2,
@@ -72,6 +73,7 @@ export default function CallLogDetailModal({
 }: CallLogDetailModalProps) {
   const [copiedDraft, setCopiedDraft] = useState(false);
   const [showConvertModal, setShowConvertModal] = useState(false);
+  const { openEditCompany, openEditContact } = useEntityEdit();
 
   if (!entry) return null;
 
@@ -312,21 +314,35 @@ export default function CallLogDetailModal({
                   const targetCompanyId = entry.company_id || linkedCompany?.id;
                   if (!targetCompanyId) return null;
                   return (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onOpenCompany360) {
-                          onClose();
-                          onOpenCompany360(targetCompanyId);
-                        }
-                      }}
-                      className="text-xs font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer hover:underline"
-                      title="Open 360° Company Intelligence Dashboard"
-                    >
-                      <span>Company 360°</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditCompany(targetCompanyId);
+                        }}
+                        className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer hover:underline"
+                        title="Edit Company Details"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit Company</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onOpenCompany360) {
+                            onClose();
+                            onOpenCompany360(targetCompanyId);
+                          }
+                        }}
+                        className="text-xs font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer hover:underline"
+                        title="Open 360° Company Intelligence Dashboard"
+                      >
+                        <span>Company 360°</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
                   );
                 })()}
               </div>
@@ -394,10 +410,40 @@ export default function CallLogDetailModal({
 
             {/* Contact Box */}
             <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/80 hover:border-slate-700 transition shadow-xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 flex items-center gap-1">
-                <User className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Contact Person</span>
-              </span>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Contact Person</span>
+                </span>
+                {linkedContact && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditContact(linkedContact.company_id || entry.company_id, linkedContact);
+                    }}
+                    className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer hover:underline"
+                    title="Edit Contact Person"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>Edit Contact</span>
+                  </button>
+                )}
+                {!linkedContact && (entry.company_id || linkedCompany?.id) && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditContact(entry.company_id || linkedCompany?.id);
+                    }}
+                    className="text-xs font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer hover:underline"
+                    title="Add Contact Person"
+                  >
+                    <PlusCircle className="w-3 h-3" />
+                    <span>Add Contact</span>
+                  </button>
+                )}
+              </div>
 
               <div className="font-bold text-slate-100 text-sm">
                 {entry.contact_name || entry.unlinked_name || 'No Personnel Contact Assigned'}

@@ -29,9 +29,11 @@ import {
   Trash2,
   Briefcase,
   UserPlus,
-  Zap
+  Zap,
+  Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useEntityEdit } from '../context/EntityEditContext';
 import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import {
   Company,
@@ -237,6 +239,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   onInspectCompany,
   onOpenCompanyModal
 }) => {
+  const { openEditCompany, openEditContact } = useEntityEdit();
   const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
   const interactionChannel = channel;
   const isInternalTask = isInternalTaskChannel(interactionChannel);
@@ -2268,41 +2271,67 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               <p className="text-[10px] text-slate-400 font-mono">Selected Account</p>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedCompanyId('');
-                              setSelectedCompanyName('');
-                              setSelectedContactId('');
-                              setSelectedContactName('');
-                              setSelectedContactPhone('');
-                              setSelectedEnquiryId('');
-                              setSelectedEnquiryQuoteRef('');
-                              setIsComboboxOpen(true);
-                            }}
-                            className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors cursor-pointer"
-                          >
-                            Change
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {selectedCompanyId && (
+                              <button
+                                type="button"
+                                onClick={() => openEditCompany(selectedCompanyId)}
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+                                title="Edit Company Profile & Contacts"
+                              >
+                                <Edit2 className="w-3 h-3 text-indigo-400" />
+                                <span>Edit</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCompanyId('');
+                                setSelectedCompanyName('');
+                                setSelectedContactId('');
+                                setSelectedContactName('');
+                                setSelectedContactPhone('');
+                                setSelectedEnquiryId('');
+                                setSelectedEnquiryQuoteRef('');
+                                setIsComboboxOpen(true);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Change
+                            </button>
+                          </div>
                         </div>
 
                         {/* Context Link & Company Temperature Control */}
                         <div className="flex items-center justify-between flex-wrap gap-2 px-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (selectedCompanyId) {
-                                if (onOpen360) onOpen360(selectedCompanyId);
-                                else if (onInspectCompany) onInspectCompany(selectedCompanyId);
-                                else if (onOpenCompanyModal) onOpenCompanyModal(selectedCompanyId);
-                                onClose();
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:underline transition cursor-pointer"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>[View Previous Logs]</span>
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (selectedCompanyId) {
+                                  if (onOpen360) onOpen360(selectedCompanyId);
+                                  else if (onInspectCompany) onInspectCompany(selectedCompanyId);
+                                  else if (onOpenCompanyModal) onOpenCompanyModal(selectedCompanyId);
+                                  onClose();
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:underline transition cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>[View Previous Logs]</span>
+                            </button>
+                            {selectedCompanyId && (
+                              <button
+                                type="button"
+                                onClick={() => openEditCompany(selectedCompanyId)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline transition cursor-pointer"
+                                title="Edit Company Profile in Universal Modal"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                                <span>[Edit Profile]</span>
+                              </button>
+                            )}
+                          </div>
 
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Temp:</span>
@@ -2522,9 +2551,35 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             </div>
                           ) : (
                             <div>
-                              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                                Contact Person
-                              </label>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-xs font-medium text-slate-300">
+                                  Contact Person
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  {selectedContactId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditContact(selectedCompanyId, selectedContactId)}
+                                      className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer"
+                                      title="Edit Contact Person Details"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                      <span>[Edit Contact]</span>
+                                    </button>
+                                  )}
+                                  {selectedCompanyId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditContact(selectedCompanyId)}
+                                      className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer"
+                                      title="Add New Contact Person via Modal"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>[Add Contact]</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                               <select
                                 value={selectedContactId || (selectedContactName ? 'CUSTOM' : '')}
                                 onChange={(e) => {
