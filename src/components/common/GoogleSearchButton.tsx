@@ -6,13 +6,19 @@ export interface GoogleSearchButtonProps {
   location?: string;
   className?: string;
   size?: 'sm' | 'xs';
+  id?: string;
+  onActivate?: () => void;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 export const GoogleSearchButton: React.FC<GoogleSearchButtonProps> = ({
   companyName,
   location,
   className = '',
-  size = 'xs'
+  size = 'xs',
+  id,
+  onActivate,
+  buttonRef
 }) => {
   if (!companyName || !companyName.trim()) return null;
 
@@ -20,22 +26,32 @@ export const GoogleSearchButton: React.FC<GoogleSearchButtonProps> = ({
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
   const tooltipText = `Search "${companyName.trim()}" on Google`;
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleTrigger = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
     window.open(searchUrl, '_blank', 'noopener,noreferrer');
+    if (onActivate) {
+      onActivate();
+    }
   };
 
   const isXs = size === 'xs';
+  const defaultId = id || `google-search-${companyName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30)}`;
 
   return (
     <button
+      ref={buttonRef}
       type="button"
-      id={`google-search-${companyName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30)}`}
-      onClick={handleClick}
+      id={defaultId}
+      onClick={handleTrigger}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleTrigger(e);
+        }
+      }}
       title={tooltipText}
       aria-label={tooltipText}
-      className={`group inline-flex items-center justify-center gap-1 rounded border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-500 hover:bg-blue-50/70 dark:hover:bg-blue-950/40 shadow-xs transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 shrink-0 ${
+      className={`group inline-flex items-center justify-center gap-1 rounded border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-500 hover:bg-blue-50/70 dark:hover:bg-blue-950/40 shadow-xs transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 shrink-0 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:border-blue-500 ${
         isXs ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'
       } ${className}`}
     >

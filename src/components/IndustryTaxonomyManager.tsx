@@ -1,9 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { db, safeUpdateDoc, safeSetDoc } from '../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { Company, UserProfile, IndustryTaxonomySector } from '../types';
+import {
+  Company,
+  UserProfile,
+  IndustryTaxonomySector,
+  Contact,
+  Salesperson,
+  Enquiry,
+  CallLogEntry
+} from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import Company360Modal from './Company360Modal';
 import {
   Layers,
   FolderTree,
@@ -32,6 +41,10 @@ import {
 
 export interface IndustryTaxonomyManagerProps {
   companies?: Company[];
+  contacts?: Contact[];
+  salespersons?: Salesperson[];
+  enquiries?: Enquiry[];
+  callLogs?: CallLogEntry[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   user: UserProfile;
   activeWorkspaceId?: string;
@@ -39,16 +52,438 @@ export interface IndustryTaxonomyManagerProps {
   isAdmin?: boolean;
 }
 
+// -----------------------------------------------------------------------------
+// Searchable Combobox for Tier 1 (Parent Sector)
+// -----------------------------------------------------------------------------
+interface Tier1ComboboxProps {
+  id: string;
+  companyId: string;
+  value: string;
+  sectors: IndustryTaxonomySector[];
+  onSelect: (sectorId: string) => void;
+  onAdvance: () => void;
+}
+
+const Tier1Combobox: React.FC<Tier1ComboboxProps> = ({
+  id,
+  value,
+  sectors,
+  onSelect,
+  onAdvance
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightedIdx, setHighlightedIdx] = useState(0);
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedSector = useMemo(() => {
+    return sectors.find((s) => s.id === value);
+  }, [sectors, value]);
+
+  const filteredSectors = useMemo(() => {
+    if (!search.trim()) return sectors;
+    const q = search.toLowerCase().trim();
+    return sectors.filter(
+      (s) =>
+        s.label.toLowerCase().includes(q) ||
+        (s.name && s.name.toLowerCase().includes(q))
+    );
+  }, [sectors, search]);
+
+  useEffect(() => {
+    if (isOpen && listRef.current) {
+      const activeEl = listRef.current.querySelector(`[data-index="${highlightedIdx}"]`) as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIdx, isOpen]);
+
+  const handleSelect = (sectorId: string) => {
+    onSelect(sectorId);
+    setIsOpen(false);
+    setSearch('');
+    onAdvance();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else if (filteredSectors.length > 0) {
+        setHighlightedIdx((prev) => (prev + 1) % filteredSectors.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else if (filteredSectors.length > 0) {
+        setHighlightedIdx((prev) => (prev - 1 + filteredSectors.length) % filteredSectors.length);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (filteredSectors.length > 0) {
+        const target = filteredSectors[highlightedIdx] || filteredSectors[0];
+        handleSelect(target.id);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsOpen(false);
+      setSearch('');
+    } else if (e.key === 'Tab') {
+      if (isOpen && filteredSectors.length > 0) {
+        const target = filteredSectors[highlightedIdx] || filteredSectors[0];
+        onSelect(target.id);
+      }
+      setIsOpen(false);
+      setSearch('');
+    }
+  };
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (wrapperRef.current?.contains(e.relatedTarget as Node)) return;
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <div className="relative flex items-center">
+        {selectedSector && !isOpen && (
+          <span className="absolute left-2.5 pointer-events-none text-xs">
+            {selectedSector.icon}
+          </span>
+        )}
+        <input
+          id={id}
+          type="text"
+          value={isOpen ? search : (selectedSector ? selectedSector.label : '')}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+            setHighlightedIdx(0);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            setSearch('');
+            const curIdx = sectors.findIndex((s) => s.id === value);
+            setHighlightedIdx(curIdx >= 0 ? curIdx : 0);
+          }}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          placeholder={selectedSector ? selectedSector.label : "Search parent sector..."}
+          className={`w-full ${selectedSector && !isOpen ? 'pl-7' : 'pl-2.5'} pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+            isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''
+          }`}
+        />
+        <div className="absolute right-2 pointer-events-none text-slate-400">
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-150 ${isOpen ? 'rotate-180 text-blue-500' : ''}`} />
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          ref={listRef}
+          className="absolute z-40 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
+        >
+          {filteredSectors.length === 0 ? (
+            <div className="px-3 py-2 text-slate-400 italic text-[11px]">
+              No matching parent sectors
+            </div>
+          ) : (
+            filteredSectors.map((sec, idx) => {
+              const isSelected = sec.id === value;
+              const isHighlighted = idx === highlightedIdx;
+              return (
+                <div
+                  key={sec.id}
+                  data-index={idx}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelect(sec.id);
+                  }}
+                  onMouseEnter={() => setHighlightedIdx(idx)}
+                  className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors ${
+                    isHighlighted
+                      ? 'bg-blue-600 text-white font-bold'
+                      : isSelected
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold'
+                      : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <span className="text-sm shrink-0">{sec.icon}</span>
+                    <span className="truncate">{sec.label}</span>
+                  </div>
+                  {isSelected && (
+                    <Check className={`w-3.5 h-3.5 shrink-0 ${isHighlighted ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`} />
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------------
+// Searchable Combobox for Tier 2 (Child Sub-Type) with Fast Inline Creation
+// -----------------------------------------------------------------------------
+interface Tier2ComboboxProps {
+  id: string;
+  companyId: string;
+  parentId: string;
+  value: string;
+  availableSubtypes: string[];
+  disabled: boolean;
+  onCommit: (subtype: string, isNew: boolean) => void;
+}
+
+const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
+  id,
+  value,
+  availableSubtypes,
+  disabled,
+  onCommit
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightedIdx, setHighlightedIdx] = useState(0);
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  const trimmedSearch = search.trim();
+
+  const filteredSubtypes = useMemo(() => {
+    if (!trimmedSearch) return availableSubtypes;
+    const q = trimmedSearch.toLowerCase();
+    return availableSubtypes.filter((st) => st.toLowerCase().includes(q));
+  }, [availableSubtypes, trimmedSearch]);
+
+  const exactMatch = useMemo(() => {
+    if (!trimmedSearch) return false;
+    return availableSubtypes.some(
+      (st) => st.toLowerCase() === trimmedSearch.toLowerCase()
+    );
+  }, [availableSubtypes, trimmedSearch]);
+
+  const canCreateNew = Boolean(trimmedSearch && !exactMatch);
+
+  interface ComboOption {
+    type: 'create' | 'existing';
+    value: string;
+    label: string;
+  }
+
+  const allOptions: ComboOption[] = useMemo(() => {
+    const list: ComboOption[] = [];
+    if (canCreateNew) {
+      list.push({
+        type: 'create',
+        value: trimmedSearch,
+        label: `+ Create "${trimmedSearch}" (New GBP Sub-Type)`
+      });
+    }
+    filteredSubtypes.forEach((st) => {
+      list.push({
+        type: 'existing',
+        value: st,
+        label: st
+      });
+    });
+    return list;
+  }, [canCreateNew, trimmedSearch, filteredSubtypes]);
+
+  useEffect(() => {
+    if (isOpen && listRef.current) {
+      const activeEl = listRef.current.querySelector(`[data-index="${highlightedIdx}"]`) as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIdx, isOpen]);
+
+  const handleCommitOption = (optValue: string, isNew: boolean) => {
+    setIsOpen(false);
+    setSearch('');
+    onCommit(optValue, isNew);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else if (allOptions.length > 0) {
+        setHighlightedIdx((prev) => (prev + 1) % allOptions.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else if (allOptions.length > 0) {
+        setHighlightedIdx((prev) => (prev - 1 + allOptions.length) % allOptions.length);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (allOptions.length > 0) {
+        const target = allOptions[highlightedIdx] || allOptions[0];
+        handleCommitOption(target.value, target.type === 'create');
+      } else if (trimmedSearch) {
+        handleCommitOption(trimmedSearch, true);
+      } else if (value) {
+        handleCommitOption(value, false);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsOpen(false);
+      setSearch('');
+    } else if (e.key === 'Tab') {
+      if (isOpen && allOptions.length > 0) {
+        const target = allOptions[highlightedIdx] || allOptions[0];
+        handleCommitOption(target.value, target.type === 'create');
+      }
+      setIsOpen(false);
+      setSearch('');
+    }
+  };
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (wrapperRef.current?.contains(e.relatedTarget as Node)) return;
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <div className="relative flex items-center">
+        <input
+          id={id}
+          type="text"
+          disabled={disabled}
+          value={isOpen ? search : value}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+            setHighlightedIdx(0);
+          }}
+          onFocus={() => {
+            if (disabled) return;
+            setIsOpen(true);
+            setSearch('');
+            const curIdx = allOptions.findIndex((o) => o.value === value);
+            setHighlightedIdx(curIdx >= 0 ? curIdx : 0);
+          }}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          placeholder={
+            disabled
+              ? 'Select Sector First...'
+              : value || 'Search or type sub-type...'
+          }
+          className={`w-full px-2.5 pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-medium transition-all focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed ${
+            isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''
+          }`}
+        />
+        <div className="absolute right-2 pointer-events-none text-slate-400">
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-150 ${isOpen ? 'rotate-180 text-blue-500' : ''}`} />
+        </div>
+      </div>
+
+      {isOpen && !disabled && (
+        <div
+          ref={listRef}
+          className="absolute z-40 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
+        >
+          {allOptions.length === 0 ? (
+            <div className="px-3 py-2 text-slate-400 italic text-[11px]">
+              No matching sub-types. Type to create new.
+            </div>
+          ) : (
+            allOptions.map((opt, idx) => {
+              const isSelected = opt.value === value;
+              const isHighlighted = idx === highlightedIdx;
+              const isCreate = opt.type === 'create';
+
+              return (
+                <div
+                  key={`${opt.type}-${opt.value}`}
+                  data-index={idx}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleCommitOption(opt.value, isCreate);
+                  }}
+                  onMouseEnter={() => setHighlightedIdx(idx)}
+                  className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors ${
+                    isHighlighted
+                      ? isCreate
+                        ? 'bg-emerald-600 text-white font-bold'
+                        : 'bg-blue-600 text-white font-bold'
+                      : isCreate
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold'
+                      : isSelected
+                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold'
+                      : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    {isCreate ? (
+                      <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isHighlighted ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
+                    ) : (
+                      <Tag className={`w-3 h-3 shrink-0 ${isHighlighted ? 'text-white' : 'text-slate-400'}`} />
+                    )}
+                    <span className="truncate">{opt.label}</span>
+                  </div>
+                  {isCreate ? (
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold shrink-0 ${
+                      isHighlighted ? 'bg-emerald-700 text-white' : 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200'
+                    }`}>
+                      Enter to Create
+                    </span>
+                  ) : isSelected ? (
+                    <Check className={`w-3.5 h-3.5 shrink-0 ${isHighlighted ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`} />
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function IndustryTaxonomyManager({
   companies = [],
+  contacts = [],
+  salespersons = [],
+  enquiries = [],
+  callLogs = [],
   setCompanies,
   user,
+  activeWorkspaceId,
+  activeWorkspace,
   isAdmin = true
 }: IndustryTaxonomyManagerProps) {
   // ---------------------------------------------------------------------------
   // State: View Navigation (Taxonomy Structure vs Untagged Triage Station)
   // ---------------------------------------------------------------------------
   const [activeView, setActiveView] = useState<'taxonomy' | 'triage'>('taxonomy');
+
+  // ---------------------------------------------------------------------------
+  // State: Company 360° Modal Integration
+  // ---------------------------------------------------------------------------
+  const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // State: Taxonomy Sectors
@@ -495,19 +930,8 @@ export default function IndustryTaxonomyManager({
   // Action Handlers: High-Speed Untagged Accounts Triage Station
   // ---------------------------------------------------------------------------
   const handleSelectParentSector = (companyId: string, parentId: string) => {
-    // Reset any pending inline sub-type creation for this row if parent changed
-    setInlineNewSubtype((prev) => {
-      if (prev[companyId] !== undefined) {
-        const next = { ...prev };
-        delete next[companyId];
-        return next;
-      }
-      return prev;
-    });
-
     setRowSelections((prev) => {
       const current = prev[companyId] || { parentId: '', subtype: '' };
-      // Check if current subtype is in the new parent's subtypes
       const targetSector = sectors.find((s) => s.id === parentId);
       const isSubtypeValid = targetSector?.subtypes.includes(current.subtype);
 
@@ -521,28 +945,82 @@ export default function IndustryTaxonomyManager({
     });
   };
 
-  const handleSelectSubtype = (companyId: string, subtype: string) => {
-    // If operator clicked "+ Add New Sub-Type...", switch this row's cell into inline input mode
-    if (subtype === '__CREATE_NEW__') {
-      setInlineNewSubtype((prev) => ({ ...prev, [companyId]: '' }));
-      return;
+  const handleActivateGoogleSearch = (companyId: string) => {
+    // Simultaneously set DOM focus to that row's Tier 1 combobox input
+    setTimeout(() => {
+      const t1 = document.getElementById(`tier1-input-${companyId}`);
+      if (t1) {
+        t1.focus();
+      }
+    }, 20);
+  };
+
+  const handleAdvanceToTier2 = (companyId: string) => {
+    setTimeout(() => {
+      const t2 = document.getElementById(`tier2-input-${companyId}`);
+      if (t2) {
+        t2.focus();
+      }
+    }, 20);
+  };
+
+  const handleCommitTier2 = async (
+    companyId: string,
+    parentId: string,
+    subtype: string,
+    isNew: boolean,
+    rowIndex: number
+  ) => {
+    if (!companyId || !parentId || !subtype) return;
+
+    const targetSector = sectors.find((s) => s.id === parentId);
+    if (!targetSector) return;
+
+    const rawSubtype = subtype.trim();
+    const existingSubtype = targetSector.subtypes.find(
+      (st) => st.toLowerCase() === rawSubtype.toLowerCase()
+    );
+    const finalSubtypeName = existingSubtype || rawSubtype;
+
+    // 1. Fast Inline Creation: If typed child sub-type does not exist, provision it in sectors
+    if (!existingSubtype) {
+      const updatedSectors = sectors.map((s) => {
+        if (s.id === parentId) {
+          return {
+            ...s,
+            subtypes: [...s.subtypes, finalSubtypeName]
+          };
+        }
+        return s;
+      });
+      persistTaxonomy(updatedSectors, `Added "${finalSubtypeName}" to ${targetSector.label}`);
     }
 
-    setRowSelections((prev) => {
-      const current = prev[companyId] || { parentId: '', subtype: '' };
-      return {
-        ...prev,
-        [companyId]: {
-          ...current,
-          subtype
-        }
-      };
-    });
+    // 2. Update this row's selection state
+    setRowSelections((prev) => ({
+      ...prev,
+      [companyId]: {
+        parentId,
+        subtype: finalSubtypeName
+      }
+    }));
 
-    // If auto-save is enabled and parent is selected, execute quick save!
-    const selection = rowSelections[companyId];
-    if (autoSaveOnSelect && selection?.parentId && subtype) {
-      handleQuickSaveTriage(companyId, selection.parentId, subtype);
+    // 3. Find NEXT untagged company to advance DOM focus to its [G] button
+    const nextCompany = filteredUntaggedCompanies.slice(rowIndex + 1).find(
+      (c) => c.id && c.id !== companyId && !dismissedCompanyIds.has(c.id) && !fadingRowIds.has(c.id)
+    );
+
+    // 4. Trigger Quick Save (updates Firestore, state, row animation, and session counter)
+    await handleQuickSaveTriage(companyId, parentId, finalSubtypeName);
+
+    // 5. Advance DOM focus immediately to the [G] button of the NEXT untagged company in the queue
+    if (nextCompany?.id) {
+      setTimeout(() => {
+        const nextG = document.getElementById(`speedrunner-g-${nextCompany.id}`);
+        if (nextG) {
+          nextG.focus();
+        }
+      }, 50);
     }
   };
 
@@ -1278,6 +1756,18 @@ export default function IndustryTaxonomyManager({
                 />
                 <span className="text-[11px]">Auto-Save on Select</span>
               </label>
+
+              {/* Speedrunner Keyboard Guide Pill */}
+              <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 text-[11px] font-medium select-none">
+                <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <span>Speedrunner:</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">[G]</kbd>
+                <span>➔</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">↵ Tier 1</kbd>
+                <span>➔</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">↵ Tier 2</kbd>
+                <span>➔ Next</span>
+              </div>
             </div>
           </div>
 
@@ -1321,8 +1811,8 @@ export default function IndustryTaxonomyManager({
                     <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/70 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       <th className="py-3 px-4 w-12">#</th>
                       <th className="py-3 px-4 min-w-[240px]">Company Name & Location</th>
-                      <th className="py-3 px-4 min-w-[190px]">Tier 1: Parent Sector</th>
-                      <th className="py-3 px-4 min-w-[210px]">Tier 2: Child Sub-Type</th>
+                      <th className="py-3 px-4 min-w-[210px]">Tier 1: Parent Sector</th>
+                      <th className="py-3 px-4 min-w-[230px]">Tier 2: Child Sub-Type</th>
                       <th className="py-3 px-4 w-28 text-right">Action</th>
                     </tr>
                   </thead>
@@ -1364,8 +1854,25 @@ export default function IndustryTaxonomyManager({
                           <td className="py-3.5 px-4">
                             <div className="flex items-center justify-between space-x-2">
                               <div className="min-w-0 flex-1">
-                                <div className="font-bold text-slate-900 dark:text-slate-100 truncate">
-                                  {company.display_name || company.canonical_name}
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setSelected360CompanyId(company.id || null);
+                                    }}
+                                    className="group/comp inline-flex items-center gap-1.5 text-left font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer max-w-full"
+                                    title={`Open 360° Profile for "${company.display_name || company.canonical_name}"`}
+                                  >
+                                    <span className="truncate group-hover/comp:underline font-bold">
+                                      {company.display_name || company.canonical_name}
+                                    </span>
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-wider uppercase bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/80 shrink-0 group-hover/comp:bg-blue-600 group-hover/comp:text-white dark:group-hover/comp:bg-blue-500 dark:group-hover/comp:text-white transition-all shadow-2xs">
+                                      <RotateCcw className="w-2.5 h-2.5" />
+                                      <span>360°</span>
+                                    </span>
+                                  </button>
                                 </div>
                                 <div className="flex items-center space-x-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                                   {company.city && (
@@ -1380,129 +1887,47 @@ export default function IndustryTaxonomyManager({
                                 </div>
                               </div>
 
-                              {/* Google Search Shortcut Button */}
+                              {/* Google Search Shortcut Button with Speedrunner Focus Chaining */}
                               <div onClick={(e) => e.stopPropagation()} className="shrink-0">
                                 <GoogleSearchButton
+                                  id={`speedrunner-g-${companyId}`}
                                   companyName={company.display_name || company.canonical_name}
                                   location={company.city}
                                   size="xs"
+                                  onActivate={() => handleActivateGoogleSearch(companyId)}
                                 />
                               </div>
                             </div>
                           </td>
 
-                          {/* Tier 1: Parent Sector Dropdown */}
+                          {/* Tier 1: Parent Sector Searchable Combobox */}
                           <td className="py-3.5 px-4">
                             <div onClick={(e) => e.stopPropagation()}>
-                              <select
+                              <Tier1Combobox
+                                id={`tier1-input-${companyId}`}
+                                companyId={companyId}
                                 value={currentSelection.parentId}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectParentSector(companyId, e.target.value);
-                                }}
-                                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
-                              >
-                                <option value="">Select Parent Sector...</option>
-                                {sectors.map((sec) => (
-                                  <option key={sec.id} value={sec.id}>
-                                    {sec.icon} {sec.label}
-                                  </option>
-                                ))}
-                              </select>
+                                sectors={sectors}
+                                onSelect={(newParentId) => handleSelectParentSector(companyId, newParentId)}
+                                onAdvance={() => handleAdvanceToTier2(companyId)}
+                              />
                             </div>
                           </td>
 
-                          {/* Tier 2: Child Sub-Type Dropdown or Inline Quick Input */}
+                          {/* Tier 2: Child Sub-Type Searchable Combobox with Fast Inline Creation */}
                           <td className="py-3.5 px-4">
                             <div onClick={(e) => e.stopPropagation()}>
-                              {inlineNewSubtype[companyId] !== undefined ? (
-                                <div
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex items-center space-x-1.5 p-1 bg-white dark:bg-slate-800 border-2 border-emerald-500/90 rounded-xl shadow-xs animate-in fade-in zoom-in-95 duration-150"
-                                >
-                                  <input
-                                    type="text"
-                                    value={inlineNewSubtype[companyId]}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      const val = e.target.value;
-                                      setInlineNewSubtype((prev) => ({ ...prev, [companyId]: val }));
-                                    }}
-                                    onKeyDown={(e) => {
-                                      e.stopPropagation();
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        handleConfirmCreateSubtype(companyId);
-                                      } else if (e.key === 'Escape') {
-                                        e.preventDefault();
-                                        handleCancelCreateSubtype(companyId);
-                                      }
-                                    }}
-                                    placeholder="Enter GBP Sub-Type (e.g. Diving Center)..."
-                                    className="flex-1 px-2.5 py-1 text-xs bg-transparent text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 font-semibold focus:outline-hidden min-w-[140px]"
-                                    autoFocus
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleConfirmCreateSubtype(companyId);
-                                    }}
-                                    disabled={!inlineNewSubtype[companyId]?.trim()}
-                                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition shadow-xs shrink-0 cursor-pointer"
-                                    title="Confirm & Save Sub-Type (Enter)"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span className="hidden sm:inline">Confirm</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCancelCreateSubtype(companyId);
-                                    }}
-                                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition shrink-0 cursor-pointer"
-                                    title="Cancel (Esc)"
-                                  >
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <select
-                                  value={currentSelection.subtype}
-                                  disabled={!currentSelection.parentId}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    handleSelectSubtype(companyId, e.target.value);
-                                  }}
-                                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
-                                >
-                                  <option value="">
-                                    {!currentSelection.parentId
-                                      ? 'Select Sector First...'
-                                      : 'Select Raw GBP Sub-Type...'}
-                                  </option>
-                                  {availableSubtypes.map((st) => (
-                                    <option key={st} value={st}>
-                                      {st}
-                                    </option>
-                                  ))}
-                                  {currentSelection.subtype &&
-                                    !availableSubtypes.includes(currentSelection.subtype) && (
-                                      <option value={currentSelection.subtype}>
-                                        {currentSelection.subtype} (Current)
-                                      </option>
-                                    )}
-                                  {currentSelection.parentId && (
-                                    <option
-                                      value="__CREATE_NEW__"
-                                      className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/40"
-                                    >
-                                      + Add New Sub-Type...
-                                    </option>
-                                  )}
-                                </select>
-                              )}
+                              <Tier2Combobox
+                                id={`tier2-input-${companyId}`}
+                                companyId={companyId}
+                                parentId={currentSelection.parentId}
+                                value={currentSelection.subtype}
+                                availableSubtypes={availableSubtypes}
+                                disabled={!currentSelection.parentId}
+                                onCommit={(subtype, isNew) =>
+                                  handleCommitTier2(companyId, currentSelection.parentId, subtype, isNew, idx)
+                                }
+                              />
                             </div>
                           </td>
 
@@ -1513,17 +1938,19 @@ export default function IndustryTaxonomyManager({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleQuickSaveTriage(
+                                  handleCommitTier2(
                                     companyId,
                                     currentSelection.parentId,
-                                    currentSelection.subtype
+                                    currentSelection.subtype,
+                                    false,
+                                    idx
                                   );
                                 }}
                                 disabled={!currentSelection.parentId || !currentSelection.subtype}
                                 title={
                                   !currentSelection.parentId || !currentSelection.subtype
                                     ? 'Select both Parent Sector and Sub-Type to classify'
-                                    : 'Save & Dismiss'
+                                    : 'Save & Advance (Enter)'
                                 }
                                 className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                                   currentSelection.parentId && currentSelection.subtype
@@ -1592,6 +2019,23 @@ export default function IndustryTaxonomyManager({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Company 360° Modal Integration */}
+      {selected360CompanyId && (
+        <Company360Modal
+          isOpen={Boolean(selected360CompanyId)}
+          companyId={selected360CompanyId}
+          companies={companies}
+          contacts={contacts}
+          salespersons={salespersons}
+          enquiries={enquiries}
+          callLogs={callLogs}
+          user={user}
+          activeWorkspace={activeWorkspace}
+          setCompanies={setCompanies}
+          onClose={() => setSelected360CompanyId(null)}
+        />
       )}
     </div>
   );

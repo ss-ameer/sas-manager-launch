@@ -524,6 +524,8 @@ export default function SettingsHub({
             enquiries={enquiries}
             products={products}
             companies={companies}
+            contacts={contacts}
+            salespersons={salespersons}
             callLogs={callLogs}
             user={user}
             activeWorkspaceId={activeWorkspace?.id}

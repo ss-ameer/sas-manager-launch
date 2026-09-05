@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { db, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
-import { DropdownOption, Enquiry, Product, UserProfile, CallLogEntry, Company } from '../types';
+import { DropdownOption, Enquiry, Product, UserProfile, CallLogEntry, Company, Contact, Salesperson } from '../types';
 import { ShieldCheck, Plus, Trash2, Edit2, Check, X, AlertTriangle, Info } from 'lucide-react';
 import { CardPanel } from './layout/UiContainer';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName, isCompanyUntagged } from '../utils/defaults';
@@ -21,6 +21,8 @@ interface DropdownSettingsProps {
   enquiries: Enquiry[];
   products: Product[];
   companies?: Company[];
+  contacts?: Contact[];
+  salespersons?: Salesperson[];
   callLogs?: CallLogEntry[];
   user: UserProfile;
   activeWorkspaceId?: string;
@@ -53,6 +55,8 @@ export default function DropdownSettingsManager({
   enquiries = [],
   products = [],
   companies = [],
+  contacts = [],
+  salespersons = [],
   callLogs = [],
   user,
   activeWorkspaceId,
@@ -726,6 +730,10 @@ export default function DropdownSettingsManager({
       {activeSubTab === 'industry_taxonomy' ? (
         <IndustryTaxonomyManager
           companies={companies}
+          contacts={contacts}
+          salespersons={salespersons}
+          enquiries={enquiries}
+          callLogs={callLogs}
           setCompanies={setCompanies}
           user={user}
           activeWorkspaceId={activeWorkspaceId}

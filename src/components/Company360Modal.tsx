@@ -35,6 +35,7 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 
 interface Company360ModalProps {
+  isOpen?: boolean;
   companyId: string | null;
   companies: Company[];
   contacts: Contact[];
@@ -69,6 +70,7 @@ interface Company360ModalProps {
 }
 
 export default function Company360Modal({
+  isOpen,
   companyId,
   companies,
   contacts,
@@ -142,7 +144,7 @@ export default function Company360Modal({
     }
   };
 
-  if (!companyId || !company) return null;
+  if ((isOpen !== undefined && !isOpen) || !companyId || !company) return null;
 
   const companyContacts = useMemo(() => {
     const direct = contacts.filter((c) => !c.is_deleted && c.company_id === company.id);
