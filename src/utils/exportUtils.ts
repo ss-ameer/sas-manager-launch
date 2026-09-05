@@ -37,6 +37,8 @@ export function exportCompaniesToCSV({
   contacts?: Contact[];
   filterLabel?: string;
 }): void {
+  if (!companies || companies.length === 0) return;
+
   const headers = [
     'Ref ID',
     'Company Name',

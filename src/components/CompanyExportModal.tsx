@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Company, Contact, Workspace } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
+import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
 import { getParentIndustry, formatIndustryBadge } from '../utils/taxonomy';
 import { getReferenceId } from '../utils/refId';
 import { exportCompaniesToCSV, getPrimaryContactForCompany } from '../utils/exportUtils';
@@ -162,9 +163,11 @@ export default function CompanyExportModal({
     return Array.from(set).sort();
   }, [activeCompanies]);
 
+  const { sectors: taxonomySectors } = useIndustryTaxonomy();
+
   // Filter States
-  const [selectedParentSectors, setSelectedParentSectors] = useState<string[]>(
-    SYSTEM_INDUSTRY_TAXONOMY.map((s) => s.id)
+  const [selectedParentSectors, setSelectedParentSectors] = useState<string[]>(() =>
+    taxonomySectors.map((s) => s.id)
   );
   const [selectedSubtypes, setSelectedSubtypes] = useState<string[]>([]);
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
@@ -173,6 +176,43 @@ export default function CompanyExportModal({
   const [untaggedOnly, setUntaggedOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activePreset, setActivePreset] = useState<string | null>('all_classified');
+  const [excludedCompanyIds, setExcludedCompanyIds] = useState<Set<string>>(new Set());
+
+  // Reset row exclusions when modal opens/closes
+  useEffect(() => {
+    if (!isOpen) {
+      setExcludedCompanyIds(new Set());
+    }
+  }, [isOpen]);
+
+  // Fast memoized lookup of contacts by company ID
+  const contactsByCompanyId = useMemo(() => {
+    const map = new Map<string, Contact[]>();
+    (contacts || []).forEach((ct) => {
+      if (ct.is_deleted || (ct as any).deleted) return;
+      if (ct.company_id) {
+        const arr = map.get(ct.company_id) || [];
+        arr.push(ct);
+        map.set(ct.company_id, arr);
+      }
+      const extraCompanyIds = (ct as any).company_ids;
+      if (Array.isArray(extraCompanyIds)) {
+        extraCompanyIds.forEach((cid: string) => {
+          const arr = map.get(cid) || [];
+          if (!arr.includes(ct)) arr.push(ct);
+          map.set(cid, arr);
+        });
+      }
+    });
+    return map;
+  }, [contacts]);
+
+  // Keep all_classified preset synced with live taxonomy sectors
+  useEffect(() => {
+    if (activePreset === 'all_classified') {
+      setSelectedParentSectors(taxonomySectors.map((s) => s.id));
+    }
+  }, [taxonomySectors, activePreset]);
 
   // Keyboard navigation: Escape closes modal
   useEffect(() => {
@@ -191,7 +231,7 @@ export default function CompanyExportModal({
     const list: { sectorId: string; sectorIcon: string; sectorLabel: string; subtype: string }[] = [];
     const seen = new Set<string>();
 
-    SYSTEM_INDUSTRY_TAXONOMY.forEach((sector) => {
+    taxonomySectors.forEach((sector) => {
       if (selectedParentSectors.includes(sector.id)) {
         sector.subtypes.forEach((st) => {
           const key = `${sector.id}:::${st.toLowerCase()}`;
@@ -263,7 +303,7 @@ export default function CompanyExportModal({
       if (prev.includes(sectorId)) {
         const next = prev.filter((id) => id !== sectorId);
         // Also remove subtypes belonging to this sector
-        const sector = SYSTEM_INDUSTRY_TAXONOMY.find((s) => s.id === sectorId);
+        const sector = taxonomySectors.find((s) => s.id === sectorId);
         if (sector) {
           setSelectedSubtypes((stPrev) =>
             stPrev.filter((st) => !sector.subtypes.includes(st))
@@ -312,7 +352,7 @@ export default function CompanyExportModal({
   const handleSelectAllSectors = () => {
     setActivePreset(null);
     setUntaggedOnly(false);
-    setSelectedParentSectors(SYSTEM_INDUSTRY_TAXONOMY.map((s) => s.id));
+    setSelectedParentSectors(taxonomySectors.map((s) => s.id));
   };
 
   // Clear All Filters
@@ -325,9 +365,10 @@ export default function CompanyExportModal({
     setSelectedRelationships([]);
     setSelectedTemperatures([]);
     setSearchQuery('');
+    setExcludedCompanyIds(new Set());
   };
 
-  // Filtered Companies In-Memory Evaluation
+  // Filtered Companies In-Memory Evaluation with Deep Search
   const filteredCompanies = useMemo(() => {
     return activeCompanies.filter((company) => {
       // 1. Untagged-only mode
@@ -376,14 +417,62 @@ export default function CompanyExportModal({
         if (!selectedTemperatures.includes(temp)) return false;
       }
 
-      // 5. Text Search Query
+      // 5. Multi-Field Deep Keyword Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const nameMatch = (company.display_name || '').toLowerCase().includes(q);
+        const cleanQ = q.replace(/[\s\-\(\)\+]/g, '');
+
+        // a) Company Name & Canonical Name
+        const nameMatch = (company.display_name || '').toLowerCase().includes(q) ||
+          (company.legal_name || '').toLowerCase().includes(q) ||
+          (company.name || '').toLowerCase().includes(q);
         const canonMatch = (company.canonical_name || '').toLowerCase().includes(q);
+
+        // b) Aliases
+        const aliasMatch = (company.aliases || []).some((a) => (a || '').toLowerCase().includes(q));
+
+        // c) Parent Sector & Child Sub-Type
+        const parentObj = getParentIndustry(company.industry_parent);
+        const parentMatch = (company.industry_parent || '').toLowerCase().includes(q) ||
+          (parentObj?.label || '').toLowerCase().includes(q);
+        const subTypeVal = (company.business_type_raw || company.industry || company.industry_type || '').toLowerCase();
+        const subTypeMatch = subTypeVal.includes(q);
+
+        // d) City & Country
         const cityMatch = (company.city || '').toLowerCase().includes(q);
-        const phoneMatch = (company.general_phone || '').includes(q);
-        if (!nameMatch && !canonMatch && !cityMatch && !phoneMatch) {
+        const countryMatch = (company.country || '').toLowerCase().includes(q);
+
+        // e) General Phone & Alternate Phones
+        const rawGenPhone = company.general_phone || '';
+        const genPhoneDigits = rawGenPhone.replace(/[\s\-\(\)\+]/g, '');
+        const compPhonesMatch = rawGenPhone.toLowerCase().includes(q) ||
+          (cleanQ.length >= 3 && genPhoneDigits.includes(cleanQ)) ||
+          (Array.isArray(company.phones) && company.phones.some((p: any) => {
+            const pNum = (p.number || p.phone || '');
+            const pDigits = pNum.replace(/[\s\-\(\)\+]/g, '');
+            return pNum.toLowerCase().includes(q) || (cleanQ.length >= 3 && pDigits.includes(cleanQ));
+          }));
+
+        // f) Contact Person Names, Designations, Emails, and Phones
+        const companyCts = contactsByCompanyId.get(company.id) || [];
+        const contactMatch = companyCts.some((ct) => {
+          const ctName = (ct.full_name || '').toLowerCase();
+          const ctDesig = (ct.designation || '').toLowerCase();
+          const ctEmail = (ct.email || '').toLowerCase();
+          const ctMobile = ct.mobile || '';
+          const ctLandline = ct.landline || '';
+          const ctMobileDigits = ctMobile.replace(/[\s\-\(\)\+]/g, '');
+          const ctLandlineDigits = ctLandline.replace(/[\s\-\(\)\+]/g, '');
+
+          return ctName.includes(q) ||
+            ctDesig.includes(q) ||
+            ctEmail.includes(q) ||
+            ctMobile.toLowerCase().includes(q) ||
+            ctLandline.toLowerCase().includes(q) ||
+            (cleanQ.length >= 3 && (ctMobileDigits.includes(cleanQ) || ctLandlineDigits.includes(cleanQ)));
+        });
+
+        if (!nameMatch && !canonMatch && !aliasMatch && !parentMatch && !subTypeMatch && !cityMatch && !countryMatch && !compPhonesMatch && !contactMatch) {
           return false;
         }
       }
@@ -398,8 +487,59 @@ export default function CompanyExportModal({
     selectedCities,
     selectedRelationships,
     selectedTemperatures,
-    searchQuery
+    searchQuery,
+    contactsByCompanyId
   ]);
+
+  // Selected Companies strictly respecting row-level manual exclusions
+  const selectedCompanies = useMemo(() => {
+    return filteredCompanies.filter((c) => !excludedCompanyIds.has(c.id));
+  }, [filteredCompanies, excludedCompanyIds]);
+
+  // Selection states & helpers
+  const allFilteredSelected = filteredCompanies.length > 0 &&
+    filteredCompanies.every((c) => !excludedCompanyIds.has(c.id));
+  const someFilteredSelected = filteredCompanies.some((c) => !excludedCompanyIds.has(c.id));
+
+  const toggleCompanyExclusion = (companyId: string, e?: React.MouseEvent | React.ChangeEvent) => {
+    if (e) e.stopPropagation();
+    setExcludedCompanyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(companyId)) {
+        next.delete(companyId);
+      } else {
+        next.add(companyId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExcludedCompanyIds((prev) => {
+      const next = new Set(prev);
+      filteredCompanies.forEach((c) => next.delete(c.id));
+      return next;
+    });
+  };
+
+  const handleDeselectAllFiltered = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExcludedCompanyIds((prev) => {
+      const next = new Set(prev);
+      filteredCompanies.forEach((c) => next.add(c.id));
+      return next;
+    });
+  };
+
+  const handleToggleAllFiltered = (e?: React.ChangeEvent<HTMLInputElement>) => {
+    if (e) e.stopPropagation();
+    if (allFilteredSelected) {
+      handleDeselectAllFiltered();
+    } else {
+      handleSelectAllFiltered();
+    }
+  };
 
   // Active Filter Summary for Reports
   const filterCriteriaSummary = useMemo(() => {
@@ -407,7 +547,7 @@ export default function CompanyExportModal({
     if (untaggedOnly) {
       parts.push('Untagged / Unclassified Only');
     } else {
-      if (selectedParentSectors.length === SYSTEM_INDUSTRY_TAXONOMY.length) {
+      if (selectedParentSectors.length === taxonomySectors.length) {
         parts.push('All Industry Sectors');
       } else if (selectedParentSectors.length > 0) {
         const labels = selectedParentSectors
@@ -432,6 +572,9 @@ export default function CompanyExportModal({
     if (searchQuery.trim()) {
       parts.push(`Search: "${searchQuery.trim()}"`);
     }
+    if (selectedCompanies.length < filteredCompanies.length) {
+      parts.push(`${filteredCompanies.length - selectedCompanies.length} Excluded`);
+    }
 
     return parts.length > 0 ? parts.join(' • ') : 'All Active Companies';
   }, [
@@ -441,13 +584,16 @@ export default function CompanyExportModal({
     selectedCities,
     selectedRelationships,
     selectedTemperatures,
-    searchQuery
+    searchQuery,
+    selectedCompanies.length,
+    filteredCompanies.length,
+    taxonomySectors.length
   ]);
 
   // CSV Export Trigger
   const handleExportCSV = () => {
-    if (filteredCompanies.length === 0) {
-      alert('No companies match the selected filter criteria.');
+    if (selectedCompanies.length === 0) {
+      alert('No companies are currently selected for export. Please ensure at least one company row is checked.');
       return;
     }
 
@@ -463,7 +609,7 @@ export default function CompanyExportModal({
     }
 
     exportCompaniesToCSV({
-      companies: filteredCompanies,
+      companies: selectedCompanies,
       contacts,
       filterLabel
     });
@@ -471,8 +617,8 @@ export default function CompanyExportModal({
 
   // PDF / Print Trigger
   const handlePrintPDF = () => {
-    if (filteredCompanies.length === 0) {
-      alert('No companies match the selected filter criteria.');
+    if (selectedCompanies.length === 0) {
+      alert('No companies are currently selected for export. Please ensure at least one company row is checked.');
       return;
     }
     window.print();
@@ -609,7 +755,7 @@ export default function CompanyExportModal({
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {SYSTEM_INDUSTRY_TAXONOMY.map((sector) => {
+                  {taxonomySectors.map((sector) => {
                     const isSelected = selectedParentSectors.includes(sector.id);
                     return (
                       <button
@@ -764,19 +910,20 @@ export default function CompanyExportModal({
 
               {/* Text Search Bar */}
               <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Optional: Filter by company name, keywords, or phone..."
-                  className="w-full pl-9.5 pr-4 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  placeholder="Deep Search: Company name, canonical, alias, sector, sub-type, city, contact person, phone..."
+                  className="w-full pl-9.5 pr-8 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                    title="Clear search"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -784,30 +931,70 @@ export default function CompanyExportModal({
               </div>
             </div>
 
-            {/* Match Counter & Preview Section */}
+            {/* Match Counter & Row Selection Controls */}
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center space-x-2.5">
-                  <span className="px-3.5 py-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-mono font-bold border border-emerald-200 dark:border-emerald-800 flex items-center space-x-1.5 shadow-xs">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Ready to Export: {filteredCompanies.length} Companies</span>
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className={`px-3.5 py-1.5 rounded-full text-xs font-mono font-bold border flex items-center space-x-1.5 shadow-xs transition ${
+                    selectedCompanies.length > 0
+                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                  }`}>
+                    {selectedCompanies.length > 0 ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <X className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                    )}
+                    <span>Ready to Export: {selectedCompanies.length} Selected of {filteredCompanies.length} Matched Companies</span>
                   </span>
                   <span className="text-xs text-slate-400 font-sans">
-                    (out of {activeCompanies.length} total active records)
+                    (out of {activeCompanies.length} active records)
                   </span>
                 </div>
 
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-sans italic">
-                  Showing first {Math.min(10, filteredCompanies.length)} records preview
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFiltered}
+                    disabled={allFilteredSelected || filteredCompanies.length === 0}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                    title="Check all currently filtered companies"
+                  >
+                    Select All Filtered
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllFiltered}
+                    disabled={!someFilteredSelected || filteredCompanies.length === 0}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                    title="Uncheck all currently filtered companies"
+                  >
+                    Deselect All
+                  </button>
+                </div>
               </div>
 
-              {/* Data Preview Table */}
+              {/* Data Preview Table with Interactive Row Checkboxes */}
               <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs bg-white dark:bg-slate-900">
-                <div className="overflow-x-auto max-h-56">
+                <div className="overflow-x-auto max-h-72">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 font-mono text-[11px] uppercase tracking-wider sticky top-0">
+                      <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 font-mono text-[11px] uppercase tracking-wider sticky top-0 z-10 backdrop-blur-xs">
+                        <th className="py-2.5 px-3 w-12 text-center">
+                          <input
+                            type="checkbox"
+                            id="export-header-select-all"
+                            checked={allFilteredSelected}
+                            ref={(el) => {
+                              if (el) {
+                                el.indeterminate = !allFilteredSelected && someFilteredSelected;
+                              }
+                            }}
+                            onChange={handleToggleAllFiltered}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 focus:ring-offset-0 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 cursor-pointer"
+                            title={allFilteredSelected ? 'Deselect All Filtered' : 'Select All Filtered'}
+                          />
+                        </th>
                         <th className="py-2.5 px-3">Ref ID</th>
                         <th className="py-2.5 px-3">Company Name</th>
                         <th className="py-2.5 px-3">Industry Classification</th>
@@ -820,28 +1007,54 @@ export default function CompanyExportModal({
                       {filteredCompanies.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="py-8 text-center text-slate-400 dark:text-slate-500 font-sans"
                           >
-                            No company accounts match the selected filter combination.
+                            No company accounts match the selected filter combination or deep search query.
                           </td>
                         </tr>
                       ) : (
-                        filteredCompanies.slice(0, 10).map((company, idx) => {
+                        filteredCompanies.slice(0, 100).map((company, idx) => {
                           const refId = getReferenceId('CMP', company, companies);
                           const badge = formatIndustryBadge(company);
                           const primaryCt = getPrimaryContactForCompany(company.id, contacts);
+                          const isSelected = !excludedCompanyIds.has(company.id);
 
                           return (
                             <tr
                               key={company.id || idx}
-                              className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
+                              onClick={() => toggleCompanyExclusion(company.id)}
+                              className={`transition cursor-pointer select-none ${
+                                isSelected
+                                  ? 'hover:bg-slate-50 dark:hover:bg-slate-800/40 bg-white dark:bg-slate-900'
+                                  : 'bg-slate-100/60 dark:bg-slate-950/60 opacity-50 hover:opacity-75'
+                              }`}
                             >
+                              <td
+                                className="py-2 px-3 text-center"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  type="checkbox"
+                                  id={`export-chk-${company.id}`}
+                                  checked={isSelected}
+                                  onChange={(e) => toggleCompanyExclusion(company.id, e)}
+                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 focus:ring-offset-0 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 cursor-pointer"
+                                  title={isSelected ? 'Exclude from export' : 'Include in export'}
+                                />
+                              </td>
                               <td className="py-2 px-3 font-mono font-bold text-slate-500 dark:text-slate-400">
                                 {refId}
                               </td>
                               <td className="py-2 px-3 font-bold text-slate-800 dark:text-slate-200">
-                                {company.display_name || company.canonical_name}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{company.display_name || company.canonical_name}</span>
+                                  {!isSelected && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 font-mono font-bold uppercase tracking-wider">
+                                      Excluded
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-2 px-3">
                                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300">
@@ -859,9 +1072,16 @@ export default function CompanyExportModal({
                               </td>
                               <td className="py-2 px-3 text-slate-600 dark:text-slate-400">
                                 {primaryCt ? (
-                                  <span className="truncate block max-w-[150px]">
-                                    {primaryCt.full_name}
-                                  </span>
+                                  <div>
+                                    <span className="truncate block max-w-[150px] font-medium text-slate-800 dark:text-slate-200">
+                                      {primaryCt.full_name}
+                                    </span>
+                                    {primaryCt.designation && (
+                                      <span className="text-[10px] text-slate-400 truncate block max-w-[150px]">
+                                        {primaryCt.designation}
+                                      </span>
+                                    )}
+                                  </div>
                                 ) : (
                                   <span className="text-slate-400 italic">No contact</span>
                                 )}
@@ -873,6 +1093,11 @@ export default function CompanyExportModal({
                     </tbody>
                   </table>
                 </div>
+                {filteredCompanies.length > 100 && (
+                  <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 text-center text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                    Showing first 100 of {filteredCompanies.length} matched companies in preview table • All {selectedCompanies.length} selected companies will be exported.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -892,24 +1117,24 @@ export default function CompanyExportModal({
               <button
                 type="button"
                 onClick={handleExportCSV}
-                disabled={filteredCompanies.length === 0}
+                disabled={selectedCompanies.length === 0}
                 className="px-4.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border-2 border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold transition flex items-center space-x-2 shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Download UTF-8 BOM CSV for Excel"
+                title="Download UTF-8 BOM CSV for Excel with selected companies"
               >
                 <Download className="w-4 h-4 text-emerald-600" />
-                <span>Export as CSV (Excel)</span>
+                <span>Export as CSV ({selectedCompanies.length})</span>
               </button>
 
               {/* Export PDF / Print */}
               <button
                 type="button"
                 onClick={handlePrintPDF}
-                disabled={filteredCompanies.length === 0}
+                disabled={selectedCompanies.length === 0}
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold transition flex items-center space-x-2 shadow-md shadow-blue-500/20 cursor-pointer disabled:cursor-not-allowed"
                 title="Print or Save as Presentation-Ready A4 PDF"
               >
                 <Printer className="w-4 h-4" />
-                <span>Export as PDF / Print</span>
+                <span>Export as PDF / Print ({selectedCompanies.length})</span>
               </button>
             </div>
           </div>
@@ -964,7 +1189,7 @@ export default function CompanyExportModal({
           </div>
           <div className="text-right text-[10px] text-slate-500 font-mono">
             <div>Generated: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-            <div className="font-bold text-slate-800">Total Accounts: {filteredCompanies.length}</div>
+            <div className="font-bold text-slate-800">Total Accounts: {selectedCompanies.length}</div>
           </div>
         </div>
 
@@ -982,7 +1207,7 @@ export default function CompanyExportModal({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {filteredCompanies.map((company, idx) => {
+            {selectedCompanies.map((company, idx) => {
               const refId = getReferenceId('CMP', company, companies);
               const badge = formatIndustryBadge(company);
               const primaryCt = getPrimaryContactForCompany(company.id, contacts);

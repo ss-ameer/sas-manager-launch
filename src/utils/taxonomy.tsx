@@ -32,7 +32,28 @@ export const PARENT_INDUSTRIES_MAP: Record<string, ParentIndustry> = PARENT_INDU
 
 export function getParentIndustry(id?: string | null): ParentIndustry | undefined {
   if (!id) return undefined;
-  return PARENT_INDUSTRIES_MAP[id];
+  if (PARENT_INDUSTRIES_MAP[id]) {
+    return PARENT_INDUSTRIES_MAP[id];
+  }
+  try {
+    const raw = localStorage.getItem('omni_industry_taxonomy');
+    if (raw) {
+      const sectors = JSON.parse(raw);
+      if (Array.isArray(sectors)) {
+        const found = sectors.find((s: any) => s.id === id);
+        if (found) {
+          return {
+            id: found.id,
+            label: found.label || found.name || found.id,
+            icon: found.icon || '🏷️'
+          };
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore JSON or localStorage error
+  }
+  return undefined;
 }
 
 export interface IndustryBadgeData {

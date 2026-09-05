@@ -12,6 +12,8 @@ import CallLogDetailModal from './CallLogDetailModal';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge } from '../utils/taxonomy';
+import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
+import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import {
@@ -235,6 +237,7 @@ export default function CompanyModal({
 }: CompanyModalProps) {
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
+  const { sectors: liveTaxonomySectors, findParentForSubtype } = useIndustryTaxonomy();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
 
@@ -766,8 +769,15 @@ export default function CompanyModal({
     setLegalSuffix(comp.legal_suffix);
     setCountry(comp.country);
     setCity(comp.city);
-    setIndustryParent(comp.industry_parent || '');
     const rawVal = comp.business_type_raw || comp.industry || comp.industry_type || '';
+    let resolvedParent = comp.industry_parent || '';
+    if (!resolvedParent && rawVal) {
+      const detected = findParentForSubtype(rawVal);
+      if (detected) {
+        resolvedParent = detected.id;
+      }
+    }
+    setIndustryParent(resolvedParent);
     setBusinessTypeRaw(rawVal);
     setIndustryType(rawVal);
     setWebsite(comp.website || '');
@@ -1815,9 +1825,9 @@ export default function CompanyModal({
                       className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
                     >
                       <option value="ALL">All Macro Industries</option>
-                      {PARENT_INDUSTRIES.map((pi) => (
+                      {liveTaxonomySectors.map((pi) => (
                         <option key={pi.id} value={pi.id}>
-                          {pi.icon} {pi.label}
+                          {pi.icon} {pi.label || pi.name}
                         </option>
                       ))}
                     </select>
@@ -3414,48 +3424,20 @@ export default function CompanyModal({
                 </div>
 
                 {/* Two-Tier Industry Taxonomy Section */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
-                      <span>Macro Parent Category</span>
-                      <span className="text-slate-500 font-sans lowercase font-normal">(Standardized Tier 1)</span>
-                    </label>
-                    <select
-                      value={industryParent}
-                      onChange={(e) => setIndustryParent(e.target.value)}
-                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
-                    >
-                      <option value="">Select Parent Industry (Optional)</option>
-                      {PARENT_INDUSTRIES.map((pi) => (
-                        <option key={pi.id} value={pi.id}>
-                          {pi.icon} {pi.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
-                      <span>Raw Business Type</span>
-                      <span className="text-slate-500 font-sans lowercase font-normal">(GBP Sub-Type Child)</span>
-                    </label>
-                    <input
-                      type="text"
-                      list="company-raw-subtypes-list"
-                      value={businessTypeRaw}
-                      onChange={(e) => {
-                        setBusinessTypeRaw(e.target.value);
-                        setIndustryType(e.target.value);
-                      }}
-                      placeholder="e.g. Restaurant, Swimming pool contractor, MEP Consultant"
-                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
-                    />
-                    <datalist id="company-raw-subtypes-list">
-                      {distinctRawBusinessTypes.map((st) => (
-                        <option key={st} value={st} />
-                      ))}
-                    </datalist>
-                  </div>
-                </div>
+                <IndustryTaxonomySelector
+                  parentSectorId={industryParent}
+                  onParentSectorChange={setIndustryParent}
+                  subTypeValue={businessTypeRaw}
+                  onSubTypeChange={(val) => {
+                    setBusinessTypeRaw(val);
+                    setIndustryType(val);
+                  }}
+                  userIdentifier={user?.email || user?.full_name || 'Operator'}
+                  variant="dark"
+                  size="md"
+                  idPrefix="company-modal-ind"
+                  className="mb-1"
+                />
 
                 <div className="grid grid-cols-2 gap-4 items-end">
                   <div>

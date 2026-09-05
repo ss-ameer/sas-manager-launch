@@ -12,6 +12,8 @@ import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes } from '../utils/taxonomy';
+import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
+import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import {
   Building2,
   X,
@@ -102,6 +104,7 @@ export default function CompanyEditModal({
   const [canonicalName, setCanonicalName] = useState('');
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [aliasesInput, setAliasesInput] = useState('');
+  const { findParentForSubtype } = useIndustryTaxonomy();
   const [city, setCity] = useState('Sharjah');
   const [country, setCountry] = useState('UAE');
   const [industryParent, setIndustryParent] = useState('');
@@ -146,8 +149,15 @@ export default function CompanyEditModal({
       setAliasesInput((targetCompany.aliases || []).join(', '));
       setCity(targetCompany.city || 'Sharjah');
       setCountry(targetCompany.country || 'UAE');
-      setIndustryParent(targetCompany.industry_parent || '');
       const rawVal = targetCompany.business_type_raw || targetCompany.industry || targetCompany.industry_type || '';
+      let resolvedParent = targetCompany.industry_parent || '';
+      if (!resolvedParent && rawVal) {
+        const detected = findParentForSubtype(rawVal);
+        if (detected) {
+          resolvedParent = detected.id;
+        }
+      }
+      setIndustryParent(resolvedParent);
       setBusinessTypeRaw(rawVal);
       setRelationship(targetCompany.relationship || 'Prospect');
       setTemperature(targetCompany.temperature || 'Cold');
@@ -595,45 +605,17 @@ export default function CompanyEditModal({
             </div>
 
             {/* Industry Taxonomy */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
-                  <span>Parent Category</span>
-                  <span className="text-slate-500 font-sans lowercase font-normal">(Macro Tier 1)</span>
-                </label>
-                <select
-                  value={industryParent}
-                  onChange={(e) => setIndustryParent(e.target.value)}
-                  className="w-full h-11 bg-slate-950 border border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
-                >
-                  <option value="">Select Parent Industry (Optional)</option>
-                  {PARENT_INDUSTRIES.map((pi) => (
-                    <option key={pi.id} value={pi.id}>
-                      {pi.icon} {pi.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
-                  <span>Business Type Sub-Type</span>
-                  <span className="text-slate-500 font-sans lowercase font-normal">(Child Tier 2)</span>
-                </label>
-                <input
-                  type="text"
-                  list="global-company-raw-subtypes-list"
-                  value={businessTypeRaw}
-                  onChange={(e) => setBusinessTypeRaw(e.target.value)}
-                  placeholder="e.g. Water Treatment, MEP Consultant..."
-                  className="w-full h-11 bg-slate-950 border border-slate-700 rounded-xl px-4 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
-                />
-                <datalist id="global-company-raw-subtypes-list">
-                  {distinctRawBusinessTypes.map((st) => (
-                    <option key={st} value={st} />
-                  ))}
-                </datalist>
-              </div>
-            </div>
+            <IndustryTaxonomySelector
+              parentSectorId={industryParent}
+              onParentSectorChange={setIndustryParent}
+              subTypeValue={businessTypeRaw}
+              onSubTypeChange={setBusinessTypeRaw}
+              userIdentifier={user?.email || user?.full_name || 'Operator'}
+              variant="dark"
+              size="md"
+              idPrefix="edit-modal-ind"
+              className="mb-1"
+            />
 
             {/* Relationship & Temperature */}
             <div className="grid grid-cols-2 gap-4 items-end">

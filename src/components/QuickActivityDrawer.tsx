@@ -52,6 +52,7 @@ import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes } from '../utils/taxonomy';
+import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
@@ -722,38 +723,139 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
   }, [isOpen, selectedEnquiryId, enquiries, selectedCompanyId]);
 
-  // Filtered companies for uncontextualized global flow
-  const filteredCompanies = useMemo(() => {
-    if (!companySearchQuery.trim()) return (companies || []).slice(0, 8);
-    const q = companySearchQuery.toLowerCase().trim();
-    return (companies || [])
-      .filter((c) => {
-        const name = (c.display_name || c.canonical_name || '').toLowerCase();
-        const aliases = (c.aliases || []).join(' ').toLowerCase();
-        return name.includes(q) || aliases.includes(q);
-      })
-      .slice(0, 10);
-  }, [companies, companySearchQuery]);
+  // Fast memoized lookup of contacts by company ID for instant deep search
+  const contactsByCompany = useMemo(() => {
+    const map = new Map<string, Contact[]>();
+    (contacts || []).forEach((ct) => {
+      if (ct.is_deleted || (ct as any).deleted) return;
+      if (ct.company_id) {
+        const arr = map.get(ct.company_id) || [];
+        arr.push(ct);
+        map.set(ct.company_id, arr);
+      }
+      if (Array.isArray(ct.company_ids)) {
+        ct.company_ids.forEach((cid) => {
+          const arr = map.get(cid) || [];
+          if (!arr.includes(ct)) arr.push(ct);
+          map.set(cid, arr);
+        });
+      }
+    });
+    return map;
+  }, [contacts]);
 
-  const handleSelectCompany = (comp: Company) => {
+  interface CompanySearchResult {
+    company: Company;
+    matchedContact?: Contact;
+  }
+
+  // Filtered companies for uncontextualized global flow with deep contact index
+  const filteredCompanyResults = useMemo<CompanySearchResult[]>(() => {
+    const activeComps = (companies || []).filter((c) => !c.is_deleted && !(c as any).deleted);
+    if (!companySearchQuery.trim()) {
+      return activeComps.slice(0, 8).map((c) => ({ company: c }));
+    }
+
+    const q = companySearchQuery.toLowerCase().trim();
+    const cleanQ = q.replace(/[\s\-\(\)\+]/g, '');
+    const results: CompanySearchResult[] = [];
+
+    for (const c of activeComps) {
+      const name = (c.display_name || c.canonical_name || c.legal_name || c.name || '').toLowerCase();
+      const aliases = (c.aliases || []).join(' ').toLowerCase();
+      const city = (c.city || '').toLowerCase();
+      const compPhones = (c.general_phone || '') + ' ' + (Array.isArray(c.phones) ? c.phones.map((p: any) => p.number || '').join(' ') : '');
+      const compPhonesClean = compPhones.replace(/[\s\-\(\)\+]/g, '');
+
+      const nameMatch = name.includes(q);
+      const aliasMatch = aliases.includes(q);
+      const cityMatch = city.includes(q);
+      const phoneMatch = compPhones.toLowerCase().includes(q) || (cleanQ.length >= 3 && compPhonesClean.includes(cleanQ));
+
+      // Check contacts of this company
+      const compContacts = contactsByCompany.get(c.id) || [];
+      let matchedCt: Contact | undefined;
+
+      for (const ct of compContacts) {
+        const ctName = (ct.full_name || '').toLowerCase();
+        const ctDesig = (ct.designation || '').toLowerCase();
+        const ctEmail = (ct.email || '').toLowerCase();
+        const ctMobile = ct.mobile || '';
+        const ctLandline = ct.landline || '';
+        const ctMobileDigits = ctMobile.replace(/[\s\-\(\)\+]/g, '');
+        const ctLandlineDigits = ctLandline.replace(/[\s\-\(\)\+]/g, '');
+
+        const ctPhones = getContactPhones(ct);
+        const anyPhoneMatch = ctPhones.some((p) => {
+          const pNum = p.number || '';
+          const pDigits = pNum.replace(/[\s\-\(\)\+]/g, '');
+          return pNum.toLowerCase().includes(q) || (cleanQ.length >= 3 && pDigits.includes(cleanQ));
+        });
+
+        if (
+          ctName.includes(q) ||
+          ctDesig.includes(q) ||
+          ctEmail.includes(q) ||
+          ctMobile.toLowerCase().includes(q) ||
+          ctLandline.toLowerCase().includes(q) ||
+          (cleanQ.length >= 3 && (ctMobileDigits.includes(cleanQ) || ctLandlineDigits.includes(cleanQ))) ||
+          anyPhoneMatch
+        ) {
+          matchedCt = ct;
+          break;
+        }
+      }
+
+      if (nameMatch || aliasMatch || cityMatch || phoneMatch || matchedCt) {
+        results.push({ company: c, matchedContact: matchedCt });
+        if (results.length >= 15) break;
+      }
+    }
+
+    return results;
+  }, [companies, companySearchQuery, contactsByCompany]);
+
+  const filteredCompanies = useMemo(() => {
+    return filteredCompanyResults.map((r) => r.company);
+  }, [filteredCompanyResults]);
+
+  const handleSelectCompany = (comp: Company, matchedContact?: Contact) => {
     setSelectedCompanyId(comp.id || '');
     setSelectedCompanyName(comp.display_name || comp.canonical_name);
     setCompanySearchQuery('');
     setIsComboboxOpen(false);
     setValidationError(null);
 
-    setSelectedContactId('');
-    setSelectedContactName('');
-    setSelectedContactPhone('');
-    setSelectedContactEmail('');
+    // Sync ref immediately to prevent zombie contact wiping effect from triggering
+    prevSelectedCompanyIdRef.current = comp.id || '';
+
+    if (matchedContact) {
+      setSelectedContactId(matchedContact.id || '');
+      setSelectedContactName(matchedContact.full_name || '');
+      const phones = getContactPhones(matchedContact);
+      const phoneNum = matchedContact.mobile || matchedContact.landline || phones[0]?.number || '';
+      setSelectedContactPhone(phoneNum);
+      setSelectedContactEmail(matchedContact.email || '');
+      setCrmTargetType('contact');
+      setIsAddingNewContact(false);
+      setIsAddingNewContactPhone(false);
+      setIsAddingNewCompanyLine(false);
+      setNewContactDesignation(matchedContact.designation || '');
+    } else {
+      setSelectedContactId('');
+      setSelectedContactName('');
+      setSelectedContactPhone('');
+      setSelectedContactEmail('');
+      setIsAddingNewContact(false);
+      setIsAddingNewContactPhone(false);
+      setIsAddingNewCompanyLine(false);
+      setNewContactDesignation('');
+      setNewPhoneTag('Mobile');
+      setNewContactPhoneTag('Mobile');
+    }
+
     setSelectedEnquiryId('');
     setSelectedEnquiryQuoteRef('');
-    setIsAddingNewContact(false);
-    setIsAddingNewContactPhone(false);
-    setIsAddingNewCompanyLine(false);
-    setNewContactDesignation('');
-    setNewPhoneTag('Mobile');
-    setNewContactPhoneTag('Mobile');
   };
 
   const availableCompanyContacts = useMemo(() => {
@@ -2367,40 +2469,63 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               setValidationError(null);
                             }}
                             onFocus={() => setIsComboboxOpen(true)}
-                            placeholder="Search company by name or alias..."
+                            placeholder="Search company name, alias, contact person, or phone..."
                             className="w-full rounded-xl bg-slate-950 border border-slate-800 pl-9 pr-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                           />
                         </div>
 
                         {isComboboxOpen && (
-                          <div className="absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 shadow-xl p-1 space-y-0.5">
-                            {filteredCompanies.length > 0 ? (
-                              filteredCompanies.map((c, idx) => (
-                                <button
-                                  key={c.id ? `${c.id}_${idx}` : `comp_${idx}`}
-                                  type="button"
-                                  onClick={() => handleSelectCompany(c)}
-                                  className="w-full text-left p-2 rounded-lg hover:bg-blue-600/20 hover:border-blue-500/30 border border-transparent transition-colors flex items-center justify-between cursor-pointer"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Building2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                                    <div>
-                                      <span className="text-xs font-semibold text-slate-100 block">
-                                        {c.display_name || c.canonical_name}
-                                      </span>
-                                      {(c.city || c.country) && (
-                                        <span className="text-[10px] text-slate-400 block font-mono">
-                                          {[c.city, c.country].filter(Boolean).join(', ')}
+                          <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 shadow-xl p-1 space-y-0.5">
+                            {filteredCompanyResults.length > 0 ? (
+                              filteredCompanyResults.map(({ company: c, matchedContact }, idx) => {
+                                const contactPhoneDisplay = matchedContact
+                                  ? (matchedContact.mobile
+                                      ? `Mobile: ${matchedContact.mobile}`
+                                      : (matchedContact.landline
+                                          ? `Tel: ${matchedContact.landline}`
+                                          : (getContactPhones(matchedContact)[0]?.number
+                                              ? `Phone: ${getContactPhones(matchedContact)[0]?.number}`
+                                              : '')))
+                                  : '';
+
+                                return (
+                                  <button
+                                    key={c.id ? `${c.id}_${idx}` : `comp_${idx}`}
+                                    type="button"
+                                    onClick={() => handleSelectCompany(c, matchedContact)}
+                                    className="w-full text-left p-2.5 rounded-lg hover:bg-blue-600/20 hover:border-blue-500/30 border border-transparent transition-colors flex items-start justify-between cursor-pointer group"
+                                  >
+                                    <div className="flex items-start gap-2.5 min-w-0">
+                                      <Building2 className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
+                                      <div className="min-w-0">
+                                        <span className="text-xs font-semibold text-slate-100 block truncate">
+                                          {c.display_name || c.canonical_name}
                                         </span>
-                                      )}
+                                        {(c.city || c.country) && (
+                                          <span className="text-[10px] text-slate-400 block font-mono">
+                                            {[c.city, c.country].filter(Boolean).join(', ')}
+                                          </span>
+                                        )}
+                                        {matchedContact && (
+                                          <div className="mt-1">
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 text-[10px] font-medium">
+                                              <span>👤</span>
+                                              <span>
+                                                Matched Contact: <strong className="text-emerald-200">{matchedContact.full_name}</strong>
+                                                {contactPhoneDisplay ? ` (${contactPhoneDisplay})` : ''}
+                                              </span>
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <Check className="h-3.5 w-3.5 text-slate-600" />
-                                </button>
-                              ))
+                                    <Check className="h-3.5 w-3.5 text-slate-600 group-hover:text-blue-400 transition shrink-0 ml-2 mt-1" />
+                                  </button>
+                                );
+                              })
                             ) : (
                               <div className="p-3 text-center text-xs text-slate-500 italic">
-                                No matching companies found
+                                No matching companies or contacts found
                               </div>
                             )}
                           </div>
@@ -3057,45 +3182,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   </div>
 
                   {/* Two-Tier Industry Taxonomy Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                        <span>Macro Parent Category</span>
-                        <span className="text-[10px] text-slate-500 font-normal">Tier 1</span>
-                      </label>
-                      <select
-                        value={expressIndustryParent}
-                        onChange={(e) => setExpressIndustryParent(e.target.value)}
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none cursor-pointer"
-                      >
-                        <option value="">Select Macro Parent...</option>
-                        {PARENT_INDUSTRIES.map((pi) => (
-                          <option key={pi.id} value={pi.id}>
-                            {pi.icon} {pi.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                        <span>Raw Business Type</span>
-                        <span className="text-[10px] text-slate-500 font-normal">GBP Sub-Type</span>
-                      </label>
-                      <input
-                        type="text"
-                        list="express-raw-subtypes-list"
-                        value={expressIndustryType}
-                        onChange={(e) => setExpressIndustryType(e.target.value)}
-                        placeholder="e.g. Restaurant, Pool contractor"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-                      />
-                      <datalist id="express-raw-subtypes-list">
-                        {expressDistinctSubtypes.map((st) => (
-                          <option key={st} value={st} />
-                        ))}
-                      </datalist>
-                    </div>
-                  </div>
+                  <IndustryTaxonomySelector
+                    parentSectorId={expressIndustryParent}
+                    onParentSectorChange={setExpressIndustryParent}
+                    subTypeValue={expressIndustryType}
+                    onSubTypeChange={setExpressIndustryType}
+                    userIdentifier={user?.email || user?.full_name || 'Operator'}
+                    variant="dark"
+                    size="sm"
+                    idPrefix="express-lead-ind"
+                    className="pt-1"
+                  />
 
                   {/* Relationship and Temperature Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
