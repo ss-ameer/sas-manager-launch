@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Company, Contact, Enquiry, CallLogEntry, UserProfile, Workspace, Salesperson, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, DropdownOption } from '../types';
 import { getReferenceId } from '../utils/refId';
 import ContactModal from './ContactModal';
+import CompanyEditModal from './CompanyEditModal';
 import {
   Building2,
   Users2,
@@ -97,8 +98,16 @@ export default function Company360Modal({
   const [activeSubTab, setActiveSubTab] = useState<'contacts' | 'call_logs' | 'enquiries'>('contacts');
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [selectedContactToEdit, setSelectedContactToEdit] = useState<Contact | null>(null);
+  const [internalEditModalOpen, setInternalEditModalOpen] = useState(false);
+  const [localCompanyOverride, setLocalCompanyOverride] = useState<Company | null>(null);
 
-  const company = companies.find((c) => c.id === companyId);
+  // Reset local override if companyId changes
+  useEffect(() => {
+    setLocalCompanyOverride(null);
+  }, [companyId]);
+
+  const rawCompany = companies.find((c) => c.id === companyId);
+  const company = localCompanyOverride || rawCompany;
   const [temperatureVal, setTemperatureVal] = useState<'Cold' | 'Warm' | 'Hot' | 'DNC'>('Cold');
 
   useEffect(() => {
@@ -409,20 +418,22 @@ export default function Company360Modal({
             >
               <span>⚡ Log Activity</span>
             </button>
-            {onEditCompany && (
-              <button
-                type="button"
-                onClick={() => {
+            <button
+              type="button"
+              onClick={() => {
+                if (onEditCompany && company) {
                   onClose();
                   onEditCompany(company);
-                }}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-                title="Edit Company Profile in Registry"
-              >
-                <Edit2 className="w-3.5 h-3.5 text-blue-400" />
-                <span>Edit Company</span>
-              </button>
-            )}
+                } else {
+                  setInternalEditModalOpen(true);
+                }
+              }}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              title="Edit Company Profile in Registry"
+            >
+              <Edit2 className="w-3.5 h-3.5 text-blue-400" />
+              <span>Edit Company</span>
+            </button>
             <button
               onClick={onClose}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
@@ -892,6 +903,30 @@ export default function Company360Modal({
         setContacts={setContacts}
         setCallLogs={setCallLogs}
       />
+
+      {internalEditModalOpen && company && (
+        <CompanyEditModal
+          isOpen={internalEditModalOpen}
+          onClose={() => setInternalEditModalOpen(false)}
+          company={company}
+          companyId={company.id}
+          companies={companies}
+          activeWorkspace={activeWorkspace}
+          user={user}
+          companyRelationships={companyRelationships}
+          setCompanies={setCompanies}
+          setCallLogs={setCallLogs}
+          onSaved={(savedCompany) => {
+            setLocalCompanyOverride(savedCompany);
+            if (setCompanies) {
+              setCompanies((prev) =>
+                prev.map((c) => (c.id === savedCompany.id ? savedCompany : c))
+              );
+            }
+            setInternalEditModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

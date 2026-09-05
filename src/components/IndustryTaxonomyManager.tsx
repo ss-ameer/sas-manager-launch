@@ -659,7 +659,7 @@ export default function IndustryTaxonomyManager({
   // ---------------------------------------------------------------------------
   const [triageSearch, setTriageSearch] = useState('');
   const [triageFilter, setTriageFilter] = useState<'all' | 'missing' | 'placeholder'>('all');
-  const [autoSaveOnSelect, setAutoSaveOnSelect] = useState(true);
+  const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(true);
   const [dismissedCompanyIds, setDismissedCompanyIds] = useState<Set<string>>(new Set());
   const [fadingRowIds, setFadingRowIds] = useState<Set<string>>(new Set());
   const [sessionClassifiedCount, setSessionClassifiedCount] = useState(0);
@@ -1043,7 +1043,8 @@ export default function IndustryTaxonomyManager({
     parentId: string,
     subtype: string,
     isNew: boolean,
-    rowIndex: number
+    rowIndex: number,
+    forceSave: boolean = false
   ) => {
     if (!companyId || !parentId || !subtype) return;
 
@@ -1078,6 +1079,21 @@ export default function IndustryTaxonomyManager({
         subtype: finalSubtypeName
       }
     }));
+
+    // Strict Auto-Save Condition:
+    // If isAutoSaveEnabled is FALSE and this was NOT an explicit user click/Enter on [Save]:
+    // - Selecting a Tier 2 option must ONLY update the local component state for that row.
+    // - It MUST NOT write to Firestore, MUST NOT advance focus to the next row, and MUST NOT dismiss the row.
+    // - Shift focus to the row's [Save] button so user can review and hit Enter if desired.
+    if (!isAutoSaveEnabled && !forceSave) {
+      setTimeout(() => {
+        const saveBtn = document.getElementById(`save-btn-${companyId}`);
+        if (saveBtn) {
+          saveBtn.focus();
+        }
+      }, 50);
+      return;
+    }
 
     // 3. Find NEXT untagged company to advance DOM focus to its [G] button
     const nextCompany = filteredUntaggedCompanies.slice(rowIndex + 1).find(
@@ -1819,32 +1835,17 @@ export default function IndustryTaxonomyManager({
 
               {/* Auto-Save Checkbox / Switch */}
               <label
-                className="flex items-center space-x-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl"
+                className="flex items-center space-x-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs"
                 title="Automatically update company in Firestore as soon as child sub-type is selected"
               >
                 <input
                   type="checkbox"
-                  checked={autoSaveOnSelect}
-                  onChange={(e) => setAutoSaveOnSelect(e.target.checked)}
+                  checked={isAutoSaveEnabled}
+                  onChange={(e) => setIsAutoSaveEnabled(e.target.checked)}
                   className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
                 <span className="text-[11px]">Auto-Save on Select</span>
               </label>
-
-              {/* Speedrunner Keyboard Guide Pill */}
-              <div className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 text-[11px] font-medium select-none">
-                <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                <span>Speedrunner:</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">[G]</kbd>
-                <span>➔</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">↵ Tier 1</kbd>
-                <span>➔</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">↵ Tier 2</kbd>
-                <span>➔ Next</span>
-                <span className="text-blue-300 dark:text-blue-800">|</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">Alt+S</kbd>
-                <span>Skip</span>
-              </div>
             </div>
           </div>
 
@@ -1946,7 +1947,7 @@ export default function IndustryTaxonomyManager({
                                       e.stopPropagation();
                                       setSelected360CompanyId(company.id || null);
                                     }}
-                                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer underline underline-offset-2 transition-colors text-left truncate max-w-full"
+                                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors text-left truncate max-w-full"
                                     title={`Open 360° Profile for "${company.display_name || company.canonical_name}"`}
                                   >
                                     <span className="truncate font-medium">
@@ -2006,7 +2007,7 @@ export default function IndustryTaxonomyManager({
                                 availableSubtypes={availableSubtypes}
                                 disabled={!currentSelection.parentId}
                                 onCommit={(subtype, isNew) =>
-                                  handleCommitTier2(companyId, currentSelection.parentId, subtype, isNew, idx)
+                                  handleCommitTier2(companyId, currentSelection.parentId, subtype, isNew, idx, false)
                                 }
                                 onSkip={() => handleSkipForSession(company)}
                               />
@@ -2030,6 +2031,7 @@ export default function IndustryTaxonomyManager({
                               </button>
                               <button
                                 type="button"
+                                id={`save-btn-${companyId}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleCommitTier2(
@@ -2037,8 +2039,23 @@ export default function IndustryTaxonomyManager({
                                     currentSelection.parentId,
                                     currentSelection.subtype,
                                     false,
-                                    idx
+                                    idx,
+                                    true
                                   );
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleCommitTier2(
+                                      companyId,
+                                      currentSelection.parentId,
+                                      currentSelection.subtype,
+                                      false,
+                                      idx,
+                                      true
+                                    );
+                                  }
                                 }}
                                 disabled={!currentSelection.parentId || !currentSelection.subtype}
                                 title={

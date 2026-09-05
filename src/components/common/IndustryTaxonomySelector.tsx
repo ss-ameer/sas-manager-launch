@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useIndustryTaxonomy } from '../../hooks/useIndustryTaxonomy';
-import { Check, X, Plus, Sparkles, AlertCircle } from 'lucide-react';
+import { normalizeSubTypeName } from '../../utils/taxonomy';
+import { Check, ChevronDown, Sparkles, X, Plus, Search, Loader2 } from 'lucide-react';
 
 export interface IndustryTaxonomySelectorProps {
   parentSectorId: string;
@@ -29,39 +30,66 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
 }) => {
   const {
     sectors,
-    getParentSector,
     findParentForSubtype,
     getSubtypesForParent,
     addCustomSubtype
   } = useIndustryTaxonomy();
 
-  // Inline Quick Creation State
-  const [isCreatingInline, setIsCreatingInline] = useState(false);
-  const [inlineNewSubtype, setInlineNewSubtype] = useState('');
-  const [inlineTargetParent, setInlineTargetParent] = useState(parentSectorId || 'general_other');
-  const [isSubmittingNew, setIsSubmittingNew] = useState(false);
-  const inlineInputRef = useRef<HTMLInputElement>(null);
+  const isDark = variant === 'dark';
 
-  // Sync inlineTargetParent when parentSectorId changes
+  // ---------------------------------------------------------------------------
+  // Tier 1 Combobox State (Macro Parent Category)
+  // ---------------------------------------------------------------------------
+  const [isTier1Open, setIsTier1Open] = useState(false);
+  const [tier1Search, setTier1Search] = useState('');
+  const [tier1HighlightedIdx, setTier1HighlightedIdx] = useState(0);
+  const tier1WrapperRef = useRef<HTMLDivElement>(null);
+  const tier1ListRef = useRef<HTMLDivElement>(null);
+  const tier1InputRef = useRef<HTMLInputElement>(null);
+
+  const selectedSector = useMemo(() => {
+    return sectors.find((s) => s.id === parentSectorId);
+  }, [sectors, parentSectorId]);
+
+  // Strip emojis and punctuation to ensure keyboard filtering works even if sectors start with emojis
+  const filteredSectors = useMemo(() => {
+    const q = tier1Search.trim().toLowerCase();
+    if (!q) return sectors;
+
+    return sectors.filter((sec) => {
+      const rawLabel = (sec.label || '').toLowerCase();
+      const rawName = (sec.name || '').toLowerCase();
+      const rawId = (sec.id || '').toLowerCase();
+      const cleanLabel = (sec.label || sec.name || '')
+        .replace(/[\p{Extended_Pictographic}\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+        .toLowerCase()
+        .trim();
+
+      return (
+        cleanLabel.includes(q) ||
+        rawLabel.includes(q) ||
+        rawName.includes(q) ||
+        rawId.includes(q)
+      );
+    });
+  }, [sectors, tier1Search]);
+
+  // Auto-scroll highlighted Tier 1 item into view
   useEffect(() => {
-    if (parentSectorId) {
-      setInlineTargetParent(parentSectorId);
+    if (isTier1Open && tier1ListRef.current) {
+      const activeEl = tier1ListRef.current.querySelector(
+        `[data-tier1-idx="${tier1HighlightedIdx}"]`
+      ) as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
     }
-  }, [parentSectorId]);
+  }, [tier1HighlightedIdx, isTier1Open]);
 
-  // Focus input when entering inline creation mode
-  useEffect(() => {
-    if (isCreatingInline && inlineInputRef.current) {
-      inlineInputRef.current.focus();
-    }
-  }, [isCreatingInline]);
-
-  // Available sub-types for currently selected parent
-  const availableSubtypes = parentSectorId ? getSubtypesForParent(parentSectorId) : [];
-
-  // When Parent Sector is changed by operator
-  const handleParentChange = (newParentId: string) => {
+  const handleParentSelect = (newParentId: string) => {
     onParentSectorChange(newParentId);
+    setIsTier1Open(false);
+    setTier1Search('');
 
     // If a child sub-type was already selected, check if it belongs to the new parent
     if (subTypeValue && newParentId) {
@@ -69,226 +97,532 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
       const belongs = parentSubtypes.some(
         (st) => st.trim().toLowerCase() === subTypeValue.trim().toLowerCase()
       );
-      // If it doesn't belong to the newly selected parent, reset it so cascading is clean
       if (!belongs) {
         onSubTypeChange('');
       }
     }
   };
 
-  // When Child Sub-Type is changed by operator
-  const handleSubTypeChange = (newVal: string) => {
-    if (newVal === '__CREATE_NEW__') {
-      setIsCreatingInline(true);
-      setInlineNewSubtype('');
-      setInlineTargetParent(parentSectorId || 'general_other');
-      return;
+  const handleClearParent = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onParentSectorChange('');
+    setTier1Search('');
+  };
+
+  const handleTier1KeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isTier1Open) {
+        setIsTier1Open(true);
+      } else if (filteredSectors.length > 0) {
+        setTier1HighlightedIdx((prev) => (prev + 1) % filteredSectors.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!isTier1Open) {
+        setIsTier1Open(true);
+      } else if (filteredSectors.length > 0) {
+        setTier1HighlightedIdx(
+          (prev) => (prev - 1 + filteredSectors.length) % filteredSectors.length
+        );
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (filteredSectors.length > 0) {
+        const target = filteredSectors[tier1HighlightedIdx] || filteredSectors[0];
+        handleParentSelect(target.id);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsTier1Open(false);
+      setTier1Search('');
+    } else if (e.key === 'Tab') {
+      if (isTier1Open && filteredSectors.length > 0) {
+        const target = filteredSectors[tier1HighlightedIdx] || filteredSectors[0];
+        handleParentSelect(target.id);
+      }
+      setIsTier1Open(false);
+      setTier1Search('');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Tier 2 Combobox State (Child GBP Sub-Type)
+  // ---------------------------------------------------------------------------
+  const [isTier2Open, setIsTier2Open] = useState(false);
+  const [tier2Search, setTier2Search] = useState('');
+  const [tier2HighlightedIdx, setTier2HighlightedIdx] = useState(0);
+  const [isSubmittingNew, setIsSubmittingNew] = useState(false);
+  const tier2WrapperRef = useRef<HTMLDivElement>(null);
+  const tier2ListRef = useRef<HTMLDivElement>(null);
+  const tier2InputRef = useRef<HTMLInputElement>(null);
+
+  // Available sub-types based on parent sector (or all if none selected)
+  const availableSubtypes = useMemo(() => {
+    let list: string[] = [];
+    if (parentSectorId) {
+      list = getSubtypesForParent(parentSectorId);
+    } else {
+      const set = new Set<string>();
+      sectors.forEach((sec) => {
+        (sec.subtypes || []).forEach((st) => set.add(st));
+      });
+      list = Array.from(set);
     }
 
-    onSubTypeChange(newVal);
+    // If company has an existing custom/historical subTypeValue, preserve it in the list
+    if (subTypeValue && !list.some((s) => s.toLowerCase() === subTypeValue.toLowerCase())) {
+      list = [subTypeValue, ...list];
+    }
+    return list;
+  }, [parentSectorId, getSubtypesForParent, sectors, subTypeValue]);
 
-    // If child is selected first or parent is empty, auto-detect and pre-fill Parent Sector
-    if (newVal) {
-      const detectedParent = findParentForSubtype(newVal);
-      if (detectedParent && detectedParent.id !== parentSectorId) {
-        onParentSectorChange(detectedParent.id);
+  const trimmedSearch = tier2Search.trim();
+  const normalizedSearch = useMemo(() => {
+    return normalizeSubTypeName(trimmedSearch);
+  }, [trimmedSearch]);
+
+  const filteredSubtypes = useMemo(() => {
+    if (!trimmedSearch) return availableSubtypes;
+    const q = trimmedSearch.toLowerCase();
+    return availableSubtypes.filter((st) => st.toLowerCase().includes(q));
+  }, [availableSubtypes, trimmedSearch]);
+
+  const exactMatch = useMemo(() => {
+    if (!trimmedSearch) return false;
+    const lowerTrim = trimmedSearch.toLowerCase();
+    const lowerNorm = normalizedSearch.toLowerCase();
+    return availableSubtypes.some(
+      (st) => st.toLowerCase() === lowerTrim || st.toLowerCase() === lowerNorm
+    );
+  }, [availableSubtypes, trimmedSearch, normalizedSearch]);
+
+  const canCreateNew = Boolean(trimmedSearch && !exactMatch);
+
+  interface Tier2Option {
+    type: 'create' | 'existing';
+    value: string;
+    label: string;
+  }
+
+  const tier2Options: Tier2Option[] = useMemo(() => {
+    const list: Tier2Option[] = [];
+    if (canCreateNew) {
+      list.push({
+        type: 'create',
+        value: normalizedSearch,
+        label: `+ Create "${normalizedSearch}" (New GBP Sub-Type)`
+      });
+    }
+    filteredSubtypes.forEach((st) => {
+      list.push({
+        type: 'existing',
+        value: st,
+        label: st
+      });
+    });
+    return list;
+  }, [canCreateNew, normalizedSearch, filteredSubtypes]);
+
+  // Auto-scroll highlighted Tier 2 item into view
+  useEffect(() => {
+    if (isTier2Open && tier2ListRef.current) {
+      const activeEl = tier2ListRef.current.querySelector(
+        `[data-tier2-idx="${tier2HighlightedIdx}"]`
+      ) as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
       }
     }
-  };
+  }, [tier2HighlightedIdx, isTier2Open]);
 
-  // Confirm inline custom sub-type creation
-  const handleConfirmInlineCreate = async () => {
-    const trimmed = inlineNewSubtype.trim();
-    if (!trimmed) return;
-
-    setIsSubmittingNew(true);
-    const targetParent = inlineTargetParent || parentSectorId || 'general_other';
-
-    try {
-      await addCustomSubtype(targetParent, trimmed, userIdentifier);
-      onParentSectorChange(targetParent);
-      onSubTypeChange(trimmed);
-      setIsCreatingInline(false);
-      setInlineNewSubtype('');
-    } catch (err) {
-      console.error('[IndustryTaxonomySelector] Error adding custom sub-type:', err);
-    } finally {
-      setIsSubmittingNew(false);
+  const handleTier2Select = async (opt: Tier2Option) => {
+    if (opt.type === 'create') {
+      const trimmed = opt.value;
+      if (!trimmed) return;
+      setIsSubmittingNew(true);
+      const targetParent = parentSectorId || 'general_other';
+      try {
+        await addCustomSubtype(targetParent, trimmed, userIdentifier);
+        if (!parentSectorId) {
+          onParentSectorChange(targetParent);
+        }
+        onSubTypeChange(trimmed);
+      } catch (err) {
+        console.error('[IndustryTaxonomySelector] Error adding custom sub-type:', err);
+      } finally {
+        setIsSubmittingNew(false);
+        setIsTier2Open(false);
+        setTier2Search('');
+      }
+    } else {
+      onSubTypeChange(opt.value);
+      // If child is selected without a parent, auto-detect and pre-fill Parent Sector
+      if (!parentSectorId) {
+        const detected = findParentForSubtype(opt.value);
+        if (detected) {
+          onParentSectorChange(detected.id);
+        }
+      }
+      setIsTier2Open(false);
+      setTier2Search('');
     }
   };
 
-  const handleCancelInlineCreate = () => {
-    setIsCreatingInline(false);
-    setInlineNewSubtype('');
+  const handleClearSubType = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSubTypeChange('');
+    setTier2Search('');
   };
 
-  const isDark = variant === 'dark';
+  const handleTier2KeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isTier2Open) {
+        setIsTier2Open(true);
+      } else if (tier2Options.length > 0) {
+        setTier2HighlightedIdx((prev) => (prev + 1) % tier2Options.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!isTier2Open) {
+        setIsTier2Open(true);
+      } else if (tier2Options.length > 0) {
+        setTier2HighlightedIdx(
+          (prev) => (prev - 1 + tier2Options.length) % tier2Options.length
+        );
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (tier2Options.length > 0) {
+        const target = tier2Options[tier2HighlightedIdx] || tier2Options[0];
+        handleTier2Select(target);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsTier2Open(false);
+      setTier2Search('');
+    } else if (e.key === 'Tab') {
+      if (isTier2Open && tier2Options.length > 0) {
+        const target = tier2Options[tier2HighlightedIdx] || tier2Options[0];
+        handleTier2Select(target);
+      }
+      setIsTier2Open(false);
+      setTier2Search('');
+    }
+  };
 
-  const selectContainerClass = isDark
-    ? 'bg-slate-950 border-slate-700 text-slate-100 focus:ring-blue-500'
-    : 'bg-white border-slate-300 text-slate-800 focus:ring-blue-500';
+  // ---------------------------------------------------------------------------
+  // Outside Click Listener to Dismiss Dropdowns Cleanly
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        tier1WrapperRef.current &&
+        !tier1WrapperRef.current.contains(e.target as Node)
+      ) {
+        setIsTier1Open(false);
+        setTier1Search('');
+      }
+      if (
+        tier2WrapperRef.current &&
+        !tier2WrapperRef.current.contains(e.target as Node)
+      ) {
+        setIsTier2Open(false);
+        setTier2Search('');
+      }
+    };
 
-  const heightClass = size === 'sm' ? 'h-9 text-xs px-2.5 rounded-lg' : 'h-11 text-sm px-4 rounded-xl';
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Geometry & Styling Classes
+  // ---------------------------------------------------------------------------
+  const heightClass = size === 'sm' ? 'h-9 text-xs rounded-lg' : 'h-11 text-sm rounded-xl';
+  const paddingClass = size === 'sm' ? 'pl-2.5 pr-8' : 'pl-3.5 pr-8';
+
+  const containerInputClass = isDark
+    ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20';
+
+  const dropdownContainerClass = isDark
+    ? 'bg-slate-900 border-slate-700 divide-slate-800 text-slate-100 shadow-2xl'
+    : 'bg-white border-slate-200 divide-slate-100 text-slate-800 shadow-2xl';
 
   return (
     <div className={`grid grid-cols-1 md:grid-cols-2 gap-3.5 ${className}`}>
-      {/* Tier 1: Macro Parent Category */}
-      <div>
+      {/* Tier 1: Macro Parent Category Combobox */}
+      <div ref={tier1WrapperRef} className="relative">
         {showLabels && (
           <label
-            htmlFor={`${idPrefix}-parent-select`}
-            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between"
+            htmlFor={`${idPrefix}-parent-input`}
+            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between select-none"
           >
             <span>Macro Parent Category</span>
             <span className="text-slate-500 font-sans lowercase font-normal">Tier 1</span>
           </label>
         )}
-        <select
-          id={`${idPrefix}-parent-select`}
-          value={parentSectorId}
-          onChange={(e) => handleParentChange(e.target.value)}
-          className={`w-full ${heightClass} border font-sans cursor-pointer focus:ring-2 focus:border-transparent outline-none transition-all ${selectContainerClass}`}
-        >
-          <option value="">Select Parent Industry (Optional)</option>
-          {sectors.map((sec) => (
-            <option key={sec.id} value={sec.id}>
-              {sec.icon} {sec.label || sec.name}
-            </option>
-          ))}
-        </select>
+
+        <div className="relative flex items-center">
+          <input
+            ref={tier1InputRef}
+            id={`${idPrefix}-parent-input`}
+            type="text"
+            value={
+              isTier1Open
+                ? tier1Search
+                : selectedSector
+                ? `${selectedSector.icon || ''} ${selectedSector.label || selectedSector.name}`.trim()
+                : ''
+            }
+            onChange={(e) => {
+              setTier1Search(e.target.value);
+              if (!isTier1Open) setIsTier1Open(true);
+              setTier1HighlightedIdx(0);
+            }}
+            onFocus={() => {
+              setIsTier1Open(true);
+              setTier1Search('');
+              const curIdx = sectors.findIndex((s) => s.id === parentSectorId);
+              setTier1HighlightedIdx(curIdx >= 0 ? curIdx : 0);
+            }}
+            onKeyDown={handleTier1KeyDown}
+            placeholder={
+              selectedSector
+                ? `${selectedSector.icon || ''} ${selectedSector.label || selectedSector.name}`.trim()
+                : 'Search parent sector (e.g. Construction, Healthcare)...'
+            }
+            autoComplete="off"
+            className={`w-full ${heightClass} ${paddingClass} border font-sans cursor-pointer outline-none transition-all ${containerInputClass}`}
+          />
+
+          {/* Right Action Icons (Clear / Chevron) */}
+          <div className="absolute right-2.5 flex items-center space-x-1">
+            {parentSectorId && !isTier1Open ? (
+              <button
+                type="button"
+                onClick={handleClearParent}
+                className="p-1 text-slate-400 hover:text-slate-200 transition rounded-full hover:bg-slate-800/60 cursor-pointer"
+                title="Clear parent sector"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <div className="pointer-events-none text-slate-400">
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform duration-150 ${
+                    isTier1Open ? 'rotate-180 text-blue-400' : ''
+                  }`}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Tier 1 Filtered List Dropdown */}
+        {isTier1Open && (
+          <div
+            ref={tier1ListRef}
+            className={`absolute z-50 left-0 right-0 top-full mt-1.5 max-h-56 overflow-y-auto rounded-xl border divide-y py-1 animate-in fade-in zoom-in-95 duration-100 ${dropdownContainerClass}`}
+          >
+            {filteredSectors.length === 0 ? (
+              <div className="px-3 py-2 text-slate-400 italic text-xs">
+                No matching parent sectors
+              </div>
+            ) : (
+              filteredSectors.map((sec, idx) => {
+                const isSelected = sec.id === parentSectorId;
+                const isHighlighted = idx === tier1HighlightedIdx;
+
+                return (
+                  <div
+                    key={sec.id}
+                    data-tier1-idx={idx}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleParentSelect(sec.id);
+                    }}
+                    onMouseEnter={() => setTier1HighlightedIdx(idx)}
+                    className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-xs ${
+                      isHighlighted
+                        ? 'bg-blue-600 text-white font-semibold'
+                        : isSelected
+                        ? isDark
+                          ? 'bg-blue-950/40 text-blue-400 font-semibold'
+                          : 'bg-blue-50 text-blue-700 font-semibold'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-200'
+                        : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 truncate">
+                      <span className="text-sm shrink-0">{sec.icon}</span>
+                      <span className="truncate">{sec.label || sec.name}</span>
+                    </div>
+                    {isSelected && (
+                      <Check
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isHighlighted
+                            ? 'text-white'
+                            : 'text-blue-500 dark:text-blue-400'
+                        }`}
+                      />
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Tier 2: Child GBP Sub-Type */}
-      <div>
+      {/* Tier 2: Child GBP Sub-Type Combobox */}
+      <div ref={tier2WrapperRef} className="relative">
         {showLabels && (
           <label
-            htmlFor={`${idPrefix}-subtype-select`}
-            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between"
+            htmlFor={`${idPrefix}-subtype-input`}
+            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between select-none"
           >
             <span>Raw Business Type</span>
             <span className="text-slate-500 font-sans lowercase font-normal">GBP Sub-Type Tier 2</span>
           </label>
         )}
 
-        {isCreatingInline ? (
-          /* Inline New Sub-Type Input Mode */
-          <div className="flex items-center gap-1.5 animate-fadeIn">
-            <div className="relative flex-1">
-              <input
-                ref={inlineInputRef}
-                type="text"
-                value={inlineNewSubtype}
-                onChange={(e) => setInlineNewSubtype(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleConfirmInlineCreate();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    handleCancelInlineCreate();
-                  }
-                }}
-                placeholder="Enter GBP Sub-Type (e.g. Diving Center)..."
-                disabled={isSubmittingNew}
-                className={`w-full ${heightClass} border font-sans pr-8 focus:ring-2 focus:border-transparent outline-none transition-all ${
-                  isDark
-                    ? 'bg-slate-900 border-blue-500 text-white placeholder-slate-400'
-                    : 'bg-white border-blue-500 text-slate-900 placeholder-slate-400'
-                }`}
-              />
-              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-blue-400 text-xs">
-                <Sparkles className="w-3.5 h-3.5" />
-              </span>
-            </div>
+        <div className="relative flex items-center">
+          <input
+            ref={tier2InputRef}
+            id={`${idPrefix}-subtype-input`}
+            type="text"
+            value={isTier2Open ? tier2Search : subTypeValue || ''}
+            onChange={(e) => {
+              setTier2Search(e.target.value);
+              if (!isTier2Open) setIsTier2Open(true);
+              setTier2HighlightedIdx(0);
+            }}
+            onFocus={() => {
+              setIsTier2Open(true);
+              setTier2Search('');
+              const curIdx = tier2Options.findIndex((o) => o.value === subTypeValue);
+              setTier2HighlightedIdx(curIdx >= 0 ? curIdx : 0);
+            }}
+            onKeyDown={handleTier2KeyDown}
+            placeholder={
+              subTypeValue
+                ? subTypeValue
+                : parentSectorId
+                ? 'Type to filter GBP sub-type (e.g. Diving Center)...'
+                : 'Type or choose sub-type (All Sectors)...'
+            }
+            autoComplete="off"
+            className={`w-full ${heightClass} ${paddingClass} border font-sans cursor-pointer outline-none transition-all ${containerInputClass}`}
+          />
 
-            {/* If no parent sector was selected, allow choosing parent sector for the new tag */}
-            {!parentSectorId && (
-              <select
-                value={inlineTargetParent}
-                onChange={(e) => setInlineTargetParent(e.target.value)}
-                title="Assign newly created sub-type to parent sector"
-                className={`w-28 ${heightClass} border font-sans text-xs cursor-pointer outline-none ${selectContainerClass}`}
+          {/* Right Action Icons (Loader / Clear / Chevron) */}
+          <div className="absolute right-2.5 flex items-center space-x-1">
+            {isSubmittingNew ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+            ) : subTypeValue && !isTier2Open ? (
+              <button
+                type="button"
+                onClick={handleClearSubType}
+                className="p-1 text-slate-400 hover:text-slate-200 transition rounded-full hover:bg-slate-800/60 cursor-pointer"
+                title="Clear sub-type"
               >
-                {sectors.map((sec) => (
-                  <option key={sec.id} value={sec.id}>
-                    {sec.icon} {sec.label || sec.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {/* Confirm button */}
-            <button
-              type="button"
-              onClick={handleConfirmInlineCreate}
-              disabled={!inlineNewSubtype.trim() || isSubmittingNew}
-              title="Confirm and Add Sub-Type (Enter)"
-              className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-xs transition flex items-center justify-center shrink-0 cursor-pointer"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-
-            {/* Cancel button */}
-            <button
-              type="button"
-              onClick={handleCancelInlineCreate}
-              disabled={isSubmittingNew}
-              title="Cancel (Esc)"
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 shadow-xs transition flex items-center justify-center shrink-0 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          /* Standard Cascading Dropdown Mode */
-          <select
-            id={`${idPrefix}-subtype-select`}
-            value={subTypeValue}
-            onChange={(e) => handleSubTypeChange(e.target.value)}
-            className={`w-full ${heightClass} border font-sans cursor-pointer focus:ring-2 focus:border-transparent outline-none transition-all ${selectContainerClass}`}
-          >
-            <option value="">
-              {parentSectorId ? 'Select GBP Sub-Type...' : 'Select GBP Sub-Type (All Sectors)...'}
-            </option>
-
-            {/* If company already has a custom/historical subTypeValue not in current list, keep it visible and selected */}
-            {subTypeValue &&
-              (parentSectorId
-                ? !availableSubtypes.some((s) => s.toLowerCase() === subTypeValue.toLowerCase())
-                : !sectors.some((sec) =>
-                    (sec.subtypes || []).some((st) => st.toLowerCase() === subTypeValue.toLowerCase())
-                  )) && (
-                <option value={subTypeValue}>{subTypeValue} (Current / Custom)</option>
-              )}
-
-            {parentSectorId ? (
-              /* Sub-types filtered strictly by selected Parent Sector */
-              availableSubtypes.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))
+                <X className="w-3.5 h-3.5" />
+              </button>
             ) : (
-              /* If no Parent Sector is selected yet, display sub-types grouped by parent */
-              sectors.map((sec) => (
-                <optgroup key={sec.id} label={`${sec.icon} ${sec.label || sec.name}`}>
-                  {(sec.subtypes || []).map((st) => (
-                    <option key={`${sec.id}_${st}`} value={st}>
-                      {st}
-                    </option>
-                  ))}
-                </optgroup>
-              ))
+              <div className="pointer-events-none text-slate-400">
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform duration-150 ${
+                    isTier2Open ? 'rotate-180 text-blue-400' : ''
+                  }`}
+                />
+              </div>
             )}
+          </div>
+        </div>
 
-            {/* Create New Sub-Type trigger */}
-            <option
-              value="__CREATE_NEW__"
-              className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40"
-            >
-              + Add Custom Sub-Type...
-            </option>
-          </select>
+        {/* Tier 2 Filtered List Dropdown */}
+        {isTier2Open && (
+          <div
+            ref={tier2ListRef}
+            className={`absolute z-50 left-0 right-0 top-full mt-1.5 max-h-56 overflow-y-auto rounded-xl border divide-y py-1 animate-in fade-in zoom-in-95 duration-100 ${dropdownContainerClass}`}
+          >
+            {tier2Options.length === 0 ? (
+              <div className="px-3 py-2 text-slate-400 italic text-xs">
+                No matching sub-types found
+              </div>
+            ) : (
+              tier2Options.map((opt, idx) => {
+                const isSelected = opt.type === 'existing' && opt.value === subTypeValue;
+                const isHighlighted = idx === tier2HighlightedIdx;
+
+                if (opt.type === 'create') {
+                  return (
+                    <div
+                      key="create-new-opt"
+                      data-tier2-idx={idx}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleTier2Select(opt);
+                      }}
+                      onMouseEnter={() => setTier2HighlightedIdx(idx)}
+                      className={`flex items-center space-x-2 px-3 py-2 cursor-pointer transition-colors text-xs ${
+                        isHighlighted
+                          ? 'bg-emerald-600 text-white font-bold'
+                          : isDark
+                          ? 'bg-emerald-950/40 text-emerald-300 hover:bg-emerald-600 hover:text-white font-semibold'
+                          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white font-semibold'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{opt.label}</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={opt.value}
+                    data-tier2-idx={idx}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleTier2Select(opt);
+                    }}
+                    onMouseEnter={() => setTier2HighlightedIdx(idx)}
+                    className={`flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-xs ${
+                      isHighlighted
+                        ? 'bg-blue-600 text-white font-semibold'
+                        : isSelected
+                        ? isDark
+                          ? 'bg-blue-950/40 text-blue-400 font-semibold'
+                          : 'bg-blue-50 text-blue-700 font-semibold'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-200'
+                        : 'hover:bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {isSelected && (
+                      <Check
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isHighlighted
+                            ? 'text-white'
+                            : 'text-blue-500 dark:text-blue-400'
+                        }`}
+                      />
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         )}
       </div>
     </div>

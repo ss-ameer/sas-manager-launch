@@ -1943,8 +1943,8 @@ export default function CompanyModal({
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-slate-500 dark:text-slate-400 text-xs flex items-center space-x-1 mt-0.5">
-                                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                <div className="text-slate-600 dark:text-slate-300 text-xs flex items-center space-x-1 mt-0.5">
+                                  <MapPin className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
                                   <span>{c.city}, {c.country}</span>
                                 </div>
                               </td>
@@ -1972,21 +1972,21 @@ export default function CompanyModal({
                                     {phones[0].number}
                                   </div>
                                 ) : (
-                                  <div className="italic text-slate-400 text-xs">No phone saved</div>
+                                  <div className="italic text-slate-600 dark:text-slate-300 text-xs">No phone saved</div>
                                 )}
                                 {emails.length > 0 ? (
-                                  <div className="truncate max-w-[180px] text-slate-500 dark:text-slate-400 text-xs font-mono mt-0.5" title={emails[0].email}>
+                                  <div className="truncate max-w-[180px] text-slate-600 dark:text-slate-300 text-xs font-mono mt-0.5" title={emails[0].email}>
                                     {emails[0].email}
                                   </div>
                                 ) : (
-                                  <div className="italic text-slate-400 text-xs mt-0.5">No email addresses saved</div>
+                                  <div className="italic text-slate-600 dark:text-slate-300 text-xs mt-0.5">No email addresses saved</div>
                                 )}
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
                                 {linkCount > 0 ? (
                                   <span className="text-slate-900 dark:text-white font-medium text-xs">{linkCount} Enquiries</span>
                                 ) : (
-                                  <span className="italic text-slate-400 text-xs">0 Enquiries</span>
+                                  <span className="italic text-slate-600 dark:text-slate-300 text-xs">0 Enquiries</span>
                                 )}
                               </td>
                               <td className="py-4 px-4 text-right whitespace-nowrap">
@@ -2059,8 +2059,8 @@ export default function CompanyModal({
                             </div>
 
                             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-sans">
-                                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="text-xs text-slate-600 dark:text-slate-300 flex items-center space-x-1 font-sans">
+                                <MapPin className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                                 <span>{c.city}, {c.country}</span>
                               </span>
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
@@ -2070,9 +2070,9 @@ export default function CompanyModal({
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-mono text-slate-500 dark:text-slate-400">
-                            <span>{c.aliases && c.aliases.length > 0 ? `${c.aliases.length} ALIASES` : <span className="italic text-slate-400">NO ALIASES</span>}</span>
-                            <span className={linkCount > 0 ? "text-blue-600 dark:text-blue-400 font-semibold" : "italic text-slate-400"}>
+                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-mono text-slate-600 dark:text-slate-300">
+                            <span>{c.aliases && c.aliases.length > 0 ? `${c.aliases.length} ALIASES` : <span className="italic text-slate-500 dark:text-slate-400">NO ALIASES</span>}</span>
+                            <span className={linkCount > 0 ? "text-blue-600 dark:text-blue-400 font-semibold" : "italic text-slate-500 dark:text-slate-400"}>
                               {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
                             </span>
                           </div>
