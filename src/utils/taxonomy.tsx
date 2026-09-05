@@ -131,6 +131,69 @@ export const COMMON_GBP_SUBTYPES: string[] = [
 ];
 
 /**
+ * Known industry acronyms and uppercase terms that must be preserved in uppercase.
+ */
+export const KNOWN_INDUSTRY_ACRONYMS: Record<string, string> = {
+  'mep': 'MEP',
+  'hvac': 'HVAC',
+  'f&b': 'F&B',
+  'ro': 'RO',
+  'fm': 'FM',
+  'cctv': 'CCTV',
+  'it': 'IT',
+  'uae': 'UAE',
+  'llc': 'LLC',
+  'gbp': 'GBP',
+  'ai': 'AI',
+  'b2b': 'B2B',
+  'b2c': 'B2C',
+  'oem': 'OEM',
+  'r&d': 'R&D',
+  'saas': 'SaaS',
+  'paas': 'PaaS'
+};
+
+/**
+ * Normalizes a GBP child sub-type name:
+ * 1. Trims whitespace and collapses multiple consecutive spaces.
+ * 2. Formats words into Title Case (e.g., "water park" -> "Water Park").
+ * 3. Protects known industry acronyms (e.g., "mep contractor" -> "MEP Contractor", "f&b service" -> "F&B Service").
+ */
+export function normalizeSubTypeName(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '';
+
+  const formatSegment = (seg: string): string => {
+    const lower = seg.toLowerCase();
+    if (KNOWN_INDUSTRY_ACRONYMS[lower]) {
+      return KNOWN_INDUSTRY_ACRONYMS[lower];
+    }
+    if (!seg) return '';
+    return seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase();
+  };
+
+  const words = trimmed.split(' ');
+  const normalizedWords = words.map((word) => {
+    const lower = word.toLowerCase();
+    if (KNOWN_INDUSTRY_ACRONYMS[lower]) {
+      return KNOWN_INDUSTRY_ACRONYMS[lower];
+    }
+    // Handle hyphenated words (e.g., "full-service", "water-treatment")
+    if (word.includes('-')) {
+      return word.split('-').map(formatSegment).join('-');
+    }
+    // Handle slashed words (e.g., "import/export")
+    if (word.includes('/')) {
+      return word.split('/').map(formatSegment).join('/');
+    }
+    return formatSegment(word);
+  });
+
+  return normalizedWords.join(' ');
+}
+
+/**
  * Derives distinct business_type_raw values from existing companies
  */
 export function getDistinctRawBusinessTypes(companies: Company[]): string[] {

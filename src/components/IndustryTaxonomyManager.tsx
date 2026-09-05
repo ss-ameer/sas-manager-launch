@@ -11,6 +11,7 @@ import {
   CallLogEntry
 } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
+import { normalizeSubTypeName } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import Company360Modal from './Company360Modal';
 import {
@@ -62,6 +63,7 @@ interface Tier1ComboboxProps {
   sectors: IndustryTaxonomySector[];
   onSelect: (sectorId: string) => void;
   onAdvance: () => void;
+  onSkip?: () => void;
 }
 
 const Tier1Combobox: React.FC<Tier1ComboboxProps> = ({
@@ -69,7 +71,8 @@ const Tier1Combobox: React.FC<Tier1ComboboxProps> = ({
   value,
   sectors,
   onSelect,
-  onAdvance
+  onAdvance,
+  onSkip
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -108,6 +111,13 @@ const Tier1Combobox: React.FC<Tier1ComboboxProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSkip?.();
+      return;
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (!isOpen) {
@@ -188,7 +198,7 @@ const Tier1Combobox: React.FC<Tier1ComboboxProps> = ({
       {isOpen && (
         <div
           ref={listRef}
-          className="absolute z-40 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
         >
           {filteredSectors.length === 0 ? (
             <div className="px-3 py-2 text-slate-400 italic text-[11px]">
@@ -243,6 +253,7 @@ interface Tier2ComboboxProps {
   availableSubtypes: string[];
   disabled: boolean;
   onCommit: (subtype: string, isNew: boolean) => void;
+  onSkip?: () => void;
 }
 
 const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
@@ -250,7 +261,8 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
   value,
   availableSubtypes,
   disabled,
-  onCommit
+  onCommit,
+  onSkip
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -259,6 +271,9 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
   const listRef = React.useRef<HTMLDivElement>(null);
 
   const trimmedSearch = search.trim();
+  const normalizedSearch = useMemo(() => {
+    return normalizeSubTypeName(trimmedSearch);
+  }, [trimmedSearch]);
 
   const filteredSubtypes = useMemo(() => {
     if (!trimmedSearch) return availableSubtypes;
@@ -268,10 +283,12 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
 
   const exactMatch = useMemo(() => {
     if (!trimmedSearch) return false;
+    const lowerTrim = trimmedSearch.toLowerCase();
+    const lowerNorm = normalizedSearch.toLowerCase();
     return availableSubtypes.some(
-      (st) => st.toLowerCase() === trimmedSearch.toLowerCase()
+      (st) => st.toLowerCase() === lowerTrim || st.toLowerCase() === lowerNorm
     );
-  }, [availableSubtypes, trimmedSearch]);
+  }, [availableSubtypes, trimmedSearch, normalizedSearch]);
 
   const canCreateNew = Boolean(trimmedSearch && !exactMatch);
 
@@ -286,8 +303,8 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
     if (canCreateNew) {
       list.push({
         type: 'create',
-        value: trimmedSearch,
-        label: `+ Create "${trimmedSearch}" (New GBP Sub-Type)`
+        value: normalizedSearch,
+        label: `+ Create "${normalizedSearch}" (New GBP Sub-Type)`
       });
     }
     filteredSubtypes.forEach((st) => {
@@ -298,7 +315,7 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
       });
     });
     return list;
-  }, [canCreateNew, trimmedSearch, filteredSubtypes]);
+  }, [canCreateNew, normalizedSearch, filteredSubtypes]);
 
   useEffect(() => {
     if (isOpen && listRef.current) {
@@ -312,11 +329,19 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
   const handleCommitOption = (optValue: string, isNew: boolean) => {
     setIsOpen(false);
     setSearch('');
-    onCommit(optValue, isNew);
+    const finalVal = isNew ? normalizeSubTypeName(optValue) : optValue;
+    onCommit(finalVal, isNew);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
+
+    if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSkip?.();
+      return;
+    }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -339,7 +364,7 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
         const target = allOptions[highlightedIdx] || allOptions[0];
         handleCommitOption(target.value, target.type === 'create');
       } else if (trimmedSearch) {
-        handleCommitOption(trimmedSearch, true);
+        handleCommitOption(normalizedSearch, true);
       } else if (value) {
         handleCommitOption(value, false);
       }
@@ -403,7 +428,7 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
       {isOpen && !disabled && (
         <div
           ref={listRef}
-          className="absolute z-40 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1 text-xs divide-y divide-slate-100 dark:divide-slate-750 animate-in fade-in zoom-in-95 duration-100"
         >
           {allOptions.length === 0 ? (
             <div className="px-3 py-2 text-slate-400 italic text-[11px]">
@@ -639,6 +664,17 @@ export default function IndustryTaxonomyManager({
   const [fadingRowIds, setFadingRowIds] = useState<Set<string>>(new Set());
   const [sessionClassifiedCount, setSessionClassifiedCount] = useState(0);
 
+  // In-memory queue reordering for "Skip for Session": pushed to bottom of active queue
+  const [skippedCompanyIds, setSkippedCompanyIds] = useState<string[]>([]);
+  const [triageToast, setTriageToast] = useState<string | null>(null);
+
+  const showTriageToast = (msg: string) => {
+    setTriageToast(msg);
+    setTimeout(() => {
+      setTriageToast((curr) => (curr === msg ? null : curr));
+    }, 3000);
+  };
+
   // Row selections map: companyId -> { parentId, subtype }
   const [rowSelections, setRowSelections] = useState<
     Record<string, { parentId: string; subtype: string }>
@@ -647,13 +683,25 @@ export default function IndustryTaxonomyManager({
   // Inline "Create New Sub-Type" state per company row: companyId -> draft input text
   const [inlineNewSubtype, setInlineNewSubtype] = useState<Record<string, string>>({});
 
-  // Untagged companies list
+  // Untagged companies list with in-memory session reordering (skipped accounts at end)
   const untaggedCompanies = useMemo(() => {
-    return activeCompanies.filter((c) => {
+    const rawList = activeCompanies.filter((c) => {
       if (dismissedCompanyIds.has(c.id || '')) return false;
       return isCompanyUntagged(c);
     });
-  }, [activeCompanies, dismissedCompanyIds]);
+
+    if (skippedCompanyIds.length === 0) return rawList;
+
+    const skippedSet = new Set(skippedCompanyIds);
+    const unskipped = rawList.filter((c) => !skippedSet.has(c.id || ''));
+
+    const skippedMap = new Map(rawList.map((c) => [c.id || '', c]));
+    const skipped = skippedCompanyIds
+      .map((id) => skippedMap.get(id))
+      .filter((c): c is Company => Boolean(c && !dismissedCompanyIds.has(c.id || '') && isCompanyUntagged(c)));
+
+    return [...unskipped, ...skipped];
+  }, [activeCompanies, dismissedCompanyIds, skippedCompanyIds]);
 
   // Filtered untagged companies for high-speed table
   const filteredUntaggedCompanies = useMemo(() => {
@@ -803,14 +851,14 @@ export default function IndustryTaxonomyManager({
   // Add child subtype
   const handleAddSubtype = (sectorId: string) => {
     if (!isAdmin) return;
-    const trimmed = newSubtypeName.trim();
-    if (!trimmed) return;
+    const normalized = normalizeSubTypeName(newSubtypeName);
+    if (!normalized) return;
 
     const sector = sectors.find((s) => s.id === sectorId);
     if (!sector) return;
 
-    if (sector.subtypes.some((st) => st.toLowerCase() === trimmed.toLowerCase())) {
-      alert(`Sub-type "${trimmed}" already exists in this sector.`);
+    if (sector.subtypes.some((st) => st.toLowerCase() === normalized.toLowerCase())) {
+      alert(`Sub-type "${normalized}" already exists in this sector.`);
       return;
     }
 
@@ -818,13 +866,13 @@ export default function IndustryTaxonomyManager({
       if (s.id === sectorId) {
         return {
           ...s,
-          subtypes: [...s.subtypes, trimmed]
+          subtypes: [...s.subtypes, normalized]
         };
       }
       return s;
     });
 
-    persistTaxonomy(updated, `Added "${trimmed}" to ${sector.label}.`);
+    persistTaxonomy(updated, `Added "${normalized}" to ${sector.label}.`);
     setNewSubtypeName('');
     setAddingSubtypeToSectorId(null);
   };
@@ -833,8 +881,8 @@ export default function IndustryTaxonomyManager({
   const handleSaveSubtypeEdit = async () => {
     if (!isAdmin || !editingSubtypeInfo) return;
     const { sectorId, oldName, newName } = editingSubtypeInfo;
-    const trimmedNew = newName.trim();
-    if (!trimmedNew || trimmedNew.toLowerCase() === oldName.toLowerCase()) {
+    const normalizedNew = normalizeSubTypeName(newName);
+    if (!normalizedNew || normalizedNew.toLowerCase() === oldName.toLowerCase()) {
       setEditingSubtypeInfo(null);
       return;
     }
@@ -843,13 +891,13 @@ export default function IndustryTaxonomyManager({
       if (s.id === sectorId) {
         return {
           ...s,
-          subtypes: s.subtypes.map((st) => (st === oldName ? trimmedNew : st))
+          subtypes: s.subtypes.map((st) => (st === oldName ? normalizedNew : st))
         };
       }
       return s;
     });
 
-    await persistTaxonomy(updated, `Sub-type renamed to "${trimmedNew}".`);
+    await persistTaxonomy(updated, `Sub-type renamed to "${normalizedNew}".`);
 
     // Optionally cascade rename to in-memory and Firestore companies
     const affectedCompanies = activeCompanies.filter(
@@ -860,7 +908,7 @@ export default function IndustryTaxonomyManager({
       setCompanies((prev) =>
         prev.map((c) =>
           c.industry_parent === sectorId && c.business_type_raw === oldName
-            ? { ...c, business_type_raw: trimmedNew, industry_type: trimmedNew, industry: trimmedNew }
+            ? { ...c, business_type_raw: normalizedNew, industry_type: normalizedNew, industry: normalizedNew }
             : c
         )
       );
@@ -869,9 +917,9 @@ export default function IndustryTaxonomyManager({
       affectedCompanies.forEach((c) => {
         if (c.id) {
           safeUpdateDoc('companies', c.id, {
-            business_type_raw: trimmedNew,
-            industry_type: trimmedNew,
-            industry: trimmedNew,
+            business_type_raw: normalizedNew,
+            industry_type: normalizedNew,
+            industry: normalizedNew,
             updatedAt: new Date().toISOString()
           }).catch((err) => console.warn('[Taxonomy] Cascade rename company err:', err));
         }
@@ -964,6 +1012,32 @@ export default function IndustryTaxonomyManager({
     }, 20);
   };
 
+  const handleSkipForSession = (company: Company) => {
+    const companyId = company.id || '';
+    if (!companyId) return;
+
+    const compName = company.display_name || company.canonical_name || 'Account';
+
+    // Find the next company in line that will appear at or near the top
+    const nextCompany = filteredUntaggedCompanies.find(
+      (c) => c.id && c.id !== companyId && !dismissedCompanyIds.has(c.id) && !fadingRowIds.has(c.id)
+    );
+
+    // Reorder queue in-memory for this session
+    setSkippedCompanyIds((prev) => [...prev.filter((id) => id !== companyId), companyId]);
+    showTriageToast(`Moved ${compName} to end of session queue`);
+
+    // Advance focus to [G] button of the new company at the top
+    if (nextCompany?.id) {
+      setTimeout(() => {
+        const nextG = document.getElementById(`speedrunner-g-${nextCompany.id}`);
+        if (nextG) {
+          nextG.focus();
+        }
+      }, 50);
+    }
+  };
+
   const handleCommitTier2 = async (
     companyId: string,
     parentId: string,
@@ -976,11 +1050,11 @@ export default function IndustryTaxonomyManager({
     const targetSector = sectors.find((s) => s.id === parentId);
     if (!targetSector) return;
 
-    const rawSubtype = subtype.trim();
+    const normalizedSub = normalizeSubTypeName(subtype);
     const existingSubtype = targetSector.subtypes.find(
-      (st) => st.toLowerCase() === rawSubtype.toLowerCase()
+      (st) => st.toLowerCase() === normalizedSub.toLowerCase()
     );
-    const finalSubtypeName = existingSubtype || rawSubtype;
+    const finalSubtypeName = existingSubtype || normalizedSub;
 
     // 1. Fast Inline Creation: If typed child sub-type does not exist, provision it in sectors
     if (!existingSubtype) {
@@ -1767,6 +1841,9 @@ export default function IndustryTaxonomyManager({
                 <span>➔</span>
                 <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">↵ Tier 2</kbd>
                 <span>➔ Next</span>
+                <span className="text-blue-300 dark:text-blue-800">|</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 font-mono text-[10px] font-bold">Alt+S</kbd>
+                <span>Skip</span>
               </div>
             </div>
           </div>
@@ -1813,7 +1890,7 @@ export default function IndustryTaxonomyManager({
                       <th className="py-3 px-4 min-w-[240px]">Company Name & Location</th>
                       <th className="py-3 px-4 min-w-[210px]">Tier 1: Parent Sector</th>
                       <th className="py-3 px-4 min-w-[230px]">Tier 2: Child Sub-Type</th>
-                      <th className="py-3 px-4 w-28 text-right">Action</th>
+                      <th className="py-3 px-4 w-44 min-w-[170px] text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
@@ -1839,6 +1916,13 @@ export default function IndustryTaxonomyManager({
                       return (
                         <tr
                           key={companyId}
+                          onKeyDown={(e) => {
+                            if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleSkipForSession(company);
+                            }
+                          }}
                           className={`transition-all duration-300 hover:bg-slate-50/60 dark:hover:bg-slate-850/60 ${
                             isFading
                               ? 'opacity-0 -translate-x-4 pointer-events-none bg-emerald-50 dark:bg-emerald-950/20'
@@ -1854,7 +1938,7 @@ export default function IndustryTaxonomyManager({
                           <td className="py-3.5 px-4">
                             <div className="flex items-center justify-between space-x-2">
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center">
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1862,15 +1946,11 @@ export default function IndustryTaxonomyManager({
                                       e.stopPropagation();
                                       setSelected360CompanyId(company.id || null);
                                     }}
-                                    className="group/comp inline-flex items-center gap-1.5 text-left font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer max-w-full"
+                                    className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer underline underline-offset-2 transition-colors text-left truncate max-w-full"
                                     title={`Open 360° Profile for "${company.display_name || company.canonical_name}"`}
                                   >
-                                    <span className="truncate group-hover/comp:underline font-bold">
+                                    <span className="truncate font-medium">
                                       {company.display_name || company.canonical_name}
-                                    </span>
-                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-wider uppercase bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/80 shrink-0 group-hover/comp:bg-blue-600 group-hover/comp:text-white dark:group-hover/comp:bg-blue-500 dark:group-hover/comp:text-white transition-all shadow-2xs">
-                                      <RotateCcw className="w-2.5 h-2.5" />
-                                      <span>360°</span>
                                     </span>
                                   </button>
                                 </div>
@@ -1910,6 +1990,7 @@ export default function IndustryTaxonomyManager({
                                 sectors={sectors}
                                 onSelect={(newParentId) => handleSelectParentSector(companyId, newParentId)}
                                 onAdvance={() => handleAdvanceToTier2(companyId)}
+                                onSkip={() => handleSkipForSession(company)}
                               />
                             </div>
                           </td>
@@ -1927,13 +2008,26 @@ export default function IndustryTaxonomyManager({
                                 onCommit={(subtype, isNew) =>
                                   handleCommitTier2(companyId, currentSelection.parentId, subtype, isNew, idx)
                                 }
+                                onSkip={() => handleSkipForSession(company)}
                               />
                             </div>
                           </td>
 
-                          {/* 1-Click Tactile Update Action */}
+                          {/* 1-Click Tactile Update Action + Session Skip */}
                           <td className="py-3.5 px-4 text-right">
-                            <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
+                            <div onClick={(e) => e.stopPropagation()} className="flex items-center justify-end space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSkipForSession(company);
+                                }}
+                                title="Skip for now (moves to end of queue) [Alt + S]"
+                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition cursor-pointer select-none"
+                              >
+                                <span className="text-[11px] leading-none">⏭️</span>
+                                <span>Skip</span>
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2018,6 +2112,14 @@ export default function IndustryTaxonomyManager({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating In-Memory Triage Session Toast */}
+      {triageToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-2 px-4 py-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-xl shadow-2xl border border-slate-700/50 dark:border-slate-300 text-xs font-medium animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <span className="text-amber-400 dark:text-amber-600 font-bold">⏭️</span>
+          <span>{triageToast}</span>
         </div>
       )}
 
