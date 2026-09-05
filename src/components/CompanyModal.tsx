@@ -60,6 +60,7 @@ import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumbe
 import DuplicateMatchModal from './DuplicateMatchModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import CompanyExportModal from './CompanyExportModal';
 
 
 const CreatableCombobox = ({ value, onChange, onCreateOption, options, placeholder, className }: any) => {
@@ -282,6 +283,7 @@ export default function CompanyModal({
     };
   };
   const [viewMode, setViewMode] = useState<'companies' | 'contacts' | 'phones'>('companies');
+  const [showExportModal, setShowExportModal] = useState(false);
   const [industryFilter, setIndustryFilter] = useState<string>('ALL');
   const [relationshipFilter, setRelationshipFilter] = useState<string>('ALL');
   const [temperatureFilter, setTemperatureFilter] = useState<string>('ALL');
@@ -1583,14 +1585,26 @@ export default function CompanyModal({
         }}
         secondaryActions={[
           {
-            label: 'Export CSV',
+            label: viewMode === 'companies' ? 'Export Directory' : 'Export CSV',
             icon: Download,
-            onClick: handleExportDirectoryCSV
+            onClick: () => {
+              if (viewMode === 'companies') {
+                setShowExportModal(true);
+              } else {
+                handleExportDirectoryCSV();
+              }
+            }
           },
           {
             label: 'Print PDF',
             icon: Printer,
-            onClick: handlePrintDirectoryPDF
+            onClick: () => {
+              if (viewMode === 'companies') {
+                setShowExportModal(true);
+              } else {
+                handlePrintDirectoryPDF();
+              }
+            }
           }
         ]}
       />
@@ -1637,21 +1651,36 @@ export default function CompanyModal({
         </div>
 
         <div className="flex items-center space-x-2">
-          <button
-            onClick={handleExportDirectoryCSV}
-            className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-600" />
-            <span>Export CSV</span>
-          </button>
+          {viewMode === 'companies' ? (
+            <button
+              type="button"
+              onClick={() => setShowExportModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export Directory (PDF / CSV)</span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleExportDirectoryCSV}
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                <span>Export CSV</span>
+              </button>
 
-          <button
-            onClick={handlePrintDirectoryPDF}
-            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print / Save PDF</span>
-          </button>
+              <button
+                type="button"
+                onClick={handlePrintDirectoryPDF}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print / Save PDF</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -4212,6 +4241,16 @@ export default function CompanyModal({
           contacts={contacts}
           enquiries={enquiries}
           callLogs={callLogs}
+        />
+      )}
+
+      {showExportModal && (
+        <CompanyExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          companies={companies}
+          contacts={contacts}
+          activeWorkspace={activeWorkspace}
         />
       )}
     </PageBody>

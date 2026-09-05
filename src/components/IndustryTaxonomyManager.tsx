@@ -209,6 +209,9 @@ export default function IndustryTaxonomyManager({
     Record<string, { parentId: string; subtype: string }>
   >({});
 
+  // Inline "Create New Sub-Type" state per company row: companyId -> draft input text
+  const [inlineNewSubtype, setInlineNewSubtype] = useState<Record<string, string>>({});
+
   // Untagged companies list
   const untaggedCompanies = useMemo(() => {
     return activeCompanies.filter((c) => {
@@ -492,6 +495,16 @@ export default function IndustryTaxonomyManager({
   // Action Handlers: High-Speed Untagged Accounts Triage Station
   // ---------------------------------------------------------------------------
   const handleSelectParentSector = (companyId: string, parentId: string) => {
+    // Reset any pending inline sub-type creation for this row if parent changed
+    setInlineNewSubtype((prev) => {
+      if (prev[companyId] !== undefined) {
+        const next = { ...prev };
+        delete next[companyId];
+        return next;
+      }
+      return prev;
+    });
+
     setRowSelections((prev) => {
       const current = prev[companyId] || { parentId: '', subtype: '' };
       // Check if current subtype is in the new parent's subtypes
@@ -509,6 +522,12 @@ export default function IndustryTaxonomyManager({
   };
 
   const handleSelectSubtype = (companyId: string, subtype: string) => {
+    // If operator clicked "+ Add New Sub-Type...", switch this row's cell into inline input mode
+    if (subtype === '__CREATE_NEW__') {
+      setInlineNewSubtype((prev) => ({ ...prev, [companyId]: '' }));
+      return;
+    }
+
     setRowSelections((prev) => {
       const current = prev[companyId] || { parentId: '', subtype: '' };
       return {
@@ -525,6 +544,70 @@ export default function IndustryTaxonomyManager({
     if (autoSaveOnSelect && selection?.parentId && subtype) {
       handleQuickSaveTriage(companyId, selection.parentId, subtype);
     }
+  };
+
+  const handleConfirmCreateSubtype = async (companyId: string) => {
+    const rawText = (inlineNewSubtype[companyId] || '').trim();
+    if (!rawText) return;
+
+    const currentParentId =
+      rowSelections[companyId]?.parentId ||
+      activeCompanies.find((c) => c.id === companyId)?.industry_parent;
+
+    if (!currentParentId) {
+      alert('Please select a Parent Sector first.');
+      return;
+    }
+
+    const parentSector = sectors.find((s) => s.id === currentParentId);
+    if (!parentSector) return;
+
+    // Prevent duplicate entries under the same parent (case-insensitive)
+    const existing = parentSector.subtypes.find(
+      (st) => st.toLowerCase() === rawText.toLowerCase()
+    );
+    const finalSubtypeName = existing || rawText;
+
+    // 1. If it's a new sub-type for this parent sector, persist to Firestore settings/industry_taxonomy
+    if (!existing) {
+      const updatedSectors = sectors.map((s) => {
+        if (s.id === currentParentId) {
+          return {
+            ...s,
+            subtypes: [...s.subtypes, finalSubtypeName]
+          };
+        }
+        return s;
+      });
+      persistTaxonomy(updatedSectors, `Added "${finalSubtypeName}" to ${parentSector.label}`);
+    }
+
+    // 2. Update this row's selection state
+    setRowSelections((prev) => ({
+      ...prev,
+      [companyId]: {
+        parentId: currentParentId,
+        subtype: finalSubtypeName
+      }
+    }));
+
+    // 3. Close the inline input mode for this row
+    setInlineNewSubtype((prev) => {
+      const next = { ...prev };
+      delete next[companyId];
+      return next;
+    });
+
+    // 4. Save company record to Firestore and trigger completion animation/counter decrement
+    await handleQuickSaveTriage(companyId, currentParentId, finalSubtypeName);
+  };
+
+  const handleCancelCreateSubtype = (companyId: string) => {
+    setInlineNewSubtype((prev) => {
+      const next = { ...prev };
+      delete next[companyId];
+      return next;
+    });
   };
 
   const handleQuickSaveTriage = async (companyId: string, parentId: string, subtype: string) => {
@@ -1329,35 +1412,97 @@ export default function IndustryTaxonomyManager({
                             </div>
                           </td>
 
-                          {/* Tier 2: Child Sub-Type Dropdown */}
+                          {/* Tier 2: Child Sub-Type Dropdown or Inline Quick Input */}
                           <td className="py-3.5 px-4">
                             <div onClick={(e) => e.stopPropagation()}>
-                              <select
-                                value={currentSelection.subtype}
-                                disabled={!currentSelection.parentId}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectSubtype(companyId, e.target.value);
-                                }}
-                                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
-                              >
-                                <option value="">
-                                  {!currentSelection.parentId
-                                    ? 'Select Sector First...'
-                                    : 'Select Raw GBP Sub-Type...'}
-                                </option>
-                                {availableSubtypes.map((st) => (
-                                  <option key={st} value={st}>
-                                    {st}
+                              {inlineNewSubtype[companyId] !== undefined ? (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex items-center space-x-1.5 p-1 bg-white dark:bg-slate-800 border-2 border-emerald-500/90 rounded-xl shadow-xs animate-in fade-in zoom-in-95 duration-150"
+                                >
+                                  <input
+                                    type="text"
+                                    value={inlineNewSubtype[companyId]}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      const val = e.target.value;
+                                      setInlineNewSubtype((prev) => ({ ...prev, [companyId]: val }));
+                                    }}
+                                    onKeyDown={(e) => {
+                                      e.stopPropagation();
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleConfirmCreateSubtype(companyId);
+                                      } else if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        handleCancelCreateSubtype(companyId);
+                                      }
+                                    }}
+                                    placeholder="Enter GBP Sub-Type (e.g. Diving Center)..."
+                                    className="flex-1 px-2.5 py-1 text-xs bg-transparent text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 font-semibold focus:outline-hidden min-w-[140px]"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleConfirmCreateSubtype(companyId);
+                                    }}
+                                    disabled={!inlineNewSubtype[companyId]?.trim()}
+                                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition shadow-xs shrink-0 cursor-pointer"
+                                    title="Confirm & Save Sub-Type (Enter)"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">Confirm</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCancelCreateSubtype(companyId);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition shrink-0 cursor-pointer"
+                                    title="Cancel (Esc)"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <select
+                                  value={currentSelection.subtype}
+                                  disabled={!currentSelection.parentId}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectSubtype(companyId, e.target.value);
+                                  }}
+                                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                                >
+                                  <option value="">
+                                    {!currentSelection.parentId
+                                      ? 'Select Sector First...'
+                                      : 'Select Raw GBP Sub-Type...'}
                                   </option>
-                                ))}
-                                {currentSelection.subtype &&
-                                  !availableSubtypes.includes(currentSelection.subtype) && (
-                                    <option value={currentSelection.subtype}>
-                                      {currentSelection.subtype} (Current)
+                                  {availableSubtypes.map((st) => (
+                                    <option key={st} value={st}>
+                                      {st}
+                                    </option>
+                                  ))}
+                                  {currentSelection.subtype &&
+                                    !availableSubtypes.includes(currentSelection.subtype) && (
+                                      <option value={currentSelection.subtype}>
+                                        {currentSelection.subtype} (Current)
+                                      </option>
+                                    )}
+                                  {currentSelection.parentId && (
+                                    <option
+                                      value="__CREATE_NEW__"
+                                      className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/40"
+                                    >
+                                      + Add New Sub-Type...
                                     </option>
                                   )}
-                              </select>
+                                </select>
+                              )}
                             </div>
                           </td>
 
