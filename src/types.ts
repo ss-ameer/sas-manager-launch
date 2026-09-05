@@ -523,6 +523,15 @@ export interface ActivityLogEntry extends SoftDeleteFields {
 
 export type CallLogEntry = ActivityLogEntry;
 
+export interface IndustryTaxonomySector {
+  id: string;
+  label: string;
+  name?: string;
+  icon: string;
+  subtypes: string[];
+  order?: number;
+}
+
 export const CATEGORY_SUGGESTED_ATTRIBUTES: Record<string, string[]> = {
   'FRP Tanks': ['Brand / Make', 'Diameter', 'Height', 'Volume', 'Design Pressure'],
   'FRP Vessels': ['Brand / Make', 'Model', 'Top/Bottom Opening', 'Volume'],

@@ -4,8 +4,9 @@ import { collection, writeBatch, doc } from 'firebase/firestore';
 import { DropdownOption, Enquiry, Product, UserProfile, CallLogEntry, Company } from '../types';
 import { ShieldCheck, Plus, Trash2, Edit2, Check, X, AlertTriangle, Info } from 'lucide-react';
 import { CardPanel } from './layout/UiContainer';
-import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName } from '../utils/defaults';
+import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName, isCompanyUntagged } from '../utils/defaults';
 import { isWorkspaceAdmin } from '../utils/permissions';
+import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 
 interface DropdownSettingsProps {
   enquirySources: DropdownOption[];
@@ -70,7 +71,7 @@ export default function DropdownSettingsManager({
   setCompanies,
   setCallLogs
 }: DropdownSettingsProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures'>('sources');
+  const [activeSubTab, setActiveSubTab] = useState<'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'industry_taxonomy'>('sources');
   const [newOptionName, setNewOptionName] = useState('');
   const [newOptionColor, setNewOptionColor] = useState('#64748b');
   const [newOptionSentiment, setNewOptionSentiment] = useState<'positive' | 'neutral' | 'negative'>('neutral');
@@ -81,6 +82,11 @@ export default function DropdownSettingsManager({
   const [submitting, setSubmitting] = useState(false);
 
   const isAdmin = isWorkspaceAdmin(user, activeWorkspaceId, activeWorkspace);
+
+  const untaggedCompaniesCount = React.useMemo(() => {
+    if (!companies || companies.length === 0) return 0;
+    return companies.filter(c => !c.is_deleted && !(c as any).deleted && isCompanyUntagged(c)).length;
+  }, [companies]);
 
   const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'purposes' | 'industry_types') => {
     const norm = normalizeOptionName(optionName);
@@ -685,7 +691,7 @@ export default function DropdownSettingsManager({
 
       {/* Sub Tabs Bar */}
       <div className="flex border-b border-slate-200 overflow-x-auto">
-        {(['sources', 'categories', 'units', 'statuses', 'outcomes', 'relationships', 'temperatures'] as const).map((tab) => (
+        {(['sources', 'categories', 'units', 'statuses', 'outcomes', 'relationships', 'temperatures', 'industry_taxonomy'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -693,23 +699,42 @@ export default function DropdownSettingsManager({
               setNewOptionName('');
               handleCancelEdit();
             }}
-            className={`py-3 px-5 text-xs font-semibold uppercase tracking-wider font-sans border-b-2 transition -mb-[2px] shrink-0 ${
+            className={`py-3 px-5 text-xs font-semibold uppercase tracking-wider font-sans border-b-2 transition -mb-[2px] shrink-0 flex items-center space-x-1.5 ${
               activeSubTab === tab
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
-            {tab === 'sources' ? 'Enquiry Sources' :
-             tab === 'categories' ? 'Product Categories' :
-             tab === 'units' ? 'Units' :
-             tab === 'statuses' ? 'Call Statuses' :
-             tab === 'outcomes' ? 'Call Outcomes' :
-             tab === 'relationships' ? 'Relationships' : 'Temperatures'}
+            <span>
+              {tab === 'sources' ? 'Enquiry Sources' :
+               tab === 'categories' ? 'Product Categories' :
+               tab === 'units' ? 'Units' :
+               tab === 'statuses' ? 'Call Statuses' :
+               tab === 'outcomes' ? 'Call Outcomes' :
+               tab === 'relationships' ? 'Relationships' :
+               tab === 'temperatures' ? 'Temperatures' : 'Industry Taxonomy'}
+            </span>
+            {tab === 'industry_taxonomy' && untaggedCompaniesCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-mono font-bold">
+                ⚠️ {untaggedCompaniesCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {/* Context info banner */}
+      {activeSubTab === 'industry_taxonomy' ? (
+        <IndustryTaxonomyManager
+          companies={companies}
+          setCompanies={setCompanies}
+          user={user}
+          activeWorkspaceId={activeWorkspaceId}
+          activeWorkspace={activeWorkspace}
+          isAdmin={isAdmin}
+        />
+      ) : (
+        <>
+          {/* Context info banner */}
       {!isAdmin && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start space-x-3 text-xs text-amber-800">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -971,6 +996,8 @@ export default function DropdownSettingsManager({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Reusable Confirmation Dialog Overlay */}
       {confirmDialog.isOpen && (

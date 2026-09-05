@@ -539,6 +539,7 @@ export default function SettingsHub({
             setCompanyTemperatures={setCompanyTemperatures}
             setEnquiries={setEnquiries}
             setProducts={setProducts}
+            setCompanies={setCompanies}
             setCallLogs={setCallLogs}
           />
         )}

@@ -1,4 +1,4 @@
-import { Company, Contact, Enquiry, CallLogEntry, getInitials } from '../types';
+import { Company, Contact, Enquiry, CallLogEntry, getInitials, IndustryTaxonomySector } from '../types';
 
 export const SYSTEM_CALL_STATUSES = [
   'Completed',
@@ -502,5 +502,267 @@ export function getWhatsAppUrl(phone: string, text?: string): string {
   }
   return `https://wa.me/${sanitized}`;
 }
+
+/**
+ * Two-Tier Industry Taxonomy (Parent Sector + Raw GBP Child Sub-Type).
+ * Standardized system taxonomy used across the application.
+ */
+export const SYSTEM_INDUSTRY_TAXONOMY: IndustryTaxonomySector[] = [
+  {
+    id: 'utilities_environment',
+    label: 'Utilities & Environment',
+    name: 'Utilities & Environment',
+    icon: '💧',
+    order: 1,
+    subtypes: [
+      'Water treatment supplier',
+      'Water utility company',
+      'Sewage disposal service',
+      'Waste management service',
+      'Environmental consultant',
+      'Recycling center',
+      'Desalination plant operator',
+      'Drainage service'
+    ]
+  },
+  {
+    id: 'construction_engineering',
+    label: 'Construction & Engineering',
+    name: 'Construction & Engineering',
+    icon: '🏗️',
+    order: 2,
+    subtypes: [
+      'Swimming pool contractor',
+      'Swimming pool repair service',
+      'MEP Contractor',
+      'HVAC Contractor',
+      'Civil Engineering Contractor',
+      'General Contractor',
+      'Plumbing Contractor',
+      'Electrical Contractor',
+      'Roofing contractor',
+      'Demolition contractor',
+      'Flooring contractor',
+      'Painting contractor'
+    ]
+  },
+  {
+    id: 'facility_services',
+    label: 'Facility Services',
+    name: 'Facility Services',
+    icon: '🏢',
+    order: 3,
+    subtypes: [
+      'Facility Management Company',
+      'Cleaning Service',
+      'Pest Control Service',
+      'Security service',
+      'Landscape maintenance',
+      'Janitorial service',
+      'Building maintenance company'
+    ]
+  },
+  {
+    id: 'manufacturing',
+    label: 'Manufacturing',
+    name: 'Manufacturing',
+    icon: '⚙️',
+    order: 4,
+    subtypes: [
+      'Manufacturing Plant',
+      'Steel Fabrication',
+      'Building Materials Supplier',
+      'Industrial equipment supplier',
+      'Chemical manufacturer',
+      'Plastics fabrication',
+      'Machining manufacturer',
+      'Packaging supply store'
+    ]
+  },
+  {
+    id: 'trade_distribution',
+    label: 'Trade & Distribution',
+    name: 'Trade & Distribution',
+    icon: '📦',
+    order: 5,
+    subtypes: [
+      'General Trading',
+      'Wholesale Distributor',
+      'Import & Export',
+      'Logistics service',
+      'Freight forwarding service',
+      'Warehouse',
+      'Commercial equipment wholesaler'
+    ]
+  },
+  {
+    id: 'real_estate',
+    label: 'Real Estate',
+    name: 'Real Estate',
+    icon: '🏘️',
+    order: 6,
+    subtypes: [
+      'Real Estate Developer',
+      'Property Management Company',
+      'Real estate agency',
+      'Commercial real estate agency',
+      'Housing development',
+      'Real estate consultant'
+    ]
+  },
+  {
+    id: 'hospitality_leisure',
+    label: 'Hospitality & Leisure',
+    name: 'Hospitality & Leisure',
+    icon: '🏨',
+    order: 7,
+    subtypes: [
+      'Hotel',
+      'Resort',
+      'Restaurant',
+      'Catering Food and Beverage',
+      'Cafe',
+      'Fitness center / Gym',
+      'Amusement park',
+      'Sports club'
+    ]
+  },
+  {
+    id: 'healthcare',
+    label: 'Healthcare',
+    name: 'Healthcare',
+    icon: '🏥',
+    order: 8,
+    subtypes: [
+      'Hospital',
+      'Medical Clinic',
+      'Pharmacy',
+      'Diagnostic center',
+      'Dental clinic',
+      'Veterinary care',
+      'Medical supply store'
+    ]
+  },
+  {
+    id: 'food_agriculture',
+    label: 'Food & Agriculture',
+    name: 'Food & Agriculture',
+    icon: '🌾',
+    order: 9,
+    subtypes: [
+      'Agricultural Service',
+      'Farm',
+      'Food processing company',
+      'Livestock farming',
+      'Fishery',
+      'Agrochemical supplier',
+      'Landscaping Contractor'
+    ]
+  },
+  {
+    id: 'public_sector',
+    label: 'Public Sector',
+    name: 'Public Sector',
+    icon: '🏛️',
+    order: 10,
+    subtypes: [
+      'Government Entity',
+      'Municipality',
+      'Public works department',
+      'Educational institution',
+      'Embassy',
+      'Military facility'
+    ]
+  },
+  {
+    id: 'professional_services',
+    label: 'Professional Services',
+    name: 'Professional Services',
+    icon: '💼',
+    order: 11,
+    subtypes: [
+      'Engineering Consultant',
+      'Architecture Firm',
+      'Legal & Accounting Services',
+      'Management consulting',
+      'Design agency',
+      'IT services',
+      'Marketing agency'
+    ]
+  },
+  {
+    id: 'general_other',
+    label: 'General / Other',
+    name: 'General / Other',
+    icon: '🏷️',
+    order: 12,
+    subtypes: [
+      'Commercial Services',
+      'Retail Store',
+      'Automotive repair',
+      'Other Business Services'
+    ]
+  }
+];
+
+/**
+ * Detection Criteria for Untagged & Unspecified Accounts:
+ * Identifies active companies where:
+ * - industry/sector is missing or empty
+ * - sector matches "None / To Be Added Later", "Unspecified", or "Other"
+ */
+export function isCompanyUntagged(company?: Partial<Company> | null): boolean {
+  if (!company) return false;
+  if (company.is_deleted || (company as any).deleted) return false;
+
+  const parent = (company.industry_parent || '').trim().toLowerCase();
+  const rawSubtype = (company.business_type_raw || '').trim().toLowerCase();
+  const industry = (company.industry || '').trim().toLowerCase();
+  const industryType = (company.industry_type || '').trim().toLowerCase();
+
+  // 1. Missing or completely empty
+  if (!parent && !rawSubtype && !industry && !industryType) {
+    return true;
+  }
+
+  // 2. Parent sector is missing
+  if (!parent) {
+    return true;
+  }
+
+  // 3. Parent or child sector matches "None / To Be Added Later", "Unspecified", or "Other"
+  const untaggedKeywords = [
+    'none',
+    'none / to be added later',
+    'to be added later',
+    'unspecified',
+    'other',
+    'general_other',
+    'general / other',
+    'unknown',
+    'n/a',
+    'na'
+  ];
+
+  if (untaggedKeywords.includes(parent)) {
+    return true;
+  }
+
+  if (parent.includes('none') || parent.includes('unspecified') || parent.includes('to be added')) {
+    return true;
+  }
+
+  // If child raw business type is missing or placeholder
+  if (!rawSubtype && !industry && !industryType) {
+    return true;
+  }
+
+  if (untaggedKeywords.includes(rawSubtype)) {
+    return true;
+  }
+
+  return false;
+}
+
 
 
