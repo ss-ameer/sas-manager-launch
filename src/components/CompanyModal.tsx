@@ -668,6 +668,7 @@ export default function CompanyModal({
   const [temperature, setTemperature] = useState<string>('Cold');
   const [notes, setNotes] = useState('');
   const [aliasesInput, setAliasesInput] = useState('');
+  const [isInternalCompany, setIsInternalCompany] = useState<boolean>(false);
 
   // Contact Modal state
   const [contactModalOpen, setContactModalOpen] = useState(false);
@@ -727,6 +728,7 @@ export default function CompanyModal({
     setTemperature('Cold');
     setNotes('');
     setAliasesInput('');
+    setIsInternalCompany(false);
     setDuplicateMatchResult(null);
     setPendingBypass(false);
     setIsSavingCompany(false);
@@ -751,6 +753,7 @@ export default function CompanyModal({
     setTemperature('Cold');
     setNotes('');
     setAliasesInput('');
+    setIsInternalCompany(false);
     setDuplicateMatchResult(null);
     setPendingBypass(false);
     setShowAddCompany(true);
@@ -758,6 +761,7 @@ export default function CompanyModal({
 
   const handleOpenEditCompany = (comp: Company) => {
     setEditingCompany(comp);
+    setIsInternalCompany(Boolean(comp.isInternalCompany));
     let baseName = comp.display_name || comp.canonical_name || '';
     if (comp.legal_suffix && comp.legal_suffix !== 'None / Other' && comp.legal_suffix !== 'None / To Be Added Later') {
       const suffixWithSpace = ` ${comp.legal_suffix}`;
@@ -916,6 +920,8 @@ export default function CompanyModal({
       is_dnc: temperature === 'DNC',
       notes: notes.trim(),
       search_terms: searchTerms,
+      isInternalCompany: isInternalCompany,
+      linkedWorkspaceId: isInternalCompany ? (editingCompany?.linkedWorkspaceId || activeWorkspace?.id) : undefined,
       created_by_uid: editingCompany?.created_by_uid || user?.uid || '',
       created_by_name: editingCompany?.created_by_name || user?.full_name || user?.username || user?.email || 'Unknown User',
       last_modified_by_uid: user?.uid || '',
@@ -1548,7 +1554,37 @@ export default function CompanyModal({
   });
 
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
-  const companyContacts = contacts.filter((c) => c.company_id === selectedCompanyId);
+  const companyContacts = useMemo(() => {
+    const direct = contacts.filter((c) => c.company_id === selectedCompanyId);
+    if (!selectedCompany?.isInternalCompany || !salespersons || salespersons.length === 0) {
+      return direct;
+    }
+
+    const existingEmails = new Set(direct.map((d) => (d.email || '').toLowerCase().trim()).filter(Boolean));
+    const existingNames = new Set(direct.map((d) => (d.full_name || '').toLowerCase().trim()).filter(Boolean));
+
+    const teamContacts: Contact[] = salespersons
+      .filter((sp) => {
+        const spEmail = (sp.email || '').toLowerCase().trim();
+        const spName = (sp.full_name || '').toLowerCase().trim();
+        return !existingEmails.has(spEmail) && !existingNames.has(spName);
+      })
+      .map((sp) => ({
+        id: `ct_team_${selectedCompanyId}_${sp.id}`,
+        company_id: selectedCompanyId,
+        full_name: sp.full_name || sp.email || 'Team Member',
+        email: sp.email || '',
+        mobile: sp.phone || sp.mobile || '',
+        designation: sp.title || sp.designation || 'Team Member / Staff',
+        is_primary: false,
+        workspace_id: activeWorkspace?.id || 'ws_default',
+        search_terms: [(sp.full_name || '').toLowerCase(), (sp.email || '').toLowerCase()],
+        createdAt: sp.createdAt || new Date().toISOString(),
+        updatedAt: sp.updatedAt || new Date().toISOString()
+      } as Contact));
+
+    return [...direct, ...teamContacts];
+  }, [contacts, selectedCompanyId, selectedCompany?.isInternalCompany, salespersons, activeWorkspace?.id]);
   const companyEnquiries = enquiries.filter((e) => e.company_id === selectedCompanyId);
 
   const recentCompanyLogs = useMemo(() => {
@@ -1900,6 +1936,12 @@ export default function CompanyModal({
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <div className="font-semibold text-slate-900 dark:text-white font-sans text-sm">{c.display_name}</div>
                                   <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
+                                  {c.isInternalCompany && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                      <span>🏢</span>
+                                      <span>Our Company</span>
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-slate-500 dark:text-slate-400 text-xs flex items-center space-x-1 mt-0.5">
                                   <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
@@ -1996,9 +2038,15 @@ export default function CompanyModal({
                         >
                           <div className="space-y-2 w-full">
                             <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
                                 <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
                                 <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
+                                {c.isInternalCompany && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                                    <span>🏢</span>
+                                    <span>Our Company</span>
+                                  </span>
+                                )}
                               </div>
                               <TemperatureBadge
                                 companyId={c.id}
@@ -2055,6 +2103,12 @@ export default function CompanyModal({
                         <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                         <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
                       </span>
+                      {selectedCompany.isInternalCompany && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-700 flex items-center gap-1 shadow-xs">
+                          <span>🏢</span>
+                          <span>Our Company</span>
+                        </span>
+                      )}
                       <IndustryBadge company={selectedCompany} size="sm" showEmpty />
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
@@ -3392,6 +3446,32 @@ export default function CompanyModal({
                   <span className="text-[10px] text-slate-500 font-mono mt-1.5 block leading-normal">
                     Helps the fuzzy matching index search variants to block subsequent duplicates.
                   </span>
+                </div>
+
+                {/* Mark as Internal / Sister Company Toggle */}
+                <div className="p-3.5 bg-purple-950/20 border border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
+                      {isInternalCompany && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-700/60">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={isInternalCompany}
+                      onChange={(e) => setIsInternalCompany(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

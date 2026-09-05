@@ -42,6 +42,7 @@ export function exportCompaniesToCSV({
   const headers = [
     'Ref ID',
     'Company Name',
+    'Internal / Entity Type',
     'Parent Sector',
     'Child Sub-Type',
     'Status',
@@ -57,6 +58,7 @@ export function exportCompaniesToCSV({
 
   const rows = companies.map((c) => {
     const refId = getReferenceId('CMP', c, companies);
+    const entityType = c.isInternalCompany ? 'Our Company / Internal' : 'Client / External';
     const parentObj = getParentIndustry(c.industry_parent);
     const parentLabel = parentObj ? `${parentObj.icon} ${parentObj.label}` : (c.industry_parent || 'Unspecified');
     const childSubType = c.business_type_raw || c.industry || c.industry_type || 'Unspecified';
@@ -80,6 +82,7 @@ export function exportCompaniesToCSV({
     return [
       escapeCsvCell(refId),
       escapeCsvCell(c.display_name || c.canonical_name),
+      escapeCsvCell(entityType),
       escapeCsvCell(parentLabel),
       escapeCsvCell(childSubType),
       escapeCsvCell(status),

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Company, Contact, Enquiry, CallLogEntry, UserProfile, Workspace, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, DropdownOption } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Company, Contact, Enquiry, CallLogEntry, UserProfile, Workspace, Salesperson, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, DropdownOption } from '../types';
 import { getReferenceId } from '../utils/refId';
 import ContactModal from './ContactModal';
 import {
@@ -38,6 +38,7 @@ interface Company360ModalProps {
   companyId: string | null;
   companies: Company[];
   contacts: Contact[];
+  salespersons?: Salesperson[];
   enquiries: Enquiry[];
   callLogs: CallLogEntry[];
   user: UserProfile;
@@ -71,6 +72,7 @@ export default function Company360Modal({
   companyId,
   companies,
   contacts,
+  salespersons = [],
   enquiries,
   callLogs,
   user,
@@ -142,7 +144,38 @@ export default function Company360Modal({
 
   if (!companyId || !company) return null;
 
-  const companyContacts = contacts.filter((c) => !c.is_deleted && c.company_id === company.id);
+  const companyContacts = useMemo(() => {
+    const direct = contacts.filter((c) => !c.is_deleted && c.company_id === company.id);
+    if (!company.isInternalCompany || !salespersons || salespersons.length === 0) {
+      return direct;
+    }
+
+    const existingEmails = new Set(direct.map((d) => (d.email || '').toLowerCase().trim()).filter(Boolean));
+    const existingNames = new Set(direct.map((d) => (d.full_name || '').toLowerCase().trim()).filter(Boolean));
+
+    const teamContacts: Contact[] = salespersons
+      .filter((sp) => {
+        const spEmail = (sp.email || '').toLowerCase().trim();
+        const spName = (sp.full_name || '').toLowerCase().trim();
+        return !existingEmails.has(spEmail) && !existingNames.has(spName);
+      })
+      .map((sp) => ({
+        id: `ct_team_${company.id}_${sp.id}`,
+        company_id: company.id,
+        full_name: sp.full_name || sp.email || 'Team Member',
+        email: sp.email || '',
+        mobile: sp.phone || sp.mobile || '',
+        designation: sp.title || sp.designation || 'Team Member / Staff',
+        is_primary: false,
+        workspace_id: activeWorkspace?.id || 'ws_default',
+        search_terms: [(sp.full_name || '').toLowerCase(), (sp.email || '').toLowerCase()],
+        createdAt: sp.createdAt || new Date().toISOString(),
+        updatedAt: sp.updatedAt || new Date().toISOString()
+      } as Contact));
+
+    return [...direct, ...teamContacts];
+  }, [contacts, company.id, company.isInternalCompany, salespersons, activeWorkspace?.id]);
+
   const companyCallLogs = callLogs.filter(
     (l) => !l.is_deleted && (l.company_id === company.id || (l.company_name && l.company_name.toLowerCase() === company.display_name.toLowerCase()))
   );
@@ -228,6 +261,12 @@ export default function Company360Modal({
                   <Tag className="w-3 h-3 text-blue-400" />
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>
                 </span>
+                {company.isInternalCompany && (
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-400/30 flex items-center space-x-1">
+                    <span>🏢</span>
+                    <span>Our Company</span>
+                  </span>
+                )}
                 <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
                   {company.legal_suffix}
                 </span>

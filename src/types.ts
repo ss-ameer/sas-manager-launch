@@ -133,6 +133,8 @@ export interface Company extends SoftDeleteFields {
   dnc_reason?: string;
   restricted_lines?: Record<string, 'DNC' | 'Invalid'>;
   search_terms?: string[];
+  isInternalCompany?: boolean;
+  linkedWorkspaceId?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -419,7 +421,12 @@ export interface Salesperson {
   role: string;
   email?: string;
   phone?: string;
+  mobile?: string;
+  title?: string;
+  designation?: string;
   linked_user_id?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Product extends SoftDeleteFields {

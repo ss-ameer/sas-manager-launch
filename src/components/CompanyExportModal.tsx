@@ -177,6 +177,12 @@ export default function CompanyExportModal({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activePreset, setActivePreset] = useState<string | null>('all_classified');
   const [excludedCompanyIds, setExcludedCompanyIds] = useState<Set<string>>(new Set());
+  const [excludeInternalCompanies, setExcludeInternalCompanies] = useState<boolean>(true);
+
+  // Count internal companies
+  const internalCompaniesCount = useMemo(() => {
+    return activeCompanies.filter((c) => c.isInternalCompany).length;
+  }, [activeCompanies]);
 
   // Reset row exclusions when modal opens/closes
   useEffect(() => {
@@ -371,6 +377,11 @@ export default function CompanyExportModal({
   // Filtered Companies In-Memory Evaluation with Deep Search
   const filteredCompanies = useMemo(() => {
     return activeCompanies.filter((company) => {
+      // 0. Exclude Internal / Workspace Companies (Default checked)
+      if (excludeInternalCompanies && company.isInternalCompany) {
+        return false;
+      }
+
       // 1. Untagged-only mode
       if (untaggedOnly) {
         if (!isCompanyUntagged(company)) return false;
@@ -488,6 +499,7 @@ export default function CompanyExportModal({
     selectedRelationships,
     selectedTemperatures,
     searchQuery,
+    excludeInternalCompanies,
     contactsByCompanyId
   ]);
 
@@ -929,6 +941,32 @@ export default function CompanyExportModal({
                   </button>
                 )}
               </div>
+
+              {/* Exclude Internal / Workspace Companies Filter Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/70 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/40">
+                <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeInternalCompanies}
+                    onChange={(e) => setExcludeInternalCompanies(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-300 dark:border-slate-700 dark:bg-slate-800 cursor-pointer"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
+                      <span>🏢</span>
+                      <span>Exclude Internal / Workspace Companies</span>
+                    </span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Omits in-house entities to ensure sales and marketing directories remain strictly customer-facing.
+                    </p>
+                  </div>
+                </label>
+                {internalCompaniesCount > 0 && (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700 shrink-0">
+                    {internalCompaniesCount} {internalCompaniesCount === 1 ? 'internal entity' : 'internal entities'}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Match Counter & Row Selection Controls */}
@@ -1049,6 +1087,12 @@ export default function CompanyExportModal({
                               <td className="py-2 px-3 font-bold text-slate-800 dark:text-slate-200">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span>{company.display_name || company.canonical_name}</span>
+                                  {company.isInternalCompany && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                      <span>🏢</span>
+                                      <span>Internal</span>
+                                    </span>
+                                  )}
                                   {!isSelected && (
                                     <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 font-mono font-bold uppercase tracking-wider">
                                       Excluded
@@ -1223,6 +1267,11 @@ export default function CompanyExportModal({
                   </td>
                   <td className="py-2 px-2.5 font-bold text-slate-900">
                     {company.display_name || company.canonical_name}
+                    {company.isInternalCompany && (
+                      <span className="ml-1.5 text-[9px] font-mono text-purple-700 font-bold">
+                        [Internal]
+                      </span>
+                    )}
                   </td>
                   <td className="py-2 px-2.5 text-slate-800">
                     <span className="font-semibold">{badge.icon} {badge.displayText}</span>

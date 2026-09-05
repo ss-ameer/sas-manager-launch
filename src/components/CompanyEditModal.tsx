@@ -112,6 +112,7 @@ export default function CompanyEditModal({
   const [relationship, setRelationship] = useState('Prospect');
   const [temperature, setTemperature] = useState<'Cold' | 'Warm' | 'Hot' | 'DNC'>('Cold');
   const [notes, setNotes] = useState('');
+  const [isInternalCompany, setIsInternalCompany] = useState(false);
 
   const [companyPhones, setCompanyPhones] = useState<Array<{ id: string; label: string; value: string }>>([
     { id: generateId(), label: 'Landline', value: '' }
@@ -163,6 +164,7 @@ export default function CompanyEditModal({
       setTemperature(targetCompany.temperature || 'Cold');
       setNotes(targetCompany.notes || '');
       setRestrictedLines(targetCompany.restricted_lines || {});
+      setIsInternalCompany(Boolean(targetCompany.isInternalCompany));
 
       // Phones
       let mappedPhones: Array<{ id: string; label: string; value: string }> = [];
@@ -243,6 +245,7 @@ export default function CompanyEditModal({
       setCompanyEmails([{ id: generateId(), label: 'Work', value: '' }]);
       setCompanyLinks([{ id: generateId(), label: 'Website', url: '' }]);
       setRestrictedLines({});
+      setIsInternalCompany(false);
       setDuplicateMatchResult(null);
       setPendingBypass(false);
     }
@@ -347,6 +350,8 @@ export default function CompanyEditModal({
       is_dnc: temperature === 'DNC',
       notes: notes.trim(),
       search_terms: searchTerms,
+      isInternalCompany: isInternalCompany,
+      linkedWorkspaceId: isInternalCompany ? (targetCompany?.linkedWorkspaceId || activeWorkspace?.id) : undefined,
       created_by_uid: targetCompany?.created_by_uid || user?.uid || '',
       created_by_name: targetCompany?.created_by_name || user?.full_name || user?.username || user?.email || 'User',
       last_modified_by_uid: user?.uid || '',
@@ -540,6 +545,32 @@ export default function CompanyEditModal({
               <span className="text-[10px] text-slate-500 font-mono mt-1.5 block leading-normal">
                 Search variants to match and block subsequent duplicates.
               </span>
+            </div>
+
+            {/* Mark as Internal / Sister Company Toggle */}
+            <div className="p-3.5 bg-purple-950/20 border border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
+                  {isInternalCompany && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-700/60">
+                      Active
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={isInternalCompany}
+                  onChange={(e) => setIsInternalCompany(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+              </label>
             </div>
 
             {/* Duplicate Match Warning */}

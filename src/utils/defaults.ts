@@ -352,6 +352,8 @@ export function normalizeCompany(raw: any, activeWsId?: string): Company {
     country: raw?.country || 'UAE',
     city: raw?.city || 'Dubai',
     search_terms: searchTerms,
+    isInternalCompany: Boolean(raw?.isInternalCompany ?? raw?.is_internal_company ?? false),
+    linkedWorkspaceId: raw?.linkedWorkspaceId || raw?.linked_workspace_id,
   };
 }
 

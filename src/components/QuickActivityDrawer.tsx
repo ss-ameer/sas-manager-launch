@@ -38,6 +38,7 @@ import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import {
   Company,
   Contact,
+  Salesperson,
   Enquiry,
   CallLogEntry,
   CallStatus,
@@ -119,6 +120,7 @@ export interface QuickActivityDrawerProps {
   industryTypes?: { name: string }[];
   companies?: Company[];
   contacts?: Contact[];
+  salespersons?: Salesperson[];
   enquiries?: Enquiry[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
@@ -228,6 +230,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   onSaveSuccess,
   companies = [],
   contacts = [],
+  salespersons = [],
   enquiries = [],
   setCompanies,
   setContacts,
@@ -649,6 +652,48 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
   }, [isOpen, selectedCompanyId]);
 
+  const selectedCompanyObj = useMemo(() => {
+    if (!selectedCompanyId) return null;
+    return companies.find((c) => c.id === selectedCompanyId) || null;
+  }, [companies, selectedCompanyId]);
+
+  const availableCompanyContacts = useMemo(() => {
+    if (!selectedCompanyId) return [];
+    const directContacts = (contacts || []).filter(
+      (c) => c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId)
+    );
+
+    // If this is an internal company, sync/mirror salespersons/team members as contacts
+    if (selectedCompanyObj?.isInternalCompany && salespersons && salespersons.length > 0) {
+      const existingEmails = new Set(directContacts.map((c) => (c.email || '').toLowerCase().trim()).filter(Boolean));
+      const existingNames = new Set(directContacts.map((c) => (c.full_name || '').toLowerCase().trim()).filter(Boolean));
+
+      const teamContacts: Contact[] = salespersons
+        .filter((sp) => {
+          const spEmail = (sp.email || '').toLowerCase().trim();
+          const spName = (sp.full_name || '').toLowerCase().trim();
+          return !existingEmails.has(spEmail) && !existingNames.has(spName);
+        })
+        .map((sp) => ({
+          id: `ct_sp_${sp.id}`,
+          company_id: selectedCompanyId,
+          full_name: sp.full_name || sp.email || 'Team Member',
+          email: sp.email || '',
+          mobile: sp.phone || sp.mobile || '',
+          designation: sp.title || sp.designation || 'Team Member / Staff',
+          is_primary: false,
+          workspace_id: activeWorkspaceId,
+          search_terms: [(sp.full_name || '').toLowerCase(), (sp.email || '').toLowerCase()],
+          createdAt: sp.createdAt || new Date().toISOString(),
+          updatedAt: sp.updatedAt || new Date().toISOString()
+        } as Contact));
+
+      return [...directContacts, ...teamContacts];
+    }
+
+    return directContacts;
+  }, [contacts, selectedCompanyId, selectedCompanyObj?.isInternalCompany, salespersons, activeWorkspaceId]);
+
   // Automatic Primary Contact & Phone Lookup
   useEffect(() => {
     if (!isOpen || !selectedCompanyId) {
@@ -666,9 +711,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       return;
     }
 
-    const companyContacts = (contacts || []).filter(
-      (c) => c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId)
-    );
+    const companyContacts = availableCompanyContacts;
 
     if (companyContacts.length > 0) {
       const currentCt = companyContacts.find((c) => c.id === selectedContactId);
@@ -705,7 +748,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setSelectedContactPhone('');
       setSelectedContactEmail('');
     }
-  }, [isOpen, selectedCompanyId, contacts, crmTargetType]);
+  }, [isOpen, selectedCompanyId, availableCompanyContacts, crmTargetType]);
 
   // Automatic Quote Reference Resolution
   useEffect(() => {
@@ -741,18 +784,67 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         });
       }
     });
+
+    // Also mirror team members for internal companies
+    if (salespersons && salespersons.length > 0) {
+      const internalCompanies = (companies || []).filter((c) => c.isInternalCompany);
+      internalCompanies.forEach((ic) => {
+        const existingList = map.get(ic.id) || [];
+        const existingEmails = new Set(existingList.map((c) => (c.email || '').toLowerCase().trim()).filter(Boolean));
+        const existingNames = new Set(existingList.map((c) => (c.full_name || '').toLowerCase().trim()).filter(Boolean));
+
+        const teamContacts: Contact[] = salespersons
+          .filter((sp) => {
+            const spEmail = (sp.email || '').toLowerCase().trim();
+            const spName = (sp.full_name || '').toLowerCase().trim();
+            return !existingEmails.has(spEmail) && !existingNames.has(spName);
+          })
+          .map((sp) => ({
+            id: `ct_sp_${sp.id}`,
+            company_id: ic.id,
+            full_name: sp.full_name || sp.email || 'Team Member',
+            email: sp.email || '',
+            mobile: sp.phone || sp.mobile || '',
+            designation: sp.title || sp.designation || 'Team Member / Staff',
+            is_primary: false,
+            workspace_id: activeWorkspaceId,
+            search_terms: [(sp.full_name || '').toLowerCase(), (sp.email || '').toLowerCase()],
+            createdAt: sp.createdAt || new Date().toISOString(),
+            updatedAt: sp.updatedAt || new Date().toISOString()
+          } as Contact));
+
+        if (teamContacts.length > 0) {
+          map.set(ic.id, [...existingList, ...teamContacts]);
+        }
+      });
+    }
+
     return map;
-  }, [contacts]);
+  }, [contacts, salespersons, companies, activeWorkspaceId]);
 
   interface CompanySearchResult {
     company: Company;
     matchedContact?: Contact;
   }
 
+  const internalCompaniesList = useMemo(() => {
+    return (companies || []).filter((c) => !c.is_deleted && !(c as any).deleted && c.isInternalCompany);
+  }, [companies]);
+
   // Filtered companies for uncontextualized global flow with deep contact index
   const filteredCompanyResults = useMemo<CompanySearchResult[]>(() => {
     const activeComps = (companies || []).filter((c) => !c.is_deleted && !(c as any).deleted);
+    const isInternalMode = isInternalTaskChannel(channel);
+
     if (!companySearchQuery.trim()) {
+      if (isInternalMode) {
+        const internal = activeComps.filter((c) => c.isInternalCompany);
+        const external = activeComps.filter((c) => !c.isInternalCompany);
+        return [
+          ...internal.map((c) => ({ company: c })),
+          ...external.slice(0, 8).map((c) => ({ company: c }))
+        ];
+      }
       return activeComps.slice(0, 8).map((c) => ({ company: c }));
     }
 
@@ -808,12 +900,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
       if (nameMatch || aliasMatch || cityMatch || phoneMatch || matchedCt) {
         results.push({ company: c, matchedContact: matchedCt });
-        if (results.length >= 15) break;
       }
     }
 
-    return results;
-  }, [companies, companySearchQuery, contactsByCompany]);
+    // Pin internal companies to the top (especially critical when logging internal tasks)
+    results.sort((a, b) => {
+      const aInt = a.company.isInternalCompany ? 1 : 0;
+      const bInt = b.company.isInternalCompany ? 1 : 0;
+      if (aInt !== bInt) return bInt - aInt;
+      return 0;
+    });
+
+    return results.slice(0, 16);
+  }, [companies, companySearchQuery, contactsByCompany, channel]);
 
   const filteredCompanies = useMemo(() => {
     return filteredCompanyResults.map((r) => r.company);
@@ -858,11 +957,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setSelectedEnquiryQuoteRef('');
   };
 
-  const availableCompanyContacts = useMemo(() => {
-    if (!selectedCompanyId) return [];
-    return (contacts || []).filter((c) => c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId));
-  }, [contacts, selectedCompanyId]);
-
   const selectedContactObj = useMemo(() => {
     if (!selectedContactId) return null;
     return availableCompanyContacts.find((c) => c.id === selectedContactId) || null;
@@ -885,11 +979,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     });
     return list;
   }, [selectedContactObj]);
-
-  const selectedCompanyObj = useMemo(() => {
-    if (!selectedCompanyId) return null;
-    return companies.find((c) => c.id === selectedCompanyId) || null;
-  }, [companies, selectedCompanyId]);
 
   const handleUpdateCompanyTemperature = async (newTemp: 'Cold' | 'Warm' | 'Hot' | 'DNC') => {
     const targetId = selectedCompanyId || companyId;
@@ -2458,6 +2547,31 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       </div>
                     ) : (
                       <div className="relative">
+                        {isInternalTaskChannel(channel) && internalCompaniesList.length > 0 && (
+                          <div className="mb-2 p-2 rounded-xl bg-purple-950/30 border border-purple-800/40 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
+                                <span>🏢</span>
+                                <span>Quick Select Internal Entity:</span>
+                              </span>
+                              <span className="text-[10px] text-purple-400 font-mono">1-Click</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {internalCompaniesList.map((ic) => (
+                                <button
+                                  key={ic.id}
+                                  type="button"
+                                  onClick={() => handleSelectCompany(ic)}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-900/60 hover:bg-purple-800 border border-purple-700/60 text-xs font-semibold text-purple-100 transition cursor-pointer shadow-xs"
+                                >
+                                  <span>🏢</span>
+                                  <span>{ic.display_name || ic.canonical_name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="relative flex items-center">
                           <Search className="absolute left-3 h-4 w-4 text-slate-500 pointer-events-none" />
                           <input
@@ -2488,39 +2602,68 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                               : '')))
                                   : '';
 
+                                const isFirstInternal = idx === 0 && c.isInternalCompany;
+                                const isFirstNonInternalAfterInternal =
+                                  idx > 0 && !c.isInternalCompany && filteredCompanyResults[idx - 1]?.company.isInternalCompany;
+
                                 return (
-                                  <button
-                                    key={c.id ? `${c.id}_${idx}` : `comp_${idx}`}
-                                    type="button"
-                                    onClick={() => handleSelectCompany(c, matchedContact)}
-                                    className="w-full text-left p-2.5 rounded-lg hover:bg-blue-600/20 hover:border-blue-500/30 border border-transparent transition-colors flex items-start justify-between cursor-pointer group"
-                                  >
-                                    <div className="flex items-start gap-2.5 min-w-0">
-                                      <Building2 className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
-                                      <div className="min-w-0">
-                                        <span className="text-xs font-semibold text-slate-100 block truncate">
-                                          {c.display_name || c.canonical_name}
-                                        </span>
-                                        {(c.city || c.country) && (
-                                          <span className="text-[10px] text-slate-400 block font-mono">
-                                            {[c.city, c.country].filter(Boolean).join(', ')}
-                                          </span>
-                                        )}
-                                        {matchedContact && (
-                                          <div className="mt-1">
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 text-[10px] font-medium">
-                                              <span>👤</span>
-                                              <span>
-                                                Matched Contact: <strong className="text-emerald-200">{matchedContact.full_name}</strong>
-                                                {contactPhoneDisplay ? ` (${contactPhoneDisplay})` : ''}
-                                              </span>
-                                            </span>
-                                          </div>
-                                        )}
+                                  <React.Fragment key={c.id ? `${c.id}_${idx}` : `comp_${idx}`}>
+                                    {isFirstInternal && (
+                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5 bg-purple-950/60 border border-purple-800/40 rounded-lg mb-1">
+                                        <span>🏢</span>
+                                        <span>Our Internal Companies</span>
                                       </div>
-                                    </div>
-                                    <Check className="h-3.5 w-3.5 text-slate-600 group-hover:text-blue-400 transition shrink-0 ml-2 mt-1" />
-                                  </button>
+                                    )}
+                                    {isFirstNonInternalAfterInternal && (
+                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/50 rounded-lg my-1">
+                                        <Building2 className="w-3 h-3 text-slate-400" />
+                                        <span>Other Accounts</span>
+                                      </div>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSelectCompany(c, matchedContact)}
+                                      className={`w-full text-left p-2.5 rounded-lg border transition-colors flex items-start justify-between cursor-pointer group ${
+                                        c.isInternalCompany
+                                          ? 'hover:bg-purple-900/30 hover:border-purple-600/40 border-purple-900/30 bg-purple-950/20'
+                                          : 'hover:bg-blue-600/20 hover:border-blue-500/30 border-transparent'
+                                      }`}
+                                    >
+                                      <div className="flex items-start gap-2.5 min-w-0">
+                                        <Building2 className={`h-4 w-4 shrink-0 mt-0.5 ${c.isInternalCompany ? 'text-purple-400' : 'text-blue-400'}`} />
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs font-semibold text-slate-100 truncate">
+                                              {c.display_name || c.canonical_name}
+                                            </span>
+                                            {c.isInternalCompany && (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-900/70 border border-purple-700/70 text-purple-200 shrink-0">
+                                                <span>🏢</span>
+                                                <span>Our Company</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                          {(c.city || c.country) && (
+                                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                                              {[c.city, c.country].filter(Boolean).join(', ')}
+                                            </span>
+                                          )}
+                                          {matchedContact && (
+                                            <div className="mt-1">
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 text-[10px] font-medium">
+                                                <span>👤</span>
+                                                <span>
+                                                  Matched Contact: <strong className="text-emerald-200">{matchedContact.full_name}</strong>
+                                                  {contactPhoneDisplay ? ` (${contactPhoneDisplay})` : ''}
+                                                </span>
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <Check className="h-3.5 w-3.5 text-slate-600 group-hover:text-blue-400 transition shrink-0 ml-2 mt-1" />
+                                    </button>
+                                  </React.Fragment>
                                 );
                               })
                             ) : (

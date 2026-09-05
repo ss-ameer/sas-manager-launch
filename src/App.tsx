@@ -814,6 +814,71 @@ export default function App() {
     }
   }, [user, activeWorkspace?.id, salespersons]);
 
+  // Auto-Registration & Self-Healing: Register Active Workspace as an Internal Company if not exists
+  const isAutoProvisioningInternalCompanyRef = React.useRef(false);
+  useEffect(() => {
+    if (!activeWorkspace?.id || !user || isAutoProvisioningInternalCompanyRef.current) return;
+
+    const currentWsId = activeWorkspace.id;
+    const wsName = (activeWorkspace.name || 'Our Workspace').trim();
+    const cleanWsName = wsName.toLowerCase();
+
+    // Check if an internal company for this workspace already exists
+    const existingInternal = companies.find((c) => {
+      if (c.is_deleted) return false;
+      if (c.linkedWorkspaceId === currentWsId) return true;
+      if (c.isInternalCompany) {
+        const cWsId = c.workspace_id || (c as any).workspaceId;
+        if (cWsId === currentWsId) return true;
+        const cName = (c.display_name || c.canonical_name || '').toLowerCase().trim();
+        if (cName === cleanWsName) return true;
+      }
+      return false;
+    });
+
+    if (!existingInternal) {
+      isAutoProvisioningInternalCompanyRef.current = true;
+      const internalCompId = `internal_ws_${currentWsId}`;
+      const now = new Date().toISOString();
+      const internalCompDoc: any = {
+        id: internalCompId,
+        workspace_id: currentWsId,
+        linkedWorkspaceId: currentWsId,
+        isInternalCompany: true,
+        display_name: wsName,
+        canonical_name: wsName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+        legal_suffix: 'None / To Be Added Later',
+        country: 'UAE',
+        city: 'Dubai',
+        industry_parent: 'management_consulting',
+        business_type_raw: 'Corporate Headquarters / Internal Operations',
+        relationship: 'Our Company',
+        temperature: 'Warm',
+        is_dnc: false,
+        notes: `Auto-registered internal headquarters entity for workspace: ${wsName}`,
+        search_terms: [wsName.toLowerCase(), 'internal', 'our company', 'headquarters', 'workspace', 'dubai'],
+        created_by_uid: user.uid || 'system',
+        created_by_name: user.full_name || user.username || user.email || 'System',
+        createdAt: now,
+        updatedAt: now
+      };
+
+      safeSetDoc('companies', internalCompId, internalCompDoc, { merge: true })
+        .then(() => {
+          setCompanies((prev) => {
+            if (prev.some((c) => c.id === internalCompId)) return prev;
+            return [normalizeCompany(internalCompDoc, currentWsId), ...prev];
+          });
+        })
+        .catch((err) => {
+          console.warn('Silent auto-provisioning internal company error:', err);
+        })
+        .finally(() => {
+          isAutoProvisioningInternalCompanyRef.current = false;
+        });
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.name, companies, user]);
+
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => {
@@ -1805,6 +1870,7 @@ export default function App() {
           companies={workspaceCompanies}
           setCompanies={setCompanies}
           contacts={workspaceContacts}
+          salespersons={workspaceSalespersons}
           enquiries={workspaceEnquiries}
           callLogs={workspaceCallLogs}
           user={user}
@@ -1987,6 +2053,7 @@ export default function App() {
         currentUserName={user?.full_name || user?.username || user?.email}
         companies={visibleCompanies}
         contacts={contacts}
+        salespersons={workspaceSalespersons}
         enquiries={visibleEnquiries}
         setCompanies={setCompanies}
         setContacts={setContacts}
