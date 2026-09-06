@@ -11,7 +11,7 @@ import {
   CallLogEntry
 } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
-import { normalizeSubTypeName } from '../utils/taxonomy';
+import { normalizeSubTypeName, formatSubTypeName } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import Company360Modal from './Company360Modal';
 import {
@@ -304,14 +304,14 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
       list.push({
         type: 'create',
         value: normalizedSearch,
-        label: `+ Create "${normalizedSearch}" (New GBP Sub-Type)`
+        label: `+ Create "${formatSubTypeName(normalizedSearch)}" (New GBP Sub-Type)`
       });
     }
     filteredSubtypes.forEach((st) => {
       list.push({
         type: 'existing',
         value: st,
-        label: st
+        label: formatSubTypeName(st)
       });
     });
     return list;
@@ -396,7 +396,7 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
           id={id}
           type="text"
           disabled={disabled}
-          value={isOpen ? search : value}
+          value={isOpen ? search : formatSubTypeName(value)}
           onChange={(e) => {
             setSearch(e.target.value);
             if (!isOpen) setIsOpen(true);
@@ -414,7 +414,7 @@ const Tier2Combobox: React.FC<Tier2ComboboxProps> = ({
           placeholder={
             disabled
               ? 'Select Sector First...'
-              : value || 'Search or type sub-type...'
+              : formatSubTypeName(value) || 'Search or type sub-type...'
           }
           className={`w-full px-2.5 pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-medium transition-all focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed ${
             isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''
@@ -1732,7 +1732,7 @@ export default function IndustryTaxonomyManager({
                                   key={st}
                                   className="group inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-2xs hover:border-blue-300 dark:hover:border-blue-700 transition"
                                 >
-                                  <span>{st}</span>
+                                  <span>{formatSubTypeName(st)}</span>
                                   {usageCount > 0 && (
                                     <span
                                       className="text-[10px] font-mono px-1.5 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold"
@@ -1963,7 +1963,7 @@ export default function IndustryTaxonomyManager({
                                     </span>
                                   )}
                                   <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
-                                    {hasNoParent ? 'Missing Sector' : `Unspecified (${rawCurrent || 'None'})`}
+                                    {hasNoParent ? 'Missing Sector' : `Unspecified (${formatSubTypeName(rawCurrent) || 'None'})`}
                                   </span>
                                 </div>
                               </div>

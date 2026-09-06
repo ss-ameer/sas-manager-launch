@@ -11,7 +11,7 @@ import ContactDetailModal from './ContactDetailModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge } from '../utils/taxonomy';
+import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
 import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import { db } from '../firebase';
@@ -1949,7 +1949,7 @@ export default function CompanyModal({
                                 </div>
                               </td>
                               <td className="py-4 px-4">
-                                <IndustryBadge company={c} />
+                                <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
                                 <div className="flex flex-col gap-1.5 items-start">
@@ -2066,7 +2066,7 @@ export default function CompanyModal({
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                 {relVal}
                               </span>
-                              <IndustryBadge company={c} />
+                              <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
                             </div>
                           </div>
 
@@ -2109,7 +2109,7 @@ export default function CompanyModal({
                           <span>Our Company</span>
                         </span>
                       )}
-                      <IndustryBadge company={selectedCompany} size="sm" showEmpty />
+                      <IndustryBadge company={selectedCompany ? { ...selectedCompany, business_type_raw: formatSubTypeName((selectedCompany as any).subType || selectedCompany.business_type_raw) } : selectedCompany} size="sm" showEmpty />
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                         {selectedCompany.relationship || 'Prospect'}
                       </span>

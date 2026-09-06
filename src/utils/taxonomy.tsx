@@ -78,11 +78,14 @@ export function formatIndustryBadge(company?: Partial<Company> | null): Industry
 
   const parent = company.industry_parent ? getParentIndustry(company.industry_parent) : undefined;
   const icon = parent?.icon || '🏷️';
-  const displayText =
+  const rawSub =
+    (company as any).subType?.trim() ||
     company.business_type_raw?.trim() ||
     company.industry?.trim() ||
     company.industry_type?.trim() ||
-    'Unspecified';
+    '';
+
+  const displayText = rawSub ? formatSubTypeName(rawSub) : 'Unspecified';
 
   return {
     icon,
@@ -152,6 +155,41 @@ export const KNOWN_INDUSTRY_ACRONYMS: Record<string, string> = {
   'saas': 'SaaS',
   'paas': 'PaaS'
 };
+
+/**
+ * Formats a sub-type name for display:
+ * - Returns an empty string if null or undefined.
+ * - Trims whitespace and splits into words.
+ * - Checks against an acronym set: MEP, HVAC, F&B, RO, FM, CCTV, IT, UAE, LLC, GBP, AI, B2B, B2C, OEM, R&D, SaaS, PaaS (keeping them fully uppercase / proper casing).
+ * - Capitalizes the first letter of regular words and lowercases subsequent letters.
+ * - Joins the formatted words with single spaces.
+ */
+export function formatSubTypeName(raw?: string | null): string {
+  if (!raw) return '';
+  const trimmed = raw.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '';
+
+  const formatWord = (word: string): string => {
+    const lower = word.toLowerCase();
+    if (KNOWN_INDUSTRY_ACRONYMS[lower]) {
+      return KNOWN_INDUSTRY_ACRONYMS[lower];
+    }
+    if (word.includes('-')) {
+      return word.split('-').map(formatWord).join('-');
+    }
+    if (word.includes('/')) {
+      return word.split('/').map(formatWord).join('/');
+    }
+    if (word.length === 0) return '';
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  };
+
+  return trimmed
+    .split(' ')
+    .filter(Boolean)
+    .map(formatWord)
+    .join(' ');
+}
 
 /**
  * Normalizes a GBP child sub-type name:

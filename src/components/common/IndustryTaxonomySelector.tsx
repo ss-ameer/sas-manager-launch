@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useIndustryTaxonomy } from '../../hooks/useIndustryTaxonomy';
-import { normalizeSubTypeName } from '../../utils/taxonomy';
+import { normalizeSubTypeName, formatSubTypeName } from '../../utils/taxonomy';
 import { Check, ChevronDown, Sparkles, X, Plus, Search, Loader2 } from 'lucide-react';
 
 export interface IndustryTaxonomySelectorProps {
@@ -213,14 +213,14 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
       list.push({
         type: 'create',
         value: normalizedSearch,
-        label: `+ Create "${normalizedSearch}" (New GBP Sub-Type)`
+        label: `+ Create "${formatSubTypeName(normalizedSearch)}" (New GBP Sub-Type)`
       });
     }
     filteredSubtypes.forEach((st) => {
       list.push({
         type: 'existing',
         value: st,
-        label: st
+        label: formatSubTypeName(st)
       });
     });
     return list;
@@ -499,7 +499,7 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
             ref={tier2InputRef}
             id={`${idPrefix}-subtype-input`}
             type="text"
-            value={isTier2Open ? tier2Search : subTypeValue || ''}
+            value={isTier2Open ? tier2Search : formatSubTypeName(subTypeValue) || ''}
             onChange={(e) => {
               setTier2Search(e.target.value);
               if (!isTier2Open) setIsTier2Open(true);
@@ -514,7 +514,7 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
             onKeyDown={handleTier2KeyDown}
             placeholder={
               subTypeValue
-                ? subTypeValue
+                ? formatSubTypeName(subTypeValue)
                 : parentSectorId
                 ? 'Type to filter GBP sub-type (e.g. Diving Center)...'
                 : 'Type or choose sub-type (All Sectors)...'

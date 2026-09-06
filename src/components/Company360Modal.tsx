@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
-import { IndustryBadge } from '../utils/taxonomy';
+import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
 import TemperatureBadge from './TemperatureBadge';
@@ -299,7 +299,20 @@ export default function Company360Modal({
                 />
 
                 {/* Two-Tier Industry Taxonomy Badge */}
-                <IndustryBadge company={company} size="sm" showEmpty />
+                <IndustryBadge
+                  company={
+                    company
+                      ? {
+                          ...company,
+                          business_type_raw: formatSubTypeName(
+                            (company as any).subType || company.business_type_raw
+                          )
+                        }
+                      : company
+                  }
+                  size="sm"
+                  showEmpty
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2">
