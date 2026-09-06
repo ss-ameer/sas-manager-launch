@@ -1991,14 +1991,15 @@ export default function CompanyModal({
                               </td>
                               <td className="py-4 px-4 text-right whitespace-nowrap">
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedCompanyId(c.id!);
                                   }}
-                                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
+                                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border shadow-xs ${
                                     isSelected
-                                      ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
-                                      : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 font-semibold'
+                                      : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                                   }`}
                                 >
                                   {isSelected ? 'Inspecting' : 'Inspect'}

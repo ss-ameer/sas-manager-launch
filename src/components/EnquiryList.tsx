@@ -20,7 +20,8 @@ import {
   Check,
   ArrowRight,
   Trash,
-  ChevronDown
+  ChevronDown,
+  Clock
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
@@ -507,32 +508,34 @@ export default function EnquiryList({
       <PageBody maxWidth="max-w-7xl">
 
       {/* Structured Filtering Section */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider mb-2">
-          <Filter className="w-4 h-4" />
-          <span>Faceted Search & Filters</span>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+          <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
+            <Filter className="w-4 h-4" />
+            <span>Faceted Search & Filters</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
           {/* Text search */}
           <div className="relative md:col-span-4">
-            <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search by SN, quote reference, account name..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+              className="w-full h-11 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
             />
           </div>
 
-          {/* Status selector (Split Dropdown + Cycle) */}
+          {/* Status selector */}
           <div className="md:col-span-3">
-            <div className="relative flex items-center bg-white border border-slate-200 hover:border-slate-300 rounded-xl shadow-sm h-11 w-full transition">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="appearance-none w-full bg-transparent pl-4 pr-12 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer h-full font-sans"
+                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Statuses</option>
                 <option value="Active">Active</option>
@@ -541,28 +544,17 @@ export default function EnquiryList({
                 <option value="Cancelled">Cancelled</option>
                 <option value="Invoiced">Invoiced</option>
               </select>
-              <ChevronDown className="absolute right-12 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-              
-              <div className="h-6 w-[1px] bg-slate-200 absolute right-9" />
-              
-              <button
-                onClick={cycleStatus}
-                type="button"
-                className="absolute right-0 h-full w-9 flex items-center justify-center hover:bg-slate-50 rounded-r-xl text-slate-400 hover:text-slate-600 transition"
-                title="Cycle status filter"
-              >
-                <RotateCw className="w-3.5 h-3.5 hover:rotate-45 transition-transform" />
-              </button>
+              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
-          {/* Salesperson selector (Split Dropdown + Cycle) */}
+          {/* Salesperson selector */}
           <div className="md:col-span-3">
-            <div className="relative flex items-center bg-white border border-slate-200 hover:border-slate-300 rounded-xl shadow-sm h-11 w-full transition">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
               <select
                 value={salesPersonFilter}
                 onChange={(e) => setSalesPersonFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-4 pr-12 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer h-full font-sans"
+                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Reps</option>
                 {salespersons.map((s, idx) => (
@@ -571,35 +563,27 @@ export default function EnquiryList({
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-12 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-              
-              <div className="h-6 w-[1px] bg-slate-200 absolute right-9" />
-              
-              <button
-                onClick={cycleSalesPerson}
-                type="button"
-                className="absolute right-0 h-full w-9 flex items-center justify-center hover:bg-slate-50 rounded-r-xl text-slate-400 hover:text-slate-600 transition"
-                title="Cycle salesperson filter"
-              >
-                <RotateCw className="w-3.5 h-3.5 hover:rotate-45 transition-transform" />
-              </button>
+              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
-          {/* Urgency follow-up toggle (Cycling Filter) */}
+          {/* Urgency follow-up toggle (Interactive Pill Toggle) */}
           <div className="md:col-span-2">
             <button
+              type="button"
               onClick={() => setUrgencyFilter(urgencyFilter === 'All' ? 'Overdue' : 'All')}
-              className={`w-full flex items-center justify-center space-x-2 py-2.5 px-4 border rounded-xl text-sm font-semibold transition shadow-sm h-11 ${
+              className={`w-full flex items-center justify-center space-x-1.5 h-11 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shadow-xs cursor-pointer ${
                 urgencyFilter === 'Overdue'
-                  ? 'bg-rose-50 border-rose-200 text-rose-700 font-bold'
-                  : 'bg-white border-slate-200 hover:border-slate-300 text-slate-500'
+                  ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300 font-bold ring-2 ring-rose-500/20'
+                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900'
               }`}
               title="Click to toggle overdue followups filter"
             >
-              <span className="text-xs">
-                {urgencyFilter === 'Overdue' ? '● Overdue Only' : 'Overdue filter'}
-              </span>
+              <Clock className={`w-3.5 h-3.5 ${urgencyFilter === 'Overdue' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`} />
+              <span>{urgencyFilter === 'Overdue' ? 'Overdue Only' : 'Overdue Filter'}</span>
+              {urgencyFilter === 'Overdue' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse ml-0.5" />
+              )}
             </button>
           </div>
         </div>
@@ -743,23 +727,26 @@ export default function EnquiryList({
                         {formatEnquiryCurrency(e)}
                       </td>
                       <td className="py-4 px-6 text-center">
-                        <div className="flex items-center justify-center space-x-2.5">
+                        <div className="flex items-center justify-center space-x-2">
                           <button
+                            type="button"
                             onClick={() => e.id && onSelectEnquiry(e.id)}
-                            className="py-1 px-3 bg-slate-50 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 hover:border-slate-900 text-slate-700 dark:text-slate-200 hover:text-white rounded-lg text-xs font-semibold font-sans transition flex items-center shadow-sm"
+                            className="border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium px-2.5 py-1 rounded-md text-slate-700 dark:text-slate-200 transition-colors shadow-xs"
                           >
                             Details
                           </button>
                           {isEditable && (
                             <button
+                              type="button"
                               onClick={() => onEditEnquiry(e)}
-                              className="py-1 px-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition"
+                              className="border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium px-2.5 py-1 rounded-md text-slate-700 dark:text-slate-200 transition-colors shadow-xs"
                             >
                               Edit
                             </button>
                           )}
                           {isEditable && (
                             <button
+                              type="button"
                               onClick={() => {
                                 const targetId = e.id || (e as any)._id;
                                 if (!targetId) {
@@ -776,7 +763,7 @@ export default function EnquiryList({
                                   onConfirm: () => onDeleteEnquiry(targetId)
                                 });
                               }}
-                              className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-md transition cursor-pointer"
+                              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 dark:text-slate-500 rounded-md transition-colors cursor-pointer"
                               title="Delete Record"
                             >
                               <Trash className="w-4 h-4" />
