@@ -1901,7 +1901,7 @@ export default function CompanyModal({
                 companyViewStyle === 'table' ? (
                   <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
                     <table className="w-full text-left text-xs border-collapse font-sans">
-                      <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400">
+                      <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
                         <tr>
                           <th className="py-3.5 px-4">Ref ID</th>
                           <th className="py-3.5 px-4">Company Name & City</th>
@@ -1972,14 +1972,14 @@ export default function CompanyModal({
                                     {phones[0].number}
                                   </div>
                                 ) : (
-                                  <div className="italic text-slate-600 dark:text-slate-300 text-xs">No phone saved</div>
+                                  <div className="text-xs font-medium text-slate-600 dark:text-slate-300 not-italic">No phone saved</div>
                                 )}
                                 {emails.length > 0 ? (
                                   <div className="truncate max-w-[180px] text-slate-600 dark:text-slate-300 text-xs font-mono mt-0.5" title={emails[0].email}>
                                     {emails[0].email}
                                   </div>
                                 ) : (
-                                  <div className="italic text-slate-600 dark:text-slate-300 text-xs mt-0.5">No email addresses saved</div>
+                                  <div className="text-xs font-medium text-slate-600 dark:text-slate-300 not-italic mt-0.5">No email addresses saved</div>
                                 )}
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
@@ -2199,7 +2199,7 @@ export default function CompanyModal({
                         <MapPin className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Location & Jurisdiction</span>
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block uppercase font-mono tracking-wider">Location & Jurisdiction</span>
                         <span className="text-slate-900 dark:text-white font-semibold text-sm">{selectedCompany.city}, {selectedCompany.country}</span>
                       </div>
                     </div>
@@ -2207,7 +2207,7 @@ export default function CompanyModal({
                     {/* Labeled Phones & Emails list */}
                     <div className="space-y-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
                       <div className="space-y-2">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Company Phone Numbers</span>
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Company Phone Numbers</span>
                         {getCompanyPhones(selectedCompany).length > 0 ? (
                           <div className="space-y-1.5">
                             {getCompanyPhones(selectedCompany).map((ph, idx) => {
@@ -2307,12 +2307,14 @@ export default function CompanyModal({
                             })}
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">No phone numbers saved.</span>
+                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic">No phone numbers saved.</span>
+                          </div>
                         )}
                       </div>
 
                       <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Company Email Addresses</span>
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Company Email Addresses</span>
                         {getCompanyEmails(selectedCompany).length > 0 ? (
                           <div className="space-y-1.5">
                             {getCompanyEmails(selectedCompany).map((em, idx) => (
@@ -2346,7 +2348,9 @@ export default function CompanyModal({
                             ))}
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">No email addresses saved.</span>
+                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic">No email addresses saved.</span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2354,7 +2358,7 @@ export default function CompanyModal({
                     {/* Portals & Links Display */}
                     {selectedCompany.links && selectedCompany.links.length > 0 && (
                       <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block uppercase font-mono font-semibold">Portals & Links</span>
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Portals & Links</span>
                         <div className="flex flex-wrap gap-2">
                           {selectedCompany.links.map((lnk, idx) => (
                             <a
@@ -2374,7 +2378,7 @@ export default function CompanyModal({
 
                     {/* Aliases List */}
                     <div className="space-y-2">
-                      <h4 className="text-xs font-mono text-slate-400 dark:text-slate-500 uppercase tracking-widest">Duplicate Lookup Aliases</h4>
+                      <h4 className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">Duplicate Lookup Aliases</h4>
                       <div className="flex flex-wrap gap-1.5">
                         {selectedCompany.aliases && selectedCompany.aliases.length > 0 ? (
                           selectedCompany.aliases.map((a) => (
@@ -2383,7 +2387,9 @@ export default function CompanyModal({
                             </span>
                           ))
                         ) : (
-                          <span className="text-xs text-slate-400 italic font-sans">No alternate spellings declared.</span>
+                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
+                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic font-sans">No alternate spellings declared.</span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2391,7 +2397,7 @@ export default function CompanyModal({
                     {/* Company Notes */}
                     {selectedCompany.notes && (
                       <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-                        <h4 className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Internal Client Notes</h4>
+                        <h4 className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">Internal Client Notes</h4>
                         <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans">{selectedCompany.notes}</p>
                       </div>
                     )}
@@ -2803,7 +2809,7 @@ export default function CompanyModal({
                           )}
 
                           {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 && (
-                            <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-sans text-xs bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-4">
+                            <div className="py-8 text-center text-slate-600 dark:text-slate-300 font-sans text-xs bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-4 font-medium">
                               No outreach calls or proposals linked to this company yet.
                             </div>
                           )}
@@ -2814,7 +2820,7 @@ export default function CompanyModal({
                 </div>
               </div>
             ) : (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center text-slate-400 dark:text-slate-500 font-sans shadow-sm m-4">
+              <div className="bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-12 text-center text-slate-600 dark:text-slate-300 font-medium text-sm font-sans shadow-sm m-4">
                 Select a company from the list above to inspect details, link contact managers, and explore 360° outreach history.
               </div>
             )}

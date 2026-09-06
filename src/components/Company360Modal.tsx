@@ -327,6 +327,11 @@ export default function Company360Modal({
 
               {/* Labeled Phones & Emails Display */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2 pt-2 border-t border-slate-800">
+                {compPhones.length === 0 && compEmails.length === 0 && (
+                  <span className="text-xs font-medium text-slate-400 not-italic">
+                    No phone numbers or email addresses saved.
+                  </span>
+                )}
                 {compPhones.map((ph, idx) => {
                   const phoneVal = ph.value || ph.number || '';
                   const phoneTrim = phoneVal.trim();
@@ -403,9 +408,9 @@ export default function Company360Modal({
 
               {company.aliases && company.aliases.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1 mt-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Known Aliases:</span>
+                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Known Aliases:</span>
                   {company.aliases.map((alias, idx) => (
-                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
+                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px] font-medium border border-slate-700">
                       {alias}
                     </span>
                   ))}
@@ -554,10 +559,10 @@ export default function Company360Modal({
               </div>
 
               {companyContacts.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                  <Users2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-slate-600">No contacts registered for this company yet.</p>
-                  <p className="text-[11px] text-slate-400 mt-1">
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                  <Users2 className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No contacts registered for this company yet.</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium">
                     Click "Add Contact Person" above to create and link personnel.
                   </p>
                 </div>
@@ -745,9 +750,9 @@ export default function Company360Modal({
           {activeSubTab === 'call_logs' && (
             <div className="space-y-3">
               {companyCallLogs.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                  <PhoneCall className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-slate-600">No call operations recorded for this company yet.</p>
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                  <PhoneCall className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No call operations recorded for this company yet.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white">
@@ -845,9 +850,9 @@ export default function Company360Modal({
           {activeSubTab === 'enquiries' && (
             <div className="space-y-3">
               {companyEnquiries.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                  <FileText className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-slate-600">No proposals or enquiries created for this company yet.</p>
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                  <FileText className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No proposals or enquiries created for this company yet.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white">
