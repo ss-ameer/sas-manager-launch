@@ -46,6 +46,7 @@ export interface InitiateActivityOptions {
   contactPhone?: string;
   contactEmail?: string;
   channel?: UniversalChannel;
+  messageType?: string;
   detail?: string;
   targetType?: 'contact' | 'company_mainline';
   enquiryId?: string;
@@ -54,6 +55,7 @@ export interface InitiateActivityOptions {
   logToEdit?: CallLogEntry | null;
   drawerMode?: 'create' | 'edit' | 'execute';
   initialStatus?: CallStatus;
+  defaultOutcome?: string;
   e?: React.SyntheticEvent;
 }
 
@@ -68,6 +70,8 @@ export interface ActivityDrawerContextState {
   enquiryId?: string;
   channel?: ActivityChannel | string;
   initialStatus?: CallStatus;
+  defaultOutcome?: string;
+  messageType?: string;
   existingLog?: CallLogEntry | null;
   logToEdit?: CallLogEntry | null;
   drawerMode?: 'create' | 'edit' | 'execute';
@@ -183,6 +187,8 @@ export const ActivityLauncherProvider: React.FC<ActivityLauncherProviderProps> =
         enquiryId: options.enquiryId,
         channel,
         initialStatus: options.initialStatus,
+        defaultOutcome: options.defaultOutcome,
+        messageType: options.messageType,
         existingLog: options.existingLog || null,
         logToEdit: options.logToEdit || null,
         drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create')

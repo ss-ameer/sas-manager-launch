@@ -434,6 +434,8 @@ export default function App() {
         enquiryId: options.enquiryId,
         channel,
         initialStatus: options.initialStatus,
+        defaultOutcome: options.defaultOutcome,
+        messageType: options.messageType,
         existingLog: options.existingLog || null,
         logToEdit: options.logToEdit || null,
         drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create')
@@ -2046,6 +2048,8 @@ export default function App() {
         enquiryId={activityDrawerContext.enquiryId}
         initialChannel={activityDrawerContext.channel}
         initialStatus={activityDrawerContext.initialStatus}
+        defaultOutcome={activityDrawerContext.defaultOutcome}
+        messageType={activityDrawerContext.messageType}
         activeWorkspaceId={activeWorkspace.id}
         currentSalespersonId={currentSalespersonId}
         currentUserInitials={currentUserInitials}

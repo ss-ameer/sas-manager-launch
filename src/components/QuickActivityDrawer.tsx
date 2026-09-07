@@ -108,6 +108,8 @@ export interface QuickActivityDrawerProps {
   enquiryId?: string;
   initialChannel?: ActivityChannel | string;
   initialStatus?: CallStatus;
+  defaultOutcome?: string;
+  messageType?: string;
   activeWorkspaceId: string;
   currentSalespersonId: string;
   currentUserInitials: string;
@@ -219,6 +221,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   enquiryId,
   initialChannel,
   initialStatus,
+  defaultOutcome,
+  messageType,
   activeWorkspaceId,
   callStatuses = [],
   callOutcomes = [],
@@ -247,6 +251,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   onOpenCompanyModal
 }) => {
   const { openEditCompany, openEditContact } = useEntityEdit();
+  const notesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
   const interactionChannel = channel;
   const isInternalTask = isInternalTaskChannel(interactionChannel);
@@ -623,10 +628,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setExpressContactPhones([{ id: makeExpressId('ctp'), label: 'Direct Line', number: '' }]);
         setExpressContactEmails([{ id: makeExpressId('cte'), label: 'Direct', email: '' }]);
 
-        const effChannel = normalizeActivityChannel(initialChannel || 'Call');
+        const effChannel = normalizeActivityChannel(initialChannel || (messageType === 'whatsapp' ? 'WhatsApp' : 'Call'));
         setChannel(effChannel);
         setStatus(initialStatus || 'Completed');
-        setOutcome('');
+        setOutcome(defaultOutcome || '');
         setPurpose('Discovery / Qualification');
         setNotes('');
         setActivityDate(getLocalDateTimeString());
@@ -672,8 +677,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     targetType,
     enquiryId,
     initialChannel,
-    initialStatus
+    initialStatus,
+    defaultOutcome,
+    messageType
   ]);
+
+  // Auto-focus the activity notes textarea when drawer opens
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        notesTextareaRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   // Resolve Company Name if companyId is set
   useEffect(() => {
@@ -3932,6 +3949,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
 
               <textarea
+                ref={notesTextareaRef}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={isInternalTask ? 5 : 3}
