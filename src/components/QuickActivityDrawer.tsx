@@ -447,6 +447,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     return enquiries.filter((e) => e.company_id === selectedCompanyId);
   }, [selectedCompanyId, enquiries]);
 
+  const combinedHistoryCount = activeCompanyLogs.length + activeCompanyEnquiries.length;
+
   // Voice Dictation State
   const [isListening, setIsListening] = useState<boolean>(false);
   const recognitionRef = useRef<any>(null);
@@ -2354,9 +2356,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100] overflow-hidden bg-slate-950/70 backdrop-blur-xs flex justify-end items-end sm:items-start">
+      <div className="fixed inset-0 w-screen h-screen min-h-[100dvh] z-40 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end items-end sm:items-start">
         {/* Backdrop click to close */}
-        <div className="absolute inset-0" onClick={onClose} />
+        <div className="absolute inset-0 w-screen h-screen min-h-[100dvh]" onClick={onClose} />
 
         <motion.div
           initial={{ x: '100%' }}
@@ -2364,8 +2366,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           exit={{ x: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           className={`relative w-full ${
-            isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-2xl'
-          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-10 text-slate-100 transition-all duration-300 ease-in-out`}
+            isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
+          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transition-all duration-300 ease-in-out`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -2393,7 +2395,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 >
                   <span>⏱️</span>
                   <span>Activity History</span>
-                  <span className="font-bold">({historyLogsCount})</span>
+                  <span className="font-bold">({combinedHistoryCount})</span>
                   <span className="text-blue-500 font-light mx-0.5">|</span>
                   <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
                     {isHistoryDrawerOpen ? '⇱' : '⇲'}
@@ -2492,23 +2494,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       )}
                     </div>
 
-                    {/* Context Link & Company Temperature Control */}
-                    <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-700/60">
-                      <button
-                        type="button"
-                        onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
-                        title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
-                      >
-                        <span>⏱️</span>
-                        <span>Activity History</span>
-                        <span className="font-bold">({historyLogsCount})</span>
-                        <span className="text-blue-500 font-light mx-0.5">|</span>
-                        <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
-                          {isHistoryDrawerOpen ? '⇱' : '⇲'}
-                        </span>
-                      </button>
-
+                    {/* Company Temperature Control */}
+                    <div className="flex items-center justify-end flex-wrap gap-2 pt-1 border-t border-slate-700/60">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Temp:</span>
                         <select
@@ -2577,20 +2564,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         {/* Context Link & Company Temperature Control */}
                         <div className="flex items-center justify-between flex-wrap gap-2 px-1">
                           <div className="flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
-                              title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
-                            >
-                              <span>⏱️</span>
-                              <span>Activity History</span>
-                              <span className="font-bold">({historyLogsCount})</span>
-                              <span className="text-blue-500 font-light mx-0.5">|</span>
-                              <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
-                                {isHistoryDrawerOpen ? '⇱' : '⇲'}
-                              </span>
-                            </button>
                             {selectedCompanyId && (
                               <button
                                 type="button"
@@ -4185,7 +4158,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           {/* Retractable Activity History Timeline (side-by-side on sm+, slide-over on mobile) */}
           {isHistoryDrawerOpen && (
-            <div className="w-full sm:w-[420px] lg:w-[460px] border-t sm:border-t-0 sm:border-l border-slate-800 flex flex-col h-full bg-slate-900 shrink-0 absolute sm:relative inset-0 sm:inset-auto z-20">
+            <div className="w-full sm:w-[480px] lg:w-[520px] border-t sm:border-t-0 sm:border-l border-slate-800 flex flex-col h-full bg-slate-900 shrink-0 absolute sm:relative inset-0 sm:inset-auto z-20">
               <CompanyActivityTimeline
                 historyLogs={activeCompanyLogs}
                 enquiries={activeCompanyEnquiries}

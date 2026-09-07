@@ -206,13 +206,16 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
       .sort((a, b) => new Date(b.created_at || (b as any).createdAt || 0).getTime() - new Date(a.created_at || (a as any).createdAt || 0).getTime());
   }, [company, enquiries]);
 
+  // Combined count of activity logs and linked proposals/quotes
+  const combinedHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;
+
   if (!isOpen || !company) return null;
 
   return (
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-xs z-40 transition-opacity"
+        className="fixed inset-0 w-screen h-screen min-h-[100dvh] z-40 bg-slate-900/50 backdrop-blur-xs transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -222,7 +225,9 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={`Company Details for ${company.display_name}`}
-        className="fixed inset-y-0 right-0 w-full max-w-xl bg-white dark:bg-slate-900 shadow-2xl z-50 flex flex-col border-l border-slate-200 dark:border-slate-800 transition-transform duration-300 ease-in-out"
+        className={`fixed inset-y-0 right-0 w-full ${
+          isHistoryOpen ? 'max-w-5xl' : 'max-w-xl'
+        } bg-white dark:bg-slate-900 shadow-2xl z-50 flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out`}
       >
         {/* Fixed Header (shrink-0) */}
         <div className="shrink-0 p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
@@ -271,32 +276,35 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                   companies={companies}
                   setCompanies={setCompanies}
                 />
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 transition shadow-2xs cursor-pointer group shrink-0"
-                  title="Toggle past activity history"
-                >
-                  <span>⏱️</span>
-                  <span>Activity History</span>
-                  <span className="font-bold">({linkedCompanyLogs.length})</span>
-                  <span className="text-blue-400 dark:text-blue-600 font-light mx-0.5">|</span>
-                  <span className="text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
-                    {isHistoryOpen ? '⇱' : '⇲'}
-                  </span>
-                </button>
               </div>
             </div>
 
-            {/* Dedicated '✕' icon button */}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close Inspector Drawer"
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition shrink-0 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {/* Top-Right Header Actions: Activity History Pill + Dedicated '✕' Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 transition shadow-2xs cursor-pointer group shrink-0"
+                title={isHistoryOpen ? "Close past activity history timeline" : "View past activity history timeline"}
+              >
+                <span>⏱️</span>
+                <span>Activity History</span>
+                <span className="font-bold">({combinedHistoryCount})</span>
+                <span className="text-blue-400 dark:text-blue-600 font-light mx-0.5">|</span>
+                <span className="text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                  {isHistoryOpen ? '⇱' : '⇲'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close Inspector Drawer"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition shrink-0 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Quick Actions Row */}
@@ -373,8 +381,10 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
           </div>
         </div>
 
-        {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Main Body: Side-by-Side Dual Pane when History is open */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative min-h-0">
+          {/* Left Column: Canonical profile, locations, phone directory, emails, and client personnel */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 min-w-0">
           {/* Location & Jurisdiction card */}
           <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center space-x-3 text-xs">
             <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
@@ -887,88 +897,29 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
               </div>
             )}
           </div>
-
-          {/* Outreach & History Retractable Section */}
-          <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center space-x-2 font-sans">
-                <Clock className="w-4 h-4 text-slate-400" />
-                <span>Outreach & History</span>
-              </h4>
-              <button
-                type="button"
-                onClick={() => setIsHistoryOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 transition shadow-2xs cursor-pointer group"
-                title="Toggle past activity history timeline"
-              >
-                <span>⏱️</span>
-                <span>Activity History</span>
-                <span className="font-bold">({linkedCompanyLogs.length})</span>
-                <span className="text-blue-400 dark:text-blue-600 font-light mx-0.5">|</span>
-                <span className="text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
-                  {isHistoryOpen ? '⇱' : '⇲'}
-                </span>
-              </button>
-            </div>
-
-            {/* Compact Null State or Summary Block */}
-            {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 ? (
-              <div className="py-6 px-4 text-center space-y-1.5 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-800/30">
-                <div className="w-8 h-8 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  No prior activity logs found
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  No outreach calls or proposals recorded for this account.
-                </p>
-              </div>
-            ) : (
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-0">
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                    {linkedCompanyLogs.length} activity {linkedCompanyLogs.length === 1 ? 'log' : 'logs'} &amp; {linkedCompanyEnquiries.length} {linkedCompanyEnquiries.length === 1 ? 'proposal' : 'proposals'}
-                  </p>
-                  {linkedCompanyLogs.length > 0 && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      Latest: {formatHistoryDate(linkedCompanyLogs[0]?.date || (linkedCompanyLogs[0] as any)?.createdAt)}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryOpen(true)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 transition shadow-2xs cursor-pointer shrink-0 flex items-center gap-1.5"
-                >
-                  <span>Open Timeline</span>
-                  <span className="text-xs">⇲</span>
-                </button>
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Retractable Activity History Slide-Over inside Drawer */}
-        {isHistoryOpen && (
-          <div className="absolute inset-0 z-30 bg-white dark:bg-slate-900 flex flex-col shadow-2xl">
-            <CompanyActivityTimeline
-              historyLogs={linkedCompanyLogs}
-              enquiries={linkedCompanyEnquiries}
-              companyName={company.display_name}
-              companyId={company.id}
-              contacts={companyContacts}
-              salespersons={salespersons}
-              onClose={() => setIsHistoryOpen(false)}
-              onSelectCallLog={onSelectCallLog}
-              onSelectEnquiry={onSelectEnquiry}
-              onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
-              user={user}
-              isBasicTier={isBasicTier}
-              showHeader={true}
-            />
-          </div>
-        )}
+          {/* Right Column: CompanyActivityTimeline (search bar, filter dropdown, and rich history cards) */}
+          {isHistoryOpen && (
+            <div className="w-full lg:w-[480px] xl:w-[520px] border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900 shrink-0 min-w-0">
+              <CompanyActivityTimeline
+                historyLogs={linkedCompanyLogs}
+                enquiries={linkedCompanyEnquiries}
+                companyName={company.display_name}
+                companyId={company.id}
+                contacts={companyContacts}
+                salespersons={salespersons}
+                onClose={() => setIsHistoryOpen(false)}
+                onSelectCallLog={onSelectCallLog}
+                onSelectEnquiry={onSelectEnquiry}
+                onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
+                user={user}
+                isBasicTier={isBasicTier}
+                showHeader={true}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

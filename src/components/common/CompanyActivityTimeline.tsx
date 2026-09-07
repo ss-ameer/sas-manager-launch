@@ -98,6 +98,45 @@ export function formatTimelineDate(dateStr?: string): { relative: string; format
 }
 
 /**
+ * Formats any date string (ISO timestamp e.g. "2026-08-27T10:00", YYYY-MM-DD, etc.) into:
+ * `MMM D, YYYY · h:mm A` (or `MMM D, YYYY` if date only).
+ */
+export function formatCleanDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  try {
+    const trimmed = dateStr.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [y, m, d] = trimmed.split('-').map(Number);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[m - 1]} ${d}, ${y}`;
+    }
+
+    const d = new Date(trimmed);
+    if (isNaN(d.getTime())) return dateStr;
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[d.getMonth()];
+    const day = d.getDate();
+    const year = d.getFullYear();
+
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+
+    const hasTime = trimmed.includes('T') || trimmed.includes(':');
+    if (!hasTime && d.getHours() === 0 && d.getMinutes() === 0) {
+      return `${month} ${day}, ${year}`;
+    }
+
+    return `${month} ${day}, ${year} · ${hours}:${minutes} ${ampm}`;
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
  * Derives uppercase 2-letter agent initials from name or email
  */
 export function getAgentInitials(name?: string): string {
@@ -244,7 +283,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     Activity History
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-mono">
-                    {historyLogs.length}
+                    {historyLogs.length + enquiries.length}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
@@ -511,7 +550,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       {log.next_followup_date && (
                         <span className="inline-flex items-center space-x-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
                           <Calendar className="w-3 h-3 shrink-0" />
-                          <span>Next: {log.next_followup_date}</span>
+                          <span>Next: {formatCleanDate(log.next_followup_date)}</span>
                         </span>
                       )}
                       {canClick && onSelectCallLog && (
@@ -581,11 +620,18 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     <span className="text-slate-500 dark:text-slate-400">
                       Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong>
                     </span>
-                    {!isBasicTier && e.value_aed ? (
-                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        AED {e.value_aed.toLocaleString()}
-                      </span>
-                    ) : null}
+                    <div className="flex items-center space-x-2">
+                      {(e.created_at || (e as any).createdAt) && (
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                          {formatCleanDate(e.created_at || (e as any).createdAt)}
+                        </span>
+                      )}
+                      {!isBasicTier && e.value_aed ? (
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          AED {e.value_aed.toLocaleString()}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               );
