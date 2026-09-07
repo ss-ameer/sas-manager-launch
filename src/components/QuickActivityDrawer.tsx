@@ -54,6 +54,7 @@ import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes } from '../utils/taxonomy';
 import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
+import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
 import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
@@ -122,6 +123,7 @@ export interface QuickActivityDrawerProps {
   contacts?: Contact[];
   salespersons?: Salesperson[];
   enquiries?: Enquiry[];
+  callLogs?: CallLogEntry[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
@@ -232,6 +234,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   contacts = [],
   salespersons = [],
   enquiries = [],
+  callLogs = [],
   setCompanies,
   setContacts,
   setCallLogs,
@@ -392,6 +395,57 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [companySearchQuery, setCompanySearchQuery] = useState<string>('');
   const [isComboboxOpen, setIsComboboxOpen] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Retractable Activity History State
+  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsHistoryDrawerOpen(false);
+    }
+  }, [isOpen]);
+
+  const [localCompanyLogs, setLocalCompanyLogs] = useState<CallLogEntry[]>([]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setLocalCompanyLogs([]);
+      return;
+    }
+    let active = true;
+    CallLogRepository.getAllLocal()
+      .then((all) => {
+        if (active) {
+          const match = all.filter((l) => l.company_id === selectedCompanyId);
+          setLocalCompanyLogs(match);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [selectedCompanyId]);
+
+  const activeCompanyLogs = useMemo(() => {
+    if (callLogs && callLogs.length > 0 && selectedCompanyId) {
+      const match = callLogs.filter((l) => l.company_id === selectedCompanyId);
+      if (match.length > 0) {
+        return [...match].sort(
+          (a, b) => new Date(b.date || (b as any).createdAt || 0).getTime() - new Date(a.date || (a as any).createdAt || 0).getTime()
+        );
+      }
+    }
+    return [...localCompanyLogs].sort(
+      (a, b) => new Date(b.date || (b as any).createdAt || 0).getTime() - new Date(a.date || (a as any).createdAt || 0).getTime()
+    );
+  }, [callLogs, selectedCompanyId, localCompanyLogs]);
+
+  const historyLogsCount = activeCompanyLogs.length;
+
+  const activeCompanyEnquiries = useMemo(() => {
+    if (!selectedCompanyId || !enquiries) return [];
+    return enquiries.filter((e) => e.company_id === selectedCompanyId);
+  }, [selectedCompanyId, enquiries]);
 
   // Voice Dictation State
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -2309,7 +2363,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="relative w-full max-w-2xl bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-10 text-slate-100"
+          className={`relative w-full ${
+            isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-2xl'
+          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-10 text-slate-100 transition-all duration-300 ease-in-out`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -2327,16 +2383,36 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {selectedCompanyId && (
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
+                  title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
+                >
+                  <span>⏱️</span>
+                  <span>Activity History</span>
+                  <span className="font-bold">({historyLogsCount})</span>
+                  <span className="text-blue-500 font-light mx-0.5">|</span>
+                  <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                    {isHistoryDrawerOpen ? '⇱' : '⇲'}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Form Body */}
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Form & Retractable History Side-by-Side Area */}
+          <div className="flex-1 flex flex-col sm:flex-row overflow-hidden relative min-h-0">
+            {/* Form Body */}
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4 min-w-0">
             {drawerMode === 'execute' && (
               <div className="mb-5 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center space-x-3">
                 <span className="relative flex h-3 w-3">
@@ -2420,18 +2496,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-700/60">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (selectedCompanyId) {
-                            if (onOpen360) onOpen360(selectedCompanyId);
-                            else if (onInspectCompany) onInspectCompany(selectedCompanyId);
-                            else if (onOpenCompanyModal) onOpenCompanyModal(selectedCompanyId);
-                            onClose();
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:underline transition cursor-pointer"
+                        onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
+                        title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
                       >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>[View Previous Logs]</span>
+                        <span>⏱️</span>
+                        <span>Activity History</span>
+                        <span className="font-bold">({historyLogsCount})</span>
+                        <span className="text-blue-500 font-light mx-0.5">|</span>
+                        <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                          {isHistoryDrawerOpen ? '⇱' : '⇲'}
+                        </span>
                       </button>
 
                       <div className="flex items-center gap-1.5">
@@ -2504,18 +2579,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           <div className="flex items-center gap-3">
                             <button
                               type="button"
-                              onClick={() => {
-                                if (selectedCompanyId) {
-                                  if (onOpen360) onOpen360(selectedCompanyId);
-                                  else if (onInspectCompany) onInspectCompany(selectedCompanyId);
-                                  else if (onOpenCompanyModal) onOpenCompanyModal(selectedCompanyId);
-                                  onClose();
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:underline transition cursor-pointer"
+                              onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
+                              title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
                             >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>[View Previous Logs]</span>
+                              <span>⏱️</span>
+                              <span>Activity History</span>
+                              <span className="font-bold">({historyLogsCount})</span>
+                              <span className="text-blue-500 font-light mx-0.5">|</span>
+                              <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                                {isHistoryDrawerOpen ? '⇱' : '⇲'}
+                              </span>
                             </button>
                             {selectedCompanyId && (
                               <button
@@ -4108,6 +4182,29 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
             )}
           </form>
+
+          {/* Retractable Activity History Timeline (side-by-side on sm+, slide-over on mobile) */}
+          {isHistoryDrawerOpen && (
+            <div className="w-full sm:w-[420px] lg:w-[460px] border-t sm:border-t-0 sm:border-l border-slate-800 flex flex-col h-full bg-slate-900 shrink-0 absolute sm:relative inset-0 sm:inset-auto z-20">
+              <CompanyActivityTimeline
+                historyLogs={activeCompanyLogs}
+                enquiries={activeCompanyEnquiries}
+                companyName={selectedCompanyName || 'Selected Account'}
+                companyId={selectedCompanyId}
+                contacts={contacts}
+                salespersons={salespersons}
+                onClose={() => setIsHistoryDrawerOpen(false)}
+                onSelectCallLog={(log) => {
+                  if (onInspectCompany && log.company_id) {
+                    onInspectCompany(log.company_id);
+                  }
+                }}
+                user={user}
+                showHeader={true}
+              />
+            </div>
+          )}
+        </div>
 
           {/* Drawer Footer Actions */}
           <div className="p-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">

@@ -285,9 +285,14 @@ export const IndustryBadge: React.FC<IndustryBadgeProps> = ({
     ? `${parentLabel} • ${displayText}`
     : displayText;
 
+  const isUnspecified = displayText === 'Unspecified';
+  const colorClasses = isUnspecified
+    ? 'text-slate-500 border border-slate-200 dark:border-slate-700 bg-transparent'
+    : 'border-slate-200/80 dark:border-slate-700/80 bg-slate-50/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200';
+
   return (
     <span
-      className={`inline-flex items-center font-medium rounded-full border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 shadow-xs max-w-full truncate transition-colors ${sizeClasses} ${className}`}
+      className={`inline-flex items-center font-medium rounded-full shadow-xs max-w-full truncate transition-colors ${colorClasses} ${sizeClasses} ${className}`}
       title={tooltip}
     >
       <span className="shrink-0 text-sm leading-none select-none">{icon}</span>

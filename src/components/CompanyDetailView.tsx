@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Building2,
   Users2,
@@ -19,6 +19,7 @@ import {
   Clock,
   MessageSquare
 } from 'lucide-react';
+import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
 import {
   Company,
   Contact,
@@ -133,17 +134,31 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   onDeleteCompany,
   setCompanies
 }) => {
+  // Retractable activity history drawer state
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
   // ESC key listener to dismiss drawer
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (isHistoryOpen) {
+          setIsHistoryOpen(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, isHistoryOpen]);
+
+  useEffect(() => {
+    setIsHistoryOpen(false);
+  }, [company?.id, isOpen]);
+
+  const isInternal = Boolean(company?.isInternalCompany || (company as any)?.isInternal);
+  const isRelationshipOurCompany = (company?.relationship || '').toUpperCase().trim() === 'OUR COMPANY';
 
   // Derive client contact personnel for this company
   const companyContacts = useMemo(() => {
@@ -222,7 +237,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                   <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>
                 </span>
-                {company.isInternalCompany && (
+                {isInternal && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-700 flex items-center gap-1 shadow-xs shrink-0">
                     <span>🏢</span>
                     <span>Our Company</span>
@@ -243,9 +258,11 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                   size="sm"
                   showEmpty
                 />
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
-                  {company.relationship || 'Prospect'}
-                </span>
+                {(!isInternal || !isRelationshipOurCompany) && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                    {company.relationship || 'Prospect'}
+                  </span>
+                )}
                 <TemperatureBadge
                   companyId={company.id}
                   temperature={company.temperature}
@@ -254,11 +271,21 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                   companies={companies}
                   setCompanies={setCompanies}
                 />
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 transition shadow-2xs cursor-pointer group shrink-0"
+                  title="Toggle past activity history"
+                >
+                  <span>⏱️</span>
+                  <span>Activity History</span>
+                  <span className="font-bold">({linkedCompanyLogs.length})</span>
+                  <span className="text-blue-400 dark:text-blue-600 font-light mx-0.5">|</span>
+                  <span className="text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                    {isHistoryOpen ? '⇱' : '⇲'}
+                  </span>
+                </button>
               </div>
-
-              <p className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 w-fit">
-                Canonical Base: {company.canonical_name}
-              </p>
             </div>
 
             {/* Dedicated '✕' icon button */}
@@ -861,156 +888,87 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
             )}
           </div>
 
-          {/* Outreach & History Summary */}
-          <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+          {/* Outreach & History Retractable Section */}
+          <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center space-x-2 font-sans">
                 <Clock className="w-4 h-4 text-slate-400" />
                 <span>Outreach & History</span>
               </h4>
-              <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2.5 py-0.5 rounded-full font-semibold border border-slate-200 dark:border-slate-700">
-                {linkedCompanyLogs.length + linkedCompanyEnquiries.length} records
-              </span>
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 transition shadow-2xs cursor-pointer group"
+                title="Toggle past activity history timeline"
+              >
+                <span>⏱️</span>
+                <span>Activity History</span>
+                <span className="font-bold">({linkedCompanyLogs.length})</span>
+                <span className="text-blue-400 dark:text-blue-600 font-light mx-0.5">|</span>
+                <span className="text-blue-600 dark:text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                  {isHistoryOpen ? '⇱' : '⇲'}
+                </span>
+              </button>
             </div>
 
-            {/* Recent Call Logs Subsection */}
-            {linkedCompanyLogs.length > 0 && (
-              <div className="space-y-2.5">
-                <span className={`${DETAIL_HEADER_CLASSES} block font-mono`}>
-                  Call Center & Outreach ({linkedCompanyLogs.length})
-                </span>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800">
-                  {linkedCompanyLogs.map((log) => {
-                    const canClick = canUserClickRecord(user, log, salespersons);
-                    return (
-                      <div
-                        key={log.id}
-                        onClick={() => {
-                          if (canClick && onSelectCallLog) {
-                            onSelectCallLog(log);
-                          }
-                        }}
-                        className={`py-3 px-1 transition ${
-                          canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                              <PhoneCall className="w-3 h-3" />
-                            </div>
-                            <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs">
-                              {formatHistoryDate(log.date || (log as any).createdAt)}
-                            </span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
-                            {log.status || 'Scheduled'}
-                          </span>
-                        </div>
-
-                        <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                          <p>
-                            Logged by:{' '}
-                            <span className="font-medium text-slate-700 dark:text-slate-300">
-                              {(log as any).handled_by_team_member_name || log.logged_by || 'Staff'}
-                            </span>
-                            {log.contact_name && (
-                              <span className="ml-2">
-                                · Contact:{' '}
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{log.contact_name}</span>
-                              </span>
-                            )}
-                          </p>
-                          {log.requirement_notes && (
-                            <p className="text-xs text-slate-600 dark:text-slate-400 italic line-clamp-2">
-                              "{log.requirement_notes}"
-                            </p>
-                          )}
-                          {canClick && onSelectCallLog && (
-                            <div className="text-[10px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-1 pt-0.5">
-                              <span>View Log</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+            {/* Compact Null State or Summary Block */}
+            {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 ? (
+              <div className="py-6 px-4 text-center space-y-1.5 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-800/30">
+                <div className="w-8 h-8 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                  <Clock className="w-4 h-4" />
                 </div>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  No prior activity logs found
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  No outreach calls or proposals recorded for this account.
+                </p>
               </div>
-            )}
-
-            {/* Proposals & Quotes Subsection */}
-            {linkedCompanyEnquiries.length > 0 && (
-              <div className="space-y-2.5 pt-2">
-                <span className={`${DETAIL_HEADER_CLASSES} block font-mono`}>
-                  Proposals & Quotes ({linkedCompanyEnquiries.length})
-                </span>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800">
-                  {linkedCompanyEnquiries.map((e) => {
-                    const canClick = canUserClickRecord(user, e, salespersons);
-                    const spName = getSalespersonFullName(e.sales_person, salespersons);
-                    return (
-                      <div
-                        key={e.id}
-                        onClick={() => {
-                          if (canClick && onSelectEnquiry && e.id) {
-                            onSelectEnquiry(e.id);
-                          }
-                        }}
-                        className={`py-3 px-1 transition ${
-                          canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center space-x-2 overflow-hidden">
-                            <div className="w-6 h-6 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                              <FileText className="w-3 h-3" />
-                            </div>
-                            <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs truncate">
-                              {e.quote_ref_no || `SN#${e.sn}`}
-                            </span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                            {e.status || 'Active'}
-                          </span>
-                        </div>
-
-                        <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                          {e.subject && (
-                            <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">{e.subject}</p>
-                          )}
-                          <div className="flex items-center justify-between text-xs">
-                            <span>
-                              Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong>
-                            </span>
-                            {!isBasicTier && e.value_aed ? (
-                              <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                                AED {e.value_aed.toLocaleString()}
-                              </span>
-                            ) : null}
-                          </div>
-                          {canClick && onSelectEnquiry && (
-                            <div className="text-[10px] font-medium text-purple-600 dark:text-purple-400 group-hover:underline flex items-center space-x-1 pt-0.5">
-                              <span>Open Proposal</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+            ) : (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0">
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                    {linkedCompanyLogs.length} activity {linkedCompanyLogs.length === 1 ? 'log' : 'logs'} &amp; {linkedCompanyEnquiries.length} {linkedCompanyEnquiries.length === 1 ? 'proposal' : 'proposals'}
+                  </p>
+                  {linkedCompanyLogs.length > 0 && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      Latest: {formatHistoryDate(linkedCompanyLogs[0]?.date || (linkedCompanyLogs[0] as any)?.createdAt)}
+                    </p>
+                  )}
                 </div>
-              </div>
-            )}
-
-            {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 && (
-              <div className="py-6 text-center text-slate-600 dark:text-slate-300 font-sans text-xs bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-4 font-medium">
-                No outreach calls or proposals linked to this company yet.
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryOpen(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 transition shadow-2xs cursor-pointer shrink-0 flex items-center gap-1.5"
+                >
+                  <span>Open Timeline</span>
+                  <span className="text-xs">⇲</span>
+                </button>
               </div>
             )}
           </div>
         </div>
+
+        {/* Retractable Activity History Slide-Over inside Drawer */}
+        {isHistoryOpen && (
+          <div className="absolute inset-0 z-30 bg-white dark:bg-slate-900 flex flex-col shadow-2xl">
+            <CompanyActivityTimeline
+              historyLogs={linkedCompanyLogs}
+              enquiries={linkedCompanyEnquiries}
+              companyName={company.display_name}
+              companyId={company.id}
+              contacts={companyContacts}
+              salespersons={salespersons}
+              onClose={() => setIsHistoryOpen(false)}
+              onSelectCallLog={onSelectCallLog}
+              onSelectEnquiry={onSelectEnquiry}
+              onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
+              user={user}
+              isBasicTier={isBasicTier}
+              showHeader={true}
+            />
+          </div>
+        )}
       </div>
     </>
   );
