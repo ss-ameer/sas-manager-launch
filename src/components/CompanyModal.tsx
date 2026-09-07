@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
@@ -13,6 +13,15 @@ import CompanyDetailView from './CompanyDetailView';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
+import {
+  evaluateCompanySearch,
+  matchesNormalizedPhone,
+  CompanySearchMatchHint,
+  UnassignedIndustryPill,
+  SearchMatchHint,
+  CompanySearchMatchResult
+} from './CompaniesRegistry';
+import { CompanyCardView } from './CompanyCardView';
 import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
 import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import { db } from '../firebase';
@@ -291,6 +300,23 @@ export default function CompanyModal({
   };
   const [viewMode, setViewMode] = useState<'companies' | 'contacts' | 'phones'>('companies');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
+        setIsExportDropdownOpen(false);
+      }
+    }
+    if (isExportDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isExportDropdownOpen]);
+
   const [industryFilter, setIndustryFilter] = useState<string>('ALL');
   const [relationshipFilter, setRelationshipFilter] = useState<string>('ALL');
   const [temperatureFilter, setTemperatureFilter] = useState<string>('ALL');
@@ -330,16 +356,19 @@ export default function CompanyModal({
   }, [contacts, companies]);
 
   const filteredContacts = useMemo(() => {
-    if (!searchQuery.trim()) return allContactsWithCompany;
-    const q = searchQuery.toLowerCase();
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return allContactsWithCompany;
+    const q = trimmed.toLowerCase();
+    const digitsQuery = trimmed.replace(/\D/g, '');
     return allContactsWithCompany.filter(
       (ct) =>
         getReferenceId('CT', ct, contacts).toLowerCase().includes(q) ||
         (ct.id && ct.id.toLowerCase().includes(q)) ||
-        ct.full_name.toLowerCase().includes(q) ||
+        (ct.full_name && ct.full_name.toLowerCase().includes(q)) ||
         (ct.designation && ct.designation.toLowerCase().includes(q)) ||
         (ct.companyName && ct.companyName.toLowerCase().includes(q)) ||
-        (ct.mobile && ct.mobile.toLowerCase().includes(q)) ||
+        matchesNormalizedPhone(ct.mobile, q, digitsQuery) ||
+        matchesNormalizedPhone(ct.landline, q, digitsQuery) ||
         (ct.email && ct.email.toLowerCase().includes(q))
     );
   }, [allContactsWithCompany, searchQuery]);
@@ -414,13 +443,16 @@ export default function CompanyModal({
   }, [companies, contacts]);
 
   const filteredPhones = useMemo(() => {
-    if (!searchQuery.trim()) return allPhoneEntries;
-    const q = searchQuery.toLowerCase();
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return allPhoneEntries;
+    const q = trimmed.toLowerCase();
+    const digitsQuery = trimmed.replace(/\D/g, '');
     return allPhoneEntries.filter(
       (p) =>
-        p.number.toLowerCase().includes(q) ||
-        p.entityName.toLowerCase().includes(q) ||
-        (p.subText && p.subText.toLowerCase().includes(q))
+        matchesNormalizedPhone(p.number, q, digitsQuery) ||
+        (p.entityName && p.entityName.toLowerCase().includes(q)) ||
+        (p.subText && p.subText.toLowerCase().includes(q)) ||
+        (p.location && p.location.toLowerCase().includes(q))
     );
   }, [allPhoneEntries, searchQuery]);
 
@@ -1645,48 +1677,39 @@ export default function CompanyModal({
     }
   };
 
-  // Computed views
-  const filteredCompanies = companies.filter((c) => {
-    if (c.is_deleted) return false;
-    const q = searchQuery.toLowerCase();
-    const refId = getReferenceId('CMP', c, companies).toLowerCase();
+  // Computed views - Deep Omni-Search Engine with Normalized Phone & Personnel Search
+  const searchEvaluationMap = useMemo(() => {
+    const map = new Map<string, CompanySearchMatchResult>();
+    for (const c of companies) {
+      if (c.id) {
+        map.set(c.id, evaluateCompanySearch(c, searchQuery, companies, contacts));
+      }
+    }
+    return map;
+  }, [companies, searchQuery, contacts]);
 
-    const phonesList = getCompanyPhones(c).map(p => p.number.toLowerCase());
-    const emailsList = getCompanyEmails(c).map(e => e.email.toLowerCase());
+  const filteredCompanies = useMemo(() => {
+    return companies.filter((c) => {
+      if (c.is_deleted) return false;
 
-    const matchesSearch =
-      !q ||
-      refId.includes(q) ||
-      (c.id && c.id.toLowerCase().includes(q)) ||
-      c.display_name.toLowerCase().includes(q) ||
-      c.city.toLowerCase().includes(q) ||
-      c.country.toLowerCase().includes(q) ||
-      (c.general_phone && c.general_phone.toLowerCase().includes(q)) ||
-      (c.general_email && c.general_email.toLowerCase().includes(q)) ||
-      phonesList.some(p => p.includes(q)) ||
-      emailsList.some(e => e.includes(q)) ||
-      (c.industry_parent && c.industry_parent.toLowerCase().includes(q)) ||
-      (c.business_type_raw && c.business_type_raw.toLowerCase().includes(q)) ||
-      (c.industry && c.industry.toLowerCase().includes(q)) ||
-      (c.industry_type && c.industry_type.toLowerCase().includes(q)) ||
-      (c.relationship && c.relationship.toLowerCase().includes(q)) ||
-      (c.temperature && c.temperature.toLowerCase().includes(q)) ||
-      c.aliases.some((a) => a.toLowerCase().includes(q));
+      const searchRes = (c.id ? searchEvaluationMap.get(c.id) : null) || evaluateCompanySearch(c, searchQuery, companies, contacts);
+      if (!searchRes.matched) return false;
 
-    const matchesIndustry =
-      industryFilter === 'ALL' ||
-      c.industry_parent === industryFilter;
+      const matchesIndustry =
+        industryFilter === 'ALL' ||
+        c.industry_parent === industryFilter;
 
-    const matchesRelationship =
-      relationshipFilter === 'ALL' ||
-      (c.relationship || 'Prospect') === relationshipFilter;
+      const matchesRelationship =
+        relationshipFilter === 'ALL' ||
+        (c.relationship || 'Prospect') === relationshipFilter;
 
-    const matchesTemperature =
-      temperatureFilter === 'ALL' ||
-      (c.temperature || 'Cold') === temperatureFilter;
+      const matchesTemperature =
+        temperatureFilter === 'ALL' ||
+        (c.temperature || 'Cold') === temperatureFilter;
 
-    return matchesSearch && matchesIndustry && matchesRelationship && matchesTemperature;
-  });
+      return matchesIndustry && matchesRelationship && matchesTemperature;
+    });
+  }, [companies, searchEvaluationMap, searchQuery, industryFilter, relationshipFilter, temperatureFilter, contacts]);
 
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
   const companyContacts = useMemo(() => {
@@ -1760,46 +1783,22 @@ export default function CompanyModal({
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={{
-          label: 'New Company Profile',
+          label: 'Add Company',
           icon: Plus,
           onClick: handleOpenAddCompany
         }}
-        secondaryActions={[
-          {
-            label: viewMode === 'companies' ? 'Export Directory' : 'Export CSV',
-            icon: Download,
-            onClick: () => {
-              if (viewMode === 'companies') {
-                setShowExportModal(true);
-              } else {
-                handleExportDirectoryCSV();
-              }
-            }
-          },
-          {
-            label: 'Print PDF',
-            icon: Printer,
-            onClick: () => {
-              if (viewMode === 'companies') {
-                setShowExportModal(true);
-              } else {
-                handlePrintDirectoryPDF();
-              }
-            }
-          }
-        ]}
       />
 
       <PageBody maxWidth="max-w-7xl">
-      {/* Top View Switcher & Export Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 shadow-sm">
+      {/* Top View Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setViewMode('companies')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
               viewMode === 'companies'
                 ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <Building2 className="w-4 h-4" />
@@ -1811,7 +1810,7 @@ export default function CompanyModal({
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
               viewMode === 'contacts'
                 ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <Users2 className="w-4 h-4" />
@@ -1823,45 +1822,12 @@ export default function CompanyModal({
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
               viewMode === 'phones'
                 ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
             }`}
           >
             <Phone className="w-4 h-4" />
             <span>Phone & Tel Directory ({allPhoneEntries.length})</span>
           </button>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          {viewMode === 'companies' ? (
-            <button
-              type="button"
-              onClick={() => setShowExportModal(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition shadow-sm cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export Directory (PDF / CSV)</span>
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={handleExportDirectoryCSV}
-                className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-600" />
-                <span>Export CSV</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePrintDirectoryPDF}
-                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print / Save PDF</span>
-              </button>
-            </>
-          )}
         </div>
       </div>
 
@@ -1884,11 +1850,74 @@ export default function CompanyModal({
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2.5">
+                {/* Unified [Export Directory ▾] Dropdown */}
+                <div className="relative" ref={exportDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+                    className="py-2 px-3.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                    title="Export company directory in PDF or CSV format"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Export Directory</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isExportDropdownOpen && (
+                    <div className="absolute right-0 mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsExportDropdownOpen(false);
+                          setShowExportModal(true);
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 flex items-center space-x-2 transition cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <div>
+                          <div className="font-semibold">Export Hub</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Custom fields, PDF & CSV</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsExportDropdownOpen(false);
+                          handleExportDirectoryCSV();
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 transition cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div>
+                          <div className="font-semibold">Quick CSV Export</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Download current directory</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsExportDropdownOpen(false);
+                          handlePrintDirectoryPDF();
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 transition cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <div>
+                          <div className="font-semibold">Print / Save PDF</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Print-ready PDF report</div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Primary [+ Add Company] Button */}
                 {isEditable && (
                   <button
+                    type="button"
                     onClick={handleOpenAddCompany}
-                    className="py-2 px-4 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                    className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Add Company</span>
@@ -2010,6 +2039,15 @@ export default function CompanyModal({
                           const tempBadge = getCompanyTempBadge(c.temperature, c.is_dnc);
                           const phones = getCompanyPhones(c);
                           const emails = getCompanyEmails(c);
+                          const matchResult = (c.id ? searchEvaluationMap.get(c.id) : null) || evaluateCompanySearch(c, searchQuery, companies, contacts);
+                          const matchHint = matchResult.matchHint;
+                          const hasIndustry = Boolean(
+                            c.industry_parent ||
+                            c.business_type_raw ||
+                            (c as any).subType ||
+                            c.industry ||
+                            c.industry_type
+                          );
 
                           return (
                             <tr
@@ -2035,11 +2073,20 @@ export default function CompanyModal({
                                 </div>
                                 <div className="text-slate-600 dark:text-slate-300 text-xs flex items-center space-x-1 mt-0.5">
                                   <MapPin className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
-                                  <span>{c.city}, {c.country}</span>
+                                  <span>{c.city || 'Unknown City'}, {c.country || 'UAE'}</span>
                                 </div>
+                                {matchHint && (
+                                  <div>
+                                    <CompanySearchMatchHint matchHint={matchHint} />
+                                  </div>
+                                )}
                               </td>
                               <td className="py-4 px-4">
-                                <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
+                                {hasIndustry ? (
+                                  <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
+                                ) : (
+                                  <UnassignedIndustryPill />
+                                )}
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
                                 <div className="flex flex-col gap-1.5 items-start">
@@ -2107,67 +2154,21 @@ export default function CompanyModal({
                       const isSelected = selectedCompanyId === c.id;
                       const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
                       const relVal = c.relationship || 'Prospect';
-                      const tempBadge = getCompanyTempBadge(c.temperature, c.is_dnc);
+                      const matchResult = (c.id ? searchEvaluationMap.get(c.id) : null) || evaluateCompanySearch(c, searchQuery, companies, contacts);
+                      const matchHint = matchResult.matchHint;
 
                       return (
-                        <div
+                        <CompanyCardView
                           key={c.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelectedCompanyId(c.id!)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setSelectedCompanyId(c.id!);
-                            }
-                          }}
-                          className={`p-5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 group cursor-pointer ${
-                            isSelected
-                              ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-500 text-slate-900 dark:text-white shadow-sm'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          <div className="space-y-2 w-full">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
-                                <span className="text-sm font-semibold text-slate-900 dark:text-white block truncate font-sans">{c.display_name}</span>
-                                <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
-                                {c.isInternalCompany && (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                                    <span>🏢</span>
-                                    <span>Our Company</span>
-                                  </span>
-                                )}
-                              </div>
-                              <TemperatureBadge
-                                companyId={c.id}
-                                temperature={c.temperature}
-                                isDnc={c.is_dnc}
-                                variant="pill"
-                                companies={companies}
-                                setCompanies={setCompanies}
-                              />
-                            </div>
-
-                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                              <span className="text-xs text-slate-600 dark:text-slate-300 flex items-center space-x-1 font-sans">
-                                <MapPin className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
-                                <span>{c.city}, {c.country}</span>
-                              </span>
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                {relVal}
-                              </span>
-                              <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-mono text-slate-600 dark:text-slate-300">
-                            <span>{c.aliases && c.aliases.length > 0 ? `${c.aliases.length} ALIASES` : <span className="italic text-slate-500 dark:text-slate-400">NO ALIASES</span>}</span>
-                            <span className={linkCount > 0 ? "text-blue-600 dark:text-blue-400 font-semibold" : "italic text-slate-500 dark:text-slate-400"}>
-                              {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
-                            </span>
-                          </div>
-                        </div>
+                          company={c}
+                          isSelected={isSelected}
+                          onSelect={() => setSelectedCompanyId(c.id!)}
+                          linkCount={linkCount}
+                          relVal={relVal}
+                          matchHint={matchHint}
+                          companies={companies}
+                          setCompanies={setCompanies}
+                        />
                       );
                     })}
                   </div>
