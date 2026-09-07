@@ -238,7 +238,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
         aria-label={`Company Details for ${company.display_name}`}
         className={`fixed inset-y-0 right-0 w-full ${
           isHistoryOpen ? 'max-w-5xl' : 'max-w-xl'
-        } bg-white dark:bg-slate-900 shadow-2xl z-50 flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out`}
+        } bg-white dark:bg-slate-900 shadow-2xl z-40 flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out`}
       >
         {/* Fixed Header (shrink-0) */}
         <div className="shrink-0 p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">

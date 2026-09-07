@@ -110,6 +110,7 @@ export interface QuickActivityDrawerProps {
   initialStatus?: CallStatus;
   defaultOutcome?: string;
   messageType?: string;
+  hasActiveParentModal?: boolean;
   activeWorkspaceId: string;
   currentSalespersonId: string;
   currentUserInitials: string;
@@ -223,6 +224,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   initialStatus,
   defaultOutcome,
   messageType,
+  hasActiveParentModal,
   activeWorkspaceId,
   callStatuses = [],
   callOutcomes = [],
@@ -686,8 +688,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   useEffect(() => {
     if (isOpen) {
       const timer = setTimeout(() => {
-        notesTextareaRef.current?.focus();
-      }, 150);
+        notesTextareaRef.current?.focus({ preventScroll: true });
+      }, 250);
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
@@ -2369,11 +2371,26 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     }
   };
 
+  const isLayeredAboveModal = Boolean(
+    hasActiveParentModal ||
+    companyId ||
+    contactId ||
+    enquiryId ||
+    existingLog ||
+    logToEdit
+  );
+
   if (!isOpen) return null;
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 w-screen h-screen min-h-[100dvh] z-40 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end items-end sm:items-start">
+      <div
+        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-50 overflow-hidden ${
+          isLayeredAboveModal
+            ? 'bg-slate-950/20 backdrop-blur-[1px]'
+            : 'bg-slate-900/50 backdrop-blur-xs'
+        } flex justify-end items-end sm:items-start`}
+      >
         {/* Backdrop click to close */}
         <div className="absolute inset-0 w-screen h-screen min-h-[100dvh]" onClick={onClose} />
 
@@ -2381,10 +2398,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
-          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transition-all duration-300 ease-in-out`}
+          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transform-gpu transition-transform duration-200 ease-out will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

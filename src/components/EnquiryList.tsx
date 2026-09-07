@@ -30,7 +30,7 @@ import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
-import { useEntityEdit } from '../context/EntityEditContext';
+import Company360Modal from './Company360Modal';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
@@ -44,6 +44,9 @@ interface EnquiryListProps {
   onBulkDeleteEnquiries: (ids: string[]) => void;
   user: any;
   onOpenMobileMenu?: () => void;
+  onOpenCompany360?: (companyId: string) => void;
+  onViewCompany360?: (company: Company) => void;
+  setSelectedCompanyForDetail?: (company: Company | null) => void;
   onOpenActivityDrawer?: (context: {
     companyId?: string;
     companyName?: string;
@@ -71,11 +74,14 @@ export default function EnquiryList({
   onBulkDeleteEnquiries,
   user,
   onOpenMobileMenu,
+  onOpenCompany360,
+  onViewCompany360,
+  setSelectedCompanyForDetail,
   onOpenActivityDrawer,
   onInitiateActivity
 }: EnquiryListProps) {
   const launcher = useActivityLauncher();
-  const { openEditCompany } = useEntityEdit();
+  const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -169,6 +175,50 @@ export default function EnquiryList({
   const companyMap = React.useMemo(() => {
     return new Map(companies.map((c) => [c.id, c.display_name]));
   }, [companies]);
+
+  const resolveCompanyForEnquiry = React.useCallback((enquiry: Enquiry): Company | undefined => {
+    if (enquiry.company_id) {
+      const found = companies.find((c) => c.id === enquiry.company_id);
+      if (found) return found;
+    }
+    const nameToMatch = (
+      companyMap.get(enquiry.company_id) ||
+      (enquiry as any).company_name ||
+      (enquiry as any).client_company ||
+      ''
+    ).trim().toLowerCase();
+
+    if (nameToMatch && nameToMatch !== 'unknown client' && nameToMatch !== 'unknown') {
+      return companies.find((c) =>
+        (c.display_name || '').trim().toLowerCase() === nameToMatch ||
+        (c.canonical_name || '').trim().toLowerCase() === nameToMatch ||
+        (c.aliases || []).some((a) => (a || '').trim().toLowerCase() === nameToMatch)
+      );
+    }
+    return undefined;
+  }, [companies, companyMap]);
+
+  const handleCompanyClick = React.useCallback((enquiry: Enquiry) => {
+    const targetComp = resolveCompanyForEnquiry(enquiry);
+    const targetCompanyId = targetComp?.id || enquiry.company_id;
+    if (targetCompanyId) {
+      if (onOpenCompany360) {
+        onOpenCompany360(targetCompanyId);
+      } else if (onViewCompany360 && targetComp) {
+        onViewCompany360(targetComp);
+      } else if (setSelectedCompanyForDetail && targetComp) {
+        setSelectedCompanyForDetail(targetComp);
+      } else {
+        setSelected360CompanyId(targetCompanyId);
+      }
+    } else if (targetComp) {
+      if (onViewCompany360) {
+        onViewCompany360(targetComp);
+      } else if (setSelectedCompanyForDetail) {
+        setSelectedCompanyForDetail(targetComp);
+      }
+    }
+  }, [resolveCompanyForEnquiry, onOpenCompany360, onViewCompany360, setSelectedCompanyForDetail]);
 
   const handleSort = (field: 'sn' | 'enquiry_date' | 'value_aed') => {
     if (sortField === field) {
@@ -672,26 +722,34 @@ export default function EnquiryList({
                       <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold">#{e.sn}</td>
                       <td className="py-4 px-6 font-semibold text-slate-900 dark:text-slate-100 max-w-[260px]">
                         <div className="flex items-center space-x-2">
-                          <span 
-                            className={`truncate ${e.company_id ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : ''}`}
-                            onClick={() => {
-                              if (e.company_id) {
-                                openEditCompany(e.company_id);
-                              }
-                            }}
-                            title={e.company_id ? "View/Edit company details" : undefined}
-                          >
-                            {companyName}
-                          </span>
+                          {(() => {
+                            const resolvedComp = resolveCompanyForEnquiry(e);
+                            const targetCompanyId = resolvedComp?.id || e.company_id;
+                            const isClickable = Boolean(targetCompanyId || resolvedComp);
+
+                            return (
+                              <span 
+                                className={`truncate ${isClickable ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : ''}`}
+                                onClick={() => {
+                                  if (isClickable) {
+                                    handleCompanyClick(e);
+                                  }
+                                }}
+                                title={isClickable ? `View 360° profile for ${companyName}` : undefined}
+                              >
+                                {companyName}
+                              </span>
+                            );
+                          })()}
                           {companyName && companyName !== 'Unknown Client' && (
                             <GoogleSearchButton
                               companyName={companyName}
-                              location={companies.find((c) => c.id === e.company_id)?.city}
+                              location={resolveCompanyForEnquiry(e)?.city || companies.find((c) => c.id === e.company_id)?.city}
                               size="xs"
                             />
                           )}
                           {(() => {
-                            const linkedComp = companies.find((c) => c.id === e.company_id);
+                            const linkedComp = resolveCompanyForEnquiry(e) || companies.find((c) => c.id === e.company_id);
                             if (!linkedComp) return null;
                             return (
                               <>
@@ -1163,6 +1221,23 @@ export default function EnquiryList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Fallback 360 Modal if not intercepted by parent handler */}
+      {selected360CompanyId && !onOpenCompany360 && (
+        <Company360Modal
+          companyId={selected360CompanyId}
+          companies={companies}
+          setCompanies={setCompanies}
+          contacts={[]}
+          salespersons={salespersons}
+          enquiries={enquiries}
+          callLogs={[]}
+          user={user}
+          onClose={() => setSelected360CompanyId(null)}
+          onOpenActivityDrawer={onOpenActivityDrawer}
+          onInitiateActivity={onInitiateActivity}
+        />
       )}
     </PageBody>
   </>

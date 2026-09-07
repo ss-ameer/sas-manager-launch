@@ -1679,6 +1679,7 @@ export default function App() {
               industryTypes={industryTypes}
             companyTemperatures={companyTemperatures}
               onEditCompany={handleEditCompanyFrom360}
+              onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
               onOpenActivityDrawer={(ctx) => {
                 setActivityDrawerContext(ctx || {});
                 setIsActivityDrawerOpen(true);
@@ -1717,6 +1718,7 @@ export default function App() {
             onDeleteEnquiry={handleDeleteEnquiry}
             onBulkDeleteEnquiries={handleBulkDeleteEnquiries}
             user={user}
+            onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
             onOpenActivityDrawer={(context) => {
               setActivityDrawerContext(context);
               setIsActivityDrawerOpen(true);
@@ -2050,6 +2052,7 @@ export default function App() {
         initialStatus={activityDrawerContext.initialStatus}
         defaultOutcome={activityDrawerContext.defaultOutcome}
         messageType={activityDrawerContext.messageType}
+        hasActiveParentModal={Boolean(activityDrawerContext.companyId || selected360CompanyId)}
         activeWorkspaceId={activeWorkspace.id}
         currentSalespersonId={currentSalespersonId}
         currentUserInitials={currentUserInitials}

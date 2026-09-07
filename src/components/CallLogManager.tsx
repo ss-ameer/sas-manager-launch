@@ -236,6 +236,8 @@ interface CallLogManagerProps {
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onEditCompany?: (company: Company) => void;
+  onOpenCompany360?: (companyId: string) => void;
+  onViewCompany360?: (company: Company) => void;
   onOpenMobileMenu?: () => void;
 }
 
@@ -263,6 +265,8 @@ export default function CallLogManager({
   onOpenActivityDrawer,
   onInitiateActivity,
   onEditCompany,
+  onOpenCompany360,
+  onViewCompany360,
   onOpenMobileMenu
 }: CallLogManagerProps) {
   const { openEditCompany, openEditContact } = useEntityEdit();
@@ -842,6 +846,48 @@ export default function CallLogManager({
       if (comp) return comp.display_name || comp.canonical_name || entry.company_name || 'Direct Client';
     }
     return entry.company_name || entry.unlinked_name || 'Direct Client';
+  };
+
+  // Helper to safely resolve canonical company entity from state
+  const resolveCompanyForLog = (entry: Partial<CallLogEntry>): Company | undefined => {
+    if (entry.company_id) {
+      const found = companies.find((c) => c.id === entry.company_id);
+      if (found) return found;
+    }
+    const rawName = (
+      entry.company_name ||
+      entry.unlinked_name ||
+      (entry.company_id ? companyMap.get(entry.company_id)?.display_name : '') ||
+      ''
+    ).trim();
+
+    if (rawName && rawName.toLowerCase() !== 'unlinked' && rawName.toLowerCase() !== 'unlinked account' && rawName.toLowerCase() !== 'direct client') {
+      const nameToMatch = rawName.toLowerCase();
+      return companies.find((c) =>
+        (c.display_name || '').trim().toLowerCase() === nameToMatch ||
+        (c.canonical_name || '').trim().toLowerCase() === nameToMatch ||
+        (c.aliases || []).some((a) => (a || '').trim().toLowerCase() === nameToMatch)
+      );
+    }
+    return undefined;
+  };
+
+  const handleOpenCompany360ForLog = (entry: Partial<CallLogEntry>) => {
+    const comp = resolveCompanyForLog(entry);
+    const targetCompanyId = comp?.id || entry.company_id;
+    if (targetCompanyId) {
+      if (onOpenCompany360) {
+        onOpenCompany360(targetCompanyId);
+      } else if (onViewCompany360 && comp) {
+        onViewCompany360(comp);
+      } else {
+        setSelected360CompanyId(targetCompanyId);
+      }
+    } else if (comp) {
+      if (onViewCompany360) {
+        onViewCompany360(comp);
+      }
+    }
   };
 
   // Helper to render live Company Temperature / DNC pill for call log items
@@ -1819,7 +1865,13 @@ export default function CallLogManager({
                         {getReferenceId('CL', item, callLogs)}
                       </span>
                       {renderChannelBadge(item.channel || item.interaction_type)}
-                      <span className="font-black text-slate-900 dark:text-slate-100 text-base">{getResolvedCompanyName(item)}</span>
+                      <span 
+                        className="font-black text-slate-900 dark:text-slate-100 text-base hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer"
+                        onClick={() => handleOpenCompany360ForLog(item)}
+                        title={`View 360° details for ${getResolvedCompanyName(item)}`}
+                      >
+                        {getResolvedCompanyName(item)}
+                      </span>
                       {getResolvedCompanyName(item) && getResolvedCompanyName(item) !== 'Direct Client' && (
                         <GoogleSearchButton
                           companyName={getResolvedCompanyName(item)}
@@ -2361,12 +2413,9 @@ export default function CallLogManager({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2">
                           <span 
-                            className={`text-sm font-semibold truncate hover:text-blue-600 transition cursor-pointer ${log.company_name ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
-                            onClick={() => {
-                              if (log.company_id) {
-                                setSelected360CompanyId(log.company_id);
-                              }
-                            }}
+                            className={`text-sm font-semibold truncate hover:text-blue-600 transition cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                            onClick={() => handleOpenCompany360ForLog(log)}
+                            title={`View 360° details for ${getResolvedCompanyName(log)}`}
                           >
                             {getResolvedCompanyName(log) || 'Unlinked Account'}
                           </span>
@@ -2539,12 +2588,9 @@ export default function CallLogManager({
                             {formatActivityDate(log.date || log.createdAt)}
                           </td>
                           <td 
-                            className={`px-4 py-3 font-semibold hover:text-blue-600 transition cursor-pointer ${log.company_name ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
-                            onClick={() => {
-                              if (log.company_id) {
-                                setSelected360CompanyId(log.company_id);
-                              }
-                            }}
+                            className={`px-4 py-3 font-semibold hover:text-blue-600 transition cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                            onClick={() => handleOpenCompany360ForLog(log)}
+                            title={`View 360° details for ${getResolvedCompanyName(log)}`}
                           >
                             <div className="flex items-center space-x-2">
                               <span>{getResolvedCompanyName(log) || 'Unlinked'}</span>
@@ -3900,7 +3946,11 @@ export default function CallLogManager({
         onOpenCompany360={(companyId) => {
           setSelectedDetailEntry(null);
           setShowLogModal(false);
-          setSelected360CompanyId(companyId);
+          if (onOpenCompany360) {
+            onOpenCompany360(companyId);
+          } else {
+            setSelected360CompanyId(companyId);
+          }
         }}
         onLogFollowup={(entry) => {
           setSelectedDetailEntry(null);
