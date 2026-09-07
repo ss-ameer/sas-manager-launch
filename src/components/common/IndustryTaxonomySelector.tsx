@@ -9,11 +9,13 @@ export interface IndustryTaxonomySelectorProps {
   subTypeValue: string;
   onSubTypeChange: (subType: string) => void;
   userIdentifier?: string;
-  variant?: 'dark' | 'light';
+  variant?: 'dark' | 'light' | 'auto';
   size?: 'sm' | 'md';
   idPrefix?: string;
   className?: string;
   showLabels?: boolean;
+  parentLabel?: string;
+  subTypeLabel?: string;
 }
 
 export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> = ({
@@ -22,11 +24,13 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
   subTypeValue,
   onSubTypeChange,
   userIdentifier = 'Operator',
-  variant = 'dark',
+  variant = 'auto',
   size = 'md',
   idPrefix = 'ind-tax',
   className = '',
-  showLabels = true
+  showLabels = true,
+  parentLabel = 'Macro Industry Sector',
+  subTypeLabel = 'GBP Sub-Type Taxonomy'
 }) => {
   const {
     sectors,
@@ -36,6 +40,7 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
   } = useIndustryTaxonomy();
 
   const isDark = variant === 'dark';
+  const isAuto = variant === 'auto';
 
   // ---------------------------------------------------------------------------
   // Tier 1 Combobox State (Macro Parent Category)
@@ -344,14 +349,18 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
   // ---------------------------------------------------------------------------
   // Geometry & Styling Classes
   // ---------------------------------------------------------------------------
-  const heightClass = size === 'sm' ? 'h-9 text-xs rounded-lg' : 'h-11 text-sm rounded-xl';
+  const heightClass = size === 'sm' ? 'h-9 text-xs rounded-lg' : 'h-10 text-sm rounded-lg';
   const paddingClass = size === 'sm' ? 'pl-2.5 pr-8' : 'pl-3.5 pr-8';
 
-  const containerInputClass = isDark
+  const containerInputClass = isAuto
+    ? 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+    : isDark
     ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
     : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20';
 
-  const dropdownContainerClass = isDark
+  const dropdownContainerClass = isAuto
+    ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 divide-slate-100 dark:divide-slate-800 text-slate-900 dark:text-slate-100 shadow-2xl'
+    : isDark
     ? 'bg-slate-900 border-slate-700 divide-slate-800 text-slate-100 shadow-2xl'
     : 'bg-white border-slate-200 divide-slate-100 text-slate-800 shadow-2xl';
 
@@ -362,10 +371,9 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
         {showLabels && (
           <label
             htmlFor={`${idPrefix}-parent-input`}
-            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between select-none"
+            className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5 block select-none"
           >
-            <span>Macro Parent Category</span>
-            <span className="text-slate-500 font-sans lowercase font-normal">Tier 1</span>
+            <span>{parentLabel}</span>
           </label>
         )}
 
@@ -453,9 +461,13 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
                       isHighlighted
                         ? 'bg-blue-600 text-white font-semibold'
                         : isSelected
-                        ? isDark
+                        ? isAuto
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 font-semibold'
+                          : isDark
                           ? 'bg-blue-950/40 text-blue-400 font-semibold'
                           : 'bg-blue-50 text-blue-700 font-semibold'
+                        : isAuto
+                        ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
                         : isDark
                         ? 'hover:bg-slate-800 text-slate-200'
                         : 'hover:bg-slate-100 text-slate-800'
@@ -487,10 +499,9 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
         {showLabels && (
           <label
             htmlFor={`${idPrefix}-subtype-input`}
-            className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between select-none"
+            className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5 block select-none"
           >
-            <span>Raw Business Type</span>
-            <span className="text-slate-500 font-sans lowercase font-normal">GBP Sub-Type Tier 2</span>
+            <span>{subTypeLabel}</span>
           </label>
         )}
 
@@ -600,9 +611,13 @@ export const IndustryTaxonomySelector: React.FC<IndustryTaxonomySelectorProps> =
                       isHighlighted
                         ? 'bg-blue-600 text-white font-semibold'
                         : isSelected
-                        ? isDark
+                        ? isAuto
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 font-semibold'
+                          : isDark
                           ? 'bg-blue-950/40 text-blue-400 font-semibold'
                           : 'bg-blue-50 text-blue-700 font-semibold'
+                        : isAuto
+                        ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
                         : isDark
                         ? 'hover:bg-slate-800 text-slate-200'
                         : 'hover:bg-slate-100 text-slate-800'

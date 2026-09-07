@@ -446,7 +446,7 @@ export default function CompanyEditModal({
   return (
     <div
       id="global-company-edit-modal-overlay"
-      className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[120] flex items-center justify-center p-4"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[120] flex items-center justify-center p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -454,35 +454,37 @@ export default function CompanyEditModal({
     >
       <div
         id="global-company-edit-modal-card"
-        className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 overflow-hidden"
+        className="max-w-3xl w-full max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-950/80 sticky top-0 z-10">
+        <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-indigo-950/60 border border-indigo-800/60 rounded-xl text-indigo-400">
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 rounded-xl text-blue-600 dark:text-blue-400">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-100 font-sans">
-                {targetCompany ? 'Edit Company Profile' : 'Add New Company'}
-              </h3>
-              <p className="text-[11px] text-slate-400 font-mono">
-                {targetCompany ? targetCompany.display_name : 'Universal Registry Account'}
+              <div className="flex items-center space-x-2">
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+                  {targetCompany ? 'Edit Company Profile' : 'Add New Company'}
+                </h2>
+                {canonicalName.trim() && (
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-0.5 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                    title="Search Company on Google"
+                  >
+                    <Search className="w-3 h-3" />
+                    <span>Google Search</span>
+                  </a>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
+                {targetCompany ? targetCompany.display_name : 'Canonical corporate entity profile, sector taxonomy, and contact channels.'}
               </p>
             </div>
-            {canonicalName.trim() && (
-              <a
-                href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-2 px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
-                title="Search Company on Google"
-              >
-                <Search className="w-3 h-3" />
-                <span>Google Search</span>
-              </a>
-            )}
           </div>
           <button
             type="button"
@@ -490,20 +492,20 @@ export default function CompanyEditModal({
               e.stopPropagation();
               onClose();
             }}
-            className="text-slate-400 hover:text-slate-200 transition p-1.5 rounded-lg hover:bg-slate-800/60 cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
+          <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
             {/* Canonical Name & Legal Suffix */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                  Canonical Name <span className="text-rose-400">*</span>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="sm:col-span-8">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                  Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
@@ -511,17 +513,17 @@ export default function CompanyEditModal({
                   placeholder="e.g. Veolia Water Solutions"
                   value={canonicalName}
                   onChange={(e) => setCanonicalName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
               </div>
-              <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+              <div className="sm:col-span-4">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                   Legal Suffix
                 </label>
                 <select
                   value={legalSuffix}
                   onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
+                  className="w-full px-3.5 py-2.5 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer truncate"
                 >
                   {['None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((s) => (
                     <option key={s} value={s}>{s}</option>
@@ -532,7 +534,7 @@ export default function CompanyEditModal({
 
             {/* Aliases */}
             <div>
-              <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                 Fuzzy Search Aliases (comma-separated)
               </label>
               <input
@@ -540,25 +542,25 @@ export default function CompanyEditModal({
                 placeholder="e.g. Veolia Water, Veolia Solutions, VWS"
                 value={aliasesInput}
                 onChange={(e) => setAliasesInput(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
               />
-              <span className="text-[10px] text-slate-500 font-mono mt-1.5 block leading-normal">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1.5 block leading-normal">
                 Search variants to match and block subsequent duplicates.
               </span>
             </div>
 
             {/* Mark as Internal / Sister Company Toggle */}
-            <div className="p-3.5 bg-purple-950/20 border border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
+            <div className="p-3.5 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
+                  <span className="text-sm font-bold text-purple-900 dark:text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
                   {isInternalCompany && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-700/60">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700/60">
                       Active
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
                 </p>
               </div>
@@ -569,18 +571,18 @@ export default function CompanyEditModal({
                   onChange={(e) => setIsInternalCompany(e.target.checked)}
                   className="sr-only peer"
                 />
-                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
               </label>
             </div>
 
             {/* Duplicate Match Warning */}
             {duplicateMatchResult && (
-              <div className="p-3 bg-amber-950/40 border border-amber-800/80 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-amber-400 text-xs font-bold">
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
                   <ShieldAlert className="w-4 h-4" />
                   <span>Potential Duplicate Account Detected</span>
                 </div>
-                <p className="text-xs text-slate-300">
+                <p className="text-xs text-slate-700 dark:text-slate-300">
                   A company matching "{duplicateMatchResult.target?.display_name || duplicateMatchResult.target?.canonical_name}" already exists ({duplicateMatchResult.matchReason}).
                 </p>
                 <div className="flex items-center gap-2 pt-1">
@@ -597,7 +599,7 @@ export default function CompanyEditModal({
                   <button
                     type="button"
                     onClick={() => setDuplicateMatchResult(null)}
-                    className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition cursor-pointer"
+                    className="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg transition cursor-pointer"
                   >
                     Review Name
                   </button>
@@ -606,10 +608,10 @@ export default function CompanyEditModal({
             )}
 
             {/* City & Country */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                  City <span className="text-rose-400">*</span>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                  City <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
@@ -617,12 +619,12 @@ export default function CompanyEditModal({
                   placeholder="e.g. Sharjah"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                  Country <span className="text-rose-400">*</span>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                  Country <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
@@ -630,7 +632,7 @@ export default function CompanyEditModal({
                   placeholder="e.g. UAE"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
               </div>
             </div>
@@ -642,22 +644,22 @@ export default function CompanyEditModal({
               subTypeValue={businessTypeRaw}
               onSubTypeChange={setBusinessTypeRaw}
               userIdentifier={user?.email || user?.full_name || 'Operator'}
-              variant="dark"
+              variant="auto"
               size="md"
               idPrefix="edit-modal-ind"
               className="mb-1"
             />
 
             {/* Relationship & Temperature */}
-            <div className="grid grid-cols-2 gap-4 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                  Relationship <span className="text-rose-400">*</span>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                  Relationship <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <select
                   value={relationship}
                   onChange={(e) => setRelationship(e.target.value)}
-                  className="w-full h-11 bg-slate-950 border border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                  className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
                 >
                   {(companyRelationships.length > 0 ? companyRelationships : [
                     { id: 'rel_prospect', name: 'Prospect' },
@@ -670,13 +672,13 @@ export default function CompanyEditModal({
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                  Temperature
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                  Temperature (Heat Level)
                 </label>
                 <select
                   value={temperature}
                   onChange={(e) => setTemperature(e.target.value as any)}
-                  className="w-full h-11 bg-slate-950 border border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                  className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
                 >
                   <option value="Cold">Cold ❄️</option>
                   <option value="Warm">Warm 🌤️</option>
@@ -687,15 +689,15 @@ export default function CompanyEditModal({
             </div>
 
             {/* Company Phones */}
-            <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                   Company Phone Numbers
                 </label>
                 <button
                   type="button"
                   onClick={() => setCompanyPhones((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Phone</span>
@@ -723,7 +725,7 @@ export default function CompanyEditModal({
                         setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
                       }}
                       placeholder="Tag"
-                      className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                      className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
                     />
                     <input
                       type="text"
@@ -733,19 +735,19 @@ export default function CompanyEditModal({
                         const val = e.target.value;
                         setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
                       }}
-                      className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     />
 
                     <button
                       type="button"
                       onClick={() => togglePhoneRestriction(ph.value)}
                       disabled={!ph.value.trim()}
-                      className={`px-2.5 py-2.5 rounded-xl text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                      className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
                         currentRestriction === 'DNC'
-                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 hover:bg-rose-500/30'
+                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
                           : currentRestriction === 'Invalid'
-                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30'
-                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-300'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
+                          : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
                       }`}
                       title={
                         currentRestriction === 'DNC'
@@ -758,10 +760,10 @@ export default function CompanyEditModal({
                       <ShieldAlert
                         className={`w-3.5 h-3.5 ${
                           currentRestriction === 'DNC'
-                            ? 'text-rose-400'
+                            ? 'text-rose-600 dark:text-rose-400'
                             : currentRestriction === 'Invalid'
-                            ? 'text-amber-400'
-                            : 'text-slate-500'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-slate-400'
                         }`}
                       />
                       <span>{currentRestriction || 'Clear'}</span>
@@ -771,7 +773,7 @@ export default function CompanyEditModal({
                       <button
                         type="button"
                         onClick={() => setCompanyPhones((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                        className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
                         title="Remove Phone"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -783,15 +785,15 @@ export default function CompanyEditModal({
             </div>
 
             {/* Company Emails */}
-            <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                   Company Email Addresses
                 </label>
                 <button
                   type="button"
                   onClick={() => setCompanyEmails((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Email</span>
@@ -814,7 +816,7 @@ export default function CompanyEditModal({
                       setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
                     }}
                     placeholder="Tag"
-                    className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                    className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
                   />
                   <input
                     type="email"
@@ -824,13 +826,13 @@ export default function CompanyEditModal({
                       const val = e.target.value;
                       setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
                     }}
-                    className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   />
                   {companyEmails.length > 1 && (
                     <button
                       type="button"
                       onClick={() => setCompanyEmails((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
                       title="Remove Email"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -841,15 +843,15 @@ export default function CompanyEditModal({
             </div>
 
             {/* Links & Portals */}
-            <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                   Company Links & Portals
                 </label>
                 <button
                   type="button"
                   onClick={() => setCompanyLinks((prev) => [...prev, { id: generateId(), label: 'Website', url: '' }])}
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Link</span>
@@ -872,7 +874,7 @@ export default function CompanyEditModal({
                       setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
                     }}
                     placeholder="Tag (e.g. Website)"
-                    className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                    className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
                   />
                   <input
                     type="url"
@@ -882,13 +884,13 @@ export default function CompanyEditModal({
                       const val = e.target.value;
                       setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, url: val } : item)));
                     }}
-                    className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   />
                   {companyLinks.length > 1 && (
                     <button
                       type="button"
                       onClick={() => setCompanyLinks((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
                       title="Remove Link"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -900,7 +902,7 @@ export default function CompanyEditModal({
 
             {/* Internal Notes */}
             <div>
-              <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                 Internal Notes
               </label>
               <textarea
@@ -908,30 +910,30 @@ export default function CompanyEditModal({
                 placeholder="Provide any client profiles, special conditions..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
               />
             </div>
           </div>
 
-          {/* Footer Actions */}
-          <div className="bg-slate-950/90 border-t border-slate-800 p-4 flex justify-end gap-3 shrink-0 z-10">
+          {/* Harmonized Modal Action Footer */}
+          <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex justify-end items-center gap-3">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onClose();
               }}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
+              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center space-x-2 cursor-pointer shadow-md"
+              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{isSaving ? 'Saving Record...' : targetCompany ? 'Save Changes' : 'Create Company'}</span>
+              <span>{isSaving ? 'Saving Record...' : 'Save Canonical Record'}</span>
             </button>
           </div>
         </form>

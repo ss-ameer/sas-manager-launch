@@ -16,7 +16,6 @@ import {
   ChevronsRight,
   UserCheck,
   X,
-  RotateCw,
   Check,
   ArrowRight,
   Trash,

@@ -1753,6 +1753,7 @@ export default function App() {
             }}
             onInitiateActivity={initiateActivity}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            triggerToast={triggerToast}
           />
         )}
 

@@ -9,6 +9,7 @@ import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import ContactModal, { normalizePhoneKey, getLineRestriction } from './ContactModal';
 import ContactDetailModal from './ContactDetailModal';
 import CallLogDetailModal from './CallLogDetailModal';
+import CompanyDetailView from './CompanyDetailView';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
@@ -55,11 +56,12 @@ import {
   ChevronUp,
   Zap,
   Sparkles,
-  MessageSquare
+  MessageSquare,
+  Link2,
+  Eye
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
-import DuplicateMatchModal from './DuplicateMatchModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import CompanyExportModal from './CompanyExportModal';
@@ -185,6 +187,7 @@ interface CompanyModalProps {
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onOpenMobileMenu?: () => void;
+  triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 function formatHistoryDate(dateStr?: string): string {
@@ -233,7 +236,8 @@ export default function CompanyModal({
   onClearCompanyEditContext,
   onOpenActivityDrawer,
   onInitiateActivity,
-  onOpenMobileMenu
+  onOpenMobileMenu,
+  triggerToast
 }: CompanyModalProps) {
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
@@ -292,7 +296,6 @@ export default function CompanyModal({
   const [temperatureFilter, setTemperatureFilter] = useState<string>('ALL');
   const [companyViewStyle, setCompanyViewStyle] = useState<'cards' | 'table'>('table');
   const [contactViewStyle, setContactViewStyle] = useState<'table' | 'cards'>('table');
-  const [isRegistryCollapsed, setIsRegistryCollapsed] = useState(false);
 
   // Multi-select Contact State & Bulk Reassign State
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
@@ -690,6 +693,13 @@ export default function CompanyModal({
   const [isSavingCompany, setIsSavingCompany] = useState(false);
   const [isSavingContact, setIsSavingContact] = useState(false);
 
+  // Inline Duplication warning states
+  const [duplicateMatch, setDuplicateMatch] = useState<Company | null>(null);
+  const [duplicateMatchInfo, setDuplicateMatchInfo] = useState<{ similarity: number; reason: string } | null>(null);
+  const [ignoredDuplicateIds, setIgnoredDuplicateIds] = useState<string[]>([]);
+  const [isAddingAlias, setIsAddingAlias] = useState(false);
+  const [localToast, setLocalToast] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+
   // Merge states
   const [showMerge, setShowMerge] = useState(false);
   const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
@@ -698,12 +708,124 @@ export default function CompanyModal({
 
   const isEditable = user.role !== 'Viewer';
 
-  // Helper state for fuzzy match duplicate dialog
-  const [duplicateMatchResult, setDuplicateMatchResult] = useState<{
-    match: Company;
-    similarity: number;
-    reason: string;
-  } | null>(null);
+  // Debounced inline duplicate checking as user types into Canonical Name (250ms debounce)
+  useEffect(() => {
+    if (!showAddCompany) {
+      setDuplicateMatch(null);
+      setDuplicateMatchInfo(null);
+      return;
+    }
+
+    const trimmed = canonicalName.trim();
+    if (trimmed.length < 2) {
+      setDuplicateMatch(null);
+      setDuplicateMatchInfo(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const matchRes = findDuplicateCompany(
+        trimmed,
+        companies,
+        editingCompany ? editingCompany.id : undefined
+      );
+
+      if (matchRes && matchRes.match) {
+        if (!ignoredDuplicateIds.includes(matchRes.match.id)) {
+          setDuplicateMatch(matchRes.match);
+          setDuplicateMatchInfo({
+            similarity: matchRes.similarity,
+            reason: matchRes.reason
+          });
+        } else {
+          setDuplicateMatch(null);
+          setDuplicateMatchInfo(null);
+        }
+      } else {
+        setDuplicateMatch(null);
+        setDuplicateMatchInfo(null);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [canonicalName, companies, editingCompany, ignoredDuplicateIds, showAddCompany]);
+
+  useEffect(() => {
+    if (localToast) {
+      const timer = setTimeout(() => setLocalToast(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [localToast]);
+
+  const handleAddAsAlias = async () => {
+    if (!duplicateMatch) return;
+    const nameToAdd = canonicalName.trim();
+    if (!nameToAdd) return;
+
+    setIsAddingAlias(true);
+    try {
+      const currentAliases = Array.isArray(duplicateMatch.aliases) ? [...duplicateMatch.aliases] : [];
+      if (!currentAliases.some((a) => a.toLowerCase() === nameToAdd.toLowerCase())) {
+        currentAliases.push(nameToAdd);
+      }
+
+      const updatedData: Partial<Company> = {
+        aliases: currentAliases,
+        updatedAt: new Date().toISOString(),
+        last_modified_by_uid: user?.uid || '',
+        last_modified_by_name: user?.full_name || user?.username || user?.email || 'Unknown User'
+      };
+
+      await CompanyRepository.updateCompany(duplicateMatch.id, updatedData);
+      try {
+        await recordAuditLog({
+          document_id: duplicateMatch.id,
+          entity_type: 'company',
+          entity_title: duplicateMatch.display_name || duplicateMatch.canonical_name,
+          action: 'update',
+          user,
+          after: { aliases: currentAliases },
+          details: `Added alias "${nameToAdd}" to company "${duplicateMatch.display_name || duplicateMatch.canonical_name}"`
+        });
+      } catch (aErr) {
+        console.warn('Audit log error on adding alias:', aErr);
+      }
+
+      if (setCompanies) {
+        setCompanies((prev) => prev.map((c) => (c.id === duplicateMatch.id ? { ...c, ...updatedData } : c)));
+      }
+
+      const targetName = duplicateMatch.display_name || duplicateMatch.canonical_name;
+      const toastMsg = `Added '${nameToAdd}' as an alias to ${targetName}.`;
+
+      if (triggerToast) {
+        triggerToast(toastMsg, 'success');
+      } else {
+        setLocalToast({ text: toastMsg, type: 'success' });
+      }
+
+      closeCompanyModal();
+    } catch (err: any) {
+      console.error('Failed to add alias:', err);
+      alert('Failed to add alias: ' + err.message);
+    } finally {
+      setIsAddingAlias(false);
+    }
+  };
+
+  const handleViewExisting = () => {
+    if (!duplicateMatch) return;
+    const targetId = duplicateMatch.id;
+    closeCompanyModal();
+    setSelectedCompanyId(targetId);
+  };
+
+  const handleDismissDuplicate = () => {
+    if (!duplicateMatch) return;
+    setIgnoredDuplicateIds((prev) => [...prev, duplicateMatch.id]);
+    setDuplicateMatch(null);
+    setDuplicateMatchInfo(null);
+  };
 
   const generateCmId = () => `cm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -729,7 +851,10 @@ export default function CompanyModal({
     setNotes('');
     setAliasesInput('');
     setIsInternalCompany(false);
-    setDuplicateMatchResult(null);
+    setDuplicateMatch(null);
+    setDuplicateMatchInfo(null);
+    setIgnoredDuplicateIds([]);
+    setIsAddingAlias(false);
     setPendingBypass(false);
     setIsSavingCompany(false);
   };
@@ -754,7 +879,10 @@ export default function CompanyModal({
     setNotes('');
     setAliasesInput('');
     setIsInternalCompany(false);
-    setDuplicateMatchResult(null);
+    setDuplicateMatch(null);
+    setDuplicateMatchInfo(null);
+    setIgnoredDuplicateIds([]);
+    setIsAddingAlias(false);
     setPendingBypass(false);
     setShowAddCompany(true);
   };
@@ -828,7 +956,10 @@ export default function CompanyModal({
     setTemperature(comp.temperature || 'Cold');
     setNotes(comp.notes || '');
     setAliasesInput((comp.aliases || []).join(', '));
-    setDuplicateMatchResult(null);
+    setDuplicateMatch(null);
+    setDuplicateMatchInfo(null);
+    setIgnoredDuplicateIds([]);
+    setIsAddingAlias(false);
     setPendingBypass(false);
     setShowAddCompany(true);
   };
@@ -853,11 +984,15 @@ export default function CompanyModal({
     e.preventDefault();
     if (!canonicalName.trim()) return;
 
-    // Check fuzzy duplicate match if not editing and not bypassed
-    if (!editingCompany && !pendingBypass) {
+    // Check duplicate match if not editing and not ignored
+    if (!editingCompany) {
       const matchRes = findDuplicateCompany(canonicalName, companies);
-      if (matchRes) {
-        setDuplicateMatchResult(matchRes);
+      if (matchRes && matchRes.match && !ignoredDuplicateIds.includes(matchRes.match.id)) {
+        setDuplicateMatch(matchRes.match);
+        setDuplicateMatchInfo({
+          similarity: matchRes.similarity,
+          reason: matchRes.reason
+        });
         return;
       }
     }
@@ -1733,83 +1868,34 @@ export default function CompanyModal({
       {/* VIEW 1: COMPANIES REGISTRY */}
       {viewMode === 'companies' && (
         <div id="companies-tab" className="text-slate-200 flex flex-col gap-6 w-full">
-          {/* Company List Registry Card (Full Row, Extendable & Retractable) */}
-          {isRegistryCollapsed ? (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+          {/* Companies Registry Main Container */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm w-full">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center space-x-3">
-                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-xl">
-                  <Building2 className="w-5 h-5" />
-                </div>
+                <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h2 className="text-sm font-bold text-slate-900 dark:text-white font-sans">Companies Registry</h2>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Companies Registry</h2>
                     <span className="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-md">
                       {filteredCompanies.length} registered
                     </span>
                   </div>
-                  {selectedCompany && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
-                      Currently inspecting: <span className="font-bold text-blue-700 dark:text-blue-400">{selectedCompany.display_name}</span>
-                    </p>
-                  )}
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">Canonical directory of account entities and relationships</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 self-end sm:self-auto">
+              <div className="flex items-center space-x-2">
                 {isEditable && (
                   <button
-                    type="button"
                     onClick={handleOpenAddCompany}
-                    className="py-1.5 px-3 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition flex items-center space-x-1 shadow-xs"
+                    className="py-2 px-4 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm cursor-pointer"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-4 h-4" />
                     <span>Add Company</span>
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setIsRegistryCollapsed(false)}
-                  className="py-1.5 px-3.5 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-bold text-xs rounded-xl border border-blue-200 dark:border-blue-800 transition flex items-center space-x-1.5 shadow-2xs"
-                >
-                  <ChevronDown className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>Expand Registry Table</span>
-                </button>
               </div>
             </div>
-          ) : (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm w-full">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center space-x-3">
-                  <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Companies Registry</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">Canonical directory of account entities and relationships</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  {selectedCompany && (
-                    <button
-                      type="button"
-                      onClick={() => setIsRegistryCollapsed(true)}
-                      className="py-2 px-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center space-x-1.5 shadow-2xs"
-                      title="Retract registry table to give maximum focus to selected company inspector"
-                    >
-                      <ChevronUp className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                      <span>Retract Registry</span>
-                    </button>
-                  )}
-                  {isEditable && (
-                    <button
-                      onClick={handleOpenAddCompany}
-                      className="py-2 px-4 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Company</span>
-                    </button>
-                  )}
-                </div>
-              </div>
 
               {/* Faceted Search & Filters */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4 mb-6">
@@ -1818,12 +1904,14 @@ export default function CompanyModal({
                     <Filter className="w-4 h-4" />
                     <span>Faceted Search & Filters</span>
                   </div>
-                  <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg">
+                  <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
                     <button
                       type="button"
                       onClick={() => setCompanyViewStyle('cards')}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                        companyViewStyle === 'cards' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                        companyViewStyle === 'cards'
+                          ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                       }`}
                     >
                       <LayoutGrid className="w-3.5 h-3.5" />
@@ -1833,7 +1921,9 @@ export default function CompanyModal({
                       type="button"
                       onClick={() => setCompanyViewStyle('table')}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                        companyViewStyle === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                        companyViewStyle === 'table'
+                          ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                       }`}
                     >
                       <List className="w-3.5 h-3.5" />
@@ -1844,13 +1934,13 @@ export default function CompanyModal({
                 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                   <div className="relative md:col-span-5">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
-                      className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 transition"
                     />
                   </div>
 
@@ -1858,7 +1948,7 @@ export default function CompanyModal({
                     <select
                       value={industryFilter}
                       onChange={(e) => setIndustryFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
                     >
                       <option value="ALL">All Macro Industries</option>
                       {liveTaxonomySectors.map((pi) => (
@@ -1873,7 +1963,7 @@ export default function CompanyModal({
                     <select
                       value={relationshipFilter}
                       onChange={(e) => setRelationshipFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
                     >
                       <option value="ALL">All Relationships</option>
                       {(companyRelationships || []).map((r) => (
@@ -1886,7 +1976,7 @@ export default function CompanyModal({
                     <select
                       value={temperatureFilter}
                       onChange={(e) => setTemperatureFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
                     >
                       <option value="ALL">All Temperatures</option>
                       {(companyTemperatures || []).map((t) => (
@@ -2088,744 +2178,6 @@ export default function CompanyModal({
                 </div>
               )}
             </div>
-          )}
-
-          {/* Company Detail Command Dashboard */}
-          <div className="w-full min-w-0">
-            {selectedCompany ? (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-md m-4 p-6">
-                {/* Header & Quick Actions */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800 gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
-                      <h3 className="text-xl font-bold text-slate-900 dark:text-white font-sans">{selectedCompany.display_name}</h3>
-                      <GoogleSearchButton companyName={selectedCompany.display_name} location={selectedCompany.city} size="sm" />
-                      <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-400 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
-                        <Tag className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                        <span>REF: {getReferenceId('CMP', selectedCompany, companies)}</span>
-                      </span>
-                      {selectedCompany.isInternalCompany && (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-700 flex items-center gap-1 shadow-xs">
-                          <span>🏢</span>
-                          <span>Our Company</span>
-                        </span>
-                      )}
-                      <IndustryBadge company={selectedCompany ? { ...selectedCompany, business_type_raw: formatSubTypeName((selectedCompany as any).subType || selectedCompany.business_type_raw) } : selectedCompany} size="sm" showEmpty />
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                        {selectedCompany.relationship || 'Prospect'}
-                      </span>
-                      <TemperatureBadge
-                        companyId={selectedCompany.id}
-                        temperature={selectedCompany.temperature}
-                        isDnc={selectedCompany.is_dnc}
-                        variant="pill"
-                        companies={companies}
-                        setCompanies={setCompanies}
-                      />
-                    </div>
-                    <p className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 w-fit">
-                      Canonical Base: {selectedCompany.canonical_name}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        handleInitiate({
-                          companyId: selectedCompany.id,
-                          companyName: selectedCompany.display_name,
-                          company: selectedCompany,
-                          targetType: 'company_mainline',
-                          channel: 'Call',
-                          e
-                        });
-                      }}
-                      className="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Log Activity</span>
-                    </button>
-                    {onOpenCompany360 && selectedCompany?.id && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenCompany360(selectedCompany.id)}
-                        className="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 transition"
-                        title="Open Company 360° View"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                        <span className="hidden sm:inline">Company 360°</span>
-                      </button>
-                    )}
-                    {isEditable && (
-                      <button
-                        onClick={() => handleOpenEditCompany(selectedCompany)}
-                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition"
-                        title="Edit Company"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                    )}
-                    {user.role === 'Admin' && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setMergeSourceId(selectedCompany.id!);
-                            setShowMerge(true);
-                          }}
-                          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 rounded-lg transition"
-                          title="Merge and Deduplicate"
-                        >
-                          <Merge className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteCompany(selectedCompany.id!)}
-                          className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 border border-rose-200 dark:border-rose-800 rounded-lg transition"
-                          title="Delete Company"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2-Column Command Dashboard Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-6">
-                  {/* Left Column: Details, Locations, Aliases & Contacts (2 Cols) */}
-                  <div className="lg:col-span-2 space-y-6">
-                    {/* Location & Specs */}
-                    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center space-x-3 text-xs">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                        <MapPin className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block uppercase font-mono tracking-wider">Location & Jurisdiction</span>
-                        <span className="text-slate-900 dark:text-white font-semibold text-sm">{selectedCompany.city}, {selectedCompany.country}</span>
-                      </div>
-                    </div>
-
-                    {/* Labeled Phones & Emails list */}
-                    <div className="space-y-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-                      <div className="space-y-2">
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Company Phone Numbers</span>
-                        {getCompanyPhones(selectedCompany).length > 0 ? (
-                          <div className="space-y-1.5">
-                            {getCompanyPhones(selectedCompany).map((ph, idx) => {
-                              const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
-                              const phoneVal = ph.number || '';
-                              const restriction = getLineRestriction(selectedCompany.restricted_lines, phoneVal, selectedCompany.is_dnc);
-                              const isRestricted = Boolean(restriction);
-                              const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
-
-                              return (
-                                <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                                  <div className="flex items-center space-x-2">
-                                    <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                                    {isRestricted ? (
-                                      <span className="font-mono font-semibold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                                        {ph.number}
-                                      </span>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          handleInitiate({
-                                            companyId: selectedCompany.id,
-                                            companyName: selectedCompany.display_name,
-                                            company: selectedCompany,
-                                            targetType: 'company_mainline',
-                                            contactPhone: ph.number,
-                                            channel: 'Call',
-                                            externalUrl: `tel:${ph.number}`,
-                                            e
-                                          });
-                                        }}
-                                        className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-left"
-                                      >
-                                        {ph.number}
-                                      </button>
-                                    )}
-                                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
-                                      {ph.label || 'Telephone'}
-                                    </span>
-                                    {isRestricted && (
-                                      <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border ${
-                                        restriction === 'Invalid'
-                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                          : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
-                                      }`}>
-                                        {badgeText}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {!isRestricted && (
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          handleInitiate({
-                                            companyId: selectedCompany.id,
-                                            companyName: selectedCompany.display_name,
-                                            company: selectedCompany,
-                                            targetType: 'company_mainline',
-                                            contactPhone: ph.number,
-                                            channel: 'Call',
-                                            externalUrl: `tel:${ph.number}`,
-                                            e
-                                          });
-                                        }}
-                                        className="p-1.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition cursor-pointer"
-                                        title="1-Click Dial & Log Activity"
-                                      >
-                                        <Phone className="w-3 h-3" />
-                                      </button>
-                                      {cleanNum && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            handleInitiate({
-                                              companyId: selectedCompany.id,
-                                              companyName: selectedCompany.display_name,
-                                              company: selectedCompany,
-                                              targetType: 'company_mainline',
-                                              contactPhone: ph.number,
-                                              channel: 'WhatsApp',
-                                              externalUrl: getWhatsAppUrl(ph.number),
-                                              e
-                                            });
-                                          }}
-                                          className="p-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
-                                          title="1-Click WhatsApp & Log Activity"
-                                        >
-                                          <MessageSquare className="w-3 h-3" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
-                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic">No phone numbers saved.</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Company Email Addresses</span>
-                        {getCompanyEmails(selectedCompany).length > 0 ? (
-                          <div className="space-y-1.5">
-                            {getCompanyEmails(selectedCompany).map((em, idx) => (
-                              <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-                                <div className="flex items-center space-x-2 truncate">
-                                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <a
-                                    href={`mailto:${em.email}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="font-mono text-slate-800 dark:text-slate-200 hover:underline truncate"
-                                  >
-                                    {em.email}
-                                  </a>
-                                  <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium shrink-0">
-                                    {em.label || 'General'}
-                                  </span>
-                                </div>
-                                <a
-                                  href={`mailto:${em.email}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1.5 rounded-md bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition shrink-0 ml-1"
-                                  title="1-Click Email"
-                                >
-                                  <Mail className="w-3 h-3" />
-                                </a>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
-                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic">No email addresses saved.</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Portals & Links Display */}
-                    {selectedCompany.links && selectedCompany.links.length > 0 && (
-                      <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block font-mono">Portals & Links</span>
-                        <div className="flex flex-wrap gap-2">
-                          {selectedCompany.links.map((lnk, idx) => (
-                            <a
-                              key={idx}
-                              href={lnk.url.startsWith('http') ? lnk.url : `https://${lnk.url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5 text-blue-500"/>
-                              <span>{lnk.label}: {lnk.url.replace(/^https?:\/\//, '').split('/')[0]}</span>
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Aliases List */}
-                    <div className="space-y-2">
-                      <h4 className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">Duplicate Lookup Aliases</h4>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedCompany.aliases && selectedCompany.aliases.length > 0 ? (
-                          selectedCompany.aliases.map((a) => (
-                            <span key={a} className="text-xs font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-2.5 py-0.5 rounded-md">
-                              {a}
-                            </span>
-                          ))
-                        ) : (
-                          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-md p-2.5 border border-slate-200 dark:border-slate-700">
-                            <span className="text-sm font-medium text-slate-600 dark:text-slate-300 not-italic font-sans">No alternate spellings declared.</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Company Notes */}
-                    {selectedCompany.notes && (
-                      <div className="space-y-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-                        <h4 className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">Internal Client Notes</h4>
-                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans">{selectedCompany.notes}</p>
-                      </div>
-                    )}
-
-                    {/* Personnel Contacts Section (Sleek List Items / Soft Subtle Cards) */}
-                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center space-x-2 font-sans">
-                          <Users2 className="w-4 h-4 text-slate-400" />
-                          <span>Client Contact Personnel ({companyContacts.length})</span>
-                        </h4>
-                        {isEditable && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setContactToEdit(null);
-                              setSelectedCompanyForContact(selectedCompany.id!);
-                              setContactModalOpen(true);
-                            }}
-                            className="px-2.5 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 rounded-md transition flex items-center space-x-1"
-                            title="Add Personnel Contact"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Add Contact</span>
-                          </button>
-                        )}
-                      </div>
-
-                      {companyContacts.length > 0 ? (
-                        <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-                          {companyContacts.map((c) => {
-                            const cPhones = getContactPhones(c);
-                            const cEmails = getContactEmails(c);
-                            return (
-                              <div key={c.id} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 space-y-2">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="overflow-hidden">
-                                    <div className="flex items-center space-x-2 flex-wrap">
-                                      <span className="text-sm font-semibold text-slate-900 dark:text-white block font-sans">{c.full_name}</span>
-                                      {c.is_primary && (
-                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                          Primary
-                                        </span>
-                                      )}
-                                      {c.is_dnc && (
-                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                          DNC
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-sans mt-0.5">{c.designation || 'No title declared'}</span>
-                                  </div>
-
-                                  {isEditable && (
-                                    <div className="flex items-center space-x-1 shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setContactToEdit(c);
-                                          setSelectedCompanyForContact(selectedCompany.id!);
-                                          setContactModalOpen(true);
-                                        }}
-                                        className="p-1.5 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-md transition"
-                                        title="Edit Personnel"
-                                      >
-                                        <Edit className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteContact(c.id!)}
-                                        className="p-1.5 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition"
-                                        title="Delete Personnel"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="space-y-1 text-xs pt-2 border-t border-slate-200/60 dark:border-slate-700/60 w-full text-slate-600 dark:text-slate-300 font-sans">
-                                  {cPhones.map((ph, pIdx) => {
-                                    const cleanNum = ph.number ? sanitizeWhatsAppNumber(ph.number) : '';
-                                    const phoneVal = ph.number || '';
-                                    const restriction = getLineRestriction(c.restricted_lines, phoneVal) || getLineRestriction(selectedCompany.restricted_lines, phoneVal, c.is_dnc || selectedCompany.is_dnc);
-                                    const isRestricted = Boolean(restriction);
-                                    const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
-
-                                    return (
-                                      <div key={pIdx} className="flex items-center justify-between text-xs py-0.5">
-                                        <div className="flex items-center space-x-2">
-                                          <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                                          {isRestricted ? (
-                                            <span className="font-mono font-semibold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                                              {ph.number}
-                                            </span>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                handleInitiate({
-                                                  companyId: selectedCompany.id,
-                                                  companyName: selectedCompany.display_name,
-                                                  company: selectedCompany,
-                                                  contactId: c.id,
-                                                  contactName: c.full_name,
-                                                  contact: c,
-                                                  targetType: 'contact',
-                                                  contactPhone: ph.number,
-                                                  channel: 'Call',
-                                                  externalUrl: `tel:${ph.number}`,
-                                                  e
-                                                });
-                                              }}
-                                              className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer text-left"
-                                            >
-                                              {ph.number}
-                                            </button>
-                                          )}
-                                          <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium">
-                                            {ph.label}
-                                          </span>
-                                          {isRestricted && (
-                                            <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border ${
-                                              restriction === 'Invalid'
-                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                                : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
-                                            }`}>
-                                              {badgeText}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {!isRestricted && (
-                                          <div className="flex items-center gap-1 shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                handleInitiate({
-                                                  companyId: selectedCompany.id,
-                                                  companyName: selectedCompany.display_name,
-                                                  company: selectedCompany,
-                                                  contactId: c.id,
-                                                  contactName: c.full_name,
-                                                  contact: c,
-                                                  targetType: 'contact',
-                                                  contactPhone: ph.number,
-                                                  channel: 'Call',
-                                                  externalUrl: `tel:${ph.number}`,
-                                                  e
-                                                });
-                                              }}
-                                              className="p-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition cursor-pointer"
-                                              title="1-Click Dial & Log Activity"
-                                            >
-                                              <Phone className="w-3 h-3" />
-                                            </button>
-                                            {cleanNum && (
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  handleInitiate({
-                                                    companyId: selectedCompany.id,
-                                                    companyName: selectedCompany.display_name,
-                                                    company: selectedCompany,
-                                                    contactId: c.id,
-                                                    contactName: c.full_name,
-                                                    contact: c,
-                                                    targetType: 'contact',
-                                                    contactPhone: ph.number,
-                                                    channel: 'WhatsApp',
-                                                    externalUrl: getWhatsAppUrl(ph.number),
-                                                    e
-                                                  });
-                                                }}
-                                                className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
-                                                title="1-Click WhatsApp & Log Activity"
-                                              >
-                                                <MessageSquare className="w-3 h-3" />
-                                              </button>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                  {cEmails.map((em, eIdx) => (
-                                    <div key={eIdx} className="flex items-center justify-between text-xs py-0.5">
-                                      <div className="flex items-center space-x-2 overflow-hidden">
-                                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            handleInitiate({
-                                              companyId: selectedCompany.id,
-                                              companyName: selectedCompany.display_name,
-                                              company: selectedCompany,
-                                              contactId: c.id,
-                                              contactName: c.full_name,
-                                              contact: c,
-                                              targetType: 'contact',
-                                              contactEmail: em.email,
-                                              channel: 'Email',
-                                              externalUrl: `mailto:${em.email}`,
-                                              e
-                                            });
-                                          }}
-                                          className="truncate text-slate-800 dark:text-slate-200 hover:underline font-mono cursor-pointer text-left"
-                                        >
-                                          {em.email}
-                                        </button>
-                                        {em.label && (
-                                          <span className="px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-medium shrink-0">
-                                            {em.label}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          handleInitiate({
-                                            companyId: selectedCompany.id,
-                                            companyName: selectedCompany.display_name,
-                                            company: selectedCompany,
-                                            contactId: c.id,
-                                            contactName: c.full_name,
-                                            contact: c,
-                                            targetType: 'contact',
-                                            contactEmail: em.email,
-                                            channel: 'Email',
-                                            externalUrl: `mailto:${em.email}`,
-                                            e
-                                          });
-                                        }}
-                                        className="p-1 rounded bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-600 dark:text-purple-400 transition cursor-pointer"
-                                        title="1-Click Email & Log Activity"
-                                      >
-                                        <Mail className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="py-6 text-center text-slate-400 font-sans text-xs italic">
-                          No linked personnel registered for this account yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right Column: The 360 History & Activity Timeline (1 Col) */}
-                  <div className="lg:col-span-1 space-y-6">
-                    {(() => {
-                      const isOwnDataOnly = user.role !== 'Admin' && user.dataVisibilityScope === 'OWN_DATA_ONLY';
-                      const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
-
-                      const linkedCompanyLogs = (callLogs || []).filter((cl) => {
-                        if (isOwnDataOnly && !isRecordOwner(user, cl)) return false;
-                        return (
-                          cl.company_id === selectedCompany.id ||
-                          (cl.company_name && cl.company_name.toLowerCase() === selectedCompany.display_name.toLowerCase())
-                        );
-                      });
-
-                      const linkedCompanyEnquiries = companyEnquiries.filter((e) => {
-                        if (isOwnDataOnly && !isRecordOwner(user, e)) return false;
-                        return true;
-                      });
-
-                      const totalHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;
-
-                      return (
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                            <div className="flex items-center space-x-2">
-                              <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-mono">
-                                Outreach & History (360°)
-                              </h4>
-                            </div>
-                          </div>
-
-                          {/* Metric Summary Counters */}
-                          <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 font-mono">
-                            <span>Calls: <strong className="text-blue-600 dark:text-blue-400 font-bold">{linkedCompanyLogs.length}</strong></span>
-                            <span>Proposals: <strong className="text-purple-600 dark:text-purple-400 font-bold">{linkedCompanyEnquiries.length}</strong></span>
-                            <span>Total: <strong className="text-slate-900 dark:text-white font-bold">{totalHistoryCount}</strong></span>
-                          </div>
-
-                          {/* Sleek Timeline List: Call Logs */}
-                          {linkedCompanyLogs.length > 0 && (
-                            <div className="space-y-3">
-                              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-mono">
-                                Call Center & Outreach ({linkedCompanyLogs.length})
-                              </span>
-                              <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800 max-h-[300px] overflow-y-auto pr-1">
-                                {linkedCompanyLogs.map((log) => {
-                                  const canClick = canUserClickRecord(user, log, salespersons);
-                                  return (
-                                    <div
-                                      key={log.id}
-                                      onClick={() => {
-                                        if (canClick) setSelectedCallLogDetail(log);
-                                      }}
-                                      className={`py-3 px-1 transition ${
-                                        canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center space-x-2">
-                                          <div className="w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                                            <PhoneCall className="w-3 h-3" />
-                                          </div>
-                                          <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs">
-                                            {formatHistoryDate(log.date || log.createdAt)}
-                                          </span>
-                                        </div>
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
-                                          {log.status || 'Scheduled'}
-                                        </span>
-                                      </div>
-
-                                      <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                                        <p>
-                                          Logged by: <span className="font-medium text-slate-700 dark:text-slate-300">{log.handled_by_team_member_name || log.logged_by || 'Staff'}</span>
-                                          {log.contact_name && (
-                                            <span className="ml-2">· Contact: <span className="font-medium text-slate-700 dark:text-slate-300">{log.contact_name}</span></span>
-                                          )}
-                                        </p>
-                                        {log.requirement_notes && (
-                                          <p className="text-xs text-slate-600 dark:text-slate-400 italic line-clamp-2">
-                                            "{log.requirement_notes}"
-                                          </p>
-                                        )}
-                                        {canClick && (
-                                          <div className="text-[10px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-1 pt-0.5">
-                                            <span>View Log</span>
-                                            <ExternalLink className="w-2.5 h-2.5" />
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Sleek Proposals & Quotes Subsection */}
-                          {linkedCompanyEnquiries.length > 0 && (
-                            <div className="space-y-3 pt-2">
-                              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block font-mono">
-                                Proposals & Quotes ({linkedCompanyEnquiries.length})
-                              </span>
-                              <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800 max-h-[260px] overflow-y-auto pr-1">
-                                {linkedCompanyEnquiries.map((e) => {
-                                  const canClick = canUserClickRecord(user, e, salespersons);
-                                  const spName = getSalespersonFullName(e.sales_person, salespersons);
-                                  return (
-                                    <div
-                                      key={e.id}
-                                      onClick={() => {
-                                        if (canClick && onSelectEnquiry && e.id) {
-                                          onSelectEnquiry(e.id);
-                                        }
-                                      }}
-                                      className={`py-3 px-1 transition ${
-                                        canClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group rounded-lg' : 'opacity-90'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center space-x-2 overflow-hidden">
-                                          <div className="w-6 h-6 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                                            <FileText className="w-3 h-3" />
-                                          </div>
-                                          <span className="font-semibold text-slate-900 dark:text-white font-mono text-xs truncate">
-                                            {e.quote_ref_no || `SN#${e.sn}`}
-                                          </span>
-                                        </div>
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                                          {e.status || 'Active'}
-                                        </span>
-                                      </div>
-
-                                      <div className="mt-1.5 pl-8 text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                                        {e.subject && (
-                                          <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">{e.subject}</p>
-                                        )}
-                                        <div className="flex items-center justify-between text-xs">
-                                          <span>Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong></span>
-                                          {!isBasicTier && e.value_aed ? (
-                                            <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">AED {e.value_aed.toLocaleString()}</span>
-                                          ) : null}
-                                        </div>
-                                        {canClick && (
-                                          <div className="text-[10px] font-medium text-purple-600 dark:text-purple-400 group-hover:underline flex items-center space-x-1 pt-0.5">
-                                            <span>Open Proposal</span>
-                                            <ExternalLink className="w-2.5 h-2.5" />
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {linkedCompanyLogs.length === 0 && linkedCompanyEnquiries.length === 0 && (
-                            <div className="py-8 text-center text-slate-600 dark:text-slate-300 font-sans text-xs bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-4 font-medium">
-                              No outreach calls or proposals linked to this company yet.
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-12 text-center text-slate-600 dark:text-slate-300 font-medium text-sm font-sans shadow-sm m-4">
-                Select a company from the list above to inspect details, link contact managers, and explore 360° outreach history.
-              </div>
-            )}
-          </div>
       </div>
       )}
 
@@ -3379,40 +2731,54 @@ export default function CompanyModal({
 
       {/* MODAL: ADD COMPANY WITH DUPLICATE FUZZY WARNING */}
       {showAddCompany && (
-        <div id="company-form-modal" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-950/80 sticky top-0 z-10">
+        <div id="company-form-modal" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="max-w-3xl w-full max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-indigo-950/60 border border-indigo-800/60 rounded-xl text-indigo-400">
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 rounded-xl">
                   <Building2 className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-100 font-sans">
-                  {editingCompany ? 'Edit Company' : 'Add Company'}
-                </h3>
-                {canonicalName.trim() && (
-                  <a href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`} target="_blank" rel="noopener noreferrer" className="ml-2 px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google">
-                    <Search className="w-3 h-3" />
-                    <span>Google Search</span>
-                  </a>
-                )}
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+                      {editingCompany ? 'Edit Company' : 'Add Company'}
+                    </h2>
+                    {canonicalName.trim() && (
+                      <a
+                        href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/50 hover:bg-blue-100 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        title="Search Company on Google"
+                      >
+                        <Search className="w-3 h-3" />
+                        <span>Google Search</span>
+                      </a>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
+                    Canonical corporate entity profile, sector taxonomy, and contact channels.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={closeCompanyModal}
-                className="text-slate-400 hover:text-slate-200 transition p-1.5 rounded-lg hover:bg-slate-800/60"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Scrollable Form Body */}
-            <form onSubmit={submitCompany} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                      Canonical Name
+            {/* Form Container */}
+            <form onSubmit={submitCompany} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
+              {/* Scroll Body */}
+              <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-8">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                      Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
                     <input
                       type="text"
@@ -3420,17 +2786,17 @@ export default function CompanyModal({
                       placeholder="e.g. Veolia Water Solutions"
                       value={canonicalName}
                       onChange={(e) => setCanonicalName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                     />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+                  <div className="sm:col-span-4">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       Legal Suffix
                     </label>
                     <select
                       value={legalSuffix}
                       onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans cursor-pointer"
+                      className="w-full px-3.5 py-2.5 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans cursor-pointer truncate"
                     >
                       {['None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((s) => (
                         <option key={s} value={s}>{s}</option>
@@ -3439,8 +2805,74 @@ export default function CompanyModal({
                   </div>
                 </div>
 
+                {/* Inline Duplicate Warning Card */}
+                {duplicateMatch && (
+                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl p-3.5 space-y-2.5 my-2 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="text-xs font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wider">
+                          Possible Duplicate Account Detected
+                        </span>
+                      </div>
+                      {duplicateMatchInfo?.similarity && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 font-mono">
+                          {Math.round(duplicateMatchInfo.similarity * 100)}% match
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 px-3 rounded-lg bg-amber-100/60 dark:bg-amber-900/20 border border-amber-200/80 dark:border-amber-800/40">
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                          {duplicateMatch.display_name || duplicateMatch.canonical_name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700">
+                          {getReferenceId('CMP', duplicateMatch, companies)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                        {duplicateMatch.city ? `${duplicateMatch.city}, ` : ''}{duplicateMatch.country || 'UAE'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleAddAsAlias}
+                        disabled={isAddingAlias}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isAddingAlias ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Link2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Add as Alias</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleViewExisting}
+                        className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                        <span>View Existing</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDismissDuplicate}
+                        className="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-lg text-xs font-medium transition cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30"
+                      >
+                        Dismiss / Different Entity
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                     Fuzzy Search Aliases (comma-separated)
                   </label>
                   <input
@@ -3448,25 +2880,25 @@ export default function CompanyModal({
                     placeholder="e.g. Veolia Water, Veolia Solutions, VWS"
                     value={aliasesInput}
                     onChange={(e) => setAliasesInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                   />
-                  <span className="text-[10px] text-slate-500 font-mono mt-1.5 block leading-normal">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1.5 block leading-normal">
                     Helps the fuzzy matching index search variants to block subsequent duplicates.
                   </span>
                 </div>
 
                 {/* Mark as Internal / Sister Company Toggle */}
-                <div className="p-3.5 bg-purple-950/20 border border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
+                <div className="p-3.5 bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
+                      <span className="text-sm font-bold text-purple-900 dark:text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
                       {isInternalCompany && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-900/60 text-purple-300 border border-purple-700/60">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-700/60">
                           Active
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
                       Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
                     </p>
                   </div>
@@ -3477,14 +2909,14 @@ export default function CompanyModal({
                       onChange={(e) => setIsInternalCompany(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                    <div className="w-11 h-6 bg-slate-200 dark:bg-slate-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                      City
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                      City <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
                     <input
                       type="text"
@@ -3492,12 +2924,12 @@ export default function CompanyModal({
                       placeholder="e.g. Sharjah"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                      Country
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                      Country <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
                     <input
                       type="text"
@@ -3505,7 +2937,7 @@ export default function CompanyModal({
                       placeholder="e.g. UAE"
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                     />
                   </div>
                 </div>
@@ -3520,21 +2952,21 @@ export default function CompanyModal({
                     setIndustryType(val);
                   }}
                   userIdentifier={user?.email || user?.full_name || 'Operator'}
-                  variant="dark"
+                  variant="auto"
                   size="md"
                   idPrefix="company-modal-ind"
                   className="mb-1"
                 />
 
-                <div className="grid grid-cols-2 gap-4 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                      Relationship (Required)
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                      Relationship <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
                     <select
                       value={relationship}
                       onChange={(e) => setRelationship(e.target.value)}
-                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                      className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       {(companyRelationships || []).map((r) => (
                         <option key={r.id} value={r.name}>{r.name}</option>
@@ -3542,13 +2974,13 @@ export default function CompanyModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       Temperature (Heat Level)
                     </label>
                     <select
                       value={temperature}
                       onChange={(e) => setTemperature(e.target.value)}
-                      className="w-full h-11 bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 text-sm text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans font-semibold cursor-pointer"
+                      className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans font-semibold cursor-pointer"
                     >
                       <option value="Cold">Cold ❄️</option>
                       <option value="Warm">Warm 🌤️</option>
@@ -3586,15 +3018,15 @@ export default function CompanyModal({
                   <option value="Info" />
                 </datalist>
 
-                <div className="space-y-3 pt-4 border-t border-slate-800">
+                <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                       Company Phone Numbers
                     </label>
                     <button
                       type="button"
                       onClick={() => setCompanyPhones(prev => [...prev, { id: generateCmId(), label: 'Main', value: '' }])}
-                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Add Phone</span>
@@ -3620,7 +3052,7 @@ export default function CompanyModal({
                           setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
                         }}
                         placeholder="Tag"
-                        className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                        className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shrink-0"
                       />
                       <input
                         type="text"
@@ -3630,19 +3062,19 @@ export default function CompanyModal({
                           const val = e.target.value;
                           setCompanyPhones(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
                         }}
-                        className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                        className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                       />
 
                         <button
                           type="button"
                           onClick={() => togglePhoneRestriction(ph.value)}
                           disabled={!ph.value.trim()}
-                          className={`px-2.5 py-2.5 rounded-xl text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                          className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
                             currentRestriction === 'DNC'
-                              ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 hover:bg-rose-500/30'
+                              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/40 hover:bg-rose-500/20'
                               : currentRestriction === 'Invalid'
-                              ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30'
-                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-300'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/40 hover:bg-amber-500/20'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-300'
                           }`}
                           title={
                             currentRestriction === 'DNC'
@@ -3654,10 +3086,10 @@ export default function CompanyModal({
                         >
                           <ShieldAlert className={`w-3.5 h-3.5 ${
                             currentRestriction === 'DNC'
-                              ? 'text-rose-400'
+                              ? 'text-rose-500 dark:text-rose-400'
                               : currentRestriction === 'Invalid'
-                              ? 'text-amber-400'
-                              : 'text-slate-500'
+                              ? 'text-amber-500 dark:text-amber-400'
+                              : 'text-slate-400 dark:text-slate-500'
                           }`} />
                           <span>{currentRestriction || 'Clear'}</span>
                         </button>
@@ -3666,7 +3098,7 @@ export default function CompanyModal({
                           <button
                             type="button"
                             onClick={() => setCompanyPhones(prev => prev.filter((_, i) => i !== idx))}
-                            className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                            className="p-2 text-slate-400 hover:text-rose-500 transition rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer shrink-0"
                             title="Remove Phone"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -3677,15 +3109,15 @@ export default function CompanyModal({
                   })}
                 </div>
 
-                <div className="space-y-3 pt-4 border-t border-slate-800">
+                <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                       Company Email Addresses
                     </label>
                     <button
                       type="button"
                       onClick={() => setCompanyEmails(prev => [...prev, { id: generateCmId(), label: 'Main', value: '' }])}
-                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Add Email</span>
@@ -3708,7 +3140,7 @@ export default function CompanyModal({
                         setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
                       }}
                       placeholder="Tag"
-                      className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                      className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shrink-0"
                     />
                     <input
                       type="email"
@@ -3718,13 +3150,13 @@ export default function CompanyModal({
                         const val = e.target.value;
                         setCompanyEmails(prev => prev.map((item, i) => i === idx ? { ...item, value: val } : item));
                       }}
-                      className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                     />
                     {companyEmails.length > 1 && (
                       <button
                         type="button"
                         onClick={() => setCompanyEmails(prev => prev.filter((_, i) => i !== idx))}
-                        className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                        className="p-2 text-slate-400 hover:text-rose-500 transition rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer shrink-0"
                         title="Remove Email"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -3744,15 +3176,15 @@ export default function CompanyModal({
                   <option value="Portal" />
                 </datalist>
 
-                <div className="space-y-3 pt-4 border-t border-slate-800">
+                <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                       Company Links & Portals
                     </label>
                     <button
                       type="button"
                       onClick={() => setCompanyLinks(prev => [...prev, { id: generateCmId(), label: 'Website', url: '' }])}
-                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 cursor-pointer"
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5"/>
                       <span>Add Link</span>
@@ -3768,7 +3200,7 @@ export default function CompanyModal({
                           setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, label: val } : item));
                         }}
                         placeholder="Tag (e.g. Website)"
-                        className="w-28 sm:w-32 px-3 py-2.5 text-xs border border-slate-700 rounded-xl font-sans bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shrink-0"
+                        className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shrink-0"
                       />
                       <input
                         type="url"
@@ -3778,13 +3210,13 @@ export default function CompanyModal({
                           const val = e.target.value;
                           setCompanyLinks(prev => prev.map((item, i) => i === idx ? { ...item, url: val } : item));
                         }}
-                        className="flex-1 min-w-0 px-4 py-2.5 text-xs border border-slate-700 rounded-xl font-mono bg-slate-950 text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                        className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                       />
                       {companyLinks.length > 1 && (
                         <button
                           type="button"
                           onClick={() => setCompanyLinks(prev => prev.filter((_, i) => i !== idx))}
-                          className="p-2 text-slate-400 hover:text-rose-400 transition rounded-lg hover:bg-slate-800/60 cursor-pointer shrink-0"
+                          className="p-2 text-slate-400 hover:text-rose-500 transition rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer shrink-0"
                           title="Remove Link"
                         >
                           <Trash2 className="w-4 h-4"/>
@@ -3795,39 +3227,39 @@ export default function CompanyModal({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1.5">
-                    Internal notes
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Internal Notes
                   </label>
                   <textarea
                     rows={3}
                     placeholder="Provide any client profiles, special conditions..."
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-sans"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                   />
                 </div>
 
-                </div>
+              </div>
 
-                {/* Fixed Footer */}
-                <div className="bg-slate-950/90 border-t border-slate-800 p-4 flex justify-end gap-3 shrink-0 z-10">
-                  <button
-                    type="button"
-                    onClick={closeCompanyModal}
-                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingCompany || !activeWorkspace?.id}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-semibold rounded-xl text-sm transition flex items-center justify-center space-x-2 cursor-pointer shadow-md"
-                  >
-                    {isSavingCompany && <Loader2 className="w-4 h-4 animate-spin"/>}
-                    <span>{isSavingCompany ? 'Saving Record...' : 'Save Canonical Record'}</span>
-                  </button>
-                </div>
-              </form>
+              {/* Docked Footer */}
+              <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex justify-end items-center gap-3">
+                <button
+                  type="button"
+                  onClick={closeCompanyModal}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCompany || !activeWorkspace?.id}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingCompany ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}
+                  <span>{isSavingCompany ? 'Saving Record...' : 'Save Canonical Record'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -3851,25 +3283,25 @@ export default function CompanyModal({
 
       {/* MODAL: MERGE canonical companies */}
       {showMerge && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <button
               onClick={() => {
                 setShowMerge(false);
                 setMergeTargetId(null);
               }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition p-1"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-lg font-bold text-slate-100 border-b border-slate-800 pb-3 font-sans flex items-center space-x-2">
-              <Merge className="w-5 h-5 text-indigo-400" />
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3 font-sans flex items-center space-x-2">
+              <Merge className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
               <span>Administrative Merge Consolidation</span>
             </h3>
 
-            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 text-xs text-slate-300 leading-normal font-sans space-y-1">
-              <span className="font-bold text-slate-100 block">Merging Action:</span>
+            <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-xs text-slate-600 dark:text-slate-300 leading-normal font-sans space-y-1">
+              <span className="font-bold text-slate-900 dark:text-slate-100 block">Merging Action:</span>
               <p>
                 All contacts and enquiries currently pointing to the **Source** company will be updated in a single transaction batch to reference the **Target** company. The source company's canonical name will be appended as an alias of the target to maintain future fuzzy lookups, and the source document will be softly deleted.
               </p>
@@ -3877,22 +3309,22 @@ export default function CompanyModal({
 
             <div className="space-y-3">
               <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                <span className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Source Company (Will be merged and removed)
                 </span>
-                <div className="p-3 bg-rose-950/40 border border-rose-800/50 rounded-xl text-sm font-semibold text-rose-300 font-sans">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 rounded-xl text-sm font-semibold text-rose-700 dark:text-rose-300 font-sans">
                   {selectedCompany.display_name}
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Target Company (Receives all records & aliases)
                 </label>
                 <select
                   value={mergeTargetId || ''}
                   onChange={(e) => setMergeTargetId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl py-3 px-4 text-sm text-slate-100 focus:outline-none font-sans"
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 rounded-xl py-3 px-4 text-sm text-slate-900 dark:text-slate-100 focus:outline-none font-sans"
                 >
                   <option value="">-- Choose Canonical Target --</option>
                   {companies
@@ -3908,7 +3340,7 @@ export default function CompanyModal({
               <button
                 onClick={executeMerge}
                 disabled={merging || !mergeTargetId}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 font-semibold text-white rounded-xl text-sm transition cursor-pointer shadow-md"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 font-semibold text-white rounded-xl text-sm transition cursor-pointer shadow-md"
               >
                 {merging ? 'Consolidating records...' : 'Execute Merge batch'}
               </button>
@@ -3919,30 +3351,30 @@ export default function CompanyModal({
 
       {/* Company Deletion Choice Modal */}
       {companyToDelete && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-slate-900 rounded-2xl max-w-md w-full border border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 font-sans">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 font-sans">
             <div className="flex items-center space-x-3 mb-3">
-              <div className="p-2.5 bg-rose-950/60 text-rose-400 border border-rose-800/50 rounded-xl">
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 rounded-xl">
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-100">Delete Company</h3>
-                <p className="text-xs text-slate-400 font-medium">{companyToDelete.name}</p>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Delete Company</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{companyToDelete.name}</p>
               </div>
             </div>
 
-            <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
               Are you sure you want to delete this company?
               {companyToDelete.contactCount > 0 ? (
-                <span> This company currently has <strong className="text-slate-100">{companyToDelete.contactCount} associated contact(s)</strong>. Please choose how to handle them:</span>
+                <span> This company currently has <strong className="text-slate-900 dark:text-slate-100">{companyToDelete.contactCount} associated contact(s)</strong>. Please choose how to handle them:</span>
               ) : (
                 <span> This action cannot be undone.</span>
               )}
             </p>
 
             {companyToDelete.contactCount > 0 && (
-              <div className="space-y-2 mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-xs">
-                <label className="flex items-start space-x-2.5 cursor-pointer p-2 rounded-lg hover:bg-slate-800/60 transition border border-transparent">
+              <div className="space-y-2 mb-6 bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                <label className="flex items-start space-x-2.5 cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition border border-transparent">
                   <input
                     type="radio"
                     name="deleteContactChoice"
@@ -3952,12 +3384,12 @@ export default function CompanyModal({
                     className="mt-0.5 text-indigo-500 focus:ring-indigo-500"
                   />
                   <div>
-                    <span className="font-bold text-slate-100 block">Keep contacts (unlink company)</span>
-                    <span className="text-[11px] text-slate-400 block">Contacts will remain in People Directory, but their company field will be cleared.</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 block">Keep contacts (unlink company)</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Contacts will remain in People Directory, but their company field will be cleared.</span>
                   </div>
                 </label>
 
-                <label className="flex items-start space-x-2.5 cursor-pointer p-2 rounded-lg hover:bg-slate-800/60 transition border border-transparent">
+                <label className="flex items-start space-x-2.5 cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition border border-transparent">
                   <input
                     type="radio"
                     name="deleteContactChoice"
@@ -3967,8 +3399,8 @@ export default function CompanyModal({
                     className="mt-0.5 text-rose-500 focus:ring-rose-500"
                   />
                   <div>
-                    <span className="font-bold text-rose-400 block">Delete associated contacts too</span>
-                    <span className="text-[11px] text-slate-400 block">All {companyToDelete.contactCount} associated contact persons will also be deleted.</span>
+                    <span className="font-bold text-rose-600 dark:text-rose-400 block">Delete associated contacts too</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">All {companyToDelete.contactCount} associated contact persons will also be deleted.</span>
                   </div>
                 </label>
               </div>
@@ -3979,7 +3411,7 @@ export default function CompanyModal({
                 type="button"
                 onClick={() => setCompanyToDelete(null)}
                 disabled={isDeletingCompany}
-                className="py-2 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 transition cursor-pointer"
+                className="py-2 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -4005,15 +3437,15 @@ export default function CompanyModal({
 
       {/* Custom Confirmation Dialog Overlay */}
       {confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-slate-900 rounded-2xl max-w-md w-full border border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
-            <h3 className="text-lg font-bold text-slate-100 font-sans mb-2">{confirmDialog.title}</h3>
-            <p className="text-sm text-slate-400 font-sans mb-6">{confirmDialog.message}</p>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 font-sans mb-2">{confirmDialog.title}</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 font-sans mb-6">{confirmDialog.message}</p>
             <div className="flex items-center justify-end space-x-3 font-sans">
               <button
                 type="button"
                 onClick={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
-                className="py-2 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 transition cursor-pointer"
+                className="py-2 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
               >
                 {confirmDialog.cancelText || 'Cancel'}
               </button>
@@ -4035,120 +3467,34 @@ export default function CompanyModal({
           </div>
         </div>
       )}
-      {/* Duplicate Fuzzy Match Warning Modal */}
-      {duplicateMatchResult && (
-        <DuplicateMatchModal
-          isOpen={!!duplicateMatchResult}
-          type="company"
-          candidateName={canonicalName}
-          existingRecordName={duplicateMatchResult.match.display_name}
-          matchReason={duplicateMatchResult.reason}
-          similarityScore={duplicateMatchResult.similarity}
-          existingDetails={{
-            city: duplicateMatchResult.match.city,
-            website: duplicateMatchResult.match.website,
-            country: duplicateMatchResult.match.country,
-            phone: duplicateMatchResult.match.general_phone,
-            email: duplicateMatchResult.match.general_email,
-          }}
-          newDetails={{
-            city,
-            website,
-            country,
-            phone: generalPhone,
-            email: generalEmail,
-          }}
-          onMerge={() => {
-            // Merge: Select existing company
-            setSelectedCompanyId(duplicateMatchResult.match.id);
-            setDuplicateMatchResult(null);
-            closeCompanyModal();
-          }}
-          onKeepNew={async () => {
-            // Keep New: Overwrite existing company record with new values
-            const targetId = duplicateMatchResult.match.id;
-            const displayName =
-              legalSuffix === 'None / Other' || legalSuffix === 'None / To Be Added Later'
-                ? canonicalName.trim()
-                : `${canonicalName.trim()} ${legalSuffix}`;
-            const computedCanonicalName = computeCanonicalName(displayName) || canonicalName.trim().toLowerCase();
-            const validPhones = companyPhones.filter(p => (p.value || p.number || '').trim() !== '');
-            const searchTerms = generateCompanySearchTerms(displayName, city, validPhones.length > 0 ? validPhones : [{ number: generalPhone }]);
-
-            const updatedData: Partial<Company> = {
-              canonical_name: computedCanonicalName,
-              legal_suffix: legalSuffix,
-              display_name: displayName,
-              country,
-              city,
-              general_phone: generalPhone,
-              general_email: generalEmail,
-              notes,
-              search_terms: searchTerms,
-              last_modified_by_uid: user?.uid || '',
-              last_modified_by_name: user?.full_name || user?.username || user?.email || 'Unknown User',
-              updatedAt: new Date().toISOString()
-            };
-            await CompanyRepository.updateCompany(targetId, updatedData);
-            if (setCompanies) {
-              setCompanies((prev) =>
-                prev.map((c) => (c.id === targetId ? { ...c, ...updatedData } : c))
-              );
-            }
-            if (setCallLogs) {
-              const newName = updatedData.display_name || updatedData.canonical_name;
-              if (newName) {
-                setCallLogs((prevLogs) =>
-                  prevLogs.map((log) =>
-                    log.company_id === targetId
-                      ? { ...log, company_name: newName, updatedAt: new Date().toISOString() }
-                      : log
-                  )
-                );
-              }
-            }
-            setSelectedCompanyId(targetId);
-            setDuplicateMatchResult(null);
-            closeCompanyModal();
-          }}
-          onIgnore={() => {
-            // Ignore & proceed creating new record
-            setDuplicateMatchResult(null);
-            setPendingBypass(true);
-          }}
-          onCancel={() => {
-            setDuplicateMatchResult(null);
-          }}
-        />
-      )}
 
       {/* Bulk Reassign Modal */}
       {showBulkReassignModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-slate-900 rounded-2xl max-w-md w-full border border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center space-x-2">
-                <Building2 className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-bold text-slate-100 text-sm">
+                <Building2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
                   Bulk Reassign {selectedContactIds.length} Contact(s)
                 </h3>
               </div>
               <button
                 onClick={() => setShowBulkReassignModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/60 cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600 dark:text-slate-300">
               Select the target company account to associate with all {selectedContactIds.length} selected contacts:
             </p>
 
             <select
               value={bulkReassignCompanyId}
               onChange={(e) => setBulkReassignCompanyId(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-800 rounded-xl focus:border-indigo-500 bg-slate-950 text-slate-100"
+              className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-xl focus:border-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
             >
               <option value="">-- Choose Target Company --</option>
               {companies.map((comp) => (
@@ -4158,11 +3504,11 @@ export default function CompanyModal({
               ))}
             </select>
 
-            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setShowBulkReassignModal(false)}
-                className="px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800/60 rounded-xl cursor-pointer"
+                className="px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl cursor-pointer"
               >
                 Cancel
               </button>
@@ -4178,6 +3524,44 @@ export default function CompanyModal({
           </div>
         </div>
       )}
+
+      {/* Slide-Over Company Inspector Drawer */}
+      <CompanyDetailView
+        isOpen={!!selectedCompany}
+        onClose={() => setSelectedCompanyId(null)}
+        company={selectedCompany || null}
+        companies={companies}
+        contacts={contacts}
+        callLogs={callLogs}
+        enquiries={enquiries}
+        salespersons={salespersons}
+        user={user}
+        isEditable={isEditable}
+        isBasicTier={user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC'}
+        activeWorkspace={activeWorkspace}
+        onInitiateActivity={handleInitiate}
+        onOpenCompany360={onOpenCompany360}
+        onOpenEditCompany={handleOpenEditCompany}
+        onSelectEnquiry={onSelectEnquiry}
+        onSelectCallLog={(log) => setSelectedCallLogDetail(log)}
+        onAddContact={(companyId) => {
+          setContactToEdit(null);
+          setSelectedCompanyForContact(companyId);
+          setContactModalOpen(true);
+        }}
+        onEditContact={(ct, companyId) => {
+          setContactToEdit(ct);
+          setSelectedCompanyForContact(companyId);
+          setContactModalOpen(true);
+        }}
+        onDeleteContact={handleDeleteContact}
+        onOpenMerge={(companyId) => {
+          setMergeSourceId(companyId);
+          setShowMerge(true);
+        }}
+        onDeleteCompany={deleteCompany}
+        setCompanies={setCompanies}
+      />
 
       {/* Contact Detail Quick View Modal */}
       <ContactDetailModal
@@ -4203,40 +3587,40 @@ export default function CompanyModal({
 
       {/* Delete Contact Confirmation Modal */}
       {contactToDeleteConfirm && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-slate-900 rounded-2xl max-w-md w-full border border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
-            <div className="flex items-center space-x-3 text-rose-400">
-              <div className="p-2 bg-rose-950/60 border border-rose-800/50 rounded-xl">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3 text-rose-500 dark:text-rose-400">
+              <div className="p-2 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/50 rounded-xl">
                 <AlertTriangle className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-slate-100">Delete Personnel Contact</h3>
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Delete Personnel Contact</h3>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Are you sure you want to delete contact <strong className="text-slate-100">{contactToDeleteConfirm.contact.full_name}</strong>?
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to delete contact <strong className="text-slate-900 dark:text-slate-100">{contactToDeleteConfirm.contact.full_name}</strong>?
             </p>
 
             {contactToDeleteConfirm.linkedEnquiriesCount > 0 ? (
-              <div className="p-3 bg-amber-950/40 border border-amber-800/50 rounded-xl text-xs text-amber-200 space-y-1">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-xl text-xs text-amber-900 dark:text-amber-200 space-y-1">
                 <p className="font-bold flex items-center space-x-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                   <span>Linked Records Impact ({contactToDeleteConfirm.linkedEnquiriesCount} enquiries)</span>
                 </p>
-                <p className="text-[11px] text-amber-300">
+                <p className="text-[11px] text-amber-800 dark:text-amber-300">
                   This contact person is referenced in {contactToDeleteConfirm.linkedEnquiriesCount} active or historical enquiries. Deleting them will safely unassign the contact ID and mark their name as "(Deleted)" in those enquiries so record integrity is preserved.
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 This contact has no linked active enquiries. This action cannot be undone.
               </p>
             )}
 
-            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setContactToDeleteConfirm(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl transition cursor-pointer"
+                className="px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -4321,6 +3705,13 @@ export default function CompanyModal({
           contacts={contacts}
           activeWorkspace={activeWorkspace}
         />
+      )}
+
+      {localToast && (
+        <div className="fixed bottom-6 right-6 z-[150] flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium bg-emerald-50 dark:bg-emerald-950/90 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 animate-in fade-in slide-in-from-bottom-4">
+          <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span>{localToast.text}</span>
+        </div>
       )}
     </PageBody>
   </>

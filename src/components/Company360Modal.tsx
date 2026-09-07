@@ -252,39 +252,39 @@ export default function Company360Modal({
   const badgeConfig = getTempBadgeConfig(temperatureVal);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden my-auto">
         {/* Header */}
-        <div className="p-6 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+        <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
           <div className="flex items-start space-x-4">
             <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md flex-shrink-0 mt-1">
               <Building2 className="w-6 h-6" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-black tracking-tight">{company.display_name}</h2>
+                <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">{company.display_name}</h2>
                 <GoogleSearchButton
                   companyName={company.canonical_name || company.display_name}
                   location={company.city}
                   size="sm"
                 />
-                <span className="px-2 py-0.5 rounded font-mono text-xs font-bold bg-slate-800 text-blue-300 border border-slate-700 flex items-center space-x-1">
-                  <Tag className="w-3 h-3 text-blue-400" />
+                <span className="px-2 py-0.5 rounded font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
+                  <Tag className="w-3 h-3 text-blue-500 dark:text-blue-400" />
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>
                 </span>
                 {company.isInternalCompany && (
-                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-400/30 flex items-center space-x-1">
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 flex items-center space-x-1">
                     <span>🏢</span>
                     <span>Our Company</span>
                   </span>
                 )}
-                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
                   {company.legal_suffix}
                 </span>
 
                 {/* Relationship Badge */}
-                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-800 text-blue-200 border border-slate-700 flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block"></span>
+                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
                   <span>{relationshipVal}</span>
                 </span>
 
@@ -315,7 +315,7 @@ export default function Company360Modal({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mt-2">
                 <span className="flex items-center space-x-1">
                   <MapPin className="w-3.5 h-3.5 text-slate-400" />
                   <span>
@@ -326,9 +326,9 @@ export default function Company360Modal({
               </div>
 
               {/* Labeled Phones & Emails Display */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300 mt-2 pt-2 border-t border-slate-800">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                 {compPhones.length === 0 && compEmails.length === 0 && (
-                  <span className="text-xs font-medium text-slate-400 not-italic">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 not-italic">
                     No phone numbers or email addresses saved.
                   </span>
                 )}
@@ -342,7 +342,7 @@ export default function Company360Modal({
 
                   return (
                     <span key={idx} className="flex items-center space-x-1.5 font-mono">
-                      <Phone className={`w-3.5 h-3.5 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-400' : 'text-rose-400') : 'text-blue-400'}`} />
+                      <Phone className={`w-3.5 h-3.5 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
                       {isRestricted ? (
                         <span className="font-bold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
                           {phoneVal}
@@ -353,7 +353,7 @@ export default function Company360Modal({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => handleOutboundInteraction(e, 'Call', null)}
-                          className="hover:underline font-bold text-blue-300 cursor-pointer"
+                          className="hover:underline font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
                         >
                           {phoneVal}
                         </a>
@@ -362,21 +362,21 @@ export default function Company360Modal({
                         <button
                           type="button"
                           onClick={(e) => handleOutboundInteraction(e, 'WhatsApp', null, compWaUrl)}
-                          className="px-1.5 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                          className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
                           title="Send WhatsApp & Log Activity"
                         >
-                          <MessageSquare className="w-2.5 h-2.5 text-emerald-400" />
+                          <MessageSquare className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                           <span>WA</span>
                         </button>
                       )}
-                      <span className="text-[10px] bg-slate-800 text-blue-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-700">
+                      <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-200 dark:border-slate-700">
                         {ph.label || 'Landline'}
                       </span>
                       {isRestricted && (
                         <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
                           restriction === 'Invalid'
-                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                            : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40'
+                            : 'bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/40'
                         }`}>
                           {badgeText}
                         </span>
@@ -394,11 +394,11 @@ export default function Company360Modal({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => handleOutboundInteraction(e, 'Email', null)}
-                        className="hover:underline text-slate-200 cursor-pointer"
+                        className="hover:underline text-slate-800 dark:text-slate-200 cursor-pointer"
                       >
                         {emailVal}
                       </a>
-                      <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-700">
+                      <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-200 dark:border-slate-700">
                         {em.label || 'Work'}
                       </span>
                     </span>
@@ -408,9 +408,9 @@ export default function Company360Modal({
 
               {company.aliases && company.aliases.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1 mt-2">
-                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Known Aliases:</span>
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Known Aliases:</span>
                   {company.aliases.map((alias, idx) => (
-                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px] font-medium border border-slate-700">
+                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-medium border border-slate-200 dark:border-slate-700">
                       {alias}
                     </span>
                   ))}
@@ -432,7 +432,7 @@ export default function Company360Modal({
                   e
                 });
               }}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
             >
               <span>⚡ Log Activity</span>
             </button>
@@ -446,15 +446,15 @@ export default function Company360Modal({
                   setInternalEditModalOpen(true);
                 }
               }}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
               title="Edit Company Profile in Registry"
             >
-              <Edit2 className="w-3.5 h-3.5 text-blue-400" />
+              <Edit2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
               <span>Edit Company</span>
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -462,11 +462,11 @@ export default function Company360Modal({
         </div>
 
         {/* Action Toolbar */}
-        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setActiveSubTab('contacts')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                 activeSubTab === 'contacts'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
@@ -478,7 +478,7 @@ export default function Company360Modal({
 
             <button
               onClick={() => setActiveSubTab('call_logs')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                 activeSubTab === 'call_logs'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
@@ -490,7 +490,7 @@ export default function Company360Modal({
 
             <button
               onClick={() => setActiveSubTab('enquiries')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                 activeSubTab === 'enquiries'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
@@ -527,7 +527,7 @@ export default function Company360Modal({
                   onClose();
                   onCreateEnquiryForCompany(company);
                 }}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ New Proposal</span>
@@ -541,8 +541,8 @@ export default function Company360Modal({
           {/* TAB 1: CONTACTS */}
           {activeSubTab === 'contacts' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                   Personnel Contacts ({companyContacts.length})
                 </span>
                 <button
@@ -551,7 +551,7 @@ export default function Company360Modal({
                     setSelectedContactToEdit(null);
                     setContactModalOpen(true);
                   }}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1"
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Contact Person</span>
@@ -596,7 +596,7 @@ export default function Company360Modal({
                               )}
                             </div>
                             {contact.designation && (
-                              <p className="text-xs text-slate-500 font-medium mt-0.5">{contact.designation}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">{contact.designation}</p>
                             )}
                           </div>
 
@@ -607,7 +607,7 @@ export default function Company360Modal({
                                 setSelectedContactToEdit(contact);
                                 setContactModalOpen(true);
                               }}
-                              className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-lg transition flex items-center space-x-1 text-xs font-bold"
+                              className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center space-x-1 text-xs font-bold cursor-pointer"
                               title="Edit Contact Person"
                             >
                               <Edit2 className="w-3 h-3" />
@@ -616,7 +616,7 @@ export default function Company360Modal({
                             <button
                               type="button"
                               onClick={() => handleDeleteContact(contact)}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition flex items-center space-x-1 text-xs font-bold"
+                              className="p-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-700 rounded-lg transition flex items-center space-x-1 text-xs font-bold cursor-pointer"
                               title="Delete Contact Person"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -641,7 +641,7 @@ export default function Company360Modal({
                             const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
 
                             return (
-                              <div key={pIdx} className="flex items-center justify-between text-blue-700 font-mono py-0.5">
+                              <div key={pIdx} className="flex items-center justify-between text-blue-700 dark:text-blue-400 font-mono py-0.5">
                                 <div className="flex items-center space-x-2">
                                   <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
                                   {isRestricted ? (
@@ -659,14 +659,14 @@ export default function Company360Modal({
                                       {phoneVal}
                                     </a>
                                   )}
-                                  <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-sans font-semibold border border-blue-200">
+                                  <span className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded text-[10px] font-sans font-semibold border border-blue-200 dark:border-blue-800">
                                     {p.label || 'Mobile'}
                                   </span>
                                   {isRestricted && (
                                     <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
                                       restriction === 'Invalid'
-                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                                        ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40'
+                                        : 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/40'
                                     }`}>
                                       {badgeText}
                                     </span>
@@ -680,7 +680,7 @@ export default function Company360Modal({
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       onClick={(ev) => handleOutboundInteraction(ev, 'Call', contact)}
-                                      className="p-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition"
+                                      className="p-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition"
                                       title="Call Phone"
                                     >
                                       <Phone className="w-3 h-3" />
@@ -689,10 +689,10 @@ export default function Company360Modal({
                                       <button
                                         type="button"
                                         onClick={(ev) => handleOutboundInteraction(ev, 'WhatsApp', contact, waUrl)}
-                                        className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer font-sans"
+                                        className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer font-sans"
                                         title="Send WhatsApp & Log Activity"
                                       >
-                                        <MessageSquare className="w-3 h-3 text-emerald-600" />
+                                        <MessageSquare className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                                         <span>WhatsApp</span>
                                       </button>
                                     )}
@@ -706,7 +706,7 @@ export default function Company360Modal({
                           {cEmails.map((e, eIdx) => {
                             const emailVal = e.value || e.email || '';
                             return (
-                              <div key={eIdx} className="flex items-center justify-between text-slate-600 font-sans truncate py-0.5">
+                              <div key={eIdx} className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-sans truncate py-0.5">
                                 <div className="flex items-center space-x-2 truncate">
                                   <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                   <a
@@ -719,7 +719,7 @@ export default function Company360Modal({
                                     {emailVal}
                                   </a>
                                   {e.label && (
-                                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold shrink-0 border border-slate-200">
+                                    <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-semibold shrink-0 border border-slate-200 dark:border-slate-600">
                                       {e.label}
                                     </span>
                                   )}
@@ -729,10 +729,10 @@ export default function Company360Modal({
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(ev) => handleOutboundInteraction(ev, 'Email', contact)}
-                                  className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition shrink-0 ml-1"
+                                  className="p-1 rounded bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition shrink-0 ml-1 cursor-pointer"
                                   title="Send Email"
                                 >
-                                  <Mail className="w-3 h-3 text-purple-600" />
+                                  <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                                 </a>
                               </div>
                             );
@@ -755,26 +755,26 @@ export default function Company360Modal({
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No call operations recorded for this company yet.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-800/80">
                   {companyCallLogs.map((log) => {
                     const type = (log.interaction_type || '').toLowerCase();
                     return (
-                      <div key={log.id} className="p-4 hover:bg-slate-50 transition">
+                      <div key={log.id} className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center space-x-2">
                             {/* Dynamic Leading History Symbol */}
                             <div className={`p-1.5 rounded-lg border flex items-center justify-center shrink-0 ${
-                              type.includes('email') ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                              type.includes('message') || type.includes('whatsapp') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                              type.includes('meeting') || type.includes('visit') ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                              'bg-blue-50 text-blue-700 border-blue-200'
+                              type.includes('email') ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800' :
+                              type.includes('message') || type.includes('whatsapp') ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' :
+                              type.includes('meeting') || type.includes('visit') ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800' :
+                              'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                             }`}>
                               {type.includes('email') ? <Mail className="w-3.5 h-3.5" /> :
                                type.includes('message') || type.includes('whatsapp') ? <MessageSquare className="w-3.5 h-3.5" /> :
                                type.includes('meeting') || type.includes('visit') ? <Calendar className="w-3.5 h-3.5" /> :
                                <PhoneCall className="w-3.5 h-3.5" />}
                             </div>
-                            <span className="text-xs font-bold text-slate-900">{log.date}</span>
+                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{log.date}</span>
                             {(() => {
                               const st = log.status || '';
                               const stLower = st.toLowerCase();
@@ -782,12 +782,12 @@ export default function Company360Modal({
                               const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong') || stLower.includes('dnc') || stLower.includes('blocked') || stLower.includes('failed') || stLower.includes('bounced') || stLower.includes('no show');
                               const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail') || stLower.includes('dropped') || stLower.includes('rescheduled');
                               const badgeStyle = isComp
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                                 : isInv
-                                ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800'
                                 : isNoAns
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                : 'bg-blue-50 text-blue-800 border-blue-200';
+                                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                : 'bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
                               return (
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeStyle}`}>
                                   {log.status}
@@ -799,14 +799,14 @@ export default function Company360Modal({
                               const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
                               if (isAsync && log.purpose) {
                                 return (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
                                     {log.purpose}
                                   </span>
                                 );
                               }
                               if (log.outcome) {
                                 return (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                     {log.outcome}
                                   </span>
                                 );
@@ -815,26 +815,26 @@ export default function Company360Modal({
                             })()}
                           </div>
 
-                          <span className="text-xs text-slate-500 font-semibold">
+                          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
                             Logged by: {log.logged_by}
                           </span>
                         </div>
 
                         {log.contact_name && (
-                          <p className="text-xs text-slate-600 font-semibold mt-1">
+                          <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold mt-1">
                             Contact: {log.contact_name} {log.contact_phone ? `(${log.contact_phone})` : ''}
                           </p>
                         )}
 
                         {log.requirement_notes && (
-                          <p className="text-xs text-slate-700 mt-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 bg-slate-50 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                             {log.requirement_notes}
                           </p>
                         )}
 
                         {log.next_followup_date && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-700 flex items-center space-x-1">
-                            <Clock className="w-3 h-3 text-amber-600" />
+                          <div className="mt-2 text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center space-x-1">
+                            <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                             <span>Follow-up scheduled for: {log.next_followup_date}</span>
                           </div>
                         )}
@@ -855,7 +855,7 @@ export default function Company360Modal({
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No proposals or enquiries created for this company yet.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-800/80">
                   {companyEnquiries.map((enq) => (
                     <div
                       key={enq.id}
@@ -865,35 +865,35 @@ export default function Company360Modal({
                           onOpenEnquiry(enq.id);
                         }
                       }}
-                      className="p-4 hover:bg-slate-50 transition cursor-pointer flex items-center justify-between"
+                      className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition cursor-pointer flex items-center justify-between"
                     >
                       <div>
                         <div className="flex items-center space-x-2">
-                          <span className="font-bold text-blue-600 text-sm">{enq.quote_ref_no}</span>
+                          <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{enq.quote_ref_no}</span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               enq.status === 'Order Received'
-                                ? 'bg-emerald-100 text-emerald-800'
+                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
                                 : enq.status === 'Lost' || enq.status === 'Dead'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-blue-100 text-blue-800'
+                                ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                                : 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
                             }`}
                           >
                             {enq.status}
                           </span>
                         </div>
 
-                        <p className="text-xs text-slate-600 mt-1">{enq.subject || 'Technical Enquiry'}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">{enq.subject || 'Technical Enquiry'}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                           Date: {enq.enquiry_date} | Agent: {enq.sales_person}
                         </p>
                       </div>
 
                       <div className="text-right">
-                        <span className="text-sm font-black text-slate-900 block font-mono">
+                        <span className="text-sm font-black text-slate-900 dark:text-slate-100 block font-mono">
                           {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
                         </span>
-                        <span className="text-xs font-bold text-blue-600 hover:underline flex items-center justify-end space-x-1 mt-1">
+                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-end space-x-1 mt-1">
                           <span>View Detail</span>
                           <ExternalLink className="w-3 h-3" />
                         </span>
