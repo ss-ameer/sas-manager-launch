@@ -14,10 +14,16 @@ import {
   Filter,
   FileText,
   X,
-  Briefcase
+  Briefcase,
+  Zap,
+  CalendarClock,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
-import { CallLogEntry, Contact, Enquiry, Salesperson } from '../../types';
+import { CallLogEntry, Contact, Company, Enquiry, Salesperson } from '../../types';
 import { canUserClickRecord, getSalespersonFullName } from '../../utils/permissions';
+import LiveExecutionModal from '../LiveExecutionModal';
+import { CallLogRepository } from '../../services/repositories/CallLogRepository';
 
 export interface CompanyActivityTimelineProps {
   historyLogs?: CallLogEntry[];
@@ -25,12 +31,18 @@ export interface CompanyActivityTimelineProps {
   companyName?: string;
   companyId?: string;
   contacts?: Contact[];
+  companies?: Company[];
   salespersons?: Salesperson[];
   isLoading?: boolean;
   onClose?: () => void;
   onSelectCallLog?: (log: CallLogEntry) => void;
   onSelectEnquiry?: (id: string) => void;
   onOpenCompany360?: () => void;
+  onExecuteTask?: (task: CallLogEntry) => void;
+  onRefreshTimeline?: () => void;
+  setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   user?: any;
   isBasicTier?: boolean;
   className?: string;
@@ -148,18 +160,126 @@ export function getAgentInitials(name?: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * Evaluates whether an activity log is an active pending / scheduled task
+ */
+export function isScheduledTask(log: CallLogEntry): boolean {
+  if (log.is_deleted) return false;
+  const status = (log.status || '').toLowerCase().trim();
+  const outcome = (log.outcome || '').toLowerCase().trim();
+
+  // Completed / cancelled / executed checks
+  if (
+    status === 'cancelled' ||
+    Boolean((log as any).cancellation_reason) ||
+    status.includes('completed') ||
+    status.includes('conducted') ||
+    Boolean((log as any).completed_at) ||
+    Boolean((log as any).completedAt) ||
+    Boolean((log as any).executed_at)
+  ) {
+    return false;
+  }
+
+  // Explicit scheduled task status
+  const isExplicitScheduled =
+    status === 'scheduled' ||
+    status === 'scheduled / planned' ||
+    status === 'scheduled / draft' ||
+    status === 'rescheduled' ||
+    status === 'pending';
+
+  const hasScheduledDate = Boolean(log.next_followup_date || (log as any).scheduled_for);
+  const isTaskFlag = Boolean((log as any).is_task);
+
+  return isExplicitScheduled || (hasScheduledDate && !outcome.includes('completed')) || isTaskFlag;
+}
+
+/**
+ * Returns formatted badge metadata and overdue calculation for scheduled dates
+ */
+export function getScheduledDueBadge(scheduledDateStr?: string): {
+  label: string;
+  badgeClass: string;
+  isOverdue: boolean;
+  formattedDate: string;
+} {
+  if (!scheduledDateStr) {
+    return {
+      label: 'Scheduled',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
+      isOverdue: false,
+      formattedDate: 'Date not set'
+    };
+  }
+
+  const d = new Date(scheduledDateStr);
+  if (isNaN(d.getTime())) {
+    return {
+      label: scheduledDateStr,
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800',
+      isOverdue: false,
+      formattedDate: scheduledDateStr
+    };
+  }
+
+  const now = new Date();
+  const dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const diffDays = Math.round((dDay - nowDay) / (1000 * 60 * 60 * 24));
+
+  const formattedDate = formatCleanDate(scheduledDateStr);
+
+  if (diffDays < 0) {
+    const overdueDays = Math.abs(diffDays);
+    return {
+      label: overdueDays === 1 ? 'Overdue (1 day)' : `Overdue (${overdueDays} days)`,
+      badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-800 font-bold',
+      isOverdue: true,
+      formattedDate
+    };
+  } else if (diffDays === 0) {
+    return {
+      label: 'Due Today',
+      badgeClass: 'bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-800 font-bold',
+      isOverdue: false,
+      formattedDate
+    };
+  } else if (diffDays === 1) {
+    return {
+      label: 'Due Tomorrow',
+      badgeClass: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-800 font-semibold',
+      isOverdue: false,
+      formattedDate
+    };
+  } else {
+    return {
+      label: `Due in ${diffDays} days`,
+      badgeClass: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 font-medium',
+      isOverdue: false,
+      formattedDate
+    };
+  }
+}
+
 export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = ({
   historyLogs = [],
   enquiries = [],
   companyName = 'Account',
   companyId,
   contacts = [],
+  companies = [],
   salespersons = [],
   isLoading = false,
   onClose,
   onSelectCallLog,
   onSelectEnquiry,
   onOpenCompany360,
+  onExecuteTask,
+  onRefreshTimeline,
+  setCallLogs,
+  setCompanies,
+  setContacts,
   user,
   isBasicTier = false,
   className = '',
@@ -168,6 +288,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'activities' | 'proposals'>('activities');
+  const [internalExecutingTask, setInternalExecutingTask] = useState<CallLogEntry | null>(null);
 
   // Contact quick lookup map
   const contactLookup = useMemo(() => {
@@ -178,9 +299,40 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     return map;
   }, [contacts]);
 
-  // Filtered activity logs
+  // Separate active pending scheduled tasks from completed historical logs
+  const queuedTasks = useMemo(() => {
+    return historyLogs
+      .filter((log) => isScheduledTask(log))
+      .sort((a, b) => {
+        const timeA = new Date(a.next_followup_date || (a as any).scheduled_for || a.date).getTime() || 0;
+        const timeB = new Date(b.next_followup_date || (b as any).scheduled_for || b.date).getTime() || 0;
+        return timeA - timeB;
+      });
+  }, [historyLogs]);
+
+  const pastHistoryLogs = useMemo(() => {
+    return historyLogs.filter((log) => !isScheduledTask(log));
+  }, [historyLogs]);
+
+  // Filtered pending queued tasks based on search
+  const filteredQueuedTasks = useMemo(() => {
+    if (!searchTerm.trim()) return queuedTasks;
+    const q = searchTerm.toLowerCase();
+    return queuedTasks.filter((task) => {
+      const contactMatch = (task.contact_name || '').toLowerCase().includes(q);
+      const notesMatch =
+        (task.requirement_notes || '').toLowerCase().includes(q) ||
+        (task.notes || '').toLowerCase().includes(q) ||
+        (task.followup_intent || '').toLowerCase().includes(q);
+      const phoneMatch = (task.phone_number || task.contact_phone || (task as any).phone || '').toLowerCase().includes(q);
+      const purposeMatch = (task.purpose || '').toLowerCase().includes(q);
+      return contactMatch || notesMatch || phoneMatch || purposeMatch;
+    });
+  }, [queuedTasks, searchTerm]);
+
+  // Filtered historical activity logs
   const filteredLogs = useMemo(() => {
-    return historyLogs.filter((log) => {
+    return pastHistoryLogs.filter((log) => {
       if (channelFilter !== 'all') {
         const chan = (log.channel || log.interaction_type || '').toLowerCase();
         if (channelFilter === 'call') {
@@ -215,7 +367,15 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
 
       return contactMatch || notesMatch || statusMatch || purposeMatch || agentMatch;
     });
-  }, [historyLogs, searchTerm, channelFilter]);
+  }, [pastHistoryLogs, searchTerm, channelFilter]);
+
+  const handleExecuteTask = (task: CallLogEntry) => {
+    if (onExecuteTask) {
+      onExecuteTask(task);
+    } else {
+      setInternalExecutingTask(task);
+    }
+  };
 
   // Filtered proposals
   const filteredEnquiries = useMemo(() => {
@@ -441,25 +601,165 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
             </span>
           </div>
         ) : activeTab === 'activities' ? (
-          historyLogs.length === 0 ? (
-            /* Compact Empty State per Rule 4 */
-            <div className="py-8 px-4 text-center space-y-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/40">
-              <div className="w-9 h-9 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                <Clock className="w-4 h-4" />
+          <>
+            {/* Pinned Upcoming / Scheduled Tasks Container */}
+            {filteredQueuedTasks.length > 0 && (
+              <div className="mb-4 space-y-2.5">
+                <div className="flex items-center justify-between px-0.5">
+                  <div className="flex items-center space-x-1.5 text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 font-mono">
+                    <div className="p-1 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                      <CalendarClock className="w-3.5 h-3.5" />
+                    </div>
+                    <span>Upcoming / Scheduled Tasks</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                    {filteredQueuedTasks.length} {filteredQueuedTasks.length === 1 ? 'task queued' : 'tasks queued'}
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {filteredQueuedTasks.map((task) => {
+                    const schedDate = task.next_followup_date || (task as any).scheduled_for || task.date;
+                    const dueInfo = getScheduledDueBadge(schedDate);
+                    const resolvedContact = task.contact_id ? contactLookup.get(task.contact_id) : undefined;
+                    const contactDisplayName =
+                      task.contact_name ||
+                      resolvedContact?.full_name ||
+                      (task as any).target_contact_person ||
+                      (task.contact_phone ? `Contact (${task.contact_phone})` : 'Primary Decision Maker');
+                    const contactPhone =
+                      task.contact_phone ||
+                      (task as any).phone_number ||
+                      (task as any).phone ||
+                      resolvedContact?.mobile ||
+                      resolvedContact?.phone ||
+                      '';
+                    const contactDesignation = resolvedContact?.designation || (task as any).contact_designation || '';
+                    const intentText =
+                      task.followup_intent ||
+                      task.requirement_notes ||
+                      task.notes ||
+                      task.purpose ||
+                      'Follow-up scheduled';
+                    const channelName = task.channel || task.interaction_type || 'Call';
+
+                    return (
+                      <div
+                        key={task.id}
+                        id={`queued-task-${task.id}`}
+                        className={`p-3.5 sm:p-4 rounded-xl border transition-all shadow-xs ${
+                          dueInfo.isOverdue
+                            ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-400 dark:border-rose-800/80 ring-1 ring-rose-200 dark:ring-rose-900/40'
+                            : 'bg-gradient-to-br from-amber-50/70 via-white to-amber-50/40 dark:from-amber-950/25 dark:via-slate-900 dark:to-slate-900 border-amber-400 dark:border-amber-600/70'
+                        }`}
+                      >
+                        {/* Card Header: Channel, Relative Time Badge & Formatted Date */}
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                              {renderChannelIcon(channelName)}
+                              <span>{channelName}</span>
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border shadow-2xs ${dueInfo.badgeClass}`}>
+                              {dueInfo.label}
+                            </span>
+                            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center space-x-1">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              <span>{dueInfo.formattedDate}</span>
+                            </span>
+                          </div>
+
+                          {/* 1-Click Action Launcher */}
+                          <button
+                            type="button"
+                            id={`execute-task-${task.id}`}
+                            onClick={() => handleExecuteTask(task)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition cursor-pointer hover:shadow-sm shrink-0"
+                            title="Launch execution center for scheduled task"
+                          >
+                            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                            <span>Execute Task</span>
+                          </button>
+                        </div>
+
+                        {/* Target Contact Person & Direct Phone */}
+                        <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-amber-200/60 dark:border-amber-900/40">
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-[10px] shrink-0">
+                              <User className="w-3 h-3" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                {contactDisplayName}
+                                {contactDesignation && (
+                                  <span className="ml-1.5 text-[10px] font-normal text-slate-500 dark:text-slate-400">
+                                    ({contactDesignation})
+                                  </span>
+                                )}
+                              </div>
+                              {contactPhone && (
+                                <div className="text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400 flex items-center space-x-1">
+                                  <Phone className="w-2.5 h-2.5" />
+                                  <span>{contactPhone}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {task.purpose && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
+                              {task.purpose}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Interaction Intent / Follow-up Notes */}
+                        {intentText && (
+                          <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg border border-amber-200/50 dark:border-slate-700/60 leading-relaxed font-sans">
+                            <span className="font-bold text-slate-800 dark:text-slate-200 block text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-0.5">
+                              Follow-up Intent & Notes:
+                            </span>
+                            {intentText}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                No prior activity logs found
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
-                No outreach calls or interactions have been logged for this account yet.
-              </p>
-            </div>
-          ) : filteredLogs.length === 0 ? (
-            <div className="py-8 px-4 text-center space-y-1 text-slate-500 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-              <p className="font-semibold text-slate-700 dark:text-slate-300">No matching activity logs</p>
-              <p className="text-[11px] text-slate-400">Try adjusting your keyword search or channel filter.</p>
-            </div>
-          ) : (
+            )}
+
+            {/* Historical Activity Logs Feed */}
+            {pastHistoryLogs.length === 0 && queuedTasks.length === 0 ? (
+              /* Compact Empty State per Rule 4 */
+              <div className="py-8 px-4 text-center space-y-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/40">
+                <div className="w-9 h-9 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  No prior activity logs found
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+                  No outreach calls or interactions have been logged for this account yet.
+                </p>
+              </div>
+            ) : pastHistoryLogs.length === 0 && queuedTasks.length > 0 ? (
+              <div className="py-6 px-4 text-center space-y-1.5 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/40">
+                <div className="w-8 h-8 mx-auto rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  No prior completed interactions
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+                  Execute the upcoming scheduled task above to record your first completed activity.
+                </p>
+              </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="py-8 px-4 text-center space-y-1 text-slate-500 text-xs border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                <p className="font-semibold text-slate-700 dark:text-slate-300">No matching activity logs</p>
+                <p className="text-[11px] text-slate-400">Try adjusting your keyword search or channel filter.</p>
+              </div>
+            ) : (
             filteredLogs.map((log) => {
               const timeInfo = formatTimelineDate(log.date || (log as any).createdAt);
               const resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
@@ -602,9 +902,10 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                 </div>
               );
             })
-          )
-        ) : (
-          /* Proposals / Quotes Tab */
+          )}
+        </>
+      ) : (
+        /* Proposals / Quotes Tab */
           enquiries.length === 0 ? (
             <div className="py-8 px-4 text-center space-y-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/40">
               <div className="w-9 h-9 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
@@ -677,6 +978,80 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
           )
         )}
       </div>
+
+      {internalExecutingTask && (
+        <LiveExecutionModal
+          isOpen={Boolean(internalExecutingTask)}
+          onClose={() => setInternalExecutingTask(null)}
+          task={internalExecutingTask}
+          onSwitchTask={setInternalExecutingTask}
+          user={user}
+          callLogs={historyLogs}
+          contacts={contacts}
+          companies={companies}
+          enquiries={enquiries}
+          setCompanies={setCompanies}
+          setContacts={setContacts}
+          setCallLogs={setCallLogs}
+          onCompleteTask={async (completedTask) => {
+            try {
+              await CallLogRepository.save(completedTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing completed task:', e);
+            }
+            setInternalExecutingTask(null);
+            if (onRefreshTimeline) onRefreshTimeline();
+          }}
+          onRescheduleTask={async (rescheduledTask) => {
+            try {
+              await CallLogRepository.save(rescheduledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing rescheduled task:', e);
+            }
+            setInternalExecutingTask(null);
+            if (onRefreshTimeline) onRefreshTimeline();
+          }}
+          onCancelTask={async (cancelledTask) => {
+            try {
+              await CallLogRepository.save(cancelledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing cancelled task:', e);
+            }
+            setInternalExecutingTask(null);
+            if (onRefreshTimeline) onRefreshTimeline();
+          }}
+          onSuccess={async (updatedTask, spawnedTask) => {
+            try {
+              await CallLogRepository.save(updatedTask);
+              if (spawnedTask) {
+                await CallLogRepository.save(spawnedTask);
+              }
+              if (setCallLogs) {
+                setCallLogs((prev) => {
+                  let list = prev.map((l) => (l.id === updatedTask.id ? { ...l, ...updatedTask } : l));
+                  if (spawnedTask && !list.some((l) => l.id === spawnedTask.id)) {
+                    list = [spawnedTask, ...list];
+                  }
+                  return list;
+                });
+              }
+            } catch (e) {
+              console.warn('Error syncing updated task:', e);
+            }
+            setInternalExecutingTask(null);
+            if (onRefreshTimeline) onRefreshTimeline();
+          }}
+        />
+      )}
     </div>
   );
 };

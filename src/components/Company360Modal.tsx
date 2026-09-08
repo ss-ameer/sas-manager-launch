@@ -953,9 +953,13 @@ export default function Company360Modal({
               companyName={company.display_name}
               companyId={company.id}
               contacts={companyContacts}
+              companies={companies}
               salespersons={salespersons}
               user={user}
               showHeader={true}
+              setCallLogs={setCallLogs}
+              setCompanies={setCompanies}
+              setContacts={setContacts}
               onSelectCallLog={(log) => {
                 if (onOpenActivityDrawer) {
                   onOpenActivityDrawer({

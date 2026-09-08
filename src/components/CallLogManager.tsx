@@ -52,7 +52,8 @@ import {
   Snowflake,
   Table,
   Loader2,
-  History
+  History,
+  X
 } from 'lucide-react';
 import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
@@ -345,6 +346,7 @@ export default function CallLogManager({
   };
   const [queueTimeframe, setQueueTimeframe] = useState<'today' | 'upcoming' | 'all'>('today');
   const [queueSortOrder, setQueueSortOrder] = useState<'oldest' | 'newest'>('oldest');
+  const [queueSearchTerm, setQueueSearchTerm] = useState<string>('');
   const [historySortOrder, setHistorySortOrder] = useState<'newest' | 'oldest'>('newest');
 
   const [confirmResolver, setConfirmResolver] = useState<((val: boolean) => void) | null>(null);
@@ -993,7 +995,7 @@ export default function CallLogManager({
   }, [workspaceCallLogs, companyMap, contactMap]);
 
   // Filtered Queue Items by timeframe toggle & date sort
-  const queueItems = useMemo(() => {
+  const queueTimeframeItems = useMemo(() => {
     let base = allScheduledQueueItems;
     if (queueTimeframe === 'today') {
       base = allScheduledQueueItems.filter((i) => isTaskDueTodayOrOverdue(i.next_followup_date || i.date));
@@ -1010,6 +1012,61 @@ export default function CallLogManager({
       }
     });
   }, [allScheduledQueueItems, queueTimeframe, queueSortOrder]);
+
+  // Real-time live search across Company Name, Ref #, Target Contact Name, Phone, and Follow-up Notes
+  const queueItems = useMemo(() => {
+    if (!queueSearchTerm.trim()) {
+      return queueTimeframeItems;
+    }
+    const q = queueSearchTerm.toLowerCase().trim();
+    return queueTimeframeItems.filter((item) => {
+      // 1. Company Name & Canonical Ref
+      const comp = item.company_id ? companyMap.get(item.company_id) : null;
+      const companyName = (item.company_name || comp?.display_name || item.unlinked_name || '').toLowerCase();
+      const compRef = (comp?.ref_id || '').toLowerCase();
+      const canonicalRef = getReferenceId('CL', item, callLogs).toLowerCase();
+      const logId = (item.id || '').toLowerCase();
+
+      // 2. Target Contact Name
+      const contact = item.contact_id ? contactMap.get(item.contact_id) : null;
+      const contactName = (
+        item.contact_name ||
+        (item as any).target_contact_person ||
+        contact?.full_name ||
+        ''
+      ).toLowerCase();
+
+      // 3. Phone Number / Mainline
+      const phone = (
+        item.phone_number ||
+        item.phone ||
+        item.contact_phone ||
+        (item as any).contact_mobile ||
+        item.unlinked_contact_info ||
+        ''
+      ).toLowerCase();
+
+      // 4. Interaction Intent / Follow-up Notes
+      const notes = (
+        item.followup_intent ||
+        item.requirement_notes ||
+        item.notes ||
+        item.purpose ||
+        item.outcome ||
+        ''
+      ).toLowerCase();
+
+      return (
+        companyName.includes(q) ||
+        compRef.includes(q) ||
+        canonicalRef.includes(q) ||
+        logId.includes(q) ||
+        contactName.includes(q) ||
+        phone.includes(q) ||
+        notes.includes(q)
+      );
+    });
+  }, [queueTimeframeItems, queueSearchTerm, companyMap, contactMap, callLogs]);
 
   // Stats Counters
   const stats = useMemo(() => {
@@ -1887,6 +1944,48 @@ export default function CallLogManager({
             </button>
           </div>
 
+          {/* High-Density Real-Time Task Queue Search Bar */}
+          <div className="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                id="task-queue-search-input"
+                value={queueSearchTerm}
+                onChange={(e) => setQueueSearchTerm(e.target.value)}
+                placeholder="Search queue by company, ref #, contact name, phone, or follow-up notes..."
+                className="w-full pl-10 pr-9 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition font-sans"
+              />
+              {queueSearchTerm && (
+                <button
+                  type="button"
+                  id="task-queue-clear-search-btn"
+                  onClick={() => setQueueSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700 rounded-md transition cursor-pointer"
+                  title="Clear queue search"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+              <span
+                id="task-queue-results-counter-pill"
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border font-mono transition-all ${
+                  queueSearchTerm.trim()
+                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-2xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {queueSearchTerm.trim()
+                  ? `Showing ${queueItems.length} of ${queueTimeframeItems.length} scheduled tasks`
+                  : `All ${queueItems.length} tasks`}
+              </span>
+            </div>
+          </div>
+
           <div className="space-y-3">
             {queueItems.map((item) => {
               const isOverdue = isTaskOverdue(item.date);
@@ -2171,15 +2270,35 @@ export default function CallLogManager({
               );
             })}
             {queueItems.length === 0 && (
-              <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
+              queueSearchTerm.trim() ? (
+                <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+                    <Search className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">No Matching Scheduled Tasks Found</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                    No queued follow-ups match <span className="font-semibold text-slate-700 dark:text-slate-300">"{queueSearchTerm}"</span> in this timeframe. Try broadening your keywords or clearing the filter.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setQueueSearchTerm('')}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-bold transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Clear Search Filter</span>
+                  </button>
                 </div>
-                <h3 className="text-base font-bold text-slate-900">Queue is Clear!</h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  No scheduled calls are due today or overdue for this workspace. Use '+ Log / Schedule Call' to add new follow-ups.
-                </p>
-              </div>
+              ) : (
+                <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Queue is Clear!</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                    No scheduled calls are due today or overdue for this workspace. Use '+ Log / Schedule Call' to add new follow-ups.
+                  </p>
+                </div>
+              )
             )}
           </div>
         </div>

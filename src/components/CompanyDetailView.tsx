@@ -108,6 +108,8 @@ export interface CompanyDetailViewProps {
   onOpenMerge?: (companyId: string) => void;
   onDeleteCompany?: (companyId: string) => void;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
+  setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
 }
 
 export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
@@ -133,7 +135,9 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   onDeleteContact,
   onOpenMerge,
   onDeleteCompany,
-  setCompanies
+  setCompanies,
+  setContacts,
+  setCallLogs
 }) => {
   const activityLauncher = useActivityLauncher();
 
@@ -971,6 +975,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 companyName={company.display_name}
                 companyId={company.id}
                 contacts={companyContacts}
+                companies={companies}
                 salespersons={salespersons}
                 onClose={() => setIsHistoryOpen(false)}
                 onSelectCallLog={onSelectCallLog}
@@ -979,6 +984,9 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 user={user}
                 isBasicTier={isBasicTier}
                 showHeader={true}
+                setCallLogs={setCallLogs}
+                setCompanies={setCompanies}
+                setContacts={setContacts}
               />
             </div>
           )}
