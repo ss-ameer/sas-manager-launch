@@ -203,17 +203,30 @@ export default function Company360Modal({
     contactPhone?: string,
     contactEmail?: string
   ) => {
+    const p = contactPhone || (contact ? (getContactPhones(contact)[0]?.value || contact.mobile || contact.phone || '') : '');
+    const em = contactEmail || (contact ? (getContactEmails(contact)[0]?.value || contact.email || '') : '');
+    const ctName = contact ? (contact.full_name || (contact as any).name || '') : undefined;
+    const contactEntity = contact
+      ? {
+          ...contact,
+          id: contact.id,
+          name: ctName || '',
+          phone: p || '',
+          email: em || ''
+        }
+      : undefined;
+
     handleInitiate({
       companyId: company.id,
       companyName: company.display_name,
       company,
       contactId: contact?.id,
-      contactName: contact?.full_name,
-      contact: contact || undefined,
+      contactName: ctName,
+      contact: contactEntity,
       targetType: contact ? 'contact' : 'company_mainline',
       channel,
-      contactPhone,
-      contactEmail,
+      contactPhone: p || undefined,
+      contactEmail: em || undefined,
       externalUrl,
       e
     });

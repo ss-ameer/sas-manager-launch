@@ -25,7 +25,9 @@ import {
   ChevronRight,
   PhoneOff,
   Edit3,
+  Pencil,
   Trash2,
+  Trash,
   Check,
   ShieldAlert,
   Zap,
@@ -64,6 +66,7 @@ import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
 import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
+import { CallLogRepository } from '../services/repositories/CallLogRepository';
 
 export function getOffsetDateString(offsetDays: number): string {
   const d = new Date();
@@ -287,6 +290,10 @@ export default function CallLogManager({
 
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
+    CallLogRepository.save(savedLog).catch((err) => console.warn('[CallLogManager] Failed to cache savedLog:', err));
+    if (spawnedLog) {
+      CallLogRepository.save(spawnedLog).catch((err) => console.warn('[CallLogManager] Failed to cache spawnedLog:', err));
+    }
     if (setCallLogs) {
       setCallLogs((prev) => {
         let updatedList = prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
@@ -298,6 +305,42 @@ export default function CallLogManager({
         }
         return updatedList;
       });
+    }
+  };
+
+  const handleCompleteTaskFromModal = async (completedTask: CallLogEntry, advanceToNext: boolean) => {
+    try {
+      await CallLogRepository.save(completedTask);
+      if (setCallLogs) {
+        setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
+      }
+      triggerToast('Task marked completed successfully!', 'success');
+    } catch (err: any) {
+      console.warn('[CallLogManager] Error syncing completed task:', err);
+    }
+  };
+
+  const handleRescheduleTaskFromModal = async (rescheduledTask: CallLogEntry, newDate: string, notes?: string) => {
+    try {
+      await CallLogRepository.save(rescheduledTask);
+      if (setCallLogs) {
+        setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
+      }
+      triggerToast(`Task rescheduled to ${newDate ? new Date(newDate).toLocaleDateString() : 'new date'}`, 'success');
+    } catch (err: any) {
+      console.warn('[CallLogManager] Error syncing rescheduled task:', err);
+    }
+  };
+
+  const handleCancelTaskFromModal = async (cancelledTask: CallLogEntry, reason?: string) => {
+    try {
+      await CallLogRepository.save(cancelledTask);
+      if (setCallLogs) {
+        setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
+      }
+      triggerToast('Task cancelled and removed from active queue.', 'info');
+    } catch (err: any) {
+      console.warn('[CallLogManager] Error syncing cancelled task:', err);
     }
   };
   const [queueTimeframe, setQueueTimeframe] = useState<'today' | 'upcoming' | 'all'>('today');
@@ -1853,10 +1896,12 @@ export default function CallLogManager({
               return (
                 <div
                   key={item.id}
-                  className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                  className={`group p-3.5 sm:p-4 rounded-xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
                     isOverdue
-                      ? 'bg-rose-50/40 border-rose-300 shadow-sm ring-1 ring-rose-200'
-                      : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                      ? 'bg-rose-50/30 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900/60 shadow-xs ring-1 ring-rose-200 dark:ring-rose-900/40'
+                      : isToday
+                      ? 'bg-blue-50/30 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60 shadow-xs'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
                   }`}
                 >
                   <div className="space-y-1 flex-1 min-w-0">
@@ -1888,16 +1933,16 @@ export default function CallLogManager({
                           Attn: {item.contact_name}
                         </span>
                       )}
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {formatOverdueDisplayDate(item.date)}
                       </span>
                       {isOverdue && (
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-600 text-white tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-600 text-white tracking-wide uppercase shadow-2xs">
                           OVERDUE ({formatOverdueDisplayDate(item.date)})
                         </span>
                       )}
                       {isToday && (
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white tracking-wide uppercase shadow-2xs">
                           DUE TODAY
                         </span>
                       )}
@@ -1953,7 +1998,7 @@ export default function CallLogManager({
                              <span className="inline-flex items-center space-x-1.5 text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                                <MessageSquare className="w-3 h-3 text-slate-400" />
                                <span>No phone logged</span>
-                             </span>
+                            </span>
                           )
                         ) : item.contact_phone ? (
                           <button
@@ -2018,14 +2063,14 @@ export default function CallLogManager({
                       </div>
 
                       {item.requirement_notes && (
-                        <p className="text-xs text-slate-600 dark:text-slate-300 truncate pt-1 font-sans">
-                          {item.requirement_notes}
+                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate pt-1 font-sans italic">
+                          "{item.requirement_notes}"
                         </p>
                       )}
                   </div>
 
                   {/* Fast Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-200 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1.5 shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
                     {canUserClickRecord(user, item, salespersons) ? (
                       <>
                         {item.contact_phone && (
@@ -2046,35 +2091,38 @@ export default function CallLogManager({
                                 e
                               });
                             }}
-                            className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition flex items-center justify-center cursor-pointer"
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition flex items-center justify-center cursor-pointer shadow-2xs"
                             title="Execute Activity (Tap to Open Activity Drawer)"
                           >
-                            <PhoneCall className="w-4 h-4" />
+                            <PhoneCall className="w-3.5 h-3.5" />
                           </button>
                         )}
 
                         <button
+                          type="button"
                           onClick={() => {
                             setSelectedDetailEntry(item);
                           }}
-                          className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
+                          className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
                           title="View Call Log"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </button>
 
                         {canEditOrDeleteRecord(user, item) && (
                           <button
+                            type="button"
                             onClick={() => handleEditActivityLog(item)}
-                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
+                            className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
                             title="Edit Activity Log"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
                         )}
 
                         {canEditOrDeleteRecord(user, item) && (
                           <button
+                            type="button"
                             onClick={async () => {
                               if (item.id) {
                                 const confirmDelete = await askConfirm(
@@ -2097,23 +2145,24 @@ export default function CallLogManager({
                                 }
                               }
                             }}
-                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg border border-slate-200 transition flex items-center justify-center bg-white cursor-pointer"
+                            className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
                             title="Delete Scheduled Call"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
 
                         <button
+                          type="button"
                           onClick={() => openFastQueueLogger(item)}
-                          className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shadow-md transition flex items-center space-x-2 cursor-pointer"
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold rounded-md shadow-2xs transition flex items-center space-x-1.5 cursor-pointer shrink-0"
                         >
-                          <Zap className="w-4 h-4 text-amber-400" />
+                          <Zap className="w-3.5 h-3.5 text-amber-400 dark:text-amber-500 fill-amber-400 dark:fill-amber-500" />
                           <span>Execute Task</span>
                         </button>
                       </>
                     ) : (
-                      <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-semibold border border-slate-200">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 text-[10px] font-semibold border border-slate-200 dark:border-slate-700">
                         🔒 Restricted View
                       </span>
                     )}
@@ -2390,160 +2439,202 @@ export default function CallLogManager({
                 return (
                   <div
                     key={log.id}
-                    className={`group p-3 rounded-xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                    className={`group p-3.5 sm:p-4 rounded-xl border transition-all ${
                       isSelected
-                        ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800'
-                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs'
+                        ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800 shadow-2xs'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-xs'
                     }`}
                   >
-                    <div className="flex items-start space-x-3 flex-1 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(chk) => {
-                          if (!log.id) return;
-                          if (chk.target.checked) {
-                            setSelectedLogIds((prev) => [...prev, log.id!]);
-                          } else {
-                            setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
-                          }
-                        }}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer mt-1"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2">
-                          <span 
-                            className={`text-sm font-semibold truncate hover:text-blue-600 transition cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
-                            onClick={() => handleOpenCompany360ForLog(log)}
-                            title={`View 360° details for ${getResolvedCompanyName(log)}`}
-                          >
-                            {getResolvedCompanyName(log) || 'Unlinked Account'}
+                    {/* Primary Header Row (Single-Line Scan) */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                      {/* Left: Selection checkbox, Company Name, Google Search, Timestamp, DNC / Badges */}
+                      <div className="flex items-center space-x-2 min-w-0 flex-wrap sm:flex-nowrap">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(chk) => {
+                            if (!log.id) return;
+                            if (chk.target.checked) {
+                              setSelectedLogIds((prev) => [...prev, log.id!]);
+                            } else {
+                              setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
+                            }
+                          }}
+                          className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                        />
+                        <span 
+                          className={`text-sm font-semibold truncate hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer max-w-[200px] sm:max-w-xs md:max-w-md ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                          onClick={() => handleOpenCompany360ForLog(log)}
+                          title={`View 360° details for ${getResolvedCompanyName(log)}`}
+                        >
+                          {getResolvedCompanyName(log) || 'Unlinked Account'}
+                        </span>
+                        {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked Account' && (
+                          <GoogleSearchButton
+                            companyName={getResolvedCompanyName(log)}
+                            location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
+                            size="xs"
+                          />
+                        )}
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                          {formatActivityDate(log.date || log.createdAt)}
+                        </span>
+                        {isSuppressed && (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
+                            <ShieldAlert className="w-2.5 h-2.5 mr-1" />
+                            DNC
                           </span>
-                          {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked Account' && (
-                            <GoogleSearchButton
-                              companyName={getResolvedCompanyName(log)}
-                              location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
-                              size="xs"
-                            />
-                          )}
-                          <span className="text-[10px] text-slate-500 whitespace-nowrap">
-                            {formatActivityDate(log.date || log.createdAt)}
-                          </span>
-                          {isSuppressed && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
-                              <ShieldAlert className="w-2.5 h-2.5 mr-1" />
-                              DNC
-                            </span>
-                          )}
-                          {log.company_id && (
-                            <IndustryBadge company={companies.find((c) => c.id === log.company_id)} size="sm" />
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-500 flex items-center space-x-1.5 mt-1">
-                          <span className={`truncate ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
-                            {log.contact_name || log.contact_phone || 'No Contact Info'}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2 mt-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            isSuccessStatus(log.status)
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}>
-                            {log.status}
-                          </span>
-                          {log.outcome && (
-                            <span className="text-[10px] text-slate-500 font-medium">→ {log.outcome}</span>
-                          )}
-                        </div>
+                        )}
+                        {log.company_id && (
+                          <IndustryBadge company={companies.find((c) => c.id === log.company_id)} size="sm" />
+                        )}
                       </div>
-                    </div>
-                      
-                    <div className="flex items-center justify-end space-x-2 w-full md:w-auto">
-                      {/* Visual Metadata Cluster */}
-                      <div className="flex items-center space-x-1 mr-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold" title={`Handled by ${handledBy}`}>
+
+                      {/* Right: Compact Action Cluster */}
+                      <div className="flex items-center space-x-1.5 shrink-0 ml-auto">
+                        {/* Rep / Agent badge */}
+                        <div
+                          className="w-6 h-6 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0"
+                          title={`Handled by ${handledBy}`}
+                        >
                           {handledBy}
                         </div>
+
+                        {/* Temperature icon */}
                         <TemperatureBadge
                           companyId={log.company_id}
                           temperature={temp}
                           isDnc={company?.is_dnc}
                           variant="icon"
-                          size="md"
+                          size="sm"
                           companies={companies}
                           setCompanies={setCompanies}
                         />
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${channelColorClass}`} title={`Channel: ${type}`}>
-                          <ChannelIcon className="w-4 h-4" />
+
+                        {/* Channel indicator */}
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${channelColorClass}`}
+                          title={`Channel: ${type}`}
+                        >
+                          <ChannelIcon className="w-3 h-3" />
                         </div>
+
+                        {/* Quick action buttons */}
+                        {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
+                          <div className="flex items-center space-x-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDetailEntry(log);
+                              }}
+                              title="View Details"
+                              className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingLog(log);
+                                setDrawerMode('edit');
+                                if (onOpenActivityDrawer) {
+                                  onOpenActivityDrawer({ 
+                                    channel: log.channel || 'Call', 
+                                    drawerMode: 'edit',
+                                    existingLog: log,
+                                    logToEdit: log,
+                                    companyId: log.company_id
+                                  });
+                                } else {
+                                  setIsActivityDrawerOpen(true);
+                                }
+                              }}
+                              title="Edit"
+                              className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
+                                  if (confirmDelete) {
+                                    try {
+                                      await safeUpdateDoc('call_logs', log.id!, {
+                                        is_deleted: true,
+                                        deleted_at: new Date().toISOString(),
+                                        deleted_by_uid: user?.uid || null,
+                                        deleted_by_name: user?.full_name || user?.username || 'Unknown'
+                                      });
+                                      if (setCallLogs) {
+                                        setCallLogs(prev => prev.filter(l => l.id !== log.id));
+                                      }
+                                      triggerToast('Log entry deleted successfully', 'success');
+                                    } catch (err) {
+                                      triggerToast('Failed to delete log entry', 'error');
+                                    }
+                                  }
+                                }}
+                                title="Delete"
+                                className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-semibold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                            Restricted
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Secondary Row: Contact Name, Phone/Direct line, Disposition Pill & Note Snippet */}
+                    <div className="mt-1.5 pl-6 flex flex-col gap-1">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        {(log.contact_name || log.contact_phone) && (
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            {log.contact_name || 'Contact'}{' '}
+                            {log.contact_phone && (
+                              <span className={`font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                                ({log.contact_phone})
+                              </span>
+                            )}
+                          </span>
+                        )}
+
+                        {/* Disposition Pill */}
+                        <span className={`inline-flex items-center px-2 py-0.2 rounded text-[10px] font-bold border ${
+                          isSuccessStatus(log.status)
+                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}>
+                          {log.status}
+                        </span>
+
+                        {/* Outcome */}
+                        {log.outcome && (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                            → {log.outcome}
+                          </span>
+                        )}
+
+                        {/* Follow-up if scheduled */}
+                        {log.next_followup_date && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>Next: {formatOverdueDisplayDate(log.next_followup_date)}</span>
+                          </span>
+                        )}
                       </div>
 
-                      {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() => {
-                              setSelectedDetailEntry(log);
-                            }}
-                            title="View Details"
-                            className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingLog(log);
-                              setDrawerMode('edit');
-                              if (onOpenActivityDrawer) {
-                                onOpenActivityDrawer({ 
-                                  channel: log.channel || 'Call', 
-                                  drawerMode: 'edit',
-                                  existingLog: log,
-                                  logToEdit: log,
-                                  companyId: log.company_id
-                                });
-                              } else {
-                                setIsActivityDrawerOpen(true);
-                              }
-                            }}
-                            title="Edit"
-                            className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
-                            <button
-                              onClick={async () => {
-                                const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
-                                if (confirmDelete) {
-                                  try {
-                                    await safeUpdateDoc('call_logs', log.id!, {
-                                      is_deleted: true,
-                                      deleted_at: new Date().toISOString(),
-                                      deleted_by_uid: user?.uid || null,
-                                      deleted_by_name: user?.full_name || user?.username || 'Unknown'
-                                    });
-                                    if (setCallLogs) {
-                                      setCallLogs(prev => prev.filter(l => l.id !== log.id));
-                                    }
-                                    triggerToast('Log entry deleted successfully', 'success');
-                                  } catch (err) {
-                                    triggerToast('Failed to delete log entry', 'error');
-                                  }
-                                }
-
-                              }}
-                              title="Delete"
-                              className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                          Restricted View
-                        </span>
+                      {/* Truncated Interaction Note */}
+                      {(log.requirement_notes || (log as any).notes) && (
+                        <p className="truncate max-w-2xl text-xs text-slate-500 dark:text-slate-400 italic">
+                          "{log.requirement_notes || (log as any).notes}"
+                        </p>
                       )}
                     </div>
                   </div>
@@ -4096,6 +4187,9 @@ export default function CallLogManager({
         task={executionModalTask}
         onSwitchTask={setExecutionModalTask}
         onSuccess={handleLogSaved}
+        onCompleteTask={handleCompleteTaskFromModal}
+        onRescheduleTask={handleRescheduleTaskFromModal}
+        onCancelTask={handleCancelTaskFromModal}
         user={user}
         callLogs={workspaceCallLogs}
         contacts={workspaceContacts}

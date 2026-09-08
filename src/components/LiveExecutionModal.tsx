@@ -58,6 +58,9 @@ export interface LiveExecutionModalProps {
   task: CallLogEntry | any | null;
   onSwitchTask?: (nextTask: CallLogEntry | null) => void;
   onSuccess?: (updatedTask: CallLogEntry, spawnedTask?: CallLogEntry) => void;
+  onCompleteTask?: (completedTask: CallLogEntry, advanceToNext: boolean) => void;
+  onRescheduleTask?: (rescheduledTask: CallLogEntry, newDate: string, notes?: string) => void;
+  onCancelTask?: (cancelledTask: CallLogEntry, reason?: string) => void;
   user?: any;
   callLogs?: CallLogEntry[];
   contacts?: Contact[];
@@ -155,6 +158,9 @@ export default function LiveExecutionModal({
   task,
   onSwitchTask,
   onSuccess,
+  onCompleteTask,
+  onRescheduleTask,
+  onCancelTask,
   user,
   callLogs = [],
   contacts = [],
@@ -209,6 +215,15 @@ export default function LiveExecutionModal({
   const [activePreset, setActivePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom' | null>('tomorrow');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Dedicated Task Lifecycle Action States
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState<boolean>(false);
+  const [reschedulePreset, setReschedulePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom'>('tomorrow');
+  const [rescheduleDate, setRescheduleDate] = useState<string>('');
+  const [rescheduleReason, setRescheduleReason] = useState<string>('');
+
+  const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false);
+  const [cancelReason, setCancelReason] = useState<string>('');
 
   // Dynamic Contact details override (for Add Contact binding)
   const [activeContactId, setActiveContactId] = useState<string>('');
@@ -297,6 +312,21 @@ export default function LiveExecutionModal({
       setActiveContactId(currentTask.contact_id || '');
       setActiveContactName(currentTask.contact_name || '');
       setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
+
+      // Reset Task Lifecycle Action panels and inputs
+      setIsRescheduleOpen(false);
+      setRescheduleReason('');
+      setIsCancelOpen(false);
+      setCancelReason('');
+
+      // Initialize default reschedule date to tomorrow 10:00 AM
+      const reschedTomorrow = new Date();
+      reschedTomorrow.setDate(reschedTomorrow.getDate() + 1);
+      reschedTomorrow.setHours(10, 0, 0, 0);
+      const reschedOffset = reschedTomorrow.getTimezoneOffset() * 60000;
+      const reschedIso = new Date(reschedTomorrow.getTime() - reschedOffset).toISOString().slice(0, 16);
+      setRescheduleDate(reschedIso);
+      setReschedulePreset('tomorrow');
 
       // Auto-focus notes textarea on lead load
       setTimeout(() => {
@@ -445,6 +475,16 @@ export default function LiveExecutionModal({
   const isCompletedState = isSuccessStatus(callStatus);
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
+  // Identify when modal is executing a scheduled task from the queue
+  const isExecutingTask = Boolean(
+    currentTask && (
+      ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft', 'Rescheduled'].includes(currentTask.status as string) ||
+      currentTask.next_followup_date ||
+      (currentTask as any).is_task ||
+      Boolean(task)
+    )
+  );
+
   const handleChannelChange = (newChan: string) => {
     setCurrentChannel(newChan);
     const isCall = newChan === 'Call' || newChan === 'Phone Call';
@@ -576,8 +616,8 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Primary Execution Submission (Save & Close or Save & Next Lead)
-  const executeSubmission = async (advanceToNext: boolean) => {
+  // Primary Execution Submission (Save & Close, Save & Next Lead, or Explicit Complete Task)
+  const executeSubmission = async (advanceToNext: boolean, forceCompleted: boolean = false) => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
 
     // Default outcome safeguard for completed calls
@@ -592,7 +632,9 @@ export default function LiveExecutionModal({
       const userUid = user?.uid || 'system_op';
       const userName = user?.full_name || user?.username || user?.email || 'Operator';
 
-      const updatedStatus: string = callStatus;
+      const updatedStatus: string = forceCompleted || ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus)
+        ? (isSuccessStatus(callStatus) ? callStatus : 'Completed / Connected')
+        : callStatus;
       const finalNotes: string = notes.trim()
         ? currentTask.requirement_notes
           ? `${currentTask.requirement_notes}\n[Notes]: ${notes.trim()}`
@@ -728,7 +770,10 @@ export default function LiveExecutionModal({
         await CallLogRepository.save(spawnedFollowUpTask);
       }
 
-      // Step 3: Trigger onSuccess callback
+      // Step 3: Trigger onCompleteTask and onSuccess callbacks
+      if (onCompleteTask) {
+        onCompleteTask(updatedTaskRecord, advanceToNext);
+      }
       if (onSuccess) {
         onSuccess(updatedTaskRecord, spawnedFollowUpTask);
       }
@@ -763,6 +808,194 @@ export default function LiveExecutionModal({
     } catch (err) {
       console.error('Failed to execute resolution:', err);
       alert('Error saving activity log resolution. Please retry.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Explicit Task Lifecycle Action: Rapid Rescheduling
+  const applyReschedulePreset = (preset: 'tomorrow' | '3days' | '1week' | 'custom') => {
+    setReschedulePreset(preset);
+    if (preset === 'custom') {
+      const input = document.getElementById('reschedule-custom-datetime') as HTMLInputElement;
+      if (input) {
+        input.focus();
+        if (typeof (input as any).showPicker === 'function') {
+          try { (input as any).showPicker(); } catch {}
+        }
+      }
+      return;
+    }
+    const targetDate = new Date();
+    if (preset === 'tomorrow') {
+      targetDate.setDate(targetDate.getDate() + 1);
+    } else if (preset === '3days') {
+      targetDate.setDate(targetDate.getDate() + 3);
+    } else if (preset === '1week') {
+      targetDate.setDate(targetDate.getDate() + 7);
+    }
+    targetDate.setHours(10, 0, 0, 0);
+    const offset = targetDate.getTimezoneOffset() * 60000;
+    const localIso = new Date(targetDate.getTime() - offset).toISOString().slice(0, 16);
+    setRescheduleDate(localIso);
+  };
+
+  const executeRescheduleTask = async () => {
+    if (!currentTask || !currentTask.id || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const userUid = user?.uid || 'system_op';
+      const userName = user?.full_name || user?.username || user?.email || 'Operator';
+
+      const finalRescheduleDate = rescheduleDate || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(10, 0, 0, 0);
+        const offset = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+      })();
+
+      const rescheduleNoteText = rescheduleReason.trim()
+        ? `[Rescheduled to ${finalRescheduleDate}]: ${rescheduleReason.trim()}`
+        : `[Rescheduled to ${finalRescheduleDate}]`;
+
+      const combinedNotes = notes.trim()
+        ? currentTask.requirement_notes
+          ? `${currentTask.requirement_notes}\n${rescheduleNoteText}\n[Notes]: ${notes.trim()}`
+          : `${rescheduleNoteText}\n[Notes]: ${notes.trim()}`
+        : currentTask.requirement_notes
+          ? `${currentTask.requirement_notes}\n${rescheduleNoteText}`
+          : rescheduleNoteText;
+
+      const updatedTaskRecord: CallLogEntry = {
+        ...currentTask,
+        channel: (currentChannel as ActivityChannel) || currentTask.channel || 'Phone Call',
+        date: finalRescheduleDate,
+        next_followup_date: finalRescheduleDate,
+        scheduled_for: finalRescheduleDate,
+        status: 'Scheduled / Planned' as CallStatus,
+        requirement_notes: combinedNotes,
+        updatedAt: nowIso,
+        rescheduled_at: nowIso,
+        rescheduled_by_uid: userUid,
+        rescheduled_by_name: userName,
+        last_modified_by_uid: userUid,
+        last_modified_by_name: userName
+      };
+
+      await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
+      await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
+      await CallLogRepository.save(updatedTaskRecord);
+
+      if (onRescheduleTask) {
+        onRescheduleTask(updatedTaskRecord, finalRescheduleDate, rescheduleReason);
+      }
+      if (onSuccess) {
+        onSuccess(updatedTaskRecord);
+      }
+
+      setIsRescheduleOpen(false);
+
+      // Advance to next lead in queue or close
+      const remainingLeads = (callLogs || []).filter((l) => {
+        if (l.id === currentTask.id) return false;
+        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
+        const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
+        return isSched && !isDncSuppressed;
+      });
+
+      if (remainingLeads.length > 0) {
+        const nextLead = remainingLeads[0];
+        if (onSwitchTask) {
+          onSwitchTask(nextLead);
+        }
+        setCurrentTask(nextLead);
+      } else {
+        if (onSwitchTask) {
+          onSwitchTask(null);
+        }
+        onClose();
+      }
+    } catch (err) {
+      console.error('Failed to reschedule task:', err);
+      alert('Error rescheduling task. Please retry.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Explicit Task Lifecycle Action: Cancellation
+  const executeCancelTask = async () => {
+    if (!currentTask || !currentTask.id || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const userUid = user?.uid || 'system_op';
+      const userName = user?.full_name || user?.username || user?.email || 'Operator';
+
+      const reasonText = cancelReason.trim() || 'Operator cancelled task';
+      const cancellationLogText = `[Cancelled]: ${reasonText}`;
+
+      const combinedNotes = notes.trim()
+        ? currentTask.requirement_notes
+          ? `${currentTask.requirement_notes}\n${cancellationLogText}\n[Notes]: ${notes.trim()}`
+          : `${cancellationLogText}\n[Notes]: ${notes.trim()}`
+        : currentTask.requirement_notes
+          ? `${currentTask.requirement_notes}\n${cancellationLogText}`
+          : cancellationLogText;
+
+      const updatedTaskRecord: CallLogEntry = {
+        ...currentTask,
+        status: 'Cancelled' as CallStatus,
+        cancelled_at: nowIso,
+        cancelled_by_uid: userUid,
+        cancelled_by_name: userName,
+        cancellation_reason: reasonText,
+        requirement_notes: combinedNotes,
+        updatedAt: nowIso,
+        last_modified_by_uid: userUid,
+        last_modified_by_name: userName
+      };
+
+      await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
+      await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
+      await CallLogRepository.save(updatedTaskRecord);
+
+      if (onCancelTask) {
+        onCancelTask(updatedTaskRecord, reasonText);
+      }
+      if (onSuccess) {
+        onSuccess(updatedTaskRecord);
+      }
+
+      setIsCancelOpen(false);
+
+      // Advance to next lead in queue or close
+      const remainingLeads = (callLogs || []).filter((l) => {
+        if (l.id === currentTask.id) return false;
+        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
+        const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
+        return isSched && !isDncSuppressed;
+      });
+
+      if (remainingLeads.length > 0) {
+        const nextLead = remainingLeads[0];
+        if (onSwitchTask) {
+          onSwitchTask(nextLead);
+        }
+        setCurrentTask(nextLead);
+      } else {
+        if (onSwitchTask) {
+          onSwitchTask(null);
+        }
+        onClose();
+      }
+    } catch (err) {
+      console.error('Failed to cancel task:', err);
+      alert('Error cancelling task. Please retry.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1358,6 +1591,321 @@ export default function LiveExecutionModal({
                 </div>
               </div>
             </div>
+
+            {/* Reschedule Active Task Sub-Panel */}
+            {isRescheduleOpen && (
+              <div className="p-3.5 bg-amber-50/95 dark:bg-amber-950/40 border-t border-amber-200 dark:border-amber-800/70 space-y-2.5 shrink-0 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CalendarClock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <h4 className="text-xs font-bold text-amber-950 dark:text-amber-100">
+                      Reschedule Active Task
+                    </h4>
+                    <span className="hidden sm:inline text-[10px] text-amber-700 dark:text-amber-300 font-medium">
+                      Updates scheduled date and retains lead in active queue
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsRescheduleOpen(false)}
+                    className="p-1 rounded-md text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mr-1">Quick Select:</span>
+                  <button
+                    type="button"
+                    onClick={() => applyReschedulePreset('tomorrow')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      reschedulePreset === 'tomorrow'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    +1 Day (Tomorrow)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyReschedulePreset('3days')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      reschedulePreset === '3days'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    +3 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyReschedulePreset('1week')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      reschedulePreset === '1week'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    +1 Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyReschedulePreset('custom')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      reschedulePreset === 'custom'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Custom Date
+                  </button>
+                </div>
+
+                {/* Reschedule Date & Note Inputs */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      New Scheduled Date & Time
+                    </label>
+                    <input
+                      type="datetime-local"
+                      id="reschedule-custom-datetime"
+                      value={rescheduleDate}
+                      onChange={(e) => {
+                        setRescheduleDate(e.target.value);
+                        setReschedulePreset('custom');
+                      }}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-700/80 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Reason / Follow-Up Note
+                    </label>
+                    <input
+                      type="text"
+                      value={rescheduleReason}
+                      onChange={(e) => setRescheduleReason(e.target.value)}
+                      placeholder="e.g. Requested callback on Thursday morning..."
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-700/80 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Chips for Common Reschedule Reasons */}
+                <div className="flex flex-wrap gap-1 items-center pt-0.5">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Quick Reasons:</span>
+                  {['Callback Requested', 'Gatekeeper Barrier', 'No Answer / Voicemail', 'In Meeting / Busy', 'Postponed Review'].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRescheduleReason(r)}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100/70 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200/70 border border-amber-200 dark:border-amber-800 transition cursor-pointer"
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Confirm Action Cluster */}
+                <div className="flex items-center justify-end space-x-2 pt-1 border-t border-amber-200/60 dark:border-amber-800/40">
+                  <button
+                    type="button"
+                    onClick={() => setIsRescheduleOpen(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    id="confirm-reschedule-btn"
+                    disabled={isSubmitting}
+                    onClick={executeRescheduleTask}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 transition cursor-pointer flex items-center space-x-1.5 shadow-xs"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Rescheduling...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CalendarClock className="w-3.5 h-3.5" />
+                        <span>Confirm Reschedule</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Cancel Scheduled Task Sub-Panel */}
+            {isCancelOpen && (
+              <div className="p-3.5 bg-rose-50/95 dark:bg-rose-950/40 border-t border-rose-200 dark:border-rose-800/70 space-y-2.5 shrink-0 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Ban className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <h4 className="text-xs font-bold text-rose-950 dark:text-rose-100">
+                      Cancel Scheduled Task
+                    </h4>
+                    <span className="hidden sm:inline text-[10px] text-rose-700 dark:text-rose-300 font-medium">
+                      Removes this task from active queue and marks status as Cancelled
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsCancelOpen(false)}
+                    className="p-1 rounded-md text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    Cancellation Reason (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    id="cancel-reason-input"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="e.g. Lead disqualified, duplicate task, client requested not to call..."
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-rose-300 dark:border-rose-700/80 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition"
+                  />
+                  
+                  {/* Quick Reason Chips */}
+                  <div className="flex flex-wrap gap-1 items-center pt-0.5">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Quick Reasons:</span>
+                    {['Not Interested', 'Duplicate Task', 'Number Disconnected', 'Cancelled by Client', 'Opportunity Lost'].map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setCancelReason(r)}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-100/70 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 hover:bg-rose-200/70 border border-rose-200 dark:border-rose-800 transition cursor-pointer"
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Cluster */}
+                <div className="flex items-center justify-end space-x-2 pt-1 border-t border-rose-200/60 dark:border-rose-800/40">
+                  <button
+                    type="button"
+                    onClick={() => setIsCancelOpen(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Keep Task
+                  </button>
+                  <button
+                    type="button"
+                    id="confirm-cancel-task-btn"
+                    disabled={isSubmitting}
+                    onClick={executeCancelTask}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 transition cursor-pointer flex items-center space-x-1.5 shadow-xs"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Cancelling...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>Confirm Cancel Task</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Dedicated Task Lifecycle Control Bar (Prominently Rendered) */}
+            {isExecutingTask && (
+              <div className="px-5 py-2.5 bg-slate-100/95 dark:bg-slate-800/95 border-t border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap shrink-0">
+                <div className="flex items-center space-x-2">
+                  <span className="flex h-2 w-2 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                  </span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Task Lifecycle:
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    {pendingLeads.length > 0 ? `${pendingLeads.length + 1} tasks queued` : 'Active scheduled task'}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                  {/* ✕ Cancel Task */}
+                  <button
+                    type="button"
+                    id="lifecycle-cancel-task-btn"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setIsCancelOpen(true);
+                      setIsRescheduleOpen(false);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs ${
+                      isCancelOpen
+                        ? 'bg-rose-600 text-white border-rose-600'
+                        : 'text-rose-700 dark:text-rose-400 hover:text-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border-rose-200 dark:border-rose-900/60'
+                    }`}
+                    title="Cancel this scheduled task and remove it from the active queue"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>✕ Cancel Task</span>
+                  </button>
+
+                  {/* 📅 Reschedule */}
+                  <button
+                    type="button"
+                    id="lifecycle-reschedule-task-btn"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setIsRescheduleOpen(true);
+                      setIsCancelOpen(false);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs ${
+                      isRescheduleOpen
+                        ? 'bg-amber-600 text-white border-amber-600'
+                        : 'text-amber-700 dark:text-amber-300 hover:text-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border-amber-200 dark:border-amber-800/60'
+                    }`}
+                    title="Reschedule this task for another date or time"
+                  >
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    <span>📅 Reschedule</span>
+                  </button>
+
+                  {/* ✓ Complete Task */}
+                  <button
+                    type="button"
+                    id="lifecycle-complete-task-btn"
+                    disabled={isSubmitting}
+                    onClick={() => executeSubmission(true, true)}
+                    className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 transition cursor-pointer shadow-xs flex items-center space-x-1.5"
+                    title="Mark task completed with current outcome/notes & advance queue"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Completing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>✓ Complete Task</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Streamlined Navigation Footer (Pinned Sticky Bottom) */}
             <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 shrink-0">

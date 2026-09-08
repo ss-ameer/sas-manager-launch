@@ -104,6 +104,7 @@ export interface QuickActivityDrawerProps {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  contact?: Contact | { id?: string; name?: string; full_name?: string; phone?: string; email?: string; [key: string]: any } | null;
   targetType?: 'contact' | 'company_mainline';
   enquiryId?: string;
   initialChannel?: ActivityChannel | string;
@@ -206,6 +207,50 @@ const formatToDatetimeLocal = (dateStr?: string): string => {
   return getLocalDateTimeString(d);
 };
 
+/**
+ * Canonical 2-step contact resolution:
+ * Step 1: Exact ID Match (c.id === incoming.id)
+ * Step 2: Normalized Name Match (c.name.trim().toLowerCase() === incoming.name.trim().toLowerCase())
+ */
+export function resolveCanonicalContact(
+  incoming: { id?: string; name?: string; full_name?: string; phone?: string; email?: string } | null | undefined,
+  companyRoster: Contact[] = [],
+  workspaceContacts: Contact[] = []
+): Contact | null {
+  if (!incoming) return null;
+  const incomingId = (incoming.id || '').trim();
+  const rawIncomingName = (incoming.name || incoming.full_name || '').trim();
+  const incomingNameLower = rawIncomingName.toLowerCase();
+
+  // Step 1: Exact ID Match
+  if (incomingId) {
+    const idMatchInRoster = companyRoster.find((c) => c && c.id && c.id === incomingId);
+    if (idMatchInRoster) return idMatchInRoster;
+
+    const idMatchInWorkspace = workspaceContacts.find((c) => c && c.id && c.id === incomingId);
+    if (idMatchInWorkspace) return idMatchInWorkspace;
+  }
+
+  // Step 2: Normalized Name Match
+  if (incomingNameLower) {
+    const nameMatchInRoster = companyRoster.find((c) => {
+      if (!c) return false;
+      const cName = (c.full_name || (c as any).name || '').trim().toLowerCase();
+      return cName === incomingNameLower;
+    });
+    if (nameMatchInRoster) return nameMatchInRoster;
+
+    const nameMatchInWorkspace = workspaceContacts.find((c) => {
+      if (!c) return false;
+      const cName = (c.full_name || (c as any).name || '').trim().toLowerCase();
+      return cName === incomingNameLower;
+    });
+    if (nameMatchInWorkspace) return nameMatchInWorkspace;
+  }
+
+  return null;
+}
+
 export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   isOpen,
   onClose,
@@ -218,6 +263,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   contactName,
   contactPhone,
   contactEmail,
+  contact,
   targetType,
   enquiryId,
   initialChannel,
@@ -569,6 +615,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           setUnlinkedName('');
           setUnlinkedContactInfo('');
           const targetCompId = activeLog.company_id || companyId || '';
+          prevSelectedCompanyIdRef.current = targetCompId;
           const matchedCompany = targetCompId && companies ? companies.find((c) => c.id === targetCompId) : null;
           const resolvedCompName = matchedCompany
             ? (matchedCompany.display_name || matchedCompany.canonical_name)
@@ -649,15 +696,47 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setCompanySearchQuery('');
         setIsComboboxOpen(false);
 
-        const effTargetType = targetType || (contactId ? 'contact' : (contactPhone ? 'company_mainline' : 'contact'));
+        prevSelectedCompanyIdRef.current = companyId || '';
+        const effTargetType = targetType || (contactId || contact ? 'contact' : (contactPhone ? 'company_mainline' : 'contact'));
         setCrmTargetType(effTargetType);
 
         setSelectedCompanyId(companyId || '');
         setSelectedCompanyName(companyName || '');
-        setSelectedContactId(contactId || '');
-        setSelectedContactName(contactName || '');
-        setSelectedContactPhone(contactPhone || '');
-        setSelectedContactEmail(contactEmail || '');
+
+        const targetComp = companyId ? (companies || []).find((c) => c.id === companyId) || null : null;
+        const compRoster = targetComp
+          ? [
+              ...(Array.isArray((targetComp as any)?.contacts) ? (targetComp as any).contacts.filter((c: any) => c && !c.is_deleted) : []),
+              ...(contacts || []).filter((c) => !c.is_deleted && (c.company_id === companyId || c.company_ids?.includes(companyId)))
+            ]
+          : [];
+
+        const incomingContact = contact || {
+          id: contactId,
+          name: contactName,
+          phone: contactPhone,
+          email: contactEmail
+        };
+
+        const matchedCanonical = resolveCanonicalContact(incomingContact, compRoster, contacts);
+
+        if (matchedCanonical) {
+          setSelectedContactId(matchedCanonical.id || '');
+          setSelectedContactName(matchedCanonical.full_name || (matchedCanonical as any).name || '');
+          const phones = getContactPhones(matchedCanonical);
+          const firstPhone = contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '';
+          setSelectedContactPhone(firstPhone);
+          const emails = getContactEmails(matchedCanonical);
+          const firstEmail = contactEmail || matchedCanonical.email || emails[0]?.email || (matchedCanonical as any).email || '';
+          setSelectedContactEmail(firstEmail);
+          setCrmTargetType('contact');
+        } else {
+          setSelectedContactId(contactId || '');
+          setSelectedContactName(contactName || '');
+          setSelectedContactPhone(contactPhone || '');
+          setSelectedContactEmail(contactEmail || '');
+        }
+
         setSelectedEnquiryId(enquiryId || '');
         setSelectedEnquiryQuoteRef('');
         setNewContactDesignation('');
@@ -676,12 +755,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     contactName,
     contactPhone,
     contactEmail,
+    contact,
     targetType,
     enquiryId,
     initialChannel,
     initialStatus,
     defaultOutcome,
-    messageType
+    messageType,
+    companies,
+    contacts
   ]);
 
   // Auto-focus the activity notes textarea when drawer opens after slide-in completes
@@ -710,7 +792,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       prevSelectedCompanyIdRef.current = selectedCompanyId;
       return;
     }
-    if (prevSelectedCompanyIdRef.current !== selectedCompanyId) {
+    // Only wipe if user actively switches from one existing company to another while open
+    if (prevSelectedCompanyIdRef.current && prevSelectedCompanyIdRef.current !== selectedCompanyId) {
       setSelectedContactId('');
       setSelectedContactName('');
       setSelectedContactPhone('');
@@ -723,8 +806,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setNewContactDesignation('');
       setNewPhoneTag('Mobile');
       setNewContactPhoneTag('Mobile');
-      prevSelectedCompanyIdRef.current = selectedCompanyId;
     }
+    prevSelectedCompanyIdRef.current = selectedCompanyId;
   }, [isOpen, selectedCompanyId]);
 
   const selectedCompanyObj = useMemo(() => {
@@ -735,13 +818,31 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const availableCompanyContacts = useMemo(() => {
     if (!selectedCompanyId) return [];
     const directContacts = (contacts || []).filter(
-      (c) => c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId)
+      (c) => !c.is_deleted && (c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId))
     );
+
+    const embeddedContacts: Contact[] = Array.isArray((selectedCompanyObj as any)?.contacts)
+      ? (selectedCompanyObj as any).contacts.filter((c: any) => c && !c.is_deleted)
+      : [];
+
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    const combined: Contact[] = [];
+
+    for (const c of [...embeddedContacts, ...directContacts]) {
+      const id = c.id;
+      const normName = (c.full_name || (c as any).name || '').trim().toLowerCase();
+      if (id && seenIds.has(id)) continue;
+      if (normName && seenNames.has(normName)) continue;
+      if (id) seenIds.add(id);
+      if (normName) seenNames.add(normName);
+      combined.push(c);
+    }
 
     // If this is an internal company, sync/mirror salespersons/team members as contacts
     if (selectedCompanyObj?.isInternalCompany && salespersons && salespersons.length > 0) {
-      const existingEmails = new Set(directContacts.map((c) => (c.email || '').toLowerCase().trim()).filter(Boolean));
-      const existingNames = new Set(directContacts.map((c) => (c.full_name || '').toLowerCase().trim()).filter(Boolean));
+      const existingEmails = new Set(combined.map((c) => (c.email || '').toLowerCase().trim()).filter(Boolean));
+      const existingNames = new Set(combined.map((c) => (c.full_name || (c as any).name || '').toLowerCase().trim()).filter(Boolean));
 
       const teamContacts: Contact[] = salespersons
         .filter((sp) => {
@@ -763,13 +864,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           updatedAt: sp.updatedAt || new Date().toISOString()
         } as Contact));
 
-      return [...directContacts, ...teamContacts];
+      return [...combined, ...teamContacts];
     }
 
-    return directContacts;
-  }, [contacts, selectedCompanyId, selectedCompanyObj?.isInternalCompany, salespersons, activeWorkspaceId]);
+    return combined;
+  }, [contacts, selectedCompanyId, selectedCompanyObj, salespersons, activeWorkspaceId]);
 
-  // Automatic Primary Contact & Phone Lookup
+  // Automatic Canonical Contact & Phone Lookup
   useEffect(() => {
     if (!isOpen || !selectedCompanyId) {
       if (!companyId) {
@@ -789,22 +890,38 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     const companyContacts = availableCompanyContacts;
 
     if (companyContacts.length > 0) {
-      const currentCt = companyContacts.find((c) => c.id === selectedContactId);
-      if (currentCt) {
-        setSelectedContactName(currentCt.full_name || '');
+      const incoming = contact || {
+        id: selectedContactId || contactId,
+        name: selectedContactName || contactName,
+        phone: selectedContactPhone || contactPhone,
+        email: selectedContactEmail || contactEmail
+      };
+
+      // 2-Step Canonical Lookup
+      const matchedCanonical = resolveCanonicalContact(incoming, companyContacts, contacts);
+
+      if (matchedCanonical) {
+        // Bind selectedContactId directly to matched canonical contact's id
+        if (selectedContactId !== matchedCanonical.id) {
+          setSelectedContactId(matchedCanonical.id || '');
+        }
+        const canonicalName = matchedCanonical.full_name || (matchedCanonical as any).name || '';
+        if (selectedContactName !== canonicalName) {
+          setSelectedContactName(canonicalName);
+        }
         if (!selectedContactPhone) {
-          const phones = getContactPhones(currentCt);
-          setSelectedContactPhone(currentCt.mobile || currentCt.landline || phones[0]?.number || '');
+          const phones = getContactPhones(matchedCanonical);
+          setSelectedContactPhone(contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '');
         }
         if (!selectedContactEmail) {
-          const emails = getContactEmails(currentCt);
-          setSelectedContactEmail(currentCt.email || emails[0]?.email || '');
+          const emails = getContactEmails(matchedCanonical);
+          setSelectedContactEmail(contactEmail || matchedCanonical.email || emails[0]?.email || (matchedCanonical as any).email || '');
         }
-      } else if (!contactId && !contactPhone) {
+      } else if (!contactId && !contactPhone && !selectedContactName && !selectedContactId) {
         const primary = companyContacts.find((c) => c.is_primary) || companyContacts[0];
         if (primary) {
           setSelectedContactId(primary.id || '');
-          setSelectedContactName(primary.full_name || '');
+          setSelectedContactName(primary.full_name || (primary as any).name || '');
           const phones = getContactPhones(primary);
           setSelectedContactPhone(primary.mobile || primary.landline || phones[0]?.number || '');
           const emails = getContactEmails(primary);
@@ -818,12 +935,27 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
     } else {
       // Company has no contacts: strictly clear zombie contact selection!
-      setSelectedContactId('');
-      setSelectedContactName('');
-      setSelectedContactPhone('');
-      setSelectedContactEmail('');
+      if (!isAddingNewContact && !contactName && !contactId) {
+        setSelectedContactId('');
+        setSelectedContactName('');
+        setSelectedContactPhone('');
+        setSelectedContactEmail('');
+      }
     }
-  }, [isOpen, selectedCompanyId, availableCompanyContacts, crmTargetType]);
+  }, [
+    isOpen,
+    selectedCompanyId,
+    availableCompanyContacts,
+    crmTargetType,
+    selectedContactId,
+    selectedContactName,
+    contactId,
+    contactName,
+    contactPhone,
+    contactEmail,
+    contact,
+    contacts
+  ]);
 
   // Automatic Quote Reference Resolution
   useEffect(() => {
@@ -2935,7 +3067,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                 </div>
                               </div>
                               <select
-                                value={selectedContactId || (selectedContactName ? 'CUSTOM' : '')}
+                                value={
+                                  selectedContactId ||
+                                  availableCompanyContacts.find((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === (selectedContactName || '').trim().toLowerCase())?.id ||
+                                  (selectedContactName && !availableCompanyContacts.some((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()) ? 'CUSTOM' : '')
+                                }
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   if (val === 'CREATE_NEW') {
@@ -2979,7 +3115,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     </option>
                                   );
                                 })}
-                                {selectedContactName && !availableCompanyContacts.some((c) => c.id === selectedContactId) && (
+                                {/* STRICT GUARD: Do NOT push a new ad-hoc custom contact or render "(custom/unsaved)" if the contact name already exists in the company's roster. */}
+                                {selectedContactName &&
+                                  !availableCompanyContacts.some((c) => c.id === selectedContactId) &&
+                                  !availableCompanyContacts.some((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()) && (
                                   <option value="CUSTOM">{selectedContactName} (Custom/Unsaved)</option>
                                 )}
                                 <option value="CREATE_NEW" className="font-bold text-blue-400 bg-slate-900">+ Create New Contact Person</option>
@@ -3244,7 +3383,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   </div>
 
                   {/* Inline New Contact Creation banner (without duplicate designation input) */}
-                  {crmTargetType === 'contact' && selectedContactName.trim() && !availableCompanyContacts.some((c) => (c.full_name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()) && !isAddingNewContact && (
+                  {crmTargetType === 'contact' &&
+                    selectedContactName.trim() &&
+                    !availableCompanyContacts.some(
+                      (c) =>
+                        c.id === selectedContactId ||
+                        (c.full_name || (c as any).name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()
+                    ) &&
+                    !isAddingNewContact && (
                     <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-xs text-blue-200 flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2">
                         <UserPlus className="w-4 h-4 text-blue-400 shrink-0" />

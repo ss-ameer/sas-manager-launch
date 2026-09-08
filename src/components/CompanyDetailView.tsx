@@ -754,15 +754,25 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                                   <button
                                     type="button"
                                     onClick={(e) => {
+                                      const ctName = c.full_name || (c as any).name || '';
+                                      const ctPhone = ph.number || c.mobile || c.landline || (c as any).phone || '';
+                                      const ctEmail = c.email || '';
                                       triggerActivity({
                                         companyId: company.id,
                                         companyName: company.display_name,
                                         company: company,
                                         contactId: c.id,
-                                        contactName: c.full_name,
-                                        contact: c,
+                                        contactName: ctName,
+                                        contactPhone: ctPhone,
+                                        contactEmail: ctEmail,
+                                        contact: {
+                                          ...c,
+                                          id: c.id,
+                                          name: ctName,
+                                          phone: ctPhone,
+                                          email: ctEmail
+                                        },
                                         targetType: 'contact',
-                                        contactPhone: ph.number,
                                         channel: 'Call',
                                         externalUrl: `tel:${ph.number}`,
                                         e
@@ -794,15 +804,25 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                                   <button
                                     type="button"
                                     onClick={(e) => {
+                                      const ctName = c.full_name || (c as any).name || '';
+                                      const ctPhone = ph.number || c.mobile || c.landline || (c as any).phone || '';
+                                      const ctEmail = c.email || '';
                                       triggerActivity({
                                         companyId: company.id,
                                         companyName: company.display_name,
                                         company: company,
                                         contactId: c.id,
-                                        contactName: c.full_name,
-                                        contact: c,
+                                        contactName: ctName,
+                                        contactPhone: ctPhone,
+                                        contactEmail: ctEmail,
+                                        contact: {
+                                          ...c,
+                                          id: c.id,
+                                          name: ctName,
+                                          phone: ctPhone,
+                                          email: ctEmail
+                                        },
                                         targetType: 'contact',
-                                        contactPhone: ph.number,
                                         channel: 'Call',
                                         externalUrl: `tel:${ph.number}`,
                                         e
@@ -817,15 +837,25 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                                     <button
                                       type="button"
                                       onClick={(e) => {
+                                        const ctName = c.full_name || (c as any).name || '';
+                                        const ctPhone = ph.number || c.mobile || c.landline || (c as any).phone || '';
+                                        const ctEmail = c.email || '';
                                         triggerActivity({
                                           companyId: company.id,
                                           companyName: company.display_name,
                                           company: company,
                                           contactId: c.id,
-                                          contactName: c.full_name,
-                                          contact: c,
+                                          contactName: ctName,
+                                          contactPhone: ctPhone,
+                                          contactEmail: ctEmail,
+                                          contact: {
+                                            ...c,
+                                            id: c.id,
+                                            name: ctName,
+                                            phone: ctPhone,
+                                            email: ctEmail
+                                          },
                                           targetType: 'contact',
-                                          contactPhone: ph.number,
                                           channel: 'WhatsApp',
                                           messageType: 'whatsapp',
                                           externalUrl: getWhatsAppUrl(ph.number),
@@ -851,15 +881,25 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                               <button
                                 type="button"
                                 onClick={(e) => {
+                                  const ctName = c.full_name || (c as any).name || '';
+                                  const ctPhone = c.mobile || c.landline || (c as any).phone || '';
+                                  const ctEmail = em.email || c.email || '';
                                   triggerActivity({
                                     companyId: company.id,
                                     companyName: company.display_name,
                                     company: company,
                                     contactId: c.id,
-                                    contactName: c.full_name,
-                                    contact: c,
+                                    contactName: ctName,
+                                    contactPhone: ctPhone,
+                                    contactEmail: ctEmail,
+                                    contact: {
+                                      ...c,
+                                      id: c.id,
+                                      name: ctName,
+                                      phone: ctPhone,
+                                      email: ctEmail
+                                    },
                                     targetType: 'contact',
-                                    contactEmail: em.email,
                                     channel: 'Email',
                                     externalUrl: `mailto:${em.email}`,
                                     e
@@ -878,15 +918,25 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                             <button
                               type="button"
                               onClick={(e) => {
+                                const ctName = c.full_name || (c as any).name || '';
+                                const ctPhone = c.mobile || c.landline || (c as any).phone || '';
+                                const ctEmail = em.email || c.email || '';
                                 triggerActivity({
                                   companyId: company.id,
                                   companyName: company.display_name,
                                   company: company,
                                   contactId: c.id,
-                                  contactName: c.full_name,
-                                  contact: c,
+                                  contactName: ctName,
+                                  contactPhone: ctPhone,
+                                  contactEmail: ctEmail,
+                                  contact: {
+                                    ...c,
+                                    id: c.id,
+                                    name: ctName,
+                                    phone: ctPhone,
+                                    email: ctEmail
+                                  },
                                   targetType: 'contact',
-                                  contactEmail: em.email,
                                   channel: 'Email',
                                   externalUrl: `mailto:${em.email}`,
                                   e
