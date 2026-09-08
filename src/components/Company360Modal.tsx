@@ -23,8 +23,12 @@ import {
   Tag,
   MessageSquare,
   Calendar,
-  Globe
+  Globe,
+  DollarSign,
+  TrendingUp,
+  ArrowUpRight
 } from 'lucide-react';
+import { CompanyActivityTimeline, formatTimelineDate } from './common/CompanyActivityTimeline';
 import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
@@ -95,7 +99,6 @@ export default function Company360Modal({
 }: Company360ModalProps) {
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
-  const [activeSubTab, setActiveSubTab] = useState<'contacts' | 'call_logs' | 'enquiries'>('contacts');
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [selectedContactToEdit, setSelectedContactToEdit] = useState<Contact | null>(null);
   const [internalEditModalOpen, setInternalEditModalOpen] = useState(false);
@@ -237,56 +240,113 @@ export default function Company360Modal({
     }
   };
 
-  const getTempBadgeConfig = (temp: string) => {
-    const t = temp.toLowerCase();
-    if (t === 'dnc') return { label: 'DNC 🚫', className: 'bg-rose-950 text-rose-200 font-black border-rose-600 ring-1 ring-rose-500 shadow-sm shadow-rose-950' };
-    if (t === 'hot') return { label: 'Hot 🔥', className: 'bg-rose-500 text-white font-black border-rose-400' };
-    if (t === 'warm') return { label: 'Warm 🌤️', className: 'bg-amber-500 text-slate-950 font-black border-amber-400' };
-    if (t === 'cold') return { label: 'Cold ❄️', className: 'bg-cyan-500 text-slate-950 font-black border-cyan-400' };
-    return { label: temp, className: 'bg-slate-700 text-slate-200 border-slate-600' };
-  };
-
   const compPhones = getCompanyPhones(company);
   const compEmails = getCompanyEmails(company);
 
-  const badgeConfig = getTempBadgeConfig(temperatureVal);
+  // Executive Commercial KPIs
+  // 1. Total Pipeline Value
+  const totalPipelineValue = useMemo(() => {
+    return companyEnquiries.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+  }, [companyEnquiries]);
+
+  // 2. Won Business & Win Rate
+  const { wonValue, wonCount, winRate } = useMemo(() => {
+    const wonList = companyEnquiries.filter((e) => {
+      const st = (e.status || '').toLowerCase();
+      return st === 'order received' || st === 'won' || st.includes('closed won') || st.includes('closed-won');
+    });
+    const wonSum = wonList.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+    const rate = companyEnquiries.length > 0 ? Math.round((wonList.length / companyEnquiries.length) * 100) : 0;
+    return {
+      wonValue: wonSum,
+      wonCount: wonList.length,
+      winRate: rate
+    };
+  }, [companyEnquiries]);
+
+  // 3. Active Enquiries / Proposals Count & Active Pipeline
+  const { activeEnquiriesCount, activePipelineValue } = useMemo(() => {
+    const activeList = companyEnquiries.filter((e) => {
+      const st = (e.status || '').toLowerCase();
+      return !['order received', 'won', 'closed won', 'closed-won', 'lost', 'dead', 'cancelled'].includes(st);
+    });
+    const activeSum = activeList.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+    return {
+      activeEnquiriesCount: activeList.length,
+      activePipelineValue: activeSum
+    };
+  }, [companyEnquiries]);
+
+  // 4. Last Contacted relative timestamp & channel
+  const lastContactInfo = useMemo(() => {
+    if (!companyCallLogs || companyCallLogs.length === 0) {
+      return {
+        relative: 'No outreach yet',
+        formatted: 'No logs recorded',
+        channel: 'Never',
+        agent: null,
+        icon: <Clock className="w-3.5 h-3.5 text-slate-400" />
+      };
+    }
+    const sorted = [...companyCallLogs].sort((a, b) => {
+      const dateA = new Date(a.date || (a as any).createdAt || 0).getTime();
+      const dateB = new Date(b.date || (b as any).createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+    const latest = sorted[0];
+    const timeInfo = formatTimelineDate(latest.date || (latest as any).createdAt);
+    const rawChan = (latest.channel || latest.interaction_type || 'Call').toLowerCase();
+    let chanLabel = 'Call';
+    let icon = <Phone className="w-3.5 h-3.5 text-blue-500" />;
+    if (rawChan.includes('whatsapp') || rawChan.includes('message')) {
+      chanLabel = 'WhatsApp';
+      icon = <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />;
+    } else if (rawChan.includes('email') || rawChan.includes('mail')) {
+      chanLabel = 'Email';
+      icon = <Mail className="w-3.5 h-3.5 text-indigo-500" />;
+    } else if (rawChan.includes('meeting') || rawChan.includes('site') || rawChan.includes('visit') || rawChan.includes('task')) {
+      chanLabel = 'Meeting / Task';
+      icon = <Calendar className="w-3.5 h-3.5 text-amber-500" />;
+    }
+    const agent = (latest as any).handled_by_team_member_name || latest.sales_person || latest.logged_by || 'Staff';
+
+    return {
+      relative: timeInfo.relative,
+      formatted: timeInfo.formatted,
+      channel: chanLabel,
+      agent,
+      icon,
+      latest
+    };
+  }, [companyCallLogs]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden my-auto">
-        {/* Header */}
-        <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-          <div className="flex items-start space-x-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md flex-shrink-0 mt-1">
-              <Building2 className="w-6 h-6" />
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden animate-fade-in">
+      <div className="w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto">
+        {/* Sticky Executive Dossier Header */}
+        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shrink-0">
+          <div className="flex items-start space-x-3.5 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shrink-0 mt-0.5">
+              <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-slate-100">{company.display_name}</h2>
+                <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900 dark:text-slate-100 truncate">
+                  {company.display_name}
+                </h2>
+
+                {/* Canonical Ref Badge CMP-XXXX */}
+                <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 flex items-center space-x-1 shrink-0">
+                  <Tag className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                  <span>REF: {getReferenceId('CMP', company, companies)}</span>
+                </span>
+
+                {/* Google Search shortcut */}
                 <GoogleSearchButton
                   companyName={company.canonical_name || company.display_name}
                   location={company.city}
                   size="sm"
                 />
-                <span className="px-2 py-0.5 rounded font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
-                  <Tag className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-                  <span>REF: {getReferenceId('CMP', company, companies)}</span>
-                </span>
-                {company.isInternalCompany && (
-                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 flex items-center space-x-1">
-                    <span>🏢</span>
-                    <span>Our Company</span>
-                  </span>
-                )}
-                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
-                  {company.legal_suffix}
-                </span>
-
-                {/* Relationship Badge */}
-                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
-                  <span>{relationshipVal}</span>
-                </span>
 
                 {/* Interactive Temperature / DNC Badge */}
                 <TemperatureBadge
@@ -297,6 +357,12 @@ export default function Company360Modal({
                   companies={companies}
                   setCompanies={setCompanies}
                 />
+
+                {/* Relationship Badge */}
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center space-x-1 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+                  <span>{relationshipVal}</span>
+                </span>
 
                 {/* Two-Tier Industry Taxonomy Badge */}
                 <IndustryBadge
@@ -313,113 +379,39 @@ export default function Company360Modal({
                   size="sm"
                   showEmpty
                 />
-              </div>
 
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mt-2">
-                <span className="flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    {company.city ? `${company.city}, ` : ''}
-                    {company.country}
-                  </span>
-                </span>
-              </div>
-
-              {/* Labeled Phones & Emails Display */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                {compPhones.length === 0 && compEmails.length === 0 && (
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 not-italic">
-                    No phone numbers or email addresses saved.
+                {/* Internal / Subsidiary Badge */}
+                {company.isInternalCompany && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 flex items-center space-x-1 shrink-0">
+                    <span>🏢</span>
+                    <span>Our Company</span>
                   </span>
                 )}
-                {compPhones.map((ph, idx) => {
-                  const phoneVal = ph.value || ph.number || '';
-                  const phoneTrim = phoneVal.trim();
-                  const compWaUrl = getWhatsAppUrl(phoneVal);
-                  const restriction = company.restricted_lines?.[phoneVal] || company.restricted_lines?.[phoneTrim] || (company.is_dnc ? 'DNC' : undefined);
-                  const isRestricted = Boolean(restriction);
-                  const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
 
-                  return (
-                    <span key={idx} className="flex items-center space-x-1.5 font-mono">
-                      <Phone className={`w-3.5 h-3.5 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                      {isRestricted ? (
-                        <span className="font-bold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                          {phoneVal}
-                        </span>
-                      ) : (
-                        <a
-                          href={`tel:${phoneVal}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => handleOutboundInteraction(e, 'Call', null)}
-                          className="hover:underline font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
-                        >
-                          {phoneVal}
-                        </a>
-                      )}
-                      {!isRestricted && phoneTrim && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleOutboundInteraction(e, 'WhatsApp', null, compWaUrl)}
-                          className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                          title="Send WhatsApp & Log Activity"
-                        >
-                          <MessageSquare className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>WA</span>
-                        </button>
-                      )}
-                      <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-200 dark:border-slate-700">
-                        {ph.label || 'Landline'}
-                      </span>
-                      {isRestricted && (
-                        <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
-                          restriction === 'Invalid'
-                            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40'
-                            : 'bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/40'
-                        }`}>
-                          {badgeText}
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-                {compEmails.map((em, idx) => {
-                  const emailVal = em.value || em.email || '';
-                  return (
-                    <span key={idx} className="flex items-center space-x-1.5 font-sans">
-                      <Mail className="w-3.5 h-3.5 text-slate-400" />
-                      <a
-                        href={`mailto:${emailVal}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => handleOutboundInteraction(e, 'Email', null)}
-                        className="hover:underline text-slate-800 dark:text-slate-200 cursor-pointer"
-                      >
-                        {emailVal}
-                      </a>
-                      <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded-md font-sans border border-slate-200 dark:border-slate-700">
-                        {em.label || 'Work'}
-                      </span>
-                    </span>
-                  );
-                })}
+                {company.legal_suffix && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0">
+                    {company.legal_suffix}
+                  </span>
+                )}
               </div>
 
-              {company.aliases && company.aliases.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1 mt-2">
-                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Known Aliases:</span>
-                  {company.aliases.map((alias, idx) => (
-                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-medium border border-slate-200 dark:border-slate-700">
-                      {alias}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {/* City & Country Jurisdiction */}
+              <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="truncate">
+                  {company.city ? `${company.city}, ` : ''}{company.country || 'Global Account'}
+                </span>
+                {company.aliases && company.aliases.length > 0 && (
+                  <span className="hidden sm:inline text-slate-400 dark:text-slate-500 text-[11px]">
+                    • Aliases: {company.aliases.join(', ')}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Action Toolbar */}
+          <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
             <button
               type="button"
               onClick={(e) => {
@@ -432,10 +424,11 @@ export default function Company360Modal({
                   e
                 });
               }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
             >
               <span>⚡ Log Activity</span>
             </button>
+
             <button
               type="button"
               onClick={() => {
@@ -446,294 +439,251 @@ export default function Company360Modal({
                   setInternalEditModalOpen(true);
                 }
               }}
-              className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
               title="Edit Company Profile in Registry"
             >
               <Edit2 className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
-              <span>Edit Company</span>
+              <span className="hidden sm:inline">Edit Profile</span>
             </button>
+
             <button
+              type="button"
               onClick={onClose}
-              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 transition cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 transition cursor-pointer"
+              aria-label="Close dossier"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Action Toolbar */}
-        <div className="px-6 py-3 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setActiveSubTab('contacts')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                activeSubTab === 'contacts'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
-              }`}
-            >
-              <Users2 className="w-3.5 h-3.5" />
-              <span>Contacts ({companyContacts.length})</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab('call_logs')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                activeSubTab === 'call_logs'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
-              }`}
-            >
-              <PhoneCall className="w-3.5 h-3.5" />
-              <span>Call Operations ({companyCallLogs.length})</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab('enquiries')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-                activeSubTab === 'enquiries'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Proposals & Enquiries ({companyEnquiries.length})</span>
-            </button>
+        {/* Executive Commercial KPI Ribbon (4-Card Metric Strip) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 p-3 sm:p-4 bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          {/* Card 1: Total Pipeline Value */}
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider font-mono">
+              <span>Pipeline Value</span>
+              <DollarSign className="w-3.5 h-3.5 text-blue-500" />
+            </div>
+            <div className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-white mt-1 tabular-nums truncate">
+              AED {totalPipelineValue.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
+              {companyEnquiries.length} {companyEnquiries.length === 1 ? 'quote linked' : 'quotes linked'}
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={(e) => {
-                onClose();
-                handleInitiate({
-                  companyId: company.id,
-                  companyName: company.display_name,
-                  company,
-                  targetType: 'company_mainline',
-                  channel: 'Call',
-                  e
-                });
-              }}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition cursor-pointer"
-            >
-              <PhoneCall className="w-3.5 h-3.5" />
-              <span>+ Log Call</span>
-            </button>
+          {/* Card 2: Won Business & Win Rate */}
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider font-mono">
+              <span>Won Business</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono">
+                {winRate}% Won
+              </span>
+            </div>
+            <div className="text-sm sm:text-base font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums truncate">
+              AED {wonValue.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
+              {wonCount} converted {wonCount === 1 ? 'order' : 'orders'}
+            </div>
+          </div>
 
-            {onCreateEnquiryForCompany && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onCreateEnquiryForCompany(company);
-                }}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ New Proposal</span>
-              </button>
-            )}
+          {/* Card 3: Active Proposals */}
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider font-mono">
+              <span>Active Proposals</span>
+              <FileText className="w-3.5 h-3.5 text-purple-500" />
+            </div>
+            <div className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-white mt-1 tabular-nums">
+              {activeEnquiriesCount} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 font-sans">Active</span>
+            </div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
+              AED {activePipelineValue.toLocaleString()} in flight
+            </div>
+          </div>
+
+          {/* Card 4: Last Contacted */}
+          <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider font-mono">
+              <span>Last Contacted</span>
+              {lastContactInfo.icon}
+            </div>
+            <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mt-1 truncate" title={lastContactInfo.formatted}>
+              {lastContactInfo.relative}
+            </div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
+              {lastContactInfo.channel !== 'Never' ? `${lastContactInfo.channel} via ${lastContactInfo.agent}` : 'No outreach recorded'}
+            </div>
           </div>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 flex-1 overflow-y-auto">
-          {/* TAB 1: CONTACTS */}
-          {activeSubTab === 'contacts' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Personnel Contacts ({companyContacts.length})
-                </span>
+        {/* Two-Column Command Grid: Left 45% (Commercial Health & Personnel), Right 55% (Omnichannel Activity Timeline) */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800">
+          {/* LEFT COLUMN: 45% Commercial Health & Personnel */}
+          <div className="lg:col-span-5 flex flex-col h-full overflow-y-auto bg-slate-50/40 dark:bg-slate-900/40 p-3.5 sm:p-4 space-y-3.5">
+
+            {/* Card A: Key Decision Makers & Personnel */}
+            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                    <Users2 className="w-3.5 h-3.5" />
+                  </div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
+                    Key Decision Makers ({companyContacts.length})
+                  </h3>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedContactToEdit(null);
                     setContactModalOpen(true);
                   }}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                  className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/80 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Contact Person</span>
+                  <Plus className="w-3 h-3" />
+                  <span>Add Contact</span>
                 </button>
               </div>
 
               {companyContacts.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-                  <Users2 className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No contacts registered for this company yet.</p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium">
-                    Click "Add Contact Person" above to create and link personnel.
-                  </p>
+                <div className="py-6 px-3 text-center rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No personnel saved for this account yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedContactToEdit(null);
+                      setContactModalOpen(true);
+                    }}
+                    className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    + Add Primary Contact
+                  </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
                   {companyContacts.map((contact) => {
                     const cPhones = getContactPhones(contact);
                     const cEmails = getContactEmails(contact);
-                    const firstPhone = cPhones[0]?.value || cPhones[0]?.number || contact.mobile || contact.landline || '';
-                    const firstCleanPhone = firstPhone.replace(/[^0-9]/g, '');
-                    const firstEmail = cEmails[0]?.value || cEmails[0]?.email || contact.email || '';
+                    const firstPhone = cPhones[0]?.value || cPhones[0]?.number || '';
+                    const firstEmail = cEmails[0]?.value || cEmails[0]?.email || '';
+                    const cleanPhone = firstPhone.trim();
+                    const waUrl = getWhatsAppUrl(firstPhone);
+                    const isDnc = contact.is_dnc || company.is_dnc;
 
                     return (
                       <div
                         key={contact.id}
-                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80 hover:border-blue-300 dark:hover:border-blue-500 transition shadow-sm relative group space-y-2.5"
+                        className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/70 dark:hover:bg-slate-800/80 transition space-y-1.5"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="font-bold text-slate-900 dark:text-slate-100 text-sm flex items-center space-x-1.5 flex-wrap gap-1">
-                              <span>{contact.full_name}</span>
+                          <div className="min-w-0">
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                {contact.full_name}
+                              </span>
                               {contact.is_primary && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                                   Primary
                                 </span>
                               )}
-                              {contact.is_dnc && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
+                              {isDnc && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                                   DNC
                                 </span>
                               )}
                             </div>
-                            {contact.designation && (
-                              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">{contact.designation}</p>
-                            )}
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              {contact.designation || 'Decision Maker'}
+                            </p>
                           </div>
 
                           <div className="flex items-center space-x-1 shrink-0">
+                            {/* Direct Dial Call Trigger */}
+                            {cleanPhone && !isDnc && (
+                              <button
+                                type="button"
+                                onClick={(ev) => handleOutboundInteraction(ev, 'Call', contact, undefined, cleanPhone)}
+                                className="p-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition cursor-pointer"
+                                title={`Call ${cleanPhone} & log interaction`}
+                              >
+                                <Phone className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                              </button>
+                            )}
+
+                            {/* Direct WhatsApp Trigger */}
+                            {cleanPhone && !isDnc && (
+                              <button
+                                type="button"
+                                onClick={(ev) => handleOutboundInteraction(ev, 'WhatsApp', contact, waUrl, cleanPhone)}
+                                className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition cursor-pointer"
+                                title={`WhatsApp ${cleanPhone} & log interaction`}
+                              >
+                                <MessageSquare className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              </button>
+                            )}
+
+                            {/* Direct Email Trigger */}
+                            {firstEmail && (
+                              <button
+                                type="button"
+                                onClick={(ev) => handleOutboundInteraction(ev, 'Email', contact, undefined, undefined, firstEmail)}
+                                className="p-1 rounded bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition cursor-pointer"
+                                title={`Email ${firstEmail} & log interaction`}
+                              >
+                                <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                              </button>
+                            )}
+
+                            {/* Edit Contact */}
                             <button
                               type="button"
                               onClick={() => {
                                 setSelectedContactToEdit(contact);
                                 setContactModalOpen(true);
                               }}
-                              className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-lg transition flex items-center space-x-1 text-xs font-bold cursor-pointer"
-                              title="Edit Contact Person"
+                              className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                              title="Edit Contact"
                             >
                               <Edit2 className="w-3 h-3" />
-                              <span>Edit</span>
                             </button>
+
+                            {/* Delete Contact */}
                             <button
                               type="button"
                               onClick={() => handleDeleteContact(contact)}
-                              className="p-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-700 rounded-lg transition flex items-center space-x-1 text-xs font-bold cursor-pointer"
-                              title="Delete Contact Person"
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                              title="Delete Contact"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
                         </div>
 
-                        {/* Phone numbers list */}
-                        <div className="text-xs space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-                          {cPhones.map((p, pIdx) => {
-                            const phoneVal = p.value || p.number || '';
-                            const phoneTrim = phoneVal.trim();
-                            const cleanPhone = sanitizeWhatsAppNumber(phoneVal);
-                            const waUrl = getWhatsAppUrl(phoneVal);
-
-                            const restriction = contact.restricted_lines?.[phoneVal] ||
-                                                contact.restricted_lines?.[phoneTrim] ||
-                                                company.restricted_lines?.[phoneVal] ||
-                                                company.restricted_lines?.[phoneTrim] ||
-                                                (contact.is_dnc ? 'DNC' : undefined);
-                            const isRestricted = Boolean(restriction);
-                            const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
-
+                        {/* Phone & Email labels */}
+                        <div className="text-[11px] space-y-0.5 text-slate-600 dark:text-slate-300 font-mono">
+                          {cPhones.map((ph, pIdx) => {
+                            const pVal = ph.value || ph.number || '';
+                            const pRest = company.restricted_lines?.[pVal] || (isDnc ? 'DNC' : undefined);
                             return (
-                              <div key={pIdx} className="flex items-center justify-between text-blue-700 dark:text-blue-400 font-mono py-0.5">
-                                <div className="flex items-center space-x-2">
-                                  <Phone className={`w-3.5 h-3.5 shrink-0 ${isRestricted ? (restriction === 'Invalid' ? 'text-amber-500' : 'text-rose-500') : 'text-blue-500'}`} />
-                                  {isRestricted ? (
-                                    <span className="font-bold text-slate-400 line-through cursor-not-allowed" title={`Restricted line (${badgeText})`}>
-                                      {phoneVal}
-                                    </span>
-                                  ) : (
-                                    <a
-                                      href={`tel:${phoneVal}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(ev) => handleOutboundInteraction(ev, 'Call', contact)}
-                                      className="hover:underline font-bold cursor-pointer"
-                                    >
-                                      {phoneVal}
-                                    </a>
-                                  )}
-                                  <span className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded text-[10px] font-sans font-semibold border border-blue-200 dark:border-blue-800">
-                                    {p.label || 'Mobile'}
+                              <div key={pIdx} className="flex items-center justify-between text-[11px]">
+                                <span className={pRest ? 'line-through text-slate-400' : ''}>
+                                  {pVal} {ph.label ? `(${ph.label})` : ''}
+                                </span>
+                                {pRest && (
+                                  <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 uppercase">
+                                    {pRest}
                                   </span>
-                                  {isRestricted && (
-                                    <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold font-sans uppercase border ${
-                                      restriction === 'Invalid'
-                                        ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40'
-                                        : 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/40'
-                                    }`}>
-                                      {badgeText}
-                                    </span>
-                                  )}
-                                </div>
-
-                                {!isRestricted && (
-                                  <div className="flex items-center gap-1">
-                                    <a
-                                      href={`tel:${phoneVal}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(ev) => handleOutboundInteraction(ev, 'Call', contact)}
-                                      className="p-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition"
-                                      title="Call Phone"
-                                    >
-                                      <Phone className="w-3 h-3" />
-                                    </a>
-                                    {cleanPhone && (
-                                      <button
-                                        type="button"
-                                        onClick={(ev) => handleOutboundInteraction(ev, 'WhatsApp', contact, waUrl)}
-                                        className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer font-sans"
-                                        title="Send WhatsApp & Log Activity"
-                                      >
-                                        <MessageSquare className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                        <span>WhatsApp</span>
-                                      </button>
-                                    )}
-                                  </div>
                                 )}
                               </div>
                             );
                           })}
-
-                          {/* Emails list */}
-                          {cEmails.map((e, eIdx) => {
-                            const emailVal = e.value || e.email || '';
+                          {cEmails.map((em, eIdx) => {
+                            const eVal = em.value || em.email || '';
                             return (
-                              <div key={eIdx} className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-sans truncate py-0.5">
-                                <div className="flex items-center space-x-2 truncate">
-                                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <a
-                                    href={`mailto:${emailVal}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(ev) => handleOutboundInteraction(ev, 'Email', contact)}
-                                    className="hover:underline truncate text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
-                                  >
-                                    {emailVal}
-                                  </a>
-                                  {e.label && (
-                                    <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-[10px] font-semibold shrink-0 border border-slate-200 dark:border-slate-600">
-                                      {e.label}
-                                    </span>
-                                  )}
-                                </div>
-                                <a
-                                  href={`mailto:${emailVal}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(ev) => handleOutboundInteraction(ev, 'Email', contact)}
-                                  className="p-1 rounded bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition shrink-0 ml-1 cursor-pointer"
-                                  title="Send Email"
-                                >
-                                  <Mail className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                                </a>
+                              <div key={eIdx} className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {eVal} {em.label ? `(${em.label})` : ''}
                               </div>
                             );
                           })}
@@ -744,166 +694,272 @@ export default function Company360Modal({
                 </div>
               )}
             </div>
-          )}
 
-          {/* TAB 2: CALL LOGS */}
-          {activeSubTab === 'call_logs' && (
-            <div className="space-y-3">
-              {companyCallLogs.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-                  <PhoneCall className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No call operations recorded for this company yet.</p>
+            {/* Card B: Company Identity & Location */}
+            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-1 rounded-md bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <Building2 className="w-3.5 h-3.5" />
+                </div>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
+                  Identity & Location
+                </h3>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {/* Mainline Phones */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">
+                    Mainline Phone Lines
+                  </span>
+                  {compPhones.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic">No mainline phone recorded</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {compPhones.map((ph, idx) => {
+                        const phoneVal = ph.value || ph.number || '';
+                        const phoneTrim = phoneVal.trim();
+                        const compWaUrl = getWhatsAppUrl(phoneVal);
+                        const restriction = company.restricted_lines?.[phoneVal] || company.restricted_lines?.[phoneTrim] || (company.is_dnc ? 'DNC' : undefined);
+                        const isRestricted = Boolean(restriction);
+                        const badgeText = restriction === 'DNC' ? 'DNC' : 'INVALID';
+
+                        return (
+                          <div key={idx} className="flex items-center justify-between p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 font-mono text-[11px]">
+                            <div className="flex items-center space-x-1.5 truncate">
+                              <Phone className={`w-3 h-3 ${isRestricted ? 'text-rose-500' : 'text-blue-500'} shrink-0`} />
+                              <span className={isRestricted ? 'line-through text-slate-400' : 'font-semibold text-slate-800 dark:text-slate-200'}>
+                                {phoneVal}
+                              </span>
+                              {ph.label && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-sans">
+                                  {ph.label}
+                                </span>
+                              )}
+                              {isRestricted && (
+                                <span className="text-[9px] px-1 py-0.2 rounded font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-sans">
+                                  {badgeText}
+                                </span>
+                              )}
+                            </div>
+
+                            {!isRestricted && (
+                              <div className="flex items-center space-x-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOutboundInteraction(e, 'Call', null, undefined, phoneVal)}
+                                  className="p-1 rounded bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition cursor-pointer"
+                                  title="Call Mainline"
+                                >
+                                  <Phone className="w-2.5 h-2.5 text-blue-600" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOutboundInteraction(e, 'WhatsApp', null, compWaUrl, phoneVal)}
+                                  className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer"
+                                  title="WhatsApp Mainline"
+                                >
+                                  <MessageSquare className="w-2.5 h-2.5 text-emerald-600" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Mainline Emails */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">
+                    Primary Email
+                  </span>
+                  {compEmails.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic">No corporate email saved</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {compEmails.map((em, idx) => {
+                        const emailVal = em.value || em.email || '';
+                        return (
+                          <div key={idx} className="flex items-center justify-between p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-[11px]">
+                            <div className="flex items-center space-x-1.5 truncate">
+                              <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate font-medium text-slate-700 dark:text-slate-300">{emailVal}</span>
+                              {em.label && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-sans">
+                                  {em.label}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleOutboundInteraction(e, 'Email', null, undefined, undefined, emailVal)}
+                              className="p-1 rounded bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 hover:bg-purple-100 transition cursor-pointer shrink-0"
+                              title="Send Email"
+                            >
+                              <Mail className="w-2.5 h-2.5 text-purple-600" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Website & Jurisdiction */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 flex-wrap gap-2">
+                  <div className="flex items-center space-x-1">
+                    <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Jurisdiction: <strong>{company.city || 'UAE'}, {company.country || 'Global'}</strong></span>
+                  </div>
+
+                  {((company as any).website || (company as any).domain) && (
+                    <a
+                      href={`https://${((company as any).website || (company as any).domain).replace(/^https?:\/\//, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center space-x-1 text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                    >
+                      <Globe className="w-3 h-3" />
+                      <span>Visit Site</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Card C: Active Linked Proposals */}
+            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1 rounded-md bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                    <FileText className="w-3.5 h-3.5" />
+                  </div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
+                    Active Proposals ({companyEnquiries.length})
+                  </h3>
+                </div>
+
+                {onCreateEnquiryForCompany && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onCreateEnquiryForCompany(company);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>New Quote</span>
+                  </button>
+                )}
+              </div>
+
+              {companyEnquiries.length === 0 ? (
+                <div className="py-6 px-3 text-center rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No proposals or quotations registered.</p>
+                  {onCreateEnquiryForCompany && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onCreateEnquiryForCompany(company);
+                      }}
+                      className="mt-2 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                    >
+                      + Generate Proposal
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-800/80">
-                  {companyCallLogs.map((log) => {
-                    const type = (log.interaction_type || '').toLowerCase();
-                    return (
-                      <div key={log.id} className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center space-x-2">
-                            {/* Dynamic Leading History Symbol */}
-                            <div className={`p-1.5 rounded-lg border flex items-center justify-center shrink-0 ${
-                              type.includes('email') ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800' :
-                              type.includes('message') || type.includes('whatsapp') ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' :
-                              type.includes('meeting') || type.includes('visit') ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800' :
-                              'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                            }`}>
-                              {type.includes('email') ? <Mail className="w-3.5 h-3.5" /> :
-                               type.includes('message') || type.includes('whatsapp') ? <MessageSquare className="w-3.5 h-3.5" /> :
-                               type.includes('meeting') || type.includes('visit') ? <Calendar className="w-3.5 h-3.5" /> :
-                               <PhoneCall className="w-3.5 h-3.5" />}
-                            </div>
-                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{log.date}</span>
-                            {(() => {
-                              const st = log.status || '';
-                              const stLower = st.toLowerCase();
-                              const isComp = isSuccessStatus(st);
-                              const isInv = stLower === 'invalid number' || stLower === 'cancelled' || stLower.includes('invalid') || stLower.includes('wrong') || stLower.includes('dnc') || stLower.includes('blocked') || stLower.includes('failed') || stLower.includes('bounced') || stLower.includes('no show');
-                              const isNoAns = stLower.includes('no answer') || stLower.includes('busy') || stLower.includes('voicemail') || stLower.includes('dropped') || stLower.includes('rescheduled');
-                              const badgeStyle = isComp
-                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                : isInv
-                                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800'
-                                : isNoAns
-                                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                : 'bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-                              return (
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${badgeStyle}`}>
-                                  {log.status}
-                                </span>
-                              );
-                            })()}
-                            {(() => {
-                              const normChan = (log.channel || log.interaction_type || '').toLowerCase();
-                              const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
-                              if (isAsync && log.purpose) {
-                                return (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                                    {log.purpose}
-                                  </span>
-                                );
-                              }
-                              if (log.outcome) {
-                                return (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                    {log.outcome}
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
+                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                  {companyEnquiries.map((enq) => {
+                    const isWon = (enq.status || '').toLowerCase() === 'order received' || (enq.status || '').toLowerCase() === 'won';
+                    const isLost = (enq.status || '').toLowerCase() === 'lost' || (enq.status || '').toLowerCase() === 'dead';
 
-                          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
-                            Logged by: {log.logged_by}
-                          </span>
+                    return (
+                      <div
+                        key={enq.id}
+                        onClick={() => {
+                          if (enq.id && onOpenEnquiry) {
+                            onClose();
+                            onOpenEnquiry(enq.id);
+                          }
+                        }}
+                        className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/80 dark:hover:bg-slate-800/90 transition cursor-pointer flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-1.5 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                              {enq.quote_ref_no || `QTE-${enq.sn || '001'}`}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                isWon
+                                  ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                  : isLost
+                                  ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                                  : 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
+                              }`}
+                            >
+                              {enq.status}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
+                            {enq.subject || 'Commercial Proposal'}
+                          </p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                            {enq.enquiry_date || 'Recent'} • {enq.sales_person || 'Assigned Agent'}
+                          </p>
                         </div>
 
-                        {log.contact_name && (
-                          <p className="text-xs text-slate-600 dark:text-slate-300 font-semibold mt-1">
-                            Contact: {log.contact_name} {log.contact_phone ? `(${log.contact_phone})` : ''}
-                          </p>
-                        )}
-
-                        {log.requirement_notes && (
-                          <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 bg-slate-50 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
-                            {log.requirement_notes}
-                          </p>
-                        )}
-
-                        {log.next_followup_date && (
-                          <div className="mt-2 text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center space-x-1">
-                            <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                            <span>Follow-up scheduled for: {log.next_followup_date}</span>
-                          </div>
-                        )}
+                        <div className="text-right shrink-0">
+                          <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white block font-mono">
+                            {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5 mt-0.5">
+                            <span>View</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {/* TAB 3: ENQUIRIES */}
-          {activeSubTab === 'enquiries' && (
-            <div className="space-y-3">
-              {companyEnquiries.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-                  <FileText className="w-8 h-8 text-slate-500 dark:text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No proposals or enquiries created for this company yet.</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-800/80">
-                  {companyEnquiries.map((enq) => (
-                    <div
-                      key={enq.id}
-                      onClick={() => {
-                        if (enq.id && onOpenEnquiry) {
-                          onClose();
-                          onOpenEnquiry(enq.id);
-                        }
-                      }}
-                      className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition cursor-pointer flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{enq.quote_ref_no}</span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              enq.status === 'Order Received'
-                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                                : enq.status === 'Lost' || enq.status === 'Dead'
-                                ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
-                                : 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
-                            }`}
-                          >
-                            {enq.status}
-                          </span>
-                        </div>
-
-                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">{enq.subject || 'Technical Enquiry'}</p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Date: {enq.enquiry_date} | Agent: {enq.sales_person}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-sm font-black text-slate-900 dark:text-slate-100 block font-mono">
-                          {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
-                        </span>
-                        <span className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-end space-x-1 mt-1">
-                          <span>View Detail</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* RIGHT COLUMN: 55% Omnichannel Activity Timeline */}
+          <div className="lg:col-span-7 flex flex-col h-full min-h-0 overflow-hidden bg-white dark:bg-slate-900">
+            <CompanyActivityTimeline
+              historyLogs={companyCallLogs}
+              enquiries={companyEnquiries}
+              companyName={company.display_name}
+              companyId={company.id}
+              contacts={companyContacts}
+              salespersons={salespersons}
+              user={user}
+              showHeader={true}
+              onSelectCallLog={(log) => {
+                if (onOpenActivityDrawer) {
+                  onOpenActivityDrawer({
+                    companyId: company.id,
+                    companyName: company.display_name,
+                    logToEdit: log
+                  });
+                }
+              }}
+              onSelectEnquiry={(id) => {
+                if (onOpenEnquiry) {
+                  onClose();
+                  onOpenEnquiry(id);
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
 

@@ -183,7 +183,17 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     return historyLogs.filter((log) => {
       if (channelFilter !== 'all') {
         const chan = (log.channel || log.interaction_type || '').toLowerCase();
-        if (!chan.includes(channelFilter.toLowerCase())) return false;
+        if (channelFilter === 'call') {
+          if (!chan.includes('call') && !chan.includes('phone')) return false;
+        } else if (channelFilter === 'whatsapp' || channelFilter === 'message') {
+          if (!chan.includes('whatsapp') && !chan.includes('message') && !chan.includes('chat') && !chan.includes('sms')) return false;
+        } else if (channelFilter === 'email') {
+          if (!chan.includes('email') && !chan.includes('mail')) return false;
+        } else if (channelFilter === 'task') {
+          if (!chan.includes('task') && !chan.includes('internal') && !chan.includes('meeting') && !chan.includes('site') && !chan.includes('visit')) return false;
+        } else if (!chan.includes(channelFilter.toLowerCase())) {
+          return false;
+        }
       }
       if (!searchTerm.trim()) return true;
       const q = searchTerm.toLowerCase();
@@ -380,16 +390,44 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   aria-label="Filter by channel"
                 >
                   <option value="all">All Channels</option>
-                  <option value="call">Call</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="email">Email</option>
-                  <option value="meeting">Meeting</option>
-                  <option value="site">Site Visit</option>
-                  <option value="internal">Internal Task</option>
+                  <option value="call">Calls</option>
+                  <option value="whatsapp">Messages (WhatsApp)</option>
+                  <option value="email">Emails</option>
+                  <option value="task">Tasks & Meetings</option>
                 </select>
               </div>
             )}
           </div>
+
+          {/* Quick Channel Pills for Rapid Filtering */}
+          {activeTab === 'activities' && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              {[
+                { key: 'all', label: 'All', icon: null },
+                { key: 'call', label: 'Calls', icon: <Phone className="w-2.5 h-2.5" /> },
+                { key: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-2.5 h-2.5" /> },
+                { key: 'email', label: 'Emails', icon: <Mail className="w-2.5 h-2.5" /> },
+                { key: 'task', label: 'Tasks', icon: <Calendar className="w-2.5 h-2.5" /> },
+              ].map((ch) => {
+                const isActive = channelFilter === ch.key;
+                return (
+                  <button
+                    key={ch.key}
+                    type="button"
+                    onClick={() => setChannelFilter(ch.key)}
+                    className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all inline-flex items-center gap-1 cursor-pointer border ${
+                      isActive
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs font-bold'
+                        : 'bg-slate-100 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {ch.icon}
+                    <span>{ch.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
