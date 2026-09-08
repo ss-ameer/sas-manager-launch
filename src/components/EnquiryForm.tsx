@@ -2346,8 +2346,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   const isPreviewActive = (!!activePreviewUrl || !!pastedSourceText) && !previewMinimized;
 
   return (
-    <div id="enquiry-form-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
-      <div className={`h-[100dvh] flex bg-white border-l border-slate-200 shadow-2xl relative animate-in slide-in-from-right duration-200 transition-all max-w-[98vw] w-[98vw]`}>
+    <div 
+      id="enquiry-form-drawer" 
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex justify-end"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className={`fixed inset-y-0 right-0 w-full ${
+          isPreviewActive ? 'max-w-7xl' : 'max-w-4xl'
+        } z-50 bg-white dark:bg-slate-900 shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200/80 dark:border-slate-800`}
+      >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (
@@ -2790,194 +2802,237 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         )}
 
         {/* Right Panel: The actual Form */}
-        <div className="flex-1 flex flex-col min-w-0 h-full bg-white">
-          {/* Header Block */}
-          <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-            <div className="flex items-center space-x-3">
-              <FileCheck className="w-6 h-6 text-blue-600" />
-              <h3 className="text-xl font-bold text-slate-900 font-sans">
-                {enquiryToEdit ? `Edit Enquiry #${enquiryToEdit.sn}` : 'Register New Enquiry'}
-              </h3>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-800 rounded-lg transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Minimized Source Preview Banner */}
-          {((!!activePreviewUrl || !!pastedSourceText) && previewMinimized) && (
-            <div className="bg-gradient-to-r from-blue-50 via-slate-50 to-emerald-50 border-b border-slate-200 px-6 py-2.5 flex items-center justify-between text-xs font-sans shrink-0 animate-in fade-in duration-150">
-              <div className="flex items-center space-x-2 text-slate-700">
-                <Sparkles className="w-4 h-4 text-emerald-600 animate-pulse" />
-                <span className="font-bold text-slate-800">
-                  {activePreviewUrl ? 'Document Preview Minimized' : 'Smart Paste Source Preview Minimized'}
-                </span>
-                <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
-                  (Form expanded to maximum wide view)
-                </span>
+        <div className="flex-1 flex flex-col min-w-0 h-full bg-white dark:bg-slate-900 overflow-hidden">
+          <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+            {/* Sticky Header */}
+            <div className="px-6 py-4 border-b border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs flex items-center justify-between shrink-0 z-10 shadow-xs">
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/40 border border-blue-200/60 dark:border-blue-700/60 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                  <FileCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans flex items-center gap-1.5">
+                      <span>{enquiryToEdit ? `Edit Enquiry #${enquiryToEdit.sn}` : '📋 Register New Enquiry'}</span>
+                    </h3>
+                    {quoteRefNo && (
+                      <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        {quoteRefNo}
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      status === 'Active' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400' :
+                      status === 'Order Received' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-400' :
+                      'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                    }`}>
+                      {status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
+                    {enquiryToEdit ? 'Modify proposal specifications, line items, and pricing' : 'Create a new commercial enquiry record with multi-product breakdown'}
+                  </p>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewMinimized(false)}
-                className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-blue-700 font-bold rounded-xl shadow-2xs transition flex items-center space-x-1.5"
-              >
-                <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
-                <span>Expand Split-Screen Preview</span>
-              </button>
-            </div>
-          )}
-
-          {/* Form body */}
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-8 space-y-6">
-          
-          {/* Section 1: Standard Metadata */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
-            <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Log Metadata
-            </h4>
-
-            <div className="flex flex-col lg:flex-row gap-6 items-start">
-              <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div>
-                  <MarqueeLabel>S/N</MarqueeLabel>
-                  <input
-                    type="number"
-                    required
-                    value={sn}
-                    onChange={(e) => setSn(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20"
-                  />
-                </div>
-
-                <div id="field-received_date">
-                  <MarqueeLabel required title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
-                  <input
-                    type="date"
-                    required
-                    placeholder="YYYY-MM-DD"
-                    value={enquiryDate}
-                    onChange={(e) => setEnquiryDate(e.target.value)}
-                    style={{ colorScheme: 'dark' }}
-                    className={`[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono ${getHighlightClasses('received_date')}`}
-                  />
-                </div>
-
-                <div>
-                  <MarqueeLabel title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
-                  <input
-                    type="date"
-                    required
-                    placeholder="YYYY-MM-DD"
-                    value={loggedDate}
-                    onChange={(e) => setLoggedDate(e.target.value)}
-                    style={{ colorScheme: 'dark' }}
-                    className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')}>Salesperson</MarqueeLabel>
-                  <select
-                    value={salesPerson}
-                    onChange={(e) => setSalesPerson(e.target.value)}
-                    disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
-                    className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans ${
-                      user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
-                    }`}
-                  >
-                    {sortedSalespersons.map((s) => (
-                      <option key={s.id || s.initials} value={s.id || s.initials}>
-                        {s.full_name}
-                      </option>
-                    ))}
-                  </select>
-                  {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
-                    <p className="text-[10px] text-amber-700 font-sans mt-1">
-                      🔒 Registered automatically under your account. (Reassignment restricted by Admin)
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')}>Enquiry Source</MarqueeLabel>
-                  <CreatableCombobox
-                    options={sortedSources}
-                    value={enquirySource}
-                    onChange={(val: string) => setEnquirySource(val)}
-                    onCreateOption={async (val: string) => {
-                      setEnquirySource(val);
-                      if (setEnquirySources) {
-                        try {
-                          const docRef = await safeAddDoc('dropdown_enquiry_sources', { name: val });
-                          setEnquirySources((prev) => {
-                            if (prev.some(s => s.name.toLowerCase() === val.toLowerCase())) return prev;
-                            return [...prev, { id: docRef?.id || ('src_' + Date.now()), name: val }];
-                          });
-                        } catch (e) {
-                          console.warn('Failed to save new source', e);
-                        }
+              <div className="flex items-center space-x-2">
+                {!enquiryToEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Clear and reset all form inputs to default?')) {
+                        resetForm(sn);
+                        if (triggerToast) triggerToast('Form reset to defaults', 'info');
                       }
                     }}
-                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
-                  />
-                </div>
-
-                <div>
-                  <MarqueeLabel>Enquiry Currency</MarqueeLabel>
-                  <select
-                    value={formCurrency}
-                    onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
-                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors border border-slate-200/80 dark:border-slate-700 cursor-pointer"
+                    title="Reset form fields to blank"
                   >
-                    <option value="AED">AED (Dirhams)</option>
-                    <option value="USD">USD (Dollars)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Concerned Persons / Additional Team Members Selection */}
-              <div className="w-full lg:w-[35%] shrink-0 bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2 shadow-sm">
-                <MarqueeLabel>Additional Team</MarqueeLabel>
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1 bg-white border border-slate-200 rounded-lg">
-                  {salespersons.map((s) => {
-                    const val = s.id || s.initials || s.full_name;
-                    const isSelected = concernedPersons.includes(val);
-                    const isPrimary = salesPerson === val;
-                    return (
-                      <button
-                        type="button"
-                        key={val}
-                        onClick={() => {
-                          if (isPrimary) return;
-                          setConcernedPersons((prev) =>
-                            prev.includes(val) ? prev.filter((p) => p !== val) : [...prev, val]
-                          );
-                        }}
-                        disabled={isPrimary}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center space-x-1 ${
-                          isPrimary
-                            ? 'bg-blue-100 text-blue-800 border-blue-300 opacity-80 cursor-not-allowed'
-                            : isSelected
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                        }`}
-                      >
-                        <span>{s.full_name} {s.initials ? `(${s.initials})` : ''}</span>
-                        {isPrimary && <span className="text-[9px] font-bold uppercase tracking-wider">(Primary)</span>}
-                        {!isPrimary && isSelected && <Check className="w-3 h-3 ml-1" />}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-slate-500 font-sans">
-                  Click team members to tag them as concerned persons. Tagged persons get full view & access permissions to this proposal.
-                </p>
+                    Clear / Reset
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                  title="Close drawer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
-          </div>
+
+            {/* Minimized Source Preview Banner */}
+            {((!!activePreviewUrl || !!pastedSourceText) && previewMinimized) && (
+              <div className="bg-gradient-to-r from-blue-50 via-slate-50 to-emerald-50 dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs font-sans shrink-0 animate-in fade-in duration-150">
+                <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                  <Sparkles className="w-4 h-4 text-emerald-600 animate-pulse" />
+                  <span className="font-bold text-slate-800 dark:text-white">
+                    {activePreviewUrl ? 'Document Preview Minimized' : 'Smart Paste Source Preview Minimized'}
+                  </span>
+                  <span className="text-slate-500 font-mono text-[11px] hidden sm:inline">
+                    (Form expanded to maximum wide view)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMinimized(false)}
+                  className="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-blue-700 dark:text-blue-300 font-bold rounded-xl shadow-2xs transition flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>Expand Split-Screen Preview</span>
+                </button>
+              </div>
+            )}
+
+            {/* Scrollable Form body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40">
+            
+            {/* Section 1: Standard Metadata */}
+            <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <span>📅 Log Metadata & Ownership</span>
+                </span>
+              </div>
+
+              <div className="flex flex-col lg:flex-row gap-6 items-start">
+                <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">S/N</MarqueeLabel>
+                    <input
+                      type="number"
+                      required
+                      value={sn}
+                      onChange={(e) => setSn(Number(e.target.value))}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                    />
+                  </div>
+
+                  <div id="field-received_date">
+                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
+                    <input
+                      type="date"
+                      required
+                      placeholder="YYYY-MM-DD"
+                      value={enquiryDate}
+                      onChange={(e) => setEnquiryDate(e.target.value)}
+                      style={{ colorScheme: 'dark' }}
+                      className={`[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
+                    />
+                  </div>
+
+                  <div>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
+                    <input
+                      type="date"
+                      required
+                      placeholder="YYYY-MM-DD"
+                      value={loggedDate}
+                      onChange={(e) => setLoggedDate(e.target.value)}
+                      style={{ colorScheme: 'dark' }}
+                      className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Salesperson</MarqueeLabel>
+                    <select
+                      value={salesPerson}
+                      onChange={(e) => setSalesPerson(e.target.value)}
+                      disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
+                      className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${
+                        user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {sortedSalespersons.map((s) => (
+                        <option key={s.id || s.initials} value={s.id || s.initials}>
+                          {s.full_name}
+                        </option>
+                      ))}
+                    </select>
+                    {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
+                      <p className="text-[10px] text-amber-700 font-sans mt-1">
+                        🔒 Registered automatically under your account. (Reassignment restricted by Admin)
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Enquiry Source</MarqueeLabel>
+                    <CreatableCombobox
+                      options={sortedSources}
+                      value={enquirySource}
+                      onChange={(val: string) => setEnquirySource(val)}
+                      onCreateOption={async (val: string) => {
+                        setEnquirySource(val);
+                        if (setEnquirySources) {
+                          try {
+                            const docRef = await safeAddDoc('dropdown_enquiry_sources', { name: val });
+                            setEnquirySources((prev) => {
+                              if (prev.some(s => s.name.toLowerCase() === val.toLowerCase())) return prev;
+                              return [...prev, { id: docRef?.id || ('src_' + Date.now()), name: val }];
+                            });
+                          } catch (e) {
+                            console.warn('Failed to save new source', e);
+                          }
+                        }
+                      }}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                    />
+                  </div>
+
+                  <div>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Currency</MarqueeLabel>
+                    <select
+                      value={formCurrency}
+                      onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                    >
+                      <option value="AED">AED (Dirhams)</option>
+                      <option value="USD">USD (Dollars)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Concerned Persons / Additional Team Members Selection */}
+                <div className="w-full lg:w-[35%] shrink-0 bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-2 shadow-2xs">
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">Additional Team</MarqueeLabel>
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-lg">
+                    {salespersons.map((s) => {
+                      const val = s.id || s.initials || s.full_name;
+                      const isSelected = concernedPersons.includes(val);
+                      const isPrimary = salesPerson === val;
+                      return (
+                        <button
+                          type="button"
+                          key={val}
+                          onClick={() => {
+                            if (isPrimary) return;
+                            setConcernedPersons((prev) =>
+                              prev.includes(val) ? prev.filter((p) => p !== val) : [...prev, val]
+                            );
+                          }}
+                          disabled={isPrimary}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center space-x-1 cursor-pointer ${
+                            isPrimary
+                              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 opacity-85 cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span>{s.full_name} {s.initials ? `(${s.initials})` : ''}</span>
+                          {isPrimary && <span className="text-[9px] font-bold uppercase tracking-wider">(Primary)</span>}
+                          {!isPrimary && isSelected && <Check className="w-3 h-3 ml-1" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
+                    Click team members to tag them as concerned persons. Tagged persons get full view & access permissions to this proposal.
+                  </p>
+                </div>
+              </div>
+            </div>
 
           {/* Unregistered Entities Confirmation & One-Click Registration Card */}
           {unregisteredEntities && (
@@ -3257,27 +3312,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           )}
 
           {/* Section 2: Account and Contact selection */}
-          <div id="field-company" className={`bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
-            <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Account Pairing
-            </h4>
+          <div id="field-company" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>🏢 Account & Contact Pairing</span>
+              </span>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 relative bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 shadow-2xs">
               {/* Company search */}
               <div className="relative">
-                <div className="flex justify-between items-center mb-1">
+                <div className="flex justify-between items-center mb-1.5">
                   <div className="flex-1 min-w-0 mr-2 flex items-center justify-between">
-                    <MarqueeLabel>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
                       Search & Pair Company
                     </MarqueeLabel>
                     {renderConfidenceBadge('company_name')}
                     <button
                       type="button"
                       onClick={handleAutoDetectClipboard}
-                      className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-bold transition flex items-center space-x-1 shrink-0"
+                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer"
                       title="Read clipboard text & auto-detect unregistered companies or contacts with AI"
                     >
-                      <Sparkles className="w-3 h-3 text-emerald-600 fill-emerald-600" />
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600" />
                       <span>Auto-Detect Clipboard</span>
                     </button>
                   </div>
@@ -3287,10 +3344,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <button
                       type="button"
                       onClick={() => setCompanyMenuOpen(!companyMenuOpen)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition-colors flex items-center justify-center"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
                       title="Company Actions"
                     >
-                      <MoreVertical className="w-3.5 h-3.5" />
+                      <MoreVertical className="w-4 h-4" />
                     </button>
                     {companyMenuOpen && (
                       <>
@@ -3298,7 +3355,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           className="fixed inset-0 z-40" 
                           onClick={() => setCompanyMenuOpen(false)} 
                         />
-                        <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                        <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                           {companyId && (
                             <button
                               type="button"
@@ -3324,7 +3381,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   setNewCompanyModal(true);
                                 }
                               }}
-                              className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-750 hover:bg-slate-50 font-semibold flex items-center space-x-1.5"
+                              className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
                               title="Edit selected Company"
                             >
                               <span>Edit Details</span>
@@ -3344,7 +3401,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               setIsEditingCompany(false);
                               setNewCompanyModal(true);
                             }}
-                            className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 hover:bg-slate-50 font-semibold flex items-center space-x-1.5"
+                            className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
                             title="Add new Company"
                           >
                             <span>+ Add New Company</span>
@@ -3365,12 +3422,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       setShowCompanyList(true);
                     }}
                     onFocus={() => setShowCompanyList(true)}
-                    className={`flex-1 bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('company')}`}
+                    className={`flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
                   />
                 </div>
 
                 {showCompanyList && companySearch.trim().length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1.5 max-h-48 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100">
+                  <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-48 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
                     {matchingCompanies.map((c) => (
                       <button
                         key={c.id}
@@ -3389,9 +3446,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             setContactId('');
                           }
                         }}
-                        className="w-full p-3 hover:bg-slate-50 text-left text-xs font-sans text-slate-700 flex items-center justify-between"
+                        className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
                       >
-                        <span className="font-semibold text-slate-800">{c.display_name}</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{c.display_name}</span>
                         <span className="text-[10px] text-slate-400 font-mono uppercase">{c.city}, {c.country}</span>
                       </button>
                     ))}
@@ -3406,9 +3463,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Contact lookup */}
               <div>
-                <div className="flex justify-between items-center mb-1">
+                <div className="flex justify-between items-center mb-1.5">
                   <div className="flex-1 min-w-0 mr-2 flex justify-between items-center">
-                    <MarqueeLabel>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
@@ -3433,10 +3490,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         setIsEditingContact(false);
                         setShowNewContactModal(true);
                       }}
-                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors flex items-center space-x-1 shrink-0 shadow-2xs"
+                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer"
                       title="Add a new contact person for this account"
                     >
-                      <UserPlus className="w-3.5 h-3.5 text-blue-600" />
+                      <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                       <span>+ Add Contact</span>
                     </button>
                     {companyId && contactId && (
@@ -3454,10 +3511,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             setShowNewContactModal(true);
                           }
                         }}
-                        className="text-[11px] font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 transition-colors flex items-center space-x-1"
+                        className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors flex items-center space-x-1 cursor-pointer"
                         title="Edit details of selected contact"
                       >
-                        <Pencil className="w-3 h-3 text-slate-500" />
+                        <Pencil className="w-3.5 h-3.5 text-slate-500" />
                         <span>Edit</span>
                       </button>
                     )}
@@ -3467,7 +3524,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   value={contactId}
                   onChange={(e) => setContactId(e.target.value)}
                   disabled={!companyId}
-                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:opacity-50 font-sans ${getHighlightClasses('contact')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
                 >
                   <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
                   {companyContacts.map((ct) => (
@@ -3481,31 +3538,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 3: Proposal Location and identifiers */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
-            <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Location & Identifiers
-            </h4>
+          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>📍 Commercial Scope & References</span>
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div id="field-country">
-                <MarqueeLabel>Country</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
                 <input
                   type="text"
                   required
                   placeholder="e.g. UAE / Oman"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
-                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('country')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('country')}`}
                 />
               </div>
 
               <div id="field-location">
-                <div className="flex justify-between items-center mb-1">
-                  <div className="flex-1 min-w-0 mr-2">
-                    <MarqueeLabel>
-                      City
-                    </MarqueeLabel>
-                  </div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    City
+                  </MarqueeLabel>
                   {renderConfidenceBadge('project_location')}
                 </div>
                 <input
@@ -3514,12 +3571,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="e.g. Dubai / Muscat"
                   value={projectLocation}
                   onChange={(e) => setProjectLocation(e.target.value)}
-                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('location')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('location')}`}
                 />
               </div>
 
               <div id="field-quote_ref_no">
-                <MarqueeLabel>Quote Ref</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Quote Ref</MarqueeLabel>
                 <input
                   type="text"
                   required
@@ -3528,40 +3585,40 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setQuoteRefNo(e.target.value);
                     setIsQuoteRefCustom(true);
                   }}
-                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('quote_ref_no')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('quote_ref_no')}`}
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2 border-t border-slate-200/60">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
               <div id="field-subject">
-                <MarqueeLabel>Subject (Optional)</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Subject (Optional)</MarqueeLabel>
                 <input
                   type="text"
                   placeholder="e.g. RO Supply and Commissioning"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  className={`w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 ${getHighlightClasses('subject')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('subject')}`}
                 />
               </div>
 
               <div>
-                <MarqueeLabel>Client Ref</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Client Ref</MarqueeLabel>
                 <input
                   type="text"
                   placeholder="e.g. PO-8902-X / RFQ-2026"
                   value={customerReferenceCode}
                   onChange={(e) => setCustomerReferenceCode(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                 />
               </div>
 
               <div>
-                <MarqueeLabel>Option</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Option</MarqueeLabel>
                 <select
                   value={proposalOption}
                   onChange={(e) => setProposalOption(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-sans"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
                 >
                   <option value="">None / Single Option</option>
                   <option value="Option A">Option A</option>
@@ -3575,12 +3632,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Custom Project Specifications & Information */}
             <div 
               id="field-custom_project_details" 
-              className={`bg-white border border-slate-200 p-4 rounded-xl space-y-3 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
+              className={`bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700/80 pb-2">
                 <div className="flex items-center space-x-2">
-                  <Sliders className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-bold text-slate-800 font-sans uppercase tracking-wider">
+                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans uppercase tracking-wider">
                     Custom Project Specifications & Information
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">
@@ -3590,7 +3647,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={() => setCustomProjectDetails(prev => [...prev, { key: '', value: '' }])}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Project Spec</span>
@@ -3609,7 +3666,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         setCustomProjectDetails(prev => [...prev, { key: quickKey, value: '' }]);
                       }
                     }}
-                    className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition font-medium cursor-pointer"
+                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200/80 dark:border-slate-700 transition font-medium cursor-pointer"
                   >
                     + {quickKey}
                   </button>
@@ -3619,7 +3676,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               {/* Active Key-Value Specs List */}
               <div className="space-y-2 pt-1">
                 {customProjectDetails.map((detail, idx) => (
-                  <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 p-2 rounded-xl border border-slate-200">
+                  <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
                     <input
                       type="text"
                       placeholder="Attribute (e.g. Consultant)"
@@ -3629,7 +3686,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         next[idx].key = e.target.value;
                         setCustomProjectDetails(next);
                       }}
-                      className="w-1/3 bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-500 font-sans"
+                      className="w-1/3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
                     />
                     <span className="text-slate-400 font-bold">:</span>
                     <input
@@ -3641,7 +3698,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         next[idx].value = e.target.value;
                         setCustomProjectDetails(next);
                       }}
-                      className="flex-1 bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-sans"
+                      className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
                     />
                     <button
                       type="button"
@@ -3658,19 +3715,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 4: Line Items Table */}
-          <div id="field-line_items" className={`bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4 ${getHighlightClasses('line_items')}`}>
-            <div className="flex items-center justify-between border-b border-slate-150 pb-2 mb-2">
-              <div className="flex items-center">
-                <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-                  Proposal Line Items (Multi-Product breakdown)
-                </h4>
+          <div id="field-line_items" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <span>📦 Proposal Line Items (Multi-Product Breakdown)</span>
+                </span>
                 {renderConfidenceBadge('line_items')}
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
                   onClick={() => setShowCatalogModal(true)}
-                  className="py-1 px-3 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1 shadow-sm"
+                  className="py-1 px-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
                   title="Fuzzy insert prefilled water treatment components from product catalogs"
                 >
                   <Search className="w-3.5 h-3.5" />
@@ -3679,7 +3736,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={handleAddLineItem}
-                  className="py-1 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1 shadow-sm"
+                  className="py-1 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Item Line</span>
@@ -3696,21 +3753,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </datalist>
                 
                 {lineItems.map((item, index) => (
-                  <div key={index} className="bg-white border border-slate-200 p-4 rounded-xl space-y-3 shadow-sm">
+                  <div key={index} className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 shadow-2xs">
                     {/* Card Header Bar */}
-                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-150">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80">
                       <div className="flex items-center space-x-2">
-                        <span className="w-5 h-5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-mono text-[10px] font-bold flex items-center justify-center">
+                        <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center">
                           #{index + 1}
                         </span>
-                        <span className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider">
+                        <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                           Item Line #{index + 1}
                         </span>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveLineItem(index)}
-                        className="px-2.5 py-1 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-slate-500 rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-sans font-medium"
+                        className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:hover:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-sans font-medium cursor-pointer"
                         title="Remove Line Item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -3720,13 +3777,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_1.2fr_1.5fr] gap-3">
                       <div>
-                        <label className="flex items-center h-4 text-[9px] font-mono text-slate-400 uppercase tracking-wider mb-1">
+                        <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                           CLASSIFICATION
                         </label>
                         <select
                           value={item.item_type || 'product'}
                           onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
                           <option value="product">Product (Equipment)</option>
                           <option value="charge">Charge / Fee (Service)</option>
@@ -3736,13 +3793,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                       {item.item_type === 'charge' || item.item_type === 'discount' ? (
                         <div>
-                          <label className="flex items-center h-4 text-[9px] font-mono text-slate-400 uppercase tracking-wider mb-1">
+                          <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                             Charge Type
                           </label>
                           <select
                             value={item.charge_type || 'Transportation'}
                             onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
-                            className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 focus:outline-none font-sans font-semibold"
+                            className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
                           >
                             <option value="Transportation">Transportation / Freight</option>
                             <option value="Installation">Installation & Commissioning</option>
@@ -3754,7 +3811,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                       ) : (
                         <div>
-                          <label className="flex items-center h-4 text-[9px] font-mono text-slate-400 uppercase tracking-wider mb-1">
+                          <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                             <span>Product Type</span>
                             {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
                           </label>
@@ -3776,24 +3833,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 }
                               }
                             }}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                           />
                         </div>
                       )}
 
                       <div>
-                        <MarqueeLabel>QTY</MarqueeLabel>
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">QTY</MarqueeLabel>
                         <input
                           type="number"
                           required
                           value={item.quantity}
                           onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono focus:outline-none"
                         />
                       </div>
 
                       <div>
-                        <MarqueeLabel badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>UNIT</MarqueeLabel>
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1" badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>UNIT</MarqueeLabel>
                         <CreatableCombobox
                           options={sortedUnits}
                           value={item.unit}
@@ -3812,12 +3869,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               }
                             }
                           }}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
                         />
                       </div>
 
                       <div>
-                        <MarqueeLabel badge={
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1" badge={
                           formCurrency === 'USD' ? (
                             <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ {(item.unit_price * 3.6725).toFixed(2)} AED)</span>
                           ) : (
@@ -3830,40 +3887,40 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           required
                           value={item.unit_price}
                           onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono focus:outline-none"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div>
-                        <MarqueeLabel>ITEM DESCRIPTION & SPECS</MarqueeLabel>
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">ITEM DESCRIPTION & SPECS</MarqueeLabel>
                         <input
                           type="text"
                           placeholder="e.g. MMF 63''x67'', Design Pressure 10.5 Bar, ASME Stamped"
                           value={item.description}
                           onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                         />
                       </div>
 
                       <div>
-                        <MarqueeLabel>LEAD TIME</MarqueeLabel>
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">LEAD TIME</MarqueeLabel>
                         <input
                           type="text"
                           placeholder="e.g. 8–10 Weeks Ex-Factory"
                           value={item.lead_time_note || ''}
                           onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                         />
                       </div>
 
                       <div>
-                        <MarqueeLabel>OPTION DESIGNATION</MarqueeLabel>
+                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">OPTION DESIGNATION</MarqueeLabel>
                         <select
                           value={item.option || ''}
                           onChange={(e) => handleLineItemChange(index, 'option', e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-700 focus:outline-none font-sans font-medium"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
                           <option value="">Default / Included</option>
                           <option value="Option A">Option A</option>
@@ -3875,9 +3932,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     {/* Specification Attributes section */}
-                    <div className="pt-2 border-t border-slate-100">
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
+                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">
                           Specification Attributes
                         </span>
                         <button
@@ -3889,7 +3946,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             updated[index] = { ...updated[index], attributes: attrList };
                             setLineItems(updated);
                           }}
-                          className="text-[10px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-1"
+                          className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center space-x-1 cursor-pointer"
                         >
                           <Plus className="w-3 h-3" />
                           <span>Add Attribute</span>
@@ -3897,14 +3954,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
 
                       {(item.attributes && item.attributes.length > 0) ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200/60">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
                           {item.attributes.map((attr, attrIdx) => {
                             const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
                             const isCustom = attr.key && !suggestedKeys.includes(attr.key);
                             const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
 
                             return (
-                              <div key={attrIdx} className="flex items-center space-x-2 bg-white border border-slate-150 p-1.5 rounded-md shadow-sm">
+                              <div key={attrIdx} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
                                 {showCustomInput ? (
                                   <div className="min-w-[120px] max-w-[160px] flex-shrink-0 flex items-center space-x-1 bg-transparent">
                                     <input
@@ -3918,7 +3975,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         updated[index] = { ...updated[index], attributes: attrList };
                                         setLineItems(updated);
                                       }}
-                                      className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 font-semibold focus:outline-none truncate"
+                                      className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
                                     />
                                     {suggestedKeys.length > 0 && (
                                       <button
@@ -3931,7 +3988,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                           updated[index] = { ...updated[index], attributes: attrList };
                                           setLineItems(updated);
                                         }}
-                                        className="text-[9px] text-blue-500 hover:text-blue-700 font-bold px-0.5 shrink-0"
+                                        className="text-[9px] text-blue-500 hover:text-blue-700 font-bold px-0.5 shrink-0 cursor-pointer"
                                       >
                                         List
                                       </button>
@@ -3953,7 +4010,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       updated[index] = { ...updated[index], attributes: attrList };
                                       setLineItems(updated);
                                     }}
-                                    className="min-w-[120px] max-w-[160px] flex-shrink-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 font-semibold cursor-pointer focus:outline-none truncate"
+                                    className="min-w-[120px] max-w-[160px] flex-shrink-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold cursor-pointer focus:outline-none truncate"
                                   >
                                     <option value="">Select...</option>
                                     {suggestedKeys.map((k) => (
@@ -3962,7 +4019,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     <option value="__custom__">+ Custom...</option>
                                   </select>
                                 )}
-                                <span className="text-slate-300 text-xs shrink-0">:</span>
+                                <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">:</span>
                                 <input
                                   type="text"
                                   value={attr.value}
@@ -3974,7 +4031,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     updated[index] = { ...updated[index], attributes: attrList };
                                     setLineItems(updated);
                                   }}
-                                  className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-700 focus:outline-none"
+                                  className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
                                 />
                                 <button
                                   type="button"
@@ -3984,7 +4041,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     updated[index] = { ...updated[index], attributes: attrList };
                                     setLineItems(updated);
                                   }}
-                                  className="p-0.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition shrink-0"
+                                  className="p-0.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition shrink-0 cursor-pointer"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -3993,41 +4050,41 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           })}
                         </div>
                       ) : (
-                        <p className="text-[10px] text-slate-400 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-end text-right text-xs font-mono text-slate-400 space-x-1.5 flex-wrap gap-y-1">
-                      <span className="shrink-0">Line Total ({formCurrency}):</span>
+                    <div className="flex items-center justify-end text-right text-xs font-mono text-slate-400 dark:text-slate-500 space-x-1.5 flex-wrap gap-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <span className="shrink-0 text-slate-600 dark:text-slate-400 font-bold">Line Total ({formCurrency}):</span>
                       <FormattedNumberInput
                         value={item.total_price}
                         onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                        className="w-28 bg-slate-50 border border-slate-300 rounded-lg py-1 px-2 text-xs font-semibold text-slate-800 text-right focus:outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 shrink-0"
+                        className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
                       />
                       {formCurrency === 'USD' ? (
-                        <span className="text-blue-500 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {(item.total_price * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {(item.total_price * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                       ) : (
-                        <span className="text-blue-500 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ ${(item.total_price / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ ${(item.total_price / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
                       )}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="border border-dashed border-slate-200 rounded-xl bg-white overflow-hidden">
+              <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 overflow-hidden">
                 <table className="w-full">
-                  <thead className="text-left text-[10px] uppercase tracking-wider text-slate-500 bg-slate-50 border-b">
+                  <thead className="text-left text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <th className="px-4 py-2 font-semibold">Item Description</th>
-                      <th className="px-4 py-2 font-semibold">Proposed Size</th>
-                      <th className="px-4 py-2 font-semibold">Qty</th>
-                      <th className="px-4 py-2 font-semibold">Unit Price (AED)</th>
-                      <th className="px-4 py-2 font-semibold">Total (AED)</th>
+                      <th className="px-4 py-2.5 font-bold">Item Description</th>
+                      <th className="px-4 py-2.5 font-bold">Proposed Size</th>
+                      <th className="px-4 py-2.5 font-bold">Qty</th>
+                      <th className="px-4 py-2.5 font-bold">Unit Price ({formCurrency})</th>
+                      <th className="px-4 py-2.5 font-bold">Total ({formCurrency})</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                      <td colSpan={5} className="py-8 text-center text-slate-400 dark:text-slate-500 text-xs italic">
                         No items added. Click 'Add Item Line' or use AI to extract specs.
                       </td>
                     </tr>
@@ -4038,18 +4095,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 5: Value AED, status, follow-up dates */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
-            <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Proposal State & Evaluation
-            </h4>
+          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>📊 Proposal State & Evaluation</span>
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <MarqueeLabel>Enquiry Status</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Status</MarqueeLabel>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
                 >
                   {['Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO'].map((st) => (
                     <option key={st} value={st}>{st}</option>
@@ -4058,32 +4117,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div>
-                <MarqueeLabel>Estimated Order Date (YYYY-MM-DD)</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Estimated Order Date</MarqueeLabel>
                 <input
                   type="date"
                   placeholder="YYYY-MM-DD"
                   value={projectedOrderDate}
                   onChange={(e) => setProjectedOrderDate(e.target.value)}
                   style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                  className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                 />
               </div>
 
               <div>
-                <MarqueeLabel>Next Follow-up Date (YYYY-MM-DD)</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Next Follow-up Date</MarqueeLabel>
                 <input
                   type="date"
                   placeholder="YYYY-MM-DD"
                   value={nextFollowupDate}
                   onChange={(e) => setNextFollowupDate(e.target.value)}
                   style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                  className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                 />
               </div>
 
               {/* Package total value */}
               <div id="field-value">
-                <MarqueeLabel badge={
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" badge={
                   formCurrency === 'USD' ? (
                     <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ AED {((isLumpSum ? manualValue : computedValue) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                   ) : (
@@ -4092,12 +4151,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 }>
                   {`Package Value (${formCurrency})`}
                 </MarqueeLabel>
-                <div className={`p-2 bg-white border border-slate-300 focus-within:border-slate-400 focus-within:ring-1 focus-within:ring-slate-400 rounded-xl text-sm font-semibold text-blue-600 font-mono ${getHighlightClasses('value')}`}>
+                <div className={`p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 font-mono ${getHighlightClasses('value')}`}>
                   {isLumpSum ? (
                     <FormattedNumberInput
                       value={manualValue}
                       onChange={(val: number) => setManualValue(val)}
-                      className="w-full bg-transparent border-none text-blue-600 focus:outline-none font-mono py-0.5 px-1"
+                      className="w-full bg-transparent border-none text-blue-600 dark:text-blue-400 focus:outline-none font-mono py-0.5 px-1"
                     />
                   ) : (
                     <span>{formCurrency} {computedValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -4109,9 +4168,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     id="lump-sum-chk"
                     checked={isLumpSum}
                     onChange={(e) => setIsLumpSum(e.target.checked)}
-                    className="rounded border-slate-200 text-blue-500 focus:ring-blue-500"
+                    className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
                   />
-                  <label htmlFor="lump-sum-chk" className="text-[10px] text-slate-400 font-mono cursor-pointer uppercase">
+                  <label htmlFor="lump-sum-chk" className="text-[10px] text-slate-500 dark:text-slate-400 font-mono cursor-pointer uppercase">
                     Manual Lump-sum Override
                   </label>
                 </div>
@@ -4120,42 +4179,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 6: Remarks & Payment Terms */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
-            <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest border-b border-slate-150 pb-2 mb-2">
-              Commercial Terms & Remarks
-            </h4>
+          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>📝 Commercial Terms & Remarks</span>
+              </span>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <MarqueeLabel>Remarks / Status Updates</MarqueeLabel>
+                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
                 <textarea
-                  rows={2}
+                  rows={3}
                   placeholder="e.g. Quotation sent. Customer requested 5% discount."
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
                 />
               </div>
 
               <div className="space-y-3">
                 <div>
-                  <MarqueeLabel>Invoice PO #</MarqueeLabel>
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
                   <input
                     type="text"
                     placeholder="e.g. PO-4500989583"
                     value={invoicePoNo}
                     onChange={(e) => setInvoicePoNo(e.target.value)}
-                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none font-mono"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                   />
                 </div>
                 <div>
-                  <MarqueeLabel>Payment Status</MarqueeLabel>
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
                   <input
                     type="text"
                     placeholder="e.g. 50% Advance, 50% PDC"
                     value={paymentStatus}
                     onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-1.5 px-3 text-sm text-slate-800 focus:outline-none"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
                   />
                 </div>
               </div>
@@ -4163,22 +4224,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 7: Proposal source document upload simulation */}
-          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-150 pb-2 mb-2">
-              <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-                Source PDF Proposal & Excel AI Data
-              </h4>
+          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>📎 Source PDF Proposal & Excel AI Data</span>
+              </span>
               <button
                 type="button"
                 onClick={() => setRawTextModalOpen(true)}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs rounded-xl border border-emerald-200 shadow-sm transition"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>Paste Excel Row / Raw Text</span>
               </button>
             </div>
 
-            <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 rounded-2xl p-6 text-center transition duration-150 cursor-pointer relative bg-slate-50/50">
+            <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-6 text-center transition duration-150 cursor-pointer relative bg-white/50 dark:bg-slate-900/50">
               <input
                 type="file"
                 multiple
@@ -4186,8 +4247,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 onChange={handleFileUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
-              <Paperclip className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <div className="text-sm font-semibold text-slate-600 block font-sans">
+              <Paperclip className="w-8 h-8 text-slate-400 dark:text-slate-500 mx-auto mb-2" />
+              <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 block font-sans">
                 {uploading ? (
                   <div className="flex flex-col items-center justify-center space-y-2">
                     <div className="flex items-center space-x-2">
@@ -4204,12 +4265,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <span>Drag and Drop or Click to Attach Quote Files</span>
                 )}
               </div>
-              <span className="text-[10px] text-slate-400 font-mono mt-1 block">
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-1 block">
                 Supports PDF, Word (.docx), Email (.eml), images, and text files (Real Storage Sync) • Click "Autofill Form" below to extract details with AI
               </span>
 
               {uploading && uploadProgress !== null && (
-                <div className="w-full max-w-xs bg-slate-200 h-1.5 rounded-full mx-auto mt-3 overflow-hidden">
+                <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mx-auto mt-3 overflow-hidden">
                   <div
                     className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
@@ -4220,17 +4281,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             {/* Persistent AI Extraction / API Key Notice Banner */}
             {extractionError && (
-              <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 space-y-3 font-sans shadow-sm animate-in fade-in duration-200">
+              <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/90 dark:border-amber-800/60 rounded-xl p-4 space-y-3 font-sans shadow-2xs animate-in fade-in duration-200">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-2.5">
-                    <KeyRound className="w-4.5 h-4.5 text-amber-600 shrink-0 mt-0.5" />
+                    <KeyRound className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <h5 className="text-xs font-bold text-amber-900 font-sans uppercase tracking-wider">
+                      <h5 className="text-xs font-bold text-amber-900 dark:text-amber-300 font-sans uppercase tracking-wider">
                         {extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('invalid') || extractionError.includes('unconfigured')
                           ? 'Gemini API Key Required'
                           : 'AI Extraction Notice'}
                       </h5>
-                      <p className="text-xs text-amber-800 leading-relaxed font-sans">
+                      <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed font-sans">
                         {extractionError}
                       </p>
                     </div>
@@ -4238,7 +4299,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <button
                     type="button"
                     onClick={() => setExtractionError(null)}
-                    className="text-amber-500 hover:text-amber-700 p-1 rounded-lg hover:bg-amber-100/50 transition"
+                    className="text-amber-500 hover:text-amber-700 dark:hover:text-amber-300 p-1 rounded-lg hover:bg-amber-100/50 dark:hover:bg-amber-900/40 transition cursor-pointer"
                     title="Dismiss notice"
                   >
                     <X className="w-4 h-4" />
@@ -4246,15 +4307,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
 
                 {(extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('Settings')) && (
-                  <div className="bg-white/90 border border-amber-200/80 rounded-xl p-3 space-y-2 text-[11px] text-slate-700 font-sans shadow-2xs">
-                    <p className="font-bold text-slate-800 flex items-center space-x-1.5">
+                  <div className="bg-white/90 dark:bg-slate-900/90 border border-amber-200/80 dark:border-amber-800/50 rounded-xl p-3 space-y-2 text-[11px] text-slate-700 dark:text-slate-300 font-sans shadow-2xs">
+                    <p className="font-bold text-slate-800 dark:text-white flex items-center space-x-1.5">
                       <Info className="w-3.5 h-3.5 text-blue-600" />
                       <span>How to configure or update your Gemini API Key in AI Studio:</span>
                     </p>
-                    <ol className="list-decimal list-inside space-y-1 text-slate-600 pl-1 leading-relaxed">
-                      <li>Click <strong className="text-slate-800">Settings</strong> (gear icon) in the AI Studio header.</li>
-                      <li>Select <strong className="text-slate-800">Secrets / API Keys</strong>.</li>
-                      <li>Set <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-amber-800 border border-slate-200">GEMINI_API_KEY</code> with your active Gemini key.</li>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400 pl-1 leading-relaxed">
+                      <li>Click <strong className="text-slate-800 dark:text-slate-200">Settings</strong> (gear icon) in the AI Studio header.</li>
+                      <li>Select <strong className="text-slate-800 dark:text-slate-200">Secrets / API Keys</strong>.</li>
+                      <li>Set <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-amber-800 dark:text-amber-400 border border-slate-200 dark:border-slate-700">GEMINI_API_KEY</code> with your active Gemini key.</li>
                     </ol>
                   </div>
                 )}
@@ -4263,7 +4324,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <button
                     type="button"
                     onClick={() => setShowGeminiKeyModal(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-xs transition"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
                   >
                     <KeyRound className="w-3.5 h-3.5" />
                     <span>Enter Personal Gemini API Key</span>
@@ -4271,7 +4332,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <button
                     type="button"
                     onClick={() => setRawTextModalOpen(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-xs transition"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
                     <span>Use Smart Paste Instead (No API Key Required)</span>
@@ -4282,20 +4343,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             {/* Dynamic AI Extraction heartbeat / status ticker */}
             {isExtracting && (
-              <div className="bg-blue-50 border border-blue-150 rounded-xl p-4 space-y-2.5 animate-pulse">
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2.5 animate-pulse">
                 <div className="flex items-center space-x-2.5">
                   <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider font-sans">Stage 2/2: AI Extraction Running</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">Stage 2/2: AI Extraction Running</span>
                 </div>
                 <div className="pl-6.5 space-y-1">
-                  <p className="text-xs text-blue-700 font-medium font-sans">
-                    Status: <span className="text-blue-800 font-bold">{extractionStatusText}</span>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 font-medium font-sans">
+                    Status: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText}</span>
                   </p>
-                  <p className="text-[10px] text-slate-500 font-mono">
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                     Sending optimized context-aware payload to Gemini. Under high load, this may take up to 20s. A safety abort trigger is set for 40s.
                   </p>
                 </div>
-                <div className="w-full bg-blue-100 h-1 rounded-full overflow-hidden">
+                <div className="w-full bg-blue-100 dark:bg-blue-900 h-1 rounded-full overflow-hidden">
                   <div className="bg-blue-600 h-1 rounded-full animate-pulse w-full" />
                 </div>
               </div>
@@ -4303,9 +4364,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             {attachments.length > 0 && (
               <div className="space-y-2">
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Attached files:</span>
+                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Attached files:</span>
                 {attachments.map((file, idx) => (
-                  <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between text-xs font-mono text-slate-700">
+                  <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 flex items-center justify-between text-xs font-mono text-slate-700 dark:text-slate-300 shadow-2xs">
                     <div 
                       onClick={() => {
                         if (file.url) {
@@ -4314,12 +4375,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           setPreviewFileType(file.type || 'application/pdf');
                         }
                       }}
-                      className={`flex items-center space-x-2 truncate mr-2 transition ${file.url ? 'cursor-pointer hover:text-blue-600' : 'text-slate-500'}`}
+                      className={`flex items-center space-x-2 truncate mr-2 transition ${file.url ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : 'text-slate-500'}`}
                       title={file.url ? "Click to preview side-by-side" : "Attachment stored offline"}
                     >
-                      <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                      <span className="truncate font-sans font-medium text-slate-700 hover:underline">{file.name}</span>
-                      <span className="text-[10px] text-slate-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
+                      <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span className="truncate font-sans font-medium text-slate-800 dark:text-slate-200 hover:underline">{file.name}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
                     </div>
                     <div className="flex items-center space-x-2 shrink-0">
                       {file.url && (
@@ -4330,10 +4391,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             setPreviewFileName(file.name);
                             setPreviewFileType(file.type || 'application/pdf');
                           }}
-                          className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border ${
+                          className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border cursor-pointer ${
                             activePreviewUrl === file.url 
                               ? 'bg-blue-600 text-white border-blue-600' 
-                              : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                           }`}
                           title="Open side-by-side preview panel"
                         >
@@ -4346,7 +4407,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         type="button"
                         onClick={() => handleExtractFromAttachment(file)}
                         disabled={isExtracting || uploading}
-                        className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 disabled:opacity-50"
+                        className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer"
                         title="AI Document Autofill: Extracts client company, line items, and attributes using Gemini AI"
                       >
                         {isExtracting ? (
@@ -4361,7 +4422,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         type="button"
                         onClick={() => removeAttachment(idx)}
                         disabled={isExtracting || uploading}
-                        className="text-slate-400 hover:text-red-500 transition p-1 disabled:opacity-50"
+                        className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition p-1 disabled:opacity-50 cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -4374,11 +4435,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
           {/* Section 7.5: Original Pasted Source / Raw Context */}
           {pastedSourceText && (
-            <div className="bg-white border border-slate-200 shadow-2xs rounded-2xl p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-2xs rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center space-x-2">
-                  <FileText className="w-5 h-5 text-slate-400" />
-                  <h3 className="font-bold text-slate-800 text-sm font-sans uppercase tracking-wide">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs font-sans uppercase tracking-wide">
                     Original Pasted Source / Raw Context
                   </h3>
                 </div>
@@ -4392,70 +4453,72 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       console.error(e);
                     }
                   }}
-                  className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition text-xs font-semibold"
+                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition text-xs font-semibold cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>Copy to Clipboard</span>
                 </button>
               </div>
-              <pre className="whitespace-pre-wrap font-mono text-sm bg-slate-50 p-3 rounded-lg border border-slate-300 text-slate-800 max-h-60 overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-mono text-xs bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 max-h-60 overflow-y-auto">
                 {pastedSourceText}
               </pre>
             </div>
           )}
 
-          {/* Section 8: Save controls */}
-          <div className="flex space-x-3 pt-4">
-            {enquiryToEdit ? (
-              <>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="w-1/2 py-3 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold rounded-xl text-sm transition text-center"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  onClick={() => updateSubmitMode('close')}
-                  className="w-1/2 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center"
-                >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                  {isSubmitting ? 'Saving Changes...' : 'Save Changes'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={onClose}
-                  className="w-1/3 py-3 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-600 font-semibold rounded-xl text-sm transition text-center"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  onClick={() => updateSubmitMode('another')}
-                  className="w-1/3 py-3 border border-blue-200 bg-blue-50/50 hover:bg-blue-50 disabled:opacity-50 text-blue-700 font-semibold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center"
-                >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-                  {isSubmitting ? 'Saving...' : 'Register & Add Another'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  onClick={() => updateSubmitMode('close')}
-                  className="w-1/3 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center"
-                >
-                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-                  {isSubmitting ? 'Registering...' : 'Register & Close'}
-                </button>
-              </>
-            )}
-          </div>
+            </div> {/* End of scrollable Form body */}
+
+            {/* Sticky Footer: Section 8 Save controls */}
+            <div className="sticky bottom-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-4 shadow-lg flex items-center justify-between gap-3 shrink-0">
+              {enquiryToEdit ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex-1 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition text-center cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    onClick={() => updateSubmitMode('close')}
+                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center cursor-pointer"
+                  >
+                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                    {isSubmitting ? 'Saving Changes...' : 'Save Changes'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={onClose}
+                    className="flex-1 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition text-center cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    onClick={() => updateSubmitMode('another')}
+                    className="flex-1 py-2.5 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-bold rounded-xl text-sm transition shadow-2xs text-center flex items-center justify-center cursor-pointer"
+                  >
+                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+                    {isSubmitting ? 'Saving...' : 'Register & Add Another'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    onClick={() => updateSubmitMode('close')}
+                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center cursor-pointer"
+                  >
+                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+                    {isSubmitting ? 'Registering...' : 'Register & Close'}
+                  </button>
+                </>
+              )}
+            </div>
 
         </form>
         </div>

@@ -684,12 +684,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     messageType
   ]);
 
-  // Auto-focus the activity notes textarea when drawer opens
+  // Auto-focus the activity notes textarea when drawer opens after slide-in completes
   useEffect(() => {
     if (isOpen) {
       const timer = setTimeout(() => {
         notesTextareaRef.current?.focus({ preventScroll: true });
-      }, 250);
+      }, 280);
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
@@ -2398,10 +2398,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
-          transition={{ duration: 0.2, ease: 'easeOut' }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transform-gpu transition-transform duration-200 ease-out will-change-transform`}
+          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transform-gpu will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -2853,7 +2853,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     }}
                                     placeholder="Enter full name..."
                                     className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                                    autoFocus
                                   />
                                 </div>
 
@@ -3014,7 +3013,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       onChange={(e) => setSelectedContactPhone(e.target.value)}
                                       placeholder="Enter line phone number (e.g. +971 4 123 4567)..."
                                       className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-amber-500/50 px-3 py-2 text-xs text-amber-100 font-mono placeholder-slate-500 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
-                                      autoFocus
                                     />
                                     {renderPhoneActionButton(selectedContactPhone)}
                                   </div>

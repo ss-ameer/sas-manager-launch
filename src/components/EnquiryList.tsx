@@ -140,12 +140,50 @@ export default function EnquiryList({
     value: number;
   }>({ sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1 });
 
-  // Format currency based on the individual enquiry's native currency choice
-  const formatEnquiryCurrency = (e: Enquiry) => {
+  // Format currency parts for high-hierarchy tabular display
+  const getEnquiryCurrencyParts = (e: Enquiry) => {
     const isUSD = e.currency === 'USD';
-    const val = isUSD ? e.value_aed / 3.6725 : e.value_aed;
-    const symbol = isUSD ? '$' : 'AED ';
-    return `${symbol}${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const val = isUSD ? (e.value_aed || 0) / 3.6725 : (e.value_aed || 0);
+    const prefix = isUSD ? '$' : 'AED';
+    const formattedAmount = Math.round(val).toLocaleString('en-US');
+    return { prefix, formattedAmount };
+  };
+
+  const formatEnquiryCurrency = (e: Enquiry) => {
+    const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
+    return `${prefix} ${formattedAmount}`;
+  };
+
+  // Format enquiry date as clean tabular date with crisp contrast (e.g. Aug 24, 2026)
+  const formatEnquiryDate = (dateStr?: string) => {
+    if (!dateStr) return '—';
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const d = new Date(year, month, day);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          });
+        }
+      }
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+      return dateStr;
+    } catch {
+      return dateStr;
+    }
   };
 
   // Cycle lists and helpers
@@ -498,23 +536,28 @@ export default function EnquiryList({
   };
 
   const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'Active':
-        return 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs';
-      case 'Order Received':
-        return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs';
-      case 'Lost':
-        return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60 shadow-2xs';
-      case 'Dead':
-        return 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 shadow-2xs';
-      case 'Hold':
-        return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 shadow-2xs';
-      case 'Delayed':
-        return 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 shadow-2xs';
-      case 'Cancelled PO':
-        return 'bg-pink-50 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 border border-pink-200/80 dark:border-pink-800/60 shadow-2xs';
+    const s = (status || '').trim().toLowerCase();
+    switch (s) {
+      case 'active':
+        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60';
+      case 'order received':
+      case 'won':
+        return 'bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-semibold';
+      case 'pending':
+        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
+      case 'lost':
+        return 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60';
+      case 'dead':
+        return 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60';
+      case 'hold':
+        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
+      case 'delayed':
+        return 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60';
+      case 'cancelled po':
+      case 'cancelled':
+        return 'bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800/60';
       default:
-        return 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 shadow-2xs';
+        return 'bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60';
     }
   };
 
@@ -645,8 +688,8 @@ export default function EnquiryList({
             <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/50 dark:bg-slate-950/50">
-                  <th className="py-4 px-6 w-12 text-center">
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/70 dark:bg-slate-950/60 uppercase">
+                  <th className="py-3.5 px-6 w-12 text-center">
                     <input
                       type="checkbox"
                       checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -668,29 +711,29 @@ export default function EnquiryList({
                       title="Select all on current page"
                     />
                   </th>
-                  <th onClick={() => handleSort('sn')} className="py-4 px-6 cursor-pointer hover:text-slate-800 transition">
+                  <th onClick={() => handleSort('sn')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
                     <div className="flex items-center space-x-1">
                       <span>S/N</span>
-                      <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-4 px-6">Company Account</th>
-                  <th className="py-4 px-6">Quote Ref No</th>
-                  <th className="py-4 px-6">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-4 px-6 cursor-pointer hover:text-slate-800 transition">
+                  <th className="py-3.5 px-6 min-w-[200px] max-w-[320px]">Company Account</th>
+                  <th className="py-3.5 px-6">Quote Ref No</th>
+                  <th className="py-3.5 px-6">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
                     <div className="flex items-center space-x-1">
                       <span>Received Date</span>
-                      <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-4 px-6">Status Badge</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-4 px-6 cursor-pointer hover:text-slate-800 transition text-right">
+                  <th className="py-3.5 px-6">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Enquiry Value</span>
-                      <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-4 px-6 text-center">Actions</th>
+                  <th className="py-3.5 px-6 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
@@ -701,11 +744,11 @@ export default function EnquiryList({
                   return (
                     <tr
                       key={e.id}
-                      className={`hover:bg-slate-50/50 transition duration-100 group ${
-                        isChecked ? 'bg-slate-50/70 font-medium' : ''
+                      className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
+                        isChecked ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
                       }`}
                     >
-                      <td className="py-4 px-6 text-center">
+                      <td className="py-3.5 px-6 text-center">
                         <input
                           type="checkbox"
                           checked={isChecked}
@@ -719,76 +762,103 @@ export default function EnquiryList({
                           className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
                         />
                       </td>
-                      <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold">#{e.sn}</td>
-                      <td className="py-4 px-6 font-semibold text-slate-900 dark:text-slate-100 max-w-[260px]">
-                        <div className="flex items-center space-x-2">
-                          {(() => {
-                            const resolvedComp = resolveCompanyForEnquiry(e);
-                            const targetCompanyId = resolvedComp?.id || e.company_id;
-                            const isClickable = Boolean(targetCompanyId || resolvedComp);
-
-                            return (
-                              <span 
-                                className={`truncate ${isClickable ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : ''}`}
-                                onClick={() => {
-                                  if (isClickable) {
-                                    handleCompanyClick(e);
-                                  }
-                                }}
-                                title={isClickable ? `View 360° profile for ${companyName}` : undefined}
-                              >
-                                {companyName}
-                              </span>
-                            );
-                          })()}
-                          {companyName && companyName !== 'Unknown Client' && (
-                            <GoogleSearchButton
-                              companyName={companyName}
-                              location={resolveCompanyForEnquiry(e)?.city || companies.find((c) => c.id === e.company_id)?.city}
-                              size="xs"
-                            />
-                          )}
-                          {(() => {
-                            const linkedComp = resolveCompanyForEnquiry(e) || companies.find((c) => c.id === e.company_id);
-                            if (!linkedComp) return null;
-                            return (
-                              <>
-                                <TemperatureBadge
-                                  companyId={linkedComp.id}
-                                  temperature={linkedComp.temperature}
-                                  isDnc={linkedComp.is_dnc}
-                                  variant="compact"
-                                  companies={companies}
-                                  setCompanies={setCompanies}
-                                />
-                                <IndustryBadge company={linkedComp} size="sm" />
-                              </>
-                            );
-                          })()}
-                        </div>
+                      <td className="py-3.5 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap">
+                        #{e.sn}
                       </td>
-                      <td className="py-4 px-6 font-mono text-xs text-slate-600 dark:text-slate-300">{e.quote_ref_no}</td>
-                      <td className="py-4 px-6 text-xs text-slate-500 dark:text-slate-400 font-semibold font-mono">
+                      <td className="py-3.5 px-6 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] max-w-[320px]">
                         {(() => {
-                          const sp = salespersons.find((s) => s.id === e.sales_person || s.initials === e.sales_person);
-                          return sp ? (sp.initials || getInitials(sp.full_name)) : e.sales_person;
+                          const resolvedComp = resolveCompanyForEnquiry(e);
+                          const targetCompanyId = resolvedComp?.id || e.company_id;
+                          const isClickable = Boolean(targetCompanyId || resolvedComp);
+
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center space-x-1.5 min-w-0">
+                                <span 
+                                  className={`truncate text-sm font-semibold ${isClickable ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : 'text-slate-700 dark:text-slate-300'}`}
+                                  onClick={() => {
+                                    if (isClickable) {
+                                      handleCompanyClick(e);
+                                    }
+                                  }}
+                                  title={isClickable ? `View 360° profile for ${companyName}` : undefined}
+                                >
+                                  {companyName}
+                                </span>
+                                {companyName && companyName !== 'Unknown Client' && (
+                                  <div className="shrink-0">
+                                    <GoogleSearchButton
+                                      companyName={companyName}
+                                      location={resolvedComp?.city || companies.find((c) => c.id === e.company_id)?.city}
+                                      size="xs"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              {resolvedComp && (
+                                <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                                  <TemperatureBadge
+                                    companyId={resolvedComp.id}
+                                    temperature={resolvedComp.temperature}
+                                    isDnc={resolvedComp.is_dnc}
+                                    variant="compact"
+                                    companies={companies}
+                                    setCompanies={setCompanies}
+                                  />
+                                  <IndustryBadge company={resolvedComp} size="sm" />
+                                </div>
+                              )}
+                            </div>
+                          );
                         })()}
                       </td>
-                      <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-400">{e.enquiry_date}</td>
-                      <td className="py-4 px-6">
-                        <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full uppercase ${getStatusBadgeClass(e.status)}`}>
+                      <td className="py-3.5 px-6 whitespace-nowrap">
+                        <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
+                          {e.quote_ref_no || '—'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-6 whitespace-nowrap">
+                        {(() => {
+                          const sp = salespersons.find((s) => s.id === e.sales_person || s.initials === e.sales_person);
+                          const initials = sp ? (sp.initials || getInitials(sp.full_name)) : e.sales_person;
+                          return (
+                            <span 
+                              className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
+                              title={sp?.full_name || e.sales_person}
+                            >
+                              {initials}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-3.5 px-6 whitespace-nowrap">
+                        <span className="font-mono text-xs text-slate-600 dark:text-slate-400 font-medium">
+                          {formatEnquiryDate(e.enquiry_date)}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-6 whitespace-nowrap">
+                        <span className={`inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${getStatusBadgeClass(e.status)}`}>
                           {e.status}
                         </span>
                       </td>
-                      <td className="py-4 px-6 font-mono text-xs text-slate-800 dark:text-slate-200 text-right font-bold">
-                        {formatEnquiryCurrency(e)}
+                      <td className="py-3.5 px-6 text-right whitespace-nowrap">
+                        {(() => {
+                          const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
+                          return (
+                            <div className="inline-flex items-baseline justify-end">
+                              <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
+                              <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
+                            </div>
+                          );
+                        })()}
                       </td>
-                      <td className="py-4 px-6 text-center">
-                        <div className="flex items-center justify-center space-x-2">
+                      <td className="py-3.5 px-6 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center space-x-1.5">
                           <button
                             type="button"
                             onClick={() => e.id && onSelectEnquiry(e.id)}
-                            className="border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium px-2.5 py-1 rounded-md text-slate-700 dark:text-slate-200 transition-colors shadow-xs"
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
+                            title="View enquiry details"
                           >
                             Details
                           </button>
@@ -796,7 +866,8 @@ export default function EnquiryList({
                             <button
                               type="button"
                               onClick={() => onEditEnquiry(e)}
-                              className="border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium px-2.5 py-1 rounded-md text-slate-700 dark:text-slate-200 transition-colors shadow-xs"
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
+                              title="Edit enquiry"
                             >
                               Edit
                             </button>
@@ -820,10 +891,10 @@ export default function EnquiryList({
                                   onConfirm: () => onDeleteEnquiry(targetId)
                                 });
                               }}
-                              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 dark:text-slate-500 rounded-md transition-colors cursor-pointer"
+                              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
                               title="Delete Record"
                             >
-                              <Trash className="w-4 h-4" />
+                              <Trash className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
