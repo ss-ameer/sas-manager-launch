@@ -366,6 +366,9 @@ export default function LiveExecutionModal({
   const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false);
   const [cancelReason, setCancelReason] = useState<string>('');
 
+  // Complete Task Direct Action & Scratchpad Focus State
+  const [isCompletionMode, setIsCompletionMode] = useState<boolean>(false);
+
   // Dynamic Contact details override (for Add Contact binding)
   const [activeContactId, setActiveContactId] = useState<string>('');
   const [activeContactName, setActiveContactName] = useState<string>('');
@@ -393,6 +396,7 @@ export default function LiveExecutionModal({
   // Re-initialize and reset form when currentTask or isOpen changes
   useEffect(() => {
     if (currentTask && isOpen) {
+      setIsCompletionMode(false);
       const taskChan = currentTask.channel || 'Phone Call';
       setCurrentChannel(taskChan);
 
@@ -550,6 +554,7 @@ export default function LiveExecutionModal({
   // Strict linear advancement function: advances strictly to (currentIndex + 1)
   // Never decrements, never loops backward, cleanly exits if queue reaches the end
   const advanceToNextTask = () => {
+    setIsCompletionMode(false);
     const nextIndex = currentIndex + 1;
     if (nextIndex < activeQueue.length) {
       setCurrentIndex(nextIndex);
@@ -757,6 +762,36 @@ export default function LiveExecutionModal({
     advanceToNextTask();
   };
 
+  // Refined [✓ Complete Task] Action:
+  // 1st click: Pre-sets disposition to completed ("Connected / Completed"), focuses scratchpad with subtle indicator
+  // 2nd click: Commits completed status, archives task, and strictly advances queue
+  const handleCompleteTaskClick = () => {
+    if (!isCompletionMode) {
+      setIsCompletionMode(true);
+
+      // Automatically set the call disposition to "Connected / Completed" (or retain if already connected/followup)
+      if (activeDispositionId !== 'connected' && activeDispositionId !== 'followup') {
+        const connectedDisp = DISPOSITIONS.find((d) => d.id === 'connected') || DISPOSITIONS[0];
+        if (connectedDisp) {
+          handleSelectDisposition(connectedDisp);
+        }
+      }
+
+      // Focus the Live Notes Scratchpad textarea so the user can quickly append final details
+      setTimeout(() => {
+        if (notesTextareaRef.current) {
+          notesTextareaRef.current.focus();
+          const len = notesTextareaRef.current.value.length;
+          notesTextareaRef.current.setSelectionRange(len, len);
+          notesTextareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    } else {
+      // Second click: cleanly complete task and advance forward
+      executeSubmission(true, true);
+    }
+  };
+
   // Primary Execution Submission (Save & Close, Save & Next Lead, or Explicit Complete Task)
   const executeSubmission = async (advanceToNext: boolean, forceCompleted: boolean = false) => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
@@ -932,6 +967,7 @@ export default function LiveExecutionModal({
       alert('Error saving activity log resolution. Please retry.');
     } finally {
       setIsSubmitting(false);
+      setIsCompletionMode(false);
     }
   };
 
@@ -1555,6 +1591,11 @@ export default function LiveExecutionModal({
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
                     <FileText className="w-3.5 h-3.5 text-blue-500" />
                     <span>Live Notes Scratchpad</span>
+                    {isCompletionMode && (
+                      <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
+                        Ready to Complete
+                      </span>
+                    )}
                   </label>
                   <button
                     type="button"
@@ -1568,14 +1609,57 @@ export default function LiveExecutionModal({
                   </button>
                 </div>
 
+                {/* Completion Mode Subtle Visual Indicator & Notes Guard */}
+                {isCompletionMode && (
+                  <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-300 text-xs transition-all animate-in fade-in slide-in-from-top-1 duration-200 shadow-2xs">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="font-medium">
+                        Add final interaction notes (optional) and save.
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => executeSubmission(true, true)}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs cursor-pointer flex items-center space-x-1"
+                      >
+                        <span>Confirm & Next</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsCompletionMode(false)}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition cursor-pointer"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   id="execution-notes-textarea"
                   ref={notesTextareaRef}
                   rows={4}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Type live call notes, objection notes, decision-maker feedback, or requirements gathered..."
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition placeholder:text-slate-400 resize-none font-sans leading-relaxed"
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                      e.preventDefault();
+                      executeSubmission(true, true);
+                    }
+                  }}
+                  placeholder={
+                    isCompletionMode
+                      ? "Add final interaction notes (optional) and hit 'Confirm & Complete' (or Ctrl+Enter)..."
+                      : "Type live call notes, objection notes, decision-maker feedback, or requirements gathered..."
+                  }
+                  className={`w-full px-3.5 py-2.5 text-xs rounded-xl border transition placeholder:text-slate-400 resize-none font-sans leading-relaxed ${
+                    isCompletionMode
+                      ? 'border-emerald-400 dark:border-emerald-600 ring-2 ring-emerald-500/20 bg-emerald-50/20 dark:bg-emerald-950/10 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+                  }`}
                 />
 
                 {/* DNC Opt-out bar */}
@@ -2001,14 +2085,27 @@ export default function LiveExecutionModal({
                     type="button"
                     id="lifecycle-complete-task-btn"
                     disabled={isSubmitting}
-                    onClick={() => executeSubmission(true, true)}
-                    className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 transition cursor-pointer shadow-xs flex items-center space-x-1.5"
-                    title="Mark task completed with current outcome/notes & advance queue"
+                    onClick={handleCompleteTaskClick}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center space-x-1.5 ${
+                      isCompletionMode
+                        ? 'text-white bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/70 ring-offset-1 dark:ring-offset-slate-900 shadow-md'
+                        : 'text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400'
+                    }`}
+                    title={
+                      isCompletionMode
+                        ? 'Click again to confirm task completion and advance'
+                        : 'Pre-set completed disposition, focus scratchpad, and complete task'
+                    }
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         <span>Completing...</span>
+                      </>
+                    ) : isCompletionMode ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>✓ Confirm & Complete</span>
                       </>
                     ) : (
                       <>
@@ -2058,13 +2155,22 @@ export default function LiveExecutionModal({
                   type="button"
                   id="save-and-next-lead-button"
                   disabled={isSubmitting}
-                  onClick={() => executeSubmission(true)}
-                  className="px-4.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  onClick={() => executeSubmission(true, isCompletionMode)}
+                  className={`px-4.5 py-2 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-xs ${
+                    isCompletionMode
+                      ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/50'
+                      : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
+                  }`}
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>Saving Lead...</span>
+                    </>
+                  ) : isCompletionMode ? (
+                    <>
+                      <span>{pendingLeads.length > 0 ? `Complete & Next (${pendingLeads.length} left)` : 'Complete & Finish'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </>
                   ) : (
                     <>
