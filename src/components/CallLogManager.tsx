@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
@@ -278,7 +278,9 @@ export default function CallLogManager({
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | 'execute'>('create');
   const [editingLog, setEditingLog] = useState<CallLogEntry | null>(null);
-  const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
+  const [executionModalTask, setExecutionModalTask] = useState<CallLogEntry | any | null>(null);
+  const [executionModalQueue, setExecutionModalQueue] = useState<CallLogEntry[]>([]);
+  const [executionModalInitialIndex, setExecutionModalInitialIndex] = useState<number>(0);
   const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
   
@@ -1119,8 +1121,76 @@ export default function CallLogManager({
   const [fastContactName, setFastContactName] = useState<string>('');
   const [fastContactPhone, setFastContactPhone] = useState<string>('');
 
+  // Strict Queue Filtering: Overdue + Due Today Only, Upcoming tasks strictly excluded
+  // Sorted deterministically: Overdue tasks first (oldest to newest), followed by Today's tasks chronologically
+  const getStrictExecutionQueue = useCallback((): CallLogEntry[] => {
+    const eligible = workspaceCallLogs.filter((entry) => {
+      const s = (entry.status || '').toLowerCase().trim();
+      const isSched = s === 'scheduled' || s === 'scheduled / planned' || s === 'scheduled / draft' || s.startsWith('scheduled');
+      if (!isSched) return false;
+      if (isEntrySuppressedByDNC(entry)) return false;
+
+      const dateStr = entry.next_followup_date || entry.date;
+      // Exclude all items where scheduled date is in the future
+      if (isTaskUpcoming(dateStr)) return false;
+
+      // Keep ONLY items where isOverdue === true OR isDueToday === true
+      return isTaskOverdue(dateStr) || isTaskDueToday(dateStr);
+    });
+
+    const overdueTasks: CallLogEntry[] = [];
+    const todayTasks: CallLogEntry[] = [];
+
+    for (const item of eligible) {
+      const dateStr = item.next_followup_date || item.date;
+      if (isTaskOverdue(dateStr)) {
+        overdueTasks.push(item);
+      } else {
+        todayTasks.push(item);
+      }
+    }
+
+    overdueTasks.sort((a, b) => {
+      const timeA = parseTaskScheduledDate(a.next_followup_date || a.date)?.getTime() || 0;
+      const timeB = parseTaskScheduledDate(b.next_followup_date || b.date)?.getTime() || 0;
+      return timeA - timeB;
+    });
+
+    todayTasks.sort((a, b) => {
+      const timeA = parseTaskScheduledDate(a.next_followup_date || a.date)?.getTime() || 0;
+      const timeB = parseTaskScheduledDate(b.next_followup_date || b.date)?.getTime() || 0;
+      return timeA - timeB;
+    });
+
+    return [...overdueTasks, ...todayTasks];
+  }, [workspaceCallLogs, isEntrySuppressedByDNC]);
+
   const openFastQueueLogger = (entry: CallLogEntry) => {
-    setExecutionModalTask(entry);
+    const strictQueue = getStrictExecutionQueue();
+    const entryIdx = strictQueue.findIndex((item) => item.id === entry.id);
+
+    if (entryIdx !== -1) {
+      setExecutionModalQueue(strictQueue);
+      setExecutionModalInitialIndex(entryIdx);
+      setExecutionModalTask(entry);
+    } else {
+      // If clicked item is not in the strict overdue+today queue (e.g. from upcoming or timeline),
+      // launch just that task with a dedicated single-item queue
+      setExecutionModalQueue([entry]);
+      setExecutionModalInitialIndex(0);
+      setExecutionModalTask(entry);
+    }
+  };
+
+  const handleStartLiveExecutionQueue = () => {
+    const strictQueue = getStrictExecutionQueue();
+    if (strictQueue.length > 0) {
+      setExecutionModalQueue(strictQueue);
+      setExecutionModalInitialIndex(0);
+      setExecutionModalTask(strictQueue[0]);
+    } else {
+      triggerToast('No overdue or due today tasks in queue.', 'info');
+    }
   };
 
   const handleEditActivityLog = (entry: CallLogEntry) => {
@@ -1941,6 +2011,18 @@ export default function CallLogManager({
             >
               <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>Sort: {queueSortOrder === 'oldest' ? 'Oldest First' : 'Newest First'}</span>
+            </button>
+
+            {/* Launch Live Execution Queue (Strict Overdue + Today Queue) */}
+            <button
+              type="button"
+              id="launch-live-execution-queue-btn"
+              onClick={handleStartLiveExecutionQueue}
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              title="Start Live Execution Command Center for overdue and due today tasks"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>Live Queue ({getStrictExecutionQueue().length})</span>
             </button>
           </div>
 
@@ -4302,8 +4384,15 @@ export default function CallLogManager({
       {/* Live Execution Command Center Modal */}
       <LiveExecutionModal
         isOpen={Boolean(executionModalTask)}
-        onClose={() => setExecutionModalTask(null)}
+        onClose={() => {
+          setExecutionModalTask(null);
+          setExecutionModalQueue([]);
+          setExecutionModalInitialIndex(0);
+        }}
         task={executionModalTask}
+        taskQueue={executionModalQueue}
+        queue={executionModalQueue}
+        initialIndex={executionModalInitialIndex}
         onSwitchTask={setExecutionModalTask}
         onSuccess={handleLogSaved}
         onCompleteTask={handleCompleteTaskFromModal}

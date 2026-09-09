@@ -56,6 +56,9 @@ export interface LiveExecutionModalProps {
   isOpen: boolean;
   onClose: () => void;
   task: CallLogEntry | any | null;
+  taskQueue?: CallLogEntry[];
+  queue?: CallLogEntry[];
+  initialIndex?: number;
   onSwitchTask?: (nextTask: CallLogEntry | null) => void;
   onSuccess?: (updatedTask: CallLogEntry, spawnedTask?: CallLogEntry) => void;
   onCompleteTask?: (completedTask: CallLogEntry, advanceToNext: boolean) => void;
@@ -72,6 +75,63 @@ export interface LiveExecutionModalProps {
   callStatuses?: { name: string }[];
   callPurposes?: { name: string }[];
   callOutcomes?: { name: string; sentiment?: string }[];
+}
+
+function parseTaskScheduledDate(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  let d = new Date(dateStr);
+  if (!isNaN(d.getTime())) return d;
+  const clean = dateStr.replace(/\s+/g, ' ').trim();
+  const dmyMatch = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+    const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+    const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+    const res = new Date(year, month, day, hours, minutes, seconds);
+    if (!isNaN(res.getTime())) return res;
+  }
+  const sanitized = clean.replace(/\s*[-•]\s*/g, ' ');
+  d = new Date(sanitized);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+function isTaskOverdue(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  const str = typeof dateStr === 'string' ? dateStr : '';
+  const hasTime = str.includes('T') || str.includes(':');
+  if (!hasTime) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return parsed.getTime() < startOfToday.getTime();
+  }
+  return parsed.getTime() < Date.now();
+}
+
+function isTaskDueToday(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  const now = new Date();
+  return (
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate()
+  );
+}
+
+function isTaskUpcoming(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const parsed = parseTaskScheduledDate(dateStr);
+  if (!parsed) return false;
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return parsed.getTime() > endOfToday.getTime();
 }
 
 type DispositionId = 'connected' | 'followup' | 'no_answer' | 'gatekeeper_busy' | 'invalid_number';
@@ -156,6 +216,9 @@ export default function LiveExecutionModal({
   isOpen,
   onClose,
   task,
+  taskQueue,
+  queue,
+  initialIndex = 0,
   onSwitchTask,
   onSuccess,
   onCompleteTask,
@@ -173,12 +236,90 @@ export default function LiveExecutionModal({
   callPurposes,
   callOutcomes
 }: LiveExecutionModalProps) {
-  // Current active task state (can be switched smoothly to next lead in queue)
+  const queueProp = taskQueue || queue;
+  const [activeQueue, setActiveQueue] = useState<CallLogEntry[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(initialIndex || 0);
+  // Current active task state (advances strictly forward along activeQueue)
   const [currentTask, setCurrentTask] = useState<CallLogEntry | any>(task);
+  const wasOpenRef = useRef<boolean>(false);
 
+  // Initialize or re-sync active queue strictly when modal opens
   useEffect(() => {
-    setCurrentTask(task);
-  }, [task]);
+    if (isOpen && !wasOpenRef.current) {
+      let resolved: CallLogEntry[] = [];
+
+      if (queueProp && queueProp.length > 0) {
+        resolved = [...queueProp];
+      } else {
+        // Fallback: derive strictly filtered queue (Overdue + Due Today only, upcoming strictly excluded)
+        const eligible = (callLogs || []).filter((entry) => {
+          const s = (entry.status || '').toLowerCase().trim();
+          const isSched = s === 'scheduled' || s === 'scheduled / planned' || s === 'scheduled / draft' || s.startsWith('scheduled');
+          if (!isSched) return false;
+          const isDnc = Boolean((entry as any).is_dnc || (entry as any).dnc);
+          if (isDnc) return false;
+
+          const dateStr = entry.next_followup_date || entry.date;
+          if (isTaskUpcoming(dateStr)) return false;
+          return isTaskOverdue(dateStr) || isTaskDueToday(dateStr);
+        });
+
+        const overdueTasks: CallLogEntry[] = [];
+        const todayTasks: CallLogEntry[] = [];
+
+        for (const item of eligible) {
+          const dateStr = item.next_followup_date || item.date;
+          if (isTaskOverdue(dateStr)) {
+            overdueTasks.push(item);
+          } else {
+            todayTasks.push(item);
+          }
+        }
+
+        overdueTasks.sort((a, b) => {
+          const timeA = parseTaskScheduledDate(a.next_followup_date || a.date)?.getTime() || 0;
+          const timeB = parseTaskScheduledDate(b.next_followup_date || b.date)?.getTime() || 0;
+          return timeA - timeB;
+        });
+
+        todayTasks.sort((a, b) => {
+          const timeA = parseTaskScheduledDate(a.next_followup_date || a.date)?.getTime() || 0;
+          const timeB = parseTaskScheduledDate(b.next_followup_date || b.date)?.getTime() || 0;
+          return timeA - timeB;
+        });
+
+        resolved = [...overdueTasks, ...todayTasks];
+
+        // If a specific task was passed and not in resolved, include it
+        if (task && task.id && !resolved.some((q) => q.id === task.id)) {
+          resolved = [task, ...resolved];
+        }
+      }
+
+      let startIdx = 0;
+      if (typeof initialIndex === 'number' && initialIndex >= 0 && initialIndex < resolved.length) {
+        startIdx = initialIndex;
+      } else if (task && task.id) {
+        const found = resolved.findIndex((q) => q.id === task.id);
+        if (found !== -1) {
+          startIdx = found;
+        }
+      }
+
+      setActiveQueue(resolved);
+      setCurrentIndex(startIdx);
+      if (resolved[startIdx]) {
+        setCurrentTask(resolved[startIdx]);
+      } else if (task) {
+        setCurrentTask(task);
+      }
+    } else if (!isOpen) {
+      setActiveQueue([]);
+      setCurrentIndex(0);
+      setCurrentTask(null);
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, queueProp, initialIndex, task, callLogs]);
 
   // Read active channel with fallback to 'Phone Call'
   const initialTaskChannel: string = currentTask?.channel || 'Phone Call';
@@ -400,22 +541,33 @@ export default function LiveExecutionModal({
     return fetchedCompanyLogs;
   }, [currentTask, callLogs, fetchedCompanyLogs]);
 
-  // Derive other pending leads in queue
+  // Derive remaining unvisited leads in queue strictly forward
   const pendingLeads = useMemo(() => {
-    if (!callLogs || callLogs.length === 0 || !currentTask) return [];
-    return callLogs
-      .filter((l) => {
-        if (l.id === currentTask.id) return false;
-        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
-        const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
-        return isSched && !isDncSuppressed;
-      })
-      .sort((a, b) => {
-        const dateA = new Date(a.next_followup_date || a.date || 0).getTime();
-        const dateB = new Date(b.next_followup_date || b.date || 0).getTime();
-        return dateA - dateB;
-      });
-  }, [callLogs, currentTask]);
+    if (!activeQueue || activeQueue.length <= 1) return [];
+    return activeQueue.slice(currentIndex + 1);
+  }, [activeQueue, currentIndex]);
+
+  // Strict linear advancement function: advances strictly to (currentIndex + 1)
+  // Never decrements, never loops backward, cleanly exits if queue reaches the end
+  const advanceToNextTask = () => {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < activeQueue.length) {
+      setCurrentIndex(nextIndex);
+      const nextTask = activeQueue[nextIndex];
+      setCurrentTask(nextTask);
+      if (onSwitchTask) {
+        onSwitchTask(nextTask);
+      }
+    } else {
+      // Reached the end of queue - cleanly exit
+      setCurrentIndex(nextIndex);
+      setCurrentTask(null);
+      if (onSwitchTask) {
+        onSwitchTask(null);
+      }
+      onClose();
+    }
+  };
 
   // Linked Company entity
   const linkedCompany = useMemo(() => {
@@ -600,20 +752,9 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Skip / Pass Action (Muted ghost button)
+  // Skip / Pass Action (Muted ghost button) - strictly advances forward
   const handleSkipLead = () => {
-    if (pendingLeads.length > 0) {
-      const nextLead = pendingLeads[0];
-      if (onSwitchTask) {
-        onSwitchTask(nextLead);
-      }
-      setCurrentTask(nextLead);
-    } else {
-      if (onSwitchTask) {
-        onSwitchTask(null);
-      }
-      onClose();
-    }
+    advanceToNextTask();
   };
 
   // Primary Execution Submission (Save & Close, Save & Next Lead, or Explicit Complete Task)
@@ -778,27 +919,9 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord, spawnedFollowUpTask);
       }
 
-      // Step 4: Advance to next lead or close
+      // Step 4: Advance to next lead strictly or close
       if (advanceToNext) {
-        const remainingLeads = (callLogs || []).filter((l) => {
-          if (l.id === currentTask.id) return false;
-          const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
-          const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
-          return isSched && !isDncSuppressed;
-        });
-
-        if (remainingLeads.length > 0) {
-          const nextLead = remainingLeads[0];
-          if (onSwitchTask) {
-            onSwitchTask(nextLead);
-          }
-          setCurrentTask(nextLead);
-        } else {
-          if (onSwitchTask) {
-            onSwitchTask(null);
-          }
-          onClose();
-        }
+        advanceToNextTask();
       } else {
         if (onSwitchTask) {
           onSwitchTask(null);
@@ -897,27 +1020,8 @@ export default function LiveExecutionModal({
       }
 
       setIsRescheduleOpen(false);
-
-      // Advance to next lead in queue or close
-      const remainingLeads = (callLogs || []).filter((l) => {
-        if (l.id === currentTask.id) return false;
-        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
-        const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
-        return isSched && !isDncSuppressed;
-      });
-
-      if (remainingLeads.length > 0) {
-        const nextLead = remainingLeads[0];
-        if (onSwitchTask) {
-          onSwitchTask(nextLead);
-        }
-        setCurrentTask(nextLead);
-      } else {
-        if (onSwitchTask) {
-          onSwitchTask(null);
-        }
-        onClose();
-      }
+      // Advance to next lead in queue strictly or close
+      advanceToNextTask();
     } catch (err) {
       console.error('Failed to reschedule task:', err);
       alert('Error rescheduling task. Please retry.');
@@ -972,27 +1076,8 @@ export default function LiveExecutionModal({
       }
 
       setIsCancelOpen(false);
-
-      // Advance to next lead in queue or close
-      const remainingLeads = (callLogs || []).filter((l) => {
-        if (l.id === currentTask.id) return false;
-        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status as any);
-        const isDncSuppressed = Boolean((l as any).is_dnc || (l as any).dnc);
-        return isSched && !isDncSuppressed;
-      });
-
-      if (remainingLeads.length > 0) {
-        const nextLead = remainingLeads[0];
-        if (onSwitchTask) {
-          onSwitchTask(nextLead);
-        }
-        setCurrentTask(nextLead);
-      } else {
-        if (onSwitchTask) {
-          onSwitchTask(null);
-        }
-        onClose();
-      }
+      // Advance to next lead in queue strictly or close
+      advanceToNextTask();
     } catch (err) {
       console.error('Failed to cancel task:', err);
       alert('Error cancelling task. Please retry.');
@@ -1000,6 +1085,34 @@ export default function LiveExecutionModal({
       setIsSubmitting(false);
     }
   };
+
+  if (!isOpen) return null;
+
+  // Clean empty queue or completed queue state
+  if (!currentTask || (activeQueue.length > 0 && currentIndex >= activeQueue.length)) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center space-y-4">
+          <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Queue Completed!</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              All scheduled tasks in the queue have been completed, rescheduled, or skipped.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-bold transition cursor-pointer"
+          >
+            Close Command Center
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
@@ -1016,7 +1129,7 @@ export default function LiveExecutionModal({
                   Live Execution Command Center
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  {pendingLeads.length > 0 ? `${pendingLeads.length + 1} In Queue` : 'Queue Lead'}
+                  {activeQueue.length > 0 ? `${currentIndex + 1} of ${activeQueue.length} In Queue` : 'Queue Lead'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1837,7 +1950,9 @@ export default function LiveExecutionModal({
                     Task Lifecycle:
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                    {pendingLeads.length > 0 ? `${pendingLeads.length + 1} tasks queued` : 'Active scheduled task'}
+                    {activeQueue.length > 1
+                      ? `Task ${currentIndex + 1} of ${activeQueue.length} (${pendingLeads.length} remaining)`
+                      : 'Active scheduled task'}
                   </span>
                 </div>
 
@@ -1954,7 +2069,7 @@ export default function LiveExecutionModal({
                     </>
                   ) : (
                     <>
-                      <span>Save & Next Lead</span>
+                      <span>{pendingLeads.length > 0 ? `Save & Next (${pendingLeads.length} left)` : 'Save & Finish'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </>
                   )}
