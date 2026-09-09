@@ -2792,19 +2792,48 @@ export default function CallLogManager({
                       </div>
                     </div>
 
-                    {/* Secondary Row: Contact Name, Phone/Direct line, Disposition Pill & Note Snippet */}
+                    {/* Secondary Row: Contact Name, Phone/Direct line or Email, Disposition Pill & Note Snippet */}
                     <div className="mt-1.5 pl-6 flex flex-col gap-1">
                       <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        {(log.contact_name || log.contact_phone) && (
-                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            {log.contact_name || 'Contact'}{' '}
-                            {log.contact_phone && (
-                              <span className={`font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
-                                ({log.contact_phone})
+                        {(log.contact_name || log.contact_phone || (log as any).email_address) && (() => {
+                          const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
+                          const isEmail = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
+                          const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
+                          const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
+
+                          if (isEmail) {
+                            return (
+                              <span className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                <Mail className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                                {log.contact_name ? (
+                                  <span>
+                                    {log.contact_name}{' '}
+                                    {rawEmail && (
+                                      <span className="font-mono text-[11px] font-normal text-purple-600 dark:text-purple-400">
+                                        ({rawEmail})
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="font-mono text-[11px] font-medium text-purple-600 dark:text-purple-400">
+                                    {rawEmail || 'Email Outreach'}
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                        )}
+                            );
+                          }
+
+                          return (
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                              {log.contact_name || 'Contact'}{' '}
+                              {rawPhone && (
+                                <span className={`font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                                  ({rawPhone})
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })()}
 
                         {/* Disposition Pill */}
                         <span className={`inline-flex items-center px-2 py-0.2 rounded text-[10px] font-bold border ${
@@ -2914,7 +2943,29 @@ export default function CallLogManager({
                             )}
                           </td>
                           <td className={`px-4 py-3 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
-                            {log.contact_name || log.contact_phone || '-'}
+                            {(() => {
+                              const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
+                              const isEmail = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
+                              const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
+                              const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
+
+                              if (isEmail) {
+                                return (
+                                  <span className="inline-flex items-center space-x-1.5 text-xs text-slate-700 dark:text-slate-300">
+                                    <Mail className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                    <span className="truncate max-w-[200px]" title={rawEmail || log.contact_name}>
+                                      {log.contact_name ? `${log.contact_name} ${rawEmail ? `(${rawEmail})` : ''}` : (rawEmail || '-')}
+                                    </span>
+                                  </span>
+                                );
+                              }
+
+                              return (
+                                <span className="text-xs text-slate-700 dark:text-slate-300">
+                                  {log.contact_name ? `${log.contact_name} ${rawPhone ? `(${rawPhone})` : ''}` : (rawPhone || '-')}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-1">

@@ -27,6 +27,7 @@ export interface TaskCallHistoryPanelProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   onOpenCompany360?: () => void;
+  onSelectCallLog?: (log: CallLogEntry) => void;
   contacts?: Contact[];
   className?: string;
   isMobile?: boolean;
@@ -88,6 +89,7 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
   isExpanded,
   onToggleExpand,
   onOpenCompany360,
+  onSelectCallLog,
   contacts = [],
   className = '',
   isMobile = false
@@ -285,12 +287,13 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
           filteredLogs.map((log) => {
             const timeInfo = formatRelativeActivityTime(log.date || log.createdAt);
             const resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
-            const contactDisplayName =
-              log.contact_name ||
-              resolvedContact?.full_name ||
-              (log.contact_phone ? `Contact (${log.contact_phone})` : null);
+            const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
+            const isEmailChannel = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
+            const emailTarget = log.email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '') || resolvedContact?.email || '';
+            const phoneTarget = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : (resolvedContact?.mobile || resolvedContact?.phone || '');
+            const contactPersonName = log.contact_name || resolvedContact?.full_name;
 
-            const channelName = log.channel || log.interaction_type || 'Call';
+            const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
             const statusLabel = log.status || 'Logged';
             const outcomeLabel = log.outcome || null;
             const badgeStyle = getStatusBadgeStyle(log.status, log.outcome);
@@ -300,16 +303,30 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
             return (
               <div
                 key={log.id}
-                className="group relative p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-blue-300 dark:hover:border-blue-700/60 shadow-xs hover:shadow-sm transition-all duration-150 space-y-2 text-xs"
+                onClick={() => {
+                  if (onSelectCallLog) {
+                    onSelectCallLog(log);
+                  }
+                }}
+                className={`group relative p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 hover:border-blue-400 dark:hover:border-blue-500/80 shadow-xs hover:shadow-md transition-all duration-150 space-y-2 text-xs ${
+                  onSelectCallLog ? 'cursor-pointer' : ''
+                }`}
+                title="Click to view complete interaction details and notes"
               >
                 {/* Entry Header: Date/Timestamp & Channel/Disposition Badges */}
                 <div className="flex items-start justify-between gap-2 flex-wrap">
-                  {/* Timestamp */}
+                  {/* Timestamp & Open Detail Link Indicator */}
                   <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-400 font-medium">
                     <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                     <span className="text-[11px] font-semibold text-slate-900 dark:text-slate-200" title={timeInfo.formatted}>
                       {timeInfo.relative}
                     </span>
+                    {onSelectCallLog && (
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-0.5 ml-1">
+                        <span>Details</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </span>
+                    )}
                   </div>
 
                   {/* Channel & Disposition Badge */}
@@ -330,25 +347,53 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Contact Spoken To / Mainline */}
+                {/* Contact Spoken To / Mainline / Email Target */}
                 <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-300 text-[11px]">
-                  {contactDisplayName ? (
+                  {contactPersonName ? (
                     <>
                       <User className="w-3 h-3 text-blue-500 shrink-0" />
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {contactDisplayName}
+                        {contactPersonName}
                       </span>
+                      {isEmailChannel ? (
+                        emailTarget && (
+                          <span className="inline-flex items-center space-x-1 text-purple-600 dark:text-purple-400 font-mono text-[10px] truncate">
+                            <Mail className="w-2.5 h-2.5 shrink-0" />
+                            <span>({emailTarget})</span>
+                          </span>
+                        )
+                      ) : (
+                        phoneTarget && (
+                          <span className="text-slate-400 font-mono text-[10px] truncate">
+                            ({phoneTarget})
+                          </span>
+                        )
+                      )}
                       {resolvedContact?.designation && (
                         <span className="text-slate-400 text-[10px] truncate">
                           • {resolvedContact.designation}
                         </span>
                       )}
                     </>
+                  ) : isEmailChannel && emailTarget ? (
+                    <>
+                      <Mail className="w-3 h-3 text-purple-500 shrink-0" />
+                      <span className="font-mono text-purple-700 dark:text-purple-300 font-semibold truncate" title={emailTarget}>
+                        {emailTarget}
+                      </span>
+                    </>
+                  ) : phoneTarget ? (
+                    <>
+                      <Phone className="w-3 h-3 text-blue-500 shrink-0" />
+                      <span className="font-mono text-slate-700 dark:text-slate-300 font-medium truncate">
+                        Contact ({phoneTarget})
+                      </span>
+                    </>
                   ) : (
                     <>
                       <Building className="w-3 h-3 text-slate-400 shrink-0" />
                       <span className="text-slate-500 dark:text-slate-400 font-medium">
-                        Company Mainline / Direct
+                        {isEmailChannel ? 'Email Outreach / Direct' : 'Company Mainline / Direct'}
                       </span>
                     </>
                   )}

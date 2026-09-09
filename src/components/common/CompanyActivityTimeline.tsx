@@ -23,6 +23,7 @@ import {
 import { CallLogEntry, Contact, Company, Enquiry, Salesperson } from '../../types';
 import { canUserClickRecord, getSalespersonFullName } from '../../utils/permissions';
 import LiveExecutionModal from '../LiveExecutionModal';
+import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
 
 export interface CompanyActivityTimelineProps {
@@ -289,6 +290,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'activities' | 'proposals'>('activities');
   const [internalExecutingTask, setInternalExecutingTask] = useState<CallLogEntry | null>(null);
+  const [selectedDetailLog, setSelectedDetailLog] = useState<CallLogEntry | null>(null);
 
   // Contact quick lookup map
   const contactLookup = useMemo(() => {
@@ -622,18 +624,17 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     const schedDate = task.next_followup_date || (task as any).scheduled_for || task.date;
                     const dueInfo = getScheduledDueBadge(schedDate);
                     const resolvedContact = task.contact_id ? contactLookup.get(task.contact_id) : undefined;
+                    const channelLower = (task.channel || task.interaction_type || '').toLowerCase();
+                    const isEmailTask = channelLower.includes('email') || channelLower === 'mail' || Boolean(task.contact_phone && task.contact_phone.includes('@'));
+                    const taskEmail = (task as any).email_address || (task.contact_phone && task.contact_phone.includes('@') ? task.contact_phone : '') || resolvedContact?.email || '';
+                    const contactPhone = task.contact_phone && !task.contact_phone.includes('@')
+                      ? task.contact_phone
+                      : (resolvedContact?.mobile || resolvedContact?.phone || (task as any).phone_number || (task as any).phone || '');
                     const contactDisplayName =
                       task.contact_name ||
                       resolvedContact?.full_name ||
                       (task as any).target_contact_person ||
-                      (task.contact_phone ? `Contact (${task.contact_phone})` : 'Primary Decision Maker');
-                    const contactPhone =
-                      task.contact_phone ||
-                      (task as any).phone_number ||
-                      (task as any).phone ||
-                      resolvedContact?.mobile ||
-                      resolvedContact?.phone ||
-                      '';
+                      (isEmailTask ? (taskEmail || 'Email Contact') : (contactPhone ? `Contact (${contactPhone})` : 'Primary Decision Maker'));
                     const contactDesignation = resolvedContact?.designation || (task as any).contact_designation || '';
                     const intentText =
                       task.followup_intent ||
@@ -641,7 +642,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       task.notes ||
                       task.purpose ||
                       'Follow-up scheduled';
-                    const channelName = task.channel || task.interaction_type || 'Call';
+                    const channelName = task.channel || task.interaction_type || (isEmailTask ? 'Email' : 'Call');
 
                     return (
                       <div
@@ -682,11 +683,15 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                           </button>
                         </div>
 
-                        {/* Target Contact Person & Direct Phone */}
+                        {/* Target Contact Person & Direct Phone or Email */}
                         <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-amber-200/60 dark:border-amber-900/40">
                           <div className="flex items-center space-x-2 min-w-0">
-                            <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-[10px] shrink-0">
-                              <User className="w-3 h-3" />
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                              isEmailTask
+                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                            }`}>
+                              {isEmailTask ? <Mail className="w-3 h-3" /> : <User className="w-3 h-3" />}
                             </div>
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
@@ -697,11 +702,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                                   </span>
                                 )}
                               </div>
-                              {contactPhone && (
-                                <div className="text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400 flex items-center space-x-1">
-                                  <Phone className="w-2.5 h-2.5" />
-                                  <span>{contactPhone}</span>
-                                </div>
+                              {isEmailTask ? (
+                                taskEmail && (
+                                  <div className="text-[11px] font-mono font-medium text-purple-600 dark:text-purple-400 flex items-center space-x-1">
+                                    <Mail className="w-2.5 h-2.5" />
+                                    <span>{taskEmail}</span>
+                                  </div>
+                                )
+                              ) : (
+                                contactPhone && (
+                                  <div className="text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400 flex items-center space-x-1">
+                                    <Phone className="w-2.5 h-2.5" />
+                                    <span>{contactPhone}</span>
+                                  </div>
+                                )
                               )}
                             </div>
                           </div>
@@ -763,12 +777,13 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
             filteredLogs.map((log) => {
               const timeInfo = formatTimelineDate(log.date || (log as any).createdAt);
               const resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
-              const contactDisplayName =
-                log.contact_name ||
-                resolvedContact?.full_name ||
-                (log.contact_phone ? `Contact (${log.contact_phone})` : null);
+              const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
+              const isEmailChannel = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
+              const emailTarget = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '') || resolvedContact?.email || '';
+              const phoneTarget = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : (resolvedContact?.mobile || resolvedContact?.phone || '');
+              const contactPersonName = log.contact_name || resolvedContact?.full_name;
 
-              const channelName = log.channel || log.interaction_type || 'Call';
+              const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
               const statusLabel = log.status || 'Logged';
               const outcomeLabel = log.outcome || null;
               const badgeStyle = getStatusBadgeStyle(log.status, log.outcome);
@@ -787,13 +802,18 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                 <div
                   key={log.id}
                   onClick={() => {
-                    if (canClick && onSelectCallLog) {
-                      onSelectCallLog(log);
+                    if (canClick) {
+                      if (onSelectCallLog) {
+                        onSelectCallLog(log);
+                      } else {
+                        setSelectedDetailLog(log);
+                      }
                     }
                   }}
-                  className={`group relative p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-sm transition-all duration-150 space-y-2.5 ${
-                    canClick && onSelectCallLog ? 'cursor-pointer hover:border-blue-400 dark:hover:border-blue-500/80' : ''
+                  className={`group relative p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md transition-all duration-150 space-y-2.5 ${
+                    canClick ? 'cursor-pointer hover:border-blue-400 dark:hover:border-blue-500/80' : ''
                   }`}
+                  title="Click to view full interaction details and notes"
                 >
                   {/* Top Bar: Relative Time, Formatted Date & Badges */}
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -805,6 +825,12 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono hidden sm:inline">
                         • {timeInfo.formatted}
                       </span>
+                      {canClick && (
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-0.5 ml-1">
+                          <span>Details</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
@@ -832,23 +858,51 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   {/* Contact Spoken To & Purpose */}
                   <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                     <div className="flex items-center space-x-1.5 min-w-0">
-                      {contactDisplayName ? (
+                      {contactPersonName ? (
                         <>
                           <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                            {contactDisplayName}
+                            {contactPersonName}
                           </span>
+                          {isEmailChannel ? (
+                            emailTarget && (
+                              <span className="inline-flex items-center space-x-1 font-mono text-[11px] font-normal text-purple-600 dark:text-purple-400 truncate">
+                                <Mail className="w-3 h-3 shrink-0" />
+                                <span>({emailTarget})</span>
+                              </span>
+                            )
+                          ) : (
+                            phoneTarget && (
+                              <span className="font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate">
+                                ({phoneTarget})
+                              </span>
+                            )
+                          )}
                           {resolvedContact?.designation && (
                             <span className="text-slate-400 text-[10px] truncate hidden xs:inline">
                               • {resolvedContact.designation}
                             </span>
                           )}
                         </>
+                      ) : isEmailChannel && emailTarget ? (
+                        <>
+                          <Mail className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                          <span className="font-mono text-purple-700 dark:text-purple-300 font-semibold truncate" title={emailTarget}>
+                            {emailTarget}
+                          </span>
+                        </>
+                      ) : phoneTarget ? (
+                        <>
+                          <Phone className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <span className="font-mono text-slate-700 dark:text-slate-300 font-medium truncate">
+                            Contact ({phoneTarget})
+                          </span>
+                        </>
                       ) : (
                         <>
                           <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="text-slate-500 dark:text-slate-400 font-medium">
-                            Company Mainline / Direct
+                            {isEmailChannel ? 'Email Outreach / Direct' : 'Company Mainline / Direct'}
                           </span>
                         </>
                       )}
@@ -1048,6 +1102,32 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               console.warn('Error syncing updated task:', e);
             }
             setInternalExecutingTask(null);
+            if (onRefreshTimeline) onRefreshTimeline();
+          }}
+        />
+      )}
+
+      {/* Historical Activity Log Detail Modal */}
+      {selectedDetailLog && (
+        <CallLogDetailModal
+          entry={selectedDetailLog}
+          currentUser={user}
+          companies={companies}
+          setCompanies={setCompanies}
+          contacts={contacts}
+          enquiries={enquiries}
+          callLogs={historyLogs}
+          onClose={() => setSelectedDetailLog(null)}
+          onOpenCompany360={() => {
+            setSelectedDetailLog(null);
+            if (onOpenCompany360) onOpenCompany360();
+          }}
+          onEdit={(entry) => {
+            setSelectedDetailLog(null);
+            if (onSelectCallLog) onSelectCallLog(entry);
+          }}
+          onDelete={() => {
+            setSelectedDetailLog(null);
             if (onRefreshTimeline) onRefreshTimeline();
           }}
         />

@@ -47,6 +47,7 @@ import {
 } from '../utils/activityLogic';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
+import CallLogDetailModal from './CallLogDetailModal';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import TaskCallHistoryPanel from './TaskCallHistoryPanel';
 import { IndustryBadge } from '../utils/taxonomy';
@@ -380,6 +381,7 @@ export default function LiveExecutionModal({
   // Modals integration state
   const [isContactModalOpen, setIsContactModalOpen] = useState<boolean>(false);
   const [isCompany360Open, setIsCompany360Open] = useState<boolean>(false);
+  const [selectedHistoryLog, setSelectedHistoryLog] = useState<CallLogEntry | null>(null);
 
   // Expandable Call History Panel state (default: split-view on desktop, collapsed on mobile)
   const [isHistoryExpanded, setIsHistoryExpanded] = useState<boolean>(() => {
@@ -2194,12 +2196,37 @@ export default function LiveExecutionModal({
                 isExpanded={isHistoryExpanded}
                 onToggleExpand={() => setIsHistoryExpanded(false)}
                 onOpenCompany360={() => setIsCompany360Open(true)}
+                onSelectCallLog={(log) => setSelectedHistoryLog(log)}
                 contacts={contacts}
               />
             </div>
           )}
         </div>
       </div>
+
+      {/* Historical Activity Log Detail Modal */}
+      {selectedHistoryLog && (
+        <CallLogDetailModal
+          entry={selectedHistoryLog}
+          currentUser={user}
+          companies={companies}
+          setCompanies={setCompanies}
+          contacts={contacts}
+          enquiries={enquiries}
+          callLogs={callLogs}
+          onClose={() => setSelectedHistoryLog(null)}
+          onOpenCompany360={(targetCompId) => {
+            setSelectedHistoryLog(null);
+            setIsCompany360Open(true);
+          }}
+          onEdit={() => {
+            setSelectedHistoryLog(null);
+          }}
+          onDelete={() => {
+            setSelectedHistoryLog(null);
+          }}
+        />
+      )}
 
       {/* Full Contact Creation Modal */}
       {isContactModalOpen && (
