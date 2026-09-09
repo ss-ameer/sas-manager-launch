@@ -28,12 +28,17 @@ import {
   PhoneMissed,
   Sparkles,
   ChevronRight,
-  Check
+  Check,
+  Target,
+  FileCheck,
+  Tag,
+  ChevronDown
 } from 'lucide-react';
 import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, isSamePhoneNumber, getCompanyPhones } from '../types';
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { getReferenceId } from '../utils/refId';
 import {
   CHANNELS,
   OUTCOMES,
@@ -375,6 +380,12 @@ export default function LiveExecutionModal({
   const [activeContactName, setActiveContactName] = useState<string>('');
   const [activeContactPhone, setActiveContactPhone] = useState<string>('');
 
+  // Active Target Selection: 'contact' | 'mainline' (auto-detected from task payload, with user override capability)
+  const [activeTargetOverride, setActiveTargetOverride] = useState<'contact' | 'mainline' | null>(null);
+
+  // Expandable state for Linked Enquiry line items preview
+  const [isLinkedEnquiryExpanded, setIsLinkedEnquiryExpanded] = useState<boolean>(false);
+
   // Ref for notes textarea
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -459,6 +470,8 @@ export default function LiveExecutionModal({
       setActiveContactId(currentTask.contact_id || '');
       setActiveContactName(currentTask.contact_name || '');
       setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
+      setActiveTargetOverride(null);
+      setIsLinkedEnquiryExpanded(false);
 
       // Reset Task Lifecycle Action panels and inputs
       setIsRescheduleOpen(false);
@@ -626,6 +639,151 @@ export default function LiveExecutionModal({
   const companyName = currentTask?.company_name || currentTask?.unlinked_name || linkedCompany?.display_name || 'No Company Account';
   const displayContactName = activeContactName || currentTask?.contact_name || targetContact?.full_name || 'No Contact Person';
   const originalAgenda = currentTask?.followup_intent || currentTask?.requirement_notes || currentTask?.notes || '';
+
+  // Active Target Auto-Detection based on task payload
+  const detectedTarget = useMemo<'contact' | 'mainline'>(() => {
+    if (!currentTask) return 'contact';
+
+    const cleanDigits = (s?: string) => (s || '').replace(/\D/g, '');
+    const taskTargetNumber = cleanDigits(
+      (currentTask as any)?.target_number ||
+      (currentTask as any)?.target_phone ||
+      currentTask?.contact_phone ||
+      (currentTask as any)?.phone_number ||
+      ''
+    );
+    const cleanMain = cleanDigits(companyMainPhone);
+    const cleanDirect = cleanDigits(directPhone);
+
+    // 1. If explicit target number matches company mainline and not contact direct
+    if (taskTargetNumber && cleanMain && taskTargetNumber === cleanMain && taskTargetNumber !== cleanDirect) {
+      return 'mainline';
+    }
+
+    // 2. If target email matches company general email and not contact email
+    const taskTargetEmail = ((currentTask as any)?.target_email || currentTask?.email_address || '').trim().toLowerCase();
+    if (taskTargetEmail) {
+      const compEmail = (linkedCompany?.email || (linkedCompany as any)?.general_email || '').trim().toLowerCase();
+      const contEmail = (targetContact?.email || '').trim().toLowerCase();
+      if (compEmail && taskTargetEmail === compEmail && taskTargetEmail !== contEmail) {
+        return 'mainline';
+      }
+      if (contEmail && taskTargetEmail === contEmail) {
+        return 'contact';
+      }
+    }
+
+    // 3. If task has contact_id or resolved targetContact
+    if (currentTask.contact_id || targetContact) {
+      return 'contact';
+    }
+
+    // 4. If task has a contact_name indicating company mainline/switchboard
+    const contactNameLower = (currentTask.contact_name || '').trim().toLowerCase();
+    if (['company mainline', 'mainline', 'switchboard', 'reception', 'general line', 'office phone', 'office line'].includes(contactNameLower)) {
+      return 'mainline';
+    }
+
+    // 5. If contact_name is present and distinct from generic placeholder
+    if (contactNameLower && contactNameLower !== 'no contact person' && contactNameLower !== 'primary decision maker') {
+      return 'contact';
+    }
+
+    // 6. If cleanTarget matches directPhone
+    if (taskTargetNumber && cleanDirect && taskTargetNumber === cleanDirect) {
+      return 'contact';
+    }
+
+    // 7. If company mainline phone exists and no direct phone
+    if (companyMainPhone && !directPhone) {
+      return 'mainline';
+    }
+
+    return 'contact';
+  }, [currentTask, companyMainPhone, directPhone, linkedCompany, targetContact]);
+
+  const activeTarget: 'contact' | 'mainline' = activeTargetOverride || detectedTarget;
+
+  // Linked Reference Resolution
+  const linkedEnquiryId =
+    currentTask?.enquiry_id ||
+    (currentTask as any)?.linked_enquiry_id ||
+    (currentTask as any)?.enquiryId ||
+    null;
+
+  const linkedProposalRef =
+    currentTask?.enquiry_quote_ref ||
+    (currentTask as any)?.linked_proposal_id ||
+    (currentTask as any)?.proposal_id ||
+    (currentTask as any)?.quote_ref_no ||
+    (currentTask as any)?.quote_no ||
+    null;
+
+  const linkedGeneralRef =
+    (currentTask as any)?.reference_number ||
+    (currentTask as any)?.reference_no ||
+    (currentTask as any)?.ref_id ||
+    (currentTask as any)?.ref_code ||
+    null;
+
+  // Resolve matching Enquiry record if available
+  const resolvedLinkedEnquiry = useMemo(() => {
+    if (!enquiries || enquiries.length === 0) return null;
+
+    if (linkedEnquiryId) {
+      const found = enquiries.find((e) => e.id === linkedEnquiryId);
+      if (found) return found;
+    }
+
+    if (linkedProposalRef) {
+      const cleanRef = linkedProposalRef.trim().toLowerCase();
+      const found = enquiries.find(
+        (e) =>
+          e.quote_ref_no?.trim().toLowerCase() === cleanRef ||
+          e.customer_reference_code?.trim().toLowerCase() === cleanRef ||
+          e.id === linkedProposalRef
+      );
+      if (found) return found;
+    }
+
+    // Fallback: check if notes or purpose contains a quote/enquiry code pattern (e.g. #EQ-1002 or QT-2024-01)
+    const textToCheck = `${currentTask?.purpose || ''} ${currentTask?.requirement_notes || ''} ${currentTask?.notes || ''}`;
+    const codeMatch = textToCheck.match(/(?:#|\b)(?:EQ|ENQ|QT|PROP|PRP)[-_ ]?(\d+)/i);
+    if (codeMatch) {
+      const matchedNum = codeMatch[1];
+      const found = enquiries.find((e) => {
+        if (e.sn && String(e.sn) === matchedNum) return true;
+        if (e.quote_ref_no && e.quote_ref_no.includes(matchedNum)) return true;
+        return false;
+      });
+      if (found) return found;
+    }
+
+    return null;
+  }, [enquiries, linkedEnquiryId, linkedProposalRef, currentTask]);
+
+  const canonicalEnquiryRef = useMemo(() => {
+    if (resolvedLinkedEnquiry) {
+      if (resolvedLinkedEnquiry.quote_ref_no) {
+        return resolvedLinkedEnquiry.quote_ref_no.startsWith('#')
+          ? resolvedLinkedEnquiry.quote_ref_no
+          : `#${resolvedLinkedEnquiry.quote_ref_no}`;
+      }
+      return getReferenceId('EQ', resolvedLinkedEnquiry, enquiries);
+    }
+    if (linkedProposalRef) {
+      return linkedProposalRef.startsWith('#') ? linkedProposalRef : `#${linkedProposalRef}`;
+    }
+    if (linkedGeneralRef) {
+      return linkedGeneralRef.startsWith('#') ? linkedGeneralRef : `#${linkedGeneralRef}`;
+    }
+    if (linkedEnquiryId) {
+      return `#ENQ-${linkedEnquiryId}`;
+    }
+    return '';
+  }, [resolvedLinkedEnquiry, enquiries, linkedProposalRef, linkedGeneralRef, linkedEnquiryId]);
+
+  const hasLinkedRecord = Boolean(canonicalEnquiryRef || resolvedLinkedEnquiry);
 
   // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !currentTask) return null;
@@ -891,13 +1049,21 @@ export default function LiveExecutionModal({
         }
       }
 
+      // Resolve target contact details based on whether contact person or company mainline is selected
+      const isTargetMainline = activeTarget === 'mainline';
+      const resolvedTargetContactId = isTargetMainline ? undefined : (activeContactId || currentTask.contact_id || undefined);
+      const resolvedTargetContactName = isTargetMainline ? 'Company Mainline' : (activeContactName || currentTask.contact_name || displayContactName);
+      const resolvedTargetContactPhone = isTargetMainline
+        ? (companyMainPhone || currentTask.company_phone || '')
+        : (activeContactPhone || directPhone || currentTask.contact_phone || '');
+
       // Step 1: Update the CURRENT task's database record
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
         channel: currentChannel as ActivityChannel,
-        contact_id: activeContactId || currentTask.contact_id,
-        contact_name: activeContactName || currentTask.contact_name,
-        contact_phone: activeContactPhone || directPhone || currentTask.contact_phone,
+        contact_id: resolvedTargetContactId,
+        contact_name: resolvedTargetContactName,
+        contact_phone: resolvedTargetContactPhone,
         status: updatedStatus as CallStatus,
         outcome: finalOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
@@ -909,6 +1075,8 @@ export default function LiveExecutionModal({
         completed_at: nowIso,
         completedAt: nowIso,
         executed_at: nowIso,
+        enquiry_id: currentTask.enquiry_id || (currentTask as any)?.linked_enquiry_id || resolvedLinkedEnquiry?.id || undefined,
+        enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
         ...(nextFollowUpDate ? { next_followup_date: nextFollowUpDate } : {})
       };
 
@@ -921,9 +1089,9 @@ export default function LiveExecutionModal({
           workspace_id: currentTask.workspace_id || 'ws_default',
           company_id: currentTask.company_id,
           company_name: currentTask.company_name || currentTask.unlinked_name || companyName,
-          contact_id: activeContactId || currentTask.contact_id,
-          contact_name: activeContactName || currentTask.contact_name || displayContactName,
-          contact_phone: activeContactPhone || directPhone || currentTask.contact_phone,
+          contact_id: resolvedTargetContactId,
+          contact_name: resolvedTargetContactName,
+          contact_phone: resolvedTargetContactPhone,
           channel: (currentChannel as ActivityChannel) || 'Phone Call',
           date: nextFollowUpDate,
           status: 'Scheduled / Planned' as CallStatus,
@@ -931,6 +1099,8 @@ export default function LiveExecutionModal({
           purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
           requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : (notes.trim() ? `Follow up on: ${notes.trim()}` : ''),
           followup_intent: followUpIntent.trim() || undefined,
+          enquiry_id: currentTask.enquiry_id || (currentTask as any)?.linked_enquiry_id || resolvedLinkedEnquiry?.id || undefined,
+          enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
           logged_by: userName,
           sales_person: userName,
           created_by_uid: userUid,
@@ -1265,25 +1435,57 @@ export default function LiveExecutionModal({
                 </div>
               </div>
 
-              {/* Dual-Track Contact Deck */}
+              {/* Dual-Track Contact Deck with Active Target Highlighting */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* a) Target Contact Person Card */}
-                <div className="p-3.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs flex flex-col justify-between space-y-2.5">
+                <div
+                  className={`p-3.5 rounded-xl transition-all duration-150 flex flex-col justify-between space-y-2.5 relative overflow-hidden ${
+                    activeTarget === 'contact'
+                      ? 'bg-blue-50/60 dark:bg-blue-950/25 border-2 border-blue-500 ring-2 ring-blue-500/20 shadow-xs'
+                      : 'bg-white dark:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700 shadow-2xs opacity-85 hover:opacity-100 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                    <div className="flex items-center justify-between mb-1.5 gap-2">
+                      <div className={`flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider ${
+                        activeTarget === 'contact' ? 'text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'
+                      }`}>
                         <User className="w-3.5 h-3.5" />
                         <span>Target Contact Person</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsContactModalOpen(true)}
-                        className="inline-flex items-center space-x-1 text-[11px] font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 cursor-pointer transition"
-                        title="Add or edit contact person"
-                      >
-                        <UserPlus className="w-3 h-3" />
-                        <span>+ Add / Edit</span>
-                      </button>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {activeTarget === 'contact' ? (
+                          <span
+                            id="active-target-contact-badge"
+                            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white shadow-xs ring-1 ring-blue-400/50"
+                            title="The interaction log will be assigned to this contact profile"
+                          >
+                            <Target className="w-2.5 h-2.5" />
+                            <span>🎯 Active Target</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            id="set-target-contact-btn"
+                            onClick={() => setActiveTargetOverride('contact')}
+                            className="inline-flex items-center space-x-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-900/60 transition cursor-pointer"
+                            title="Switch active interaction logging target to Contact Person"
+                          >
+                            <Target className="w-2.5 h-2.5" />
+                            <span>Set as Target</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsContactModalOpen(true)}
+                          className="inline-flex items-center space-x-1 text-[11px] font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 cursor-pointer transition"
+                          title="Add or edit contact person"
+                        >
+                          <UserPlus className="w-3 h-3" />
+                          <span>+ Add / Edit</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
@@ -1292,12 +1494,20 @@ export default function LiveExecutionModal({
                     <div className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">
                       {contactDesignation}
                     </div>
+                    {activeTarget === 'contact' && (
+                      <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                        <Check className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Logs interaction against this individual profile</span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Direct Number & 1-Click Action Buttons */}
+                  {/* Direct Number / Email & 1-Click Action Buttons */}
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                     <div className="truncate">
-                      <div className="text-[10px] uppercase font-semibold text-slate-400">Direct Number</div>
+                      <div className="text-[10px] uppercase font-semibold text-slate-400">
+                        {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
+                      </div>
                       <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                         {directPhone || <span className="text-slate-400 font-normal italic">No direct number</span>}
                       </div>
@@ -1305,33 +1515,52 @@ export default function LiveExecutionModal({
 
                     {directPhone ? (
                       <div className="flex items-center space-x-1.5 shrink-0">
-                        <a
-                          id="target-contact-call-button"
-                          href={cleanTelUrl(directPhone)}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                          title={`Call ${displayContactName} (${directPhone})`}
-                        >
-                          <PhoneCall className="w-3.5 h-3.5" />
-                          <span>Call</span>
-                        </a>
-                        <a
-                          id="target-contact-whatsapp-button"
-                          href={cleanWhatsAppUrl(directPhone)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
-                          title={`WhatsApp message to ${displayContactName}`}
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>WhatsApp</span>
-                        </a>
+                        {directPhone.includes('@') ? (
+                          <a
+                            id="target-contact-email-button"
+                            href={`mailto:${directPhone}`}
+                            onClick={() => setActiveTargetOverride('contact')}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Send Email to ${displayContactName} (${directPhone})`}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Email</span>
+                          </a>
+                        ) : (
+                          <>
+                            <a
+                              id="target-contact-call-button"
+                              href={cleanTelUrl(directPhone)}
+                              onClick={() => setActiveTargetOverride('contact')}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                              title={`Call ${displayContactName} (${directPhone})`}
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              <span>Call</span>
+                            </a>
+                            <a
+                              id="target-contact-whatsapp-button"
+                              href={cleanWhatsAppUrl(directPhone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTargetOverride('contact');
+                              }}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
+                              title={`WhatsApp message to ${displayContactName}`}
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <button
                         type="button"
                         onClick={() => setIsContactModalOpen(true)}
-                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                       >
                         Add Phone
                       </button>
@@ -1340,22 +1569,60 @@ export default function LiveExecutionModal({
                 </div>
 
                 {/* b) Company Mainline Card */}
-                <div className="p-3.5 bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs flex flex-col justify-between space-y-2.5">
+                <div
+                  className={`p-3.5 rounded-xl transition-all duration-150 flex flex-col justify-between space-y-2.5 relative overflow-hidden ${
+                    activeTarget === 'mainline'
+                      ? 'bg-amber-50/60 dark:bg-amber-950/25 border-2 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
+                      : 'bg-white dark:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700 shadow-2xs opacity-85 hover:opacity-100 hover:border-slate-300 dark:hover:border-slate-600'
+                  }`}
+                >
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center justify-between mb-1.5 gap-2">
+                      <div className={`flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider ${
+                        activeTarget === 'mainline' ? 'text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'
+                      }`}>
                         <PhoneForwarded className="w-3.5 h-3.5 text-amber-500" />
                         <span>Company Mainline</span>
                       </div>
-                      <span className="text-[10px] font-medium text-slate-400">Switchboard</span>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {activeTarget === 'mainline' ? (
+                          <span
+                            id="active-target-mainline-badge"
+                            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-600 text-white shadow-xs ring-1 ring-amber-400/50"
+                            title="The interaction log will be assigned to Company Mainline"
+                          >
+                            <Target className="w-2.5 h-2.5" />
+                            <span>🎯 Active Target</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            id="set-target-mainline-btn"
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/60 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-900/60 transition cursor-pointer"
+                            title="Switch active interaction logging target to Company Mainline"
+                          >
+                            <Target className="w-2.5 h-2.5" />
+                            <span>Set as Target</span>
+                          </button>
+                        )}
+                        <span className="text-[10px] font-medium text-slate-400">Switchboard</span>
+                      </div>
                     </div>
 
                     <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
                       {companyName}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                      General Reception / Office Line
+                      General Reception / Office Switchboard
                     </div>
+                    {activeTarget === 'mainline' && (
+                      <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                        <Check className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>Logs interaction under company mainline switchboard</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Mainline Number & 1-Click Call / WhatsApp Buttons */}
@@ -1372,7 +1639,7 @@ export default function LiveExecutionModal({
                         <a
                           id="company-mainline-call-button"
                           href={cleanTelUrl(companyMainPhone)}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={() => setActiveTargetOverride('mainline')}
                           className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
                           title={`Call Switchboard (${companyMainPhone})`}
                         >
@@ -1384,7 +1651,10 @@ export default function LiveExecutionModal({
                           href={cleanWhatsAppUrl(companyMainPhone)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTargetOverride('mainline');
+                          }}
                           className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
                           title={`WhatsApp Switchboard (${companyMainPhone})`}
                         >
@@ -1398,6 +1668,124 @@ export default function LiveExecutionModal({
                   </div>
                 </div>
               </div>
+
+              {/* Dedicated Linked Commercial References Card */}
+              {hasLinkedRecord && (
+                <div
+                  id="live-execution-linked-record-card"
+                  className="p-3.5 bg-gradient-to-r from-purple-50/90 via-indigo-50/50 to-purple-50/90 dark:from-purple-950/30 dark:via-indigo-950/20 dark:to-purple-950/30 rounded-xl border border-purple-200/90 dark:border-purple-800/60 shadow-2xs space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+                        <FileCheck className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-700 dark:text-purple-300">
+                          {resolvedLinkedEnquiry ? 'Linked Commercial Proposal' : 'Linked Record'}
+                        </span>
+                        <span
+                          id="linked-record-badge"
+                          className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-md text-xs font-mono font-extrabold bg-purple-600 text-white shadow-2xs"
+                        >
+                          <Tag className="w-3 h-3 text-purple-200" />
+                          <span>Linked Enquiry: {canonicalEnquiryRef}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      {resolvedLinkedEnquiry?.status && (
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${
+                          resolvedLinkedEnquiry.status === 'Order Received'
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                            : resolvedLinkedEnquiry.status === 'Active'
+                            ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}>
+                          {resolvedLinkedEnquiry.status}
+                        </span>
+                      )}
+
+                      {resolvedLinkedEnquiry?.value_aed ? (
+                        <span className="px-2 py-0.5 rounded-md text-xs font-mono font-extrabold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50">
+                          {resolvedLinkedEnquiry.currency || 'AED'} {resolvedLinkedEnquiry.value_aed.toLocaleString()}
+                        </span>
+                      ) : null}
+
+                      {resolvedLinkedEnquiry?.items && resolvedLinkedEnquiry.items.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsLinkedEnquiryExpanded((prev) => !prev)}
+                          className="inline-flex items-center space-x-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:text-purple-900 dark:hover:text-purple-100 bg-purple-100/70 dark:bg-purple-900/50 px-2 py-0.5 rounded-md border border-purple-200 dark:border-purple-800 cursor-pointer transition"
+                          title="Toggle line items scope"
+                        >
+                          <span>{resolvedLinkedEnquiry.items.length} item{resolvedLinkedEnquiry.items.length > 1 ? 's' : ''}</span>
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isLinkedEnquiryExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Subject Scope */}
+                  {resolvedLinkedEnquiry?.subject && (
+                    <div className="text-xs text-slate-800 dark:text-slate-200 font-medium pl-8 flex items-start gap-1">
+                      <span className="text-purple-700 dark:text-purple-400 font-bold shrink-0">Subject:</span>
+                      <span className="truncate">{resolvedLinkedEnquiry.subject}</span>
+                    </div>
+                  )}
+
+                  {/* Meta details */}
+                  <div className="pl-8 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
+                    {resolvedLinkedEnquiry?.customer_reference_code && (
+                      <span className="font-mono">
+                        Customer Ref: <strong className="text-slate-700 dark:text-slate-200">{resolvedLinkedEnquiry.customer_reference_code}</strong>
+                      </span>
+                    )}
+                    {resolvedLinkedEnquiry?.enquiry_date && (
+                      <span>
+                        Date: <strong className="text-slate-700 dark:text-slate-200">{resolvedLinkedEnquiry.enquiry_date}</strong>
+                      </span>
+                    )}
+                    {resolvedLinkedEnquiry?.project_location && (
+                      <span>
+                        Location: <strong className="text-slate-700 dark:text-slate-200">{resolvedLinkedEnquiry.project_location}</strong>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Collapsible Line Items preview */}
+                  {isLinkedEnquiryExpanded && resolvedLinkedEnquiry?.items && (
+                    <div className="mt-2 pl-8 pt-2 border-t border-purple-200/60 dark:border-purple-800/40 space-y-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                        Quotation Line Items Scope
+                      </div>
+                      <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                        {resolvedLinkedEnquiry.items.map((item, idx) => (
+                          <div
+                            key={item.id || idx}
+                            className="flex items-center justify-between text-xs p-1.5 rounded-lg bg-white/80 dark:bg-slate-900/60 border border-purple-100 dark:border-purple-900/40"
+                          >
+                            <span className="font-medium text-slate-800 dark:text-slate-200 truncate pr-2">
+                              {item.item_name}
+                            </span>
+                            <div className="flex items-center space-x-2 shrink-0 font-mono text-[11px]">
+                              <span className="text-slate-500">
+                                {item.quantity} {item.unit}
+                              </span>
+                              {item.total_price > 0 && (
+                                <span className="font-bold text-slate-700 dark:text-slate-300">
+                                  AED {item.total_price.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Read-Only Original Agenda / Prior Notes */}
               {(originalAgenda || currentTask?.purpose) && (
