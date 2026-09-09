@@ -2297,12 +2297,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           delete (updatedExistingLog as any).purpose;
         }
 
-        await safeSetDoc('activity_logs', activeLog.id, updatedExistingLog);
-        await safeSetDoc('call_logs', activeLog.id, updatedExistingLog);
-        await CallLogRepository.save(updatedExistingLog);
-
         let spawnedFollowUpLog: CallLogEntry | null = null;
-        // The Spawner: IF nextFollowUpDate has a value, explicitly construct a SECOND brand-new activity log object
+        // The Spawner: IF nextFollowUpDate has a value, explicitly construct a linked scheduled activity log
         if (followupIsoDate && followupIsoDate.trim() !== '') {
           const newFollowUpId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
           spawnedFollowUpLog = {
@@ -2342,11 +2338,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             delete (spawnedFollowUpLog as any).outcome;
             delete (spawnedFollowUpLog as any).purpose;
           }
-
-          await safeSetDoc('activity_logs', newFollowUpId, spawnedFollowUpLog);
-          await safeSetDoc('call_logs', newFollowUpId, spawnedFollowUpLog);
-          await CallLogRepository.save(spawnedFollowUpLog);
         }
+
+        // Single atomic consolidated write path
+        await CallLogRepository.logInteractionWithTask({
+          interaction: updatedExistingLog,
+          followupTask: spawnedFollowUpLog,
+          mode: 'execute'
+        });
 
         if (setCallLogs) {
           setCallLogs((prev) => {
@@ -2358,10 +2357,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           });
         }
         if (onSave) {
-          onSave(updatedExistingLog);
-        }
-        if (onUpdate) {
-          onUpdate(updatedExistingLog);
+          onSave(updatedExistingLog, spawnedFollowUpLog || undefined);
+        } else if (onUpdate) {
+          onUpdate(updatedExistingLog, spawnedFollowUpLog || undefined);
         }
       } else if (drawerMode === 'edit' && activeLog && activeLog.id) {
         // Track 2: Edit Mode
@@ -2380,81 +2378,120 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           delete (updatedEntry as any).purpose;
         }
 
-        await safeSetDoc('activity_logs', activeLog.id, updatedEntry);
-        await safeSetDoc('call_logs', activeLog.id, updatedEntry);
-        await CallLogRepository.save(updatedEntry);
+        // Single atomic consolidated write path
+        await CallLogRepository.logInteractionWithTask({
+          interaction: updatedEntry,
+          followupTask: null,
+          mode: 'update'
+        });
 
         if (setCallLogs) {
           setCallLogs((prev) => prev.map((log) => (log.id === activeLog.id ? updatedEntry : log)));
         }
-        if (onSave) {
-          onSave(updatedEntry);
-        }
         if (onUpdate) {
           onUpdate(updatedEntry);
+        } else if (onSave) {
+          onSave(updatedEntry);
         }
       } else {
         // Track 3: Create Mode
-        // Standard creation of a single new log
         const newId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const newEntry: CallLogEntry = {
-          ...payload,
-          id: newId
-        };
 
-        if (isInternalTask) {
-          delete (newEntry as any).outcome;
-          delete (newEntry as any).purpose;
-        }
-
-        await safeSetDoc('activity_logs', newId, newEntry);
-        await safeSetDoc('call_logs', newId, newEntry);
-        await CallLogRepository.save(newEntry);
-
-        let spawnedFollowUpLog: CallLogEntry | null = null;
-        if (followupIsoDate && followupIsoDate.trim() !== '') {
-          const scheduledLogId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
-          spawnedFollowUpLog = {
+        // Check if the activity itself is directly a scheduled task
+        if (isCurScheduled) {
+          // Exactly ONE scheduled task document is created - no secondary duplicate task
+          const scheduledTaskEntry: CallLogEntry = {
             ...payload,
-            id: scheduledLogId,
-            workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
-            company_id: resolvedCompanyId || payload.company_id,
-            company_name: resolvedCompanyName || payload.company_name,
-            date: followupIsoDate,
-            status: 'Scheduled / Planned' as CallStatus,
-            outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
-            purpose: isInternalTask ? undefined : payload.purpose,
-            requirement_notes: followupIntent.trim() || '',
+            id: newId,
+            date: followupIsoDate || activityIsoDate,
+            status: 'Scheduled / Planned',
+            outcome: isInternalTask ? undefined : (outcome || undefined),
+            purpose: isInternalTask ? undefined : (purpose || 'Follow-up / Check-in'),
+            requirement_notes: (notes || followupIntent).trim(),
             followup_intent: followupIntent.trim() || undefined,
-            next_followup_date: undefined,
-            createdAt: nowIso,
-            updatedAt: nowIso
+            next_followup_date: undefined
           };
 
           if (isInternalTask) {
-            delete (spawnedFollowUpLog as any).outcome;
-            delete (spawnedFollowUpLog as any).purpose;
+            delete (scheduledTaskEntry as any).outcome;
+            delete (scheduledTaskEntry as any).purpose;
           }
 
-          await safeSetDoc('activity_logs', scheduledLogId, spawnedFollowUpLog);
-          await safeSetDoc('call_logs', scheduledLogId, spawnedFollowUpLog);
-          await CallLogRepository.save(spawnedFollowUpLog);
-        }
-
-        if (setCallLogs) {
-          setCallLogs((prev) => {
-            const list = [newEntry, ...prev.filter((log) => log.id !== newId)];
-            if (spawnedFollowUpLog) {
-              return [spawnedFollowUpLog, ...list.filter((l) => l.id !== spawnedFollowUpLog!.id)];
-            }
-            return list;
+          // Single atomic consolidated write path
+          await CallLogRepository.logInteractionWithTask({
+            interaction: scheduledTaskEntry,
+            followupTask: null,
+            mode: 'create'
           });
-        }
-        if (onSave) {
-          onSave(newEntry);
-        }
-        if (onUpdate) {
-          onUpdate(newEntry);
+
+          if (setCallLogs) {
+            setCallLogs((prev) => [scheduledTaskEntry, ...prev.filter((log) => log.id !== newId)]);
+          }
+          if (onSave) {
+            onSave(scheduledTaskEntry);
+          } else if (onUpdate) {
+            onUpdate(scheduledTaskEntry);
+          }
+        } else {
+          // Standard creation of an interaction log (e.g. Completed call/visit/email)
+          const newEntry: CallLogEntry = {
+            ...payload,
+            id: newId
+          };
+
+          if (isInternalTask) {
+            delete (newEntry as any).outcome;
+            delete (newEntry as any).purpose;
+          }
+
+          // If a follow-up date was set, spawn exactly ONE linked follow-up task
+          let spawnedFollowUpLog: CallLogEntry | null = null;
+          if (followupIsoDate && followupIsoDate.trim() !== '') {
+            const scheduledLogId = `act_${Date.now()}_fup_${Math.random().toString(36).substring(2, 7)}`;
+            spawnedFollowUpLog = {
+              ...payload,
+              id: scheduledLogId,
+              workspace_id: activeWorkspaceId || payload.workspace_id || 'ws_default',
+              company_id: resolvedCompanyId || payload.company_id,
+              company_name: resolvedCompanyName || payload.company_name,
+              date: followupIsoDate,
+              status: 'Scheduled / Planned' as CallStatus,
+              outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
+              purpose: isInternalTask ? undefined : payload.purpose,
+              requirement_notes: followupIntent.trim() || '',
+              followup_intent: followupIntent.trim() || undefined,
+              next_followup_date: undefined,
+              createdAt: nowIso,
+              updatedAt: nowIso
+            };
+
+            if (isInternalTask) {
+              delete (spawnedFollowUpLog as any).outcome;
+              delete (spawnedFollowUpLog as any).purpose;
+            }
+          }
+
+          // Single atomic consolidated write path for both interaction and followup task
+          await CallLogRepository.logInteractionWithTask({
+            interaction: newEntry,
+            followupTask: spawnedFollowUpLog,
+            mode: 'create'
+          });
+
+          if (setCallLogs) {
+            setCallLogs((prev) => {
+              const list = [newEntry, ...prev.filter((log) => log.id !== newId)];
+              if (spawnedFollowUpLog) {
+                return [spawnedFollowUpLog, ...list.filter((l) => l.id !== spawnedFollowUpLog!.id)];
+              }
+              return list;
+            });
+          }
+          if (onSave) {
+            onSave(newEntry, spawnedFollowUpLog || undefined);
+          } else if (onUpdate) {
+            onUpdate(newEntry, spawnedFollowUpLog || undefined);
+          }
         }
       }
 

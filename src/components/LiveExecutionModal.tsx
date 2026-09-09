@@ -875,10 +875,6 @@ export default function LiveExecutionModal({
         ...(nextFollowUpDate ? { next_followup_date: nextFollowUpDate } : {})
       };
 
-      await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
-      await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
-      await CallLogRepository.save(updatedTaskRecord);
-
       // Step 2: Spawn Follow-Up task if nextFollowUpDate is specified
       let spawnedFollowUpTask: CallLogEntry | undefined = undefined;
       if (nextFollowUpDate && nextFollowUpDate.trim() !== '') {
@@ -905,11 +901,14 @@ export default function LiveExecutionModal({
           createdAt: nowIso,
           updatedAt: nowIso
         };
-
-        await safeSetDoc('activity_logs', spawnedId, spawnedFollowUpTask);
-        await safeSetDoc('call_logs', spawnedId, spawnedFollowUpTask);
-        await CallLogRepository.save(spawnedFollowUpTask);
       }
+
+      // Single atomic consolidated write path
+      await CallLogRepository.logInteractionWithTask({
+        interaction: updatedTaskRecord,
+        followupTask: spawnedFollowUpTask || null,
+        mode: 'execute'
+      });
 
       // Step 3: Trigger onCompleteTask and onSuccess callbacks
       if (onCompleteTask) {

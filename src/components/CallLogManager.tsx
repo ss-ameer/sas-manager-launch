@@ -293,9 +293,9 @@ export default function CallLogManager({
 
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
-    CallLogRepository.save(savedLog).catch((err) => console.warn('[CallLogManager] Failed to cache savedLog:', err));
+    CallLogRepository.saveLocalOnly(savedLog).catch((err) => console.warn('[CallLogManager] Failed to cache savedLog:', err));
     if (spawnedLog) {
-      CallLogRepository.save(spawnedLog).catch((err) => console.warn('[CallLogManager] Failed to cache spawnedLog:', err));
+      CallLogRepository.saveLocalOnly(spawnedLog).catch((err) => console.warn('[CallLogManager] Failed to cache spawnedLog:', err));
     }
     if (setCallLogs) {
       setCallLogs((prev) => {

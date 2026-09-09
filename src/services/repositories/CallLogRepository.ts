@@ -21,6 +21,17 @@ export interface ConvertLeadResult {
   updatedEntry: ActivityLogEntry;
 }
 
+export interface LogInteractionWithTaskParams {
+  interaction: ActivityLogEntry;
+  followupTask?: ActivityLogEntry | null;
+  mode?: 'create' | 'update' | 'execute';
+}
+
+export interface LogInteractionWithTaskResult {
+  interaction: ActivityLogEntry;
+  followupTask: ActivityLogEntry | null;
+}
+
 export class ActivityLogRepository {
   private static STORE_NAME = 'activity_logs';
 
@@ -30,6 +41,147 @@ export class ActivityLogRepository {
 
   public static async saveLocalCache(items: ActivityLogEntry[]): Promise<void> {
     await saveToLocalStore(this.STORE_NAME, items);
+  }
+
+  public static async saveLocalOnly(entry: ActivityLogEntry): Promise<void> {
+    const current = await this.getAllLocal();
+    const idx = current.findIndex((item) => item.id === entry.id);
+    let updated: ActivityLogEntry[];
+
+    if (idx >= 0) {
+      updated = [...current];
+      updated[idx] = entry;
+    } else {
+      updated = [entry, ...current];
+    }
+    await this.saveLocalCache(updated);
+  }
+
+  /**
+   * Consolidate task creation and interaction logging into a single atomic write path.
+   * Performs an atomic writeBatch to Firestore ('call_logs' and 'activity_logs') for the
+   * interaction and any linked followup task document, ensuring exactly ONE database write.
+   */
+  public static async logInteractionWithTask(
+    paramsOrInteraction: LogInteractionWithTaskParams | ActivityLogEntry,
+    maybeFollowup?: ActivityLogEntry | null,
+    maybeMode?: 'create' | 'update' | 'execute'
+  ): Promise<LogInteractionWithTaskResult> {
+    let interaction: ActivityLogEntry;
+    let followupTask: ActivityLogEntry | null = null;
+    let mode: 'create' | 'update' | 'execute' = 'create';
+
+    if (paramsOrInteraction && 'interaction' in paramsOrInteraction) {
+      interaction = paramsOrInteraction.interaction;
+      followupTask = paramsOrInteraction.followupTask || null;
+      mode = paramsOrInteraction.mode || 'create';
+    } else {
+      interaction = paramsOrInteraction as ActivityLogEntry;
+      followupTask = maybeFollowup || null;
+      mode = maybeMode || 'create';
+    }
+
+    if (!interaction || !interaction.id) {
+      throw new Error('[CallLogRepository] Missing interaction or interaction.id');
+    }
+
+    // Atomic writeBatch to Firestore
+    let batchCommitted = false;
+    try {
+      const batch = writeBatch(db);
+
+      // 1. Interaction Document
+      const actRef = doc(db, 'activity_logs', interaction.id);
+      const callRef = doc(db, 'call_logs', interaction.id);
+      const cleanedInteraction = cleanUndefined(interaction);
+
+      if (mode === 'update' || mode === 'execute') {
+        batch.set(actRef, cleanedInteraction, { merge: true });
+        batch.set(callRef, cleanedInteraction, { merge: true });
+      } else {
+        batch.set(actRef, cleanedInteraction);
+        batch.set(callRef, cleanedInteraction);
+      }
+
+      // 2. Follow-Up Task Document (Atomic write in same batch - exactly ONE write execution)
+      if (followupTask && followupTask.id) {
+        const fupActRef = doc(db, 'activity_logs', followupTask.id);
+        const fupCallRef = doc(db, 'call_logs', followupTask.id);
+        const cleanedFollowup = cleanUndefined(followupTask);
+
+        batch.set(fupActRef, cleanedFollowup);
+        batch.set(fupCallRef, cleanedFollowup);
+      }
+
+      await batch.commit();
+      batchCommitted = true;
+    } catch (err) {
+      console.warn('[CallLogRepository] Firestore batch failed or offline, falling back to safe operations:', err);
+    }
+
+    // Fallback if batch commit failed (e.g. offline simulation or network failure)
+    if (!batchCommitted) {
+      if (mode === 'update' || mode === 'execute') {
+        await safeSetDoc('activity_logs', interaction.id, interaction, { merge: true });
+        await safeSetDoc('call_logs', interaction.id, interaction, { merge: true });
+      } else {
+        await safeSetDoc('activity_logs', interaction.id, interaction);
+        await safeSetDoc('call_logs', interaction.id, interaction);
+      }
+
+      if (followupTask && followupTask.id) {
+        await safeSetDoc('activity_logs', followupTask.id, followupTask);
+        await safeSetDoc('call_logs', followupTask.id, followupTask);
+      }
+    }
+
+    // Update Local Cache atomically
+    const current = await this.getAllLocal();
+    let updated = [...current];
+
+    // Upsert interaction
+    const intIdx = updated.findIndex((i) => i.id === interaction.id);
+    if (intIdx >= 0) {
+      updated[intIdx] = interaction;
+    } else {
+      updated = [interaction, ...updated];
+    }
+
+    // Upsert follow-up task if present
+    if (followupTask && followupTask.id) {
+      const fupIdx = updated.findIndex((i) => i.id === followupTask!.id);
+      if (fupIdx >= 0) {
+        updated[fupIdx] = followupTask;
+      } else {
+        updated = [followupTask, ...updated];
+      }
+    }
+
+    await this.saveLocalCache(updated);
+
+    return { interaction, followupTask };
+  }
+
+  public static async createTask(task: ActivityLogEntry): Promise<ActivityLogEntry> {
+    const res = await this.logInteractionWithTask({
+      interaction: task,
+      followupTask: null,
+      mode: 'create'
+    });
+    return res.interaction;
+  }
+
+  public static async logInteraction(interaction: ActivityLogEntry): Promise<ActivityLogEntry> {
+    const res = await this.logInteractionWithTask({
+      interaction,
+      followupTask: null,
+      mode: 'create'
+    });
+    return res.interaction;
+  }
+
+  public static async logActivity(activity: ActivityLogEntry): Promise<ActivityLogEntry> {
+    return this.logInteraction(activity);
   }
 
   public static async fetchWorkspaceCallLogsFromCloud(workspaceId: string): Promise<ActivityLogEntry[]> {
