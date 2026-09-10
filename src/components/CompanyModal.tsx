@@ -12,6 +12,7 @@ import CallLogDetailModal from './CallLogDetailModal';
 import CompanyDetailView from './CompanyDetailView';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import SearchResultCounter from './common/SearchResultCounter';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes, IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import {
   evaluateCompanySearch,
@@ -67,7 +68,8 @@ import {
   Sparkles,
   MessageSquare,
   Link2,
-  Eye
+  Eye,
+  RotateCcw
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
@@ -1711,6 +1713,32 @@ export default function CompanyModal({
     });
   }, [companies, searchEvaluationMap, searchQuery, industryFilter, relationshipFilter, temperatureFilter, contacts]);
 
+  const totalActiveCompanies = useMemo(() => {
+    return (companies || []).filter((c) => !c.is_deleted).length;
+  }, [companies]);
+
+  const activeCompanyFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (industryFilter !== 'ALL') {
+      const ind = liveTaxonomySectors.find((s) => s.id === industryFilter);
+      labels.push(`Industry: ${ind?.label || ind?.name || industryFilter}`);
+    }
+    if (relationshipFilter !== 'ALL') {
+      labels.push(`Relationship: ${relationshipFilter}`);
+    }
+    if (temperatureFilter !== 'ALL') {
+      labels.push(`Temp: ${temperatureFilter}`);
+    }
+    return labels;
+  }, [industryFilter, relationshipFilter, temperatureFilter, liveTaxonomySectors]);
+
+  const handleClearCompanyFilters = () => {
+    setSearchQuery('');
+    setIndustryFilter('ALL');
+    setRelationshipFilter('ALL');
+    setTemperatureFilter('ALL');
+  };
+
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
   const companyContacts = useMemo(() => {
     const direct = contacts.filter((c) => c.company_id === selectedCompanyId);
@@ -1843,7 +1871,9 @@ export default function CompanyModal({
                   <div className="flex items-center space-x-2">
                     <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Companies Registry</h2>
                     <span className="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-md">
-                      {filteredCompanies.length} registered
+                      {filteredCompanies.length !== totalActiveCompanies
+                        ? `${filteredCompanies.length} of ${totalActiveCompanies} registered`
+                        : `${totalActiveCompanies} registered`}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">Canonical directory of account entities and relationships</p>
@@ -2014,6 +2044,17 @@ export default function CompanyModal({
                     </select>
                   </div>
                 </div>
+
+                {/* Standard Search Result Counter & Filter Status Banner */}
+                <SearchResultCounter
+                  totalCount={totalActiveCompanies}
+                  filteredCount={filteredCompanies.length}
+                  searchQuery={searchQuery}
+                  entityLabel="Companies"
+                  singularEntityLabel="Company"
+                  onClear={handleClearCompanyFilters}
+                  activeFilterLabels={activeCompanyFilterLabels}
+                />
               </div>
 
               {filteredCompanies.length > 0 ? (
@@ -2174,8 +2215,18 @@ export default function CompanyModal({
                   </div>
                 )
               ) : (
-                <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm italic">
-                  No matching companies found in your database.
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm">
+                  <p className="italic">No matching companies found in your database.</p>
+                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL') && (
+                    <button
+                      type="button"
+                      onClick={handleClearCompanyFilters}
+                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset all filters and search</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2252,6 +2303,16 @@ export default function CompanyModal({
               </div>
             </div>
           </div>
+
+          {/* Standard Search Result Counter for Contacts */}
+          <SearchResultCounter
+            totalCount={allContactsWithCompany.length}
+            filteredCount={filteredContacts.length}
+            searchQuery={searchQuery}
+            entityLabel="Contacts"
+            singularEntityLabel="Contact"
+            onClear={() => setSearchQuery('')}
+          />
 
           {/* Bulk Actions Toolbar for Contacts */}
           {selectedContactIds.length > 0 && (
@@ -2631,6 +2692,16 @@ export default function CompanyModal({
               />
             </div>
           </div>
+
+          {/* Standard Search Result Counter for Phones */}
+          <SearchResultCounter
+            totalCount={allPhoneEntries.length}
+            filteredCount={filteredPhones.length}
+            searchQuery={searchQuery}
+            entityLabel="Phone Numbers"
+            singularEntityLabel="Phone Number"
+            onClear={() => setSearchQuery('')}
+          />
 
           <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
             <table className="w-full text-left border-collapse text-xs font-sans">

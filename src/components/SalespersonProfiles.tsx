@@ -25,6 +25,7 @@ import {
   UserPlus,
   CheckCircle2
 } from 'lucide-react';
+import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 
 interface SalespersonProfilesProps {
@@ -857,6 +858,16 @@ export default function SalespersonProfiles({
                   )}
                 </div>
               </div>
+
+              {/* Standard Search Result Counter for Salesperson Linked Enquiries */}
+              <SearchResultCounter
+                totalCount={metrics.enquiries.length}
+                filteredCount={filteredEnquiries.length}
+                searchQuery={enquirySearchQuery}
+                entityLabel="Linked Enquiries"
+                singularEntityLabel="Linked Enquiry"
+                onClear={() => setEnquirySearchQuery('')}
+              />
 
               {paginatedEnquiries.length > 0 ? (
                 <div className="space-y-3">

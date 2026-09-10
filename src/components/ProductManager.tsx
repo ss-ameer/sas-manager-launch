@@ -14,9 +14,11 @@ import {
   Barcode,
   ArrowUpDown,
   RotateCw,
+  RotateCcw,
   AlertTriangle,
   ChevronDown
 } from 'lucide-react';
+import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 
 interface ProductManagerProps {
@@ -117,6 +119,15 @@ export default function ProductManager({ products, productCategories: propCatego
       return matchSearch && matchesCategory;
     });
   }, [products, searchInput, categoryFilter]);
+
+  const totalActiveProducts = React.useMemo(() => {
+    return products.filter((p) => !p.is_deleted).length;
+  }, [products]);
+
+  const handleClearProductFilters = () => {
+    setSearchInput('');
+    setCategoryFilter('All');
+  };
 
   // Pagination details
   const totalItems = filteredProducts.length;
@@ -352,6 +363,18 @@ export default function ProductManager({ products, productCategories: propCatego
             <ChevronDown className="absolute right-4 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
         </div>
+
+        {/* Standard Search Result Counter & Filter Status Banner */}
+        <SearchResultCounter
+          totalCount={totalActiveProducts}
+          filteredCount={filteredProducts.length}
+          searchQuery={searchInput}
+          entityLabel="Products"
+          singularEntityLabel="Product"
+          onClear={handleClearProductFilters}
+          activeFilterLabels={categoryFilter !== 'All' ? [`Category: ${categoryFilter}`] : []}
+          className="mt-4"
+        />
       </div>
 
       {/* Products Table Layout */}
@@ -493,7 +516,17 @@ export default function ProductManager({ products, productCategories: propCatego
           </>
         ) : (
           <div className="py-24 text-center text-slate-400 font-sans">
-            No products found matching your catalog search criteria.
+            <p>No products found matching your catalog search criteria.</p>
+            {(searchInput || categoryFilter !== 'All') && (
+              <button
+                type="button"
+                onClick={handleClearProductFilters}
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset all filters and search</span>
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -53,8 +53,10 @@ import {
   Table,
   Loader2,
   History,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
+import SearchResultCounter from './common/SearchResultCounter';
 import PhoneDataDiagnosticModal from './PhoneDataDiagnosticModal';
 import CallLogDetailModal from './CallLogDetailModal';
 import Company360Modal from './Company360Modal';
@@ -1940,7 +1942,7 @@ export default function CallLogManager({
           }`}
         >
           <ListFilter className="w-4 h-4" />
-          <span>Activity History ({filteredHistoryLogs.length})</span>
+          <span>Activity History ({filteredHistoryLogs.length !== workspaceCallLogs.length ? `${filteredHistoryLogs.length} of ${workspaceCallLogs.length}` : filteredHistoryLogs.length})</span>
         </button>
       </div>
 
@@ -2492,6 +2494,28 @@ export default function CallLogManager({
                 </select>
               </div>
             </div>
+
+            {/* Standard Search Result Counter & Filter Status Banner */}
+            <SearchResultCounter
+              totalCount={workspaceCallLogs.length}
+              filteredCount={filteredHistoryLogs.length}
+              searchQuery={searchTerm}
+              entityLabel="Activity Logs"
+              singularEntityLabel="Activity Log"
+              onClear={() => {
+                setSearchTerm('');
+                setIndustryFilter('all');
+                setStatusFilter('all');
+                setOutcomeFilter('all');
+                setGeographyFilter('all');
+              }}
+              activeFilterLabels={[
+                industryFilter !== 'all' ? `Industry: ${PARENT_INDUSTRIES.find(p => p.id === industryFilter)?.label || industryFilter}` : '',
+                statusFilter !== 'all' ? `Status: ${statusFilter}` : '',
+                outcomeFilter !== 'all' ? `Outcome: ${outcomeFilter}` : '',
+                geographyFilter !== 'all' ? `Location: ${geographyFilter}` : ''
+              ].filter(Boolean)}
+            />
           </div>
 
           <div className="space-y-3">
@@ -3033,7 +3057,23 @@ export default function CallLogManager({
             
             {paginatedLogs.length === 0 && (
               <div className="p-8 text-center text-slate-400 italic bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800">
-                No call log entries match the search or filters.
+                <p>No call log entries match the search or filters.</p>
+                {(searchTerm || industryFilter !== 'all' || statusFilter !== 'all' || outcomeFilter !== 'all' || geographyFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setIndustryFilter('all');
+                      setStatusFilter('all');
+                      setOutcomeFilter('all');
+                      setGeographyFilter('all');
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer font-sans not-italic"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear search & reset filters</span>
+                  </button>
+                )}
               </div>
             )}
             

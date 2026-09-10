@@ -20,8 +20,10 @@ import {
   ArrowRight,
   Trash,
   ChevronDown,
-  Clock
+  Clock,
+  RotateCcw
 } from 'lucide-react';
+import SearchResultCounter from './common/SearchResultCounter';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
@@ -280,7 +282,7 @@ export default function EnquiryList({
         if (isOwnDataOnly && !isRecordOwner(user, e)) return false;
 
         // 1. Search Query
-        const q = searchQuery.toLowerCase();
+        const q = (searchInput || searchQuery || '').toLowerCase().trim();
         const compName = (companyMap.get(e.company_id) || '').toLowerCase();
         const ref = (e.quote_ref_no || '').toLowerCase();
         const matchText = compName.includes(q) || ref.includes(q) || (e.sn && e.sn.toString().includes(q));
@@ -314,7 +316,26 @@ export default function EnquiryList({
         }
         return sortAsc ? comparison : -comparison;
       });
-  }, [enquiries, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sortField, sortAsc, companyMap]);
+  }, [enquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sortField, sortAsc, companyMap, user]);
+
+  const activeEnquiryFilterLabels = React.useMemo(() => {
+    const labels: string[] = [];
+    if (statusFilter !== 'All') labels.push(`Status: ${statusFilter}`);
+    if (salesPersonFilter !== 'All') {
+      const sp = salespersons.find(s => (s.id || s.initials) === salesPersonFilter);
+      labels.push(`Rep: ${sp ? sp.full_name : salesPersonFilter}`);
+    }
+    if (urgencyFilter === 'Overdue') labels.push('Overdue Only');
+    return labels;
+  }, [statusFilter, salesPersonFilter, urgencyFilter, salespersons]);
+
+  const handleClearEnquiryFilters = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setStatusFilter('All');
+    setSalesPersonFilter('All');
+    setUrgencyFilter('All');
+  };
 
   // Calculate pagination details
   const totalItems = filteredEnquiries.length;
@@ -679,6 +700,17 @@ export default function EnquiryList({
             </button>
           </div>
         </div>
+
+        {/* Standard Search Result Counter & Filter Status Banner */}
+        <SearchResultCounter
+          totalCount={enquiries.filter(e => !e.is_deleted).length}
+          filteredCount={filteredEnquiries.length}
+          searchQuery={searchInput}
+          entityLabel="Enquiries & Quotes"
+          singularEntityLabel="Enquiry"
+          onClear={handleClearEnquiryFilters}
+          activeFilterLabels={activeEnquiryFilterLabels}
+        />
       </div>
 
       {/* Main Table Layout */}
@@ -984,7 +1016,17 @@ export default function EnquiryList({
           </>
         ) : (
           <div className="py-24 text-center text-slate-400 font-sans">
-            No enquiries matched your filter conditions in this log.
+            <p>No enquiries matched your filter conditions in this log.</p>
+            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All') && (
+              <button
+                type="button"
+                onClick={handleClearEnquiryFilters}
+                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset all filters and search</span>
+              </button>
+            )}
           </div>
         )}
       </div>
