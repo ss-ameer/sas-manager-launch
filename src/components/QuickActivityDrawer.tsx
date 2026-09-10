@@ -1146,7 +1146,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setIsAddingNewContact(false);
       setIsAddingNewContactPhone(false);
       setIsAddingNewCompanyLine(false);
-      setNewContactDesignation(matchedContact.designation || '');
+      setNewContactDesignation('');
     } else {
       setSelectedContactId('');
       setSelectedContactName('');
@@ -1241,11 +1241,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       setSelectedContactPhone(firstPhone);
       setSelectedContactEmail(found.email || '');
       setIsAddingNewContactPhone(false);
+      setIsAddingNewContact(false);
+      setNewContactDesignation('');
     } else {
       setSelectedContactName('');
       setSelectedContactPhone('');
       setSelectedContactEmail('');
       setIsAddingNewContactPhone(false);
+      setIsAddingNewContact(false);
+      setNewContactDesignation('');
     }
   };
 
@@ -1555,6 +1559,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       let resolvedContactId: string | undefined = undefined;
       let resolvedContactName: string | undefined = undefined;
       let resolvedContactPhone: string | undefined = undefined;
+      let resolvedContactEmail: string | undefined = undefined;
       let resolvedUnlinkedName: string | undefined = undefined;
       let resolvedUnlinkedInfo: string | undefined = undefined;
 
@@ -1721,190 +1726,197 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 const contactTrim = (selectedContactName || '').trim();
                 const newPhone = (selectedContactPhone || '').trim();
 
-                // Determine if this is an existing contact or a brand new contact
-                let existingContact: Contact | null = null;
-                if (selectedContactId) {
-                  const localContacts = await CompanyRepository.getContactsLocal();
-                  existingContact = localContacts.find((ct) => ct.id === selectedContactId) ||
-                    (contacts || []).find((ct) => ct.id === selectedContactId) || null;
-                } else if (!isAddingNewContact && contactTrim) {
-                  const localContacts = await CompanyRepository.getContactsLocal();
-                  existingContact = localContacts.find(
-                    (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
-                            (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
-                  ) || (contacts || []).find(
-                    (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
-                            (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
-                  ) || null;
-                }
+                // Check if the selected contact is a team member (salesperson)
+                const isTeamMemberContact = Boolean(
+                  (selectedContactId && selectedContactId.startsWith('ct_sp_')) ||
+                  (salespersons && salespersons.some((sp) => `ct_sp_${sp.id}` === selectedContactId || sp.id === selectedContactId))
+                );
 
-                if (!existingContact) {
-                  // SCENARIO A: Brand New Contact Creation
-                  const newContactId = `cont_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-                  const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
-                  const initialPhoneObj = newPhone ? [{
-                    id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                    number: newPhone,
-                    value: newPhone,
-                    tag: newPhoneTag || 'Mobile',
-                    label: newPhoneTag || 'Mobile',
-                    isInvalid: isInvalid,
-                    is_invalid: isInvalid
-                  }] : [];
-
-                  const newContact: Contact = {
-                    id: newContactId,
-                    company_id: selectedCompanyId,
-                    workspace_id: activeWorkspaceId,
-                    full_name: contactTrim || `${targetComp.display_name || targetComp.canonical_name} Representative`,
-                    designation: newContactDesignation ? newContactDesignation.trim() : undefined,
-                    mobile: newPhone,
-                    phone: newPhone,
-                    phones: initialPhoneObj,
-                    email: selectedContactEmail ? selectedContactEmail.trim() : '',
-                    emails: selectedContactEmail ? [{ id: `email_${Date.now()}`, label: 'Direct', email: selectedContactEmail.trim() }] : [],
-                    is_primary: false,
-                    is_dnc: isDnc || isDncOptOut,
-                    dnc: isDnc || isDncOptOut,
-                    ...(isDnc || isDncOptOut ? { dnc_reason: 'Opt-Out from Activity Log' } : {}),
-                    createdAt: nowIso,
-                    updatedAt: nowIso,
-                    ...(isInvalid && newPhone ? {
-                      restricted_lines: { [newPhone]: 'Invalid' }
-                    } : {})
-                  };
-
-                  await safeSetDoc('contacts', newContactId, newContact);
-                  await CompanyRepository.saveContact(newContact);
-                  resolvedContactId = newContactId;
-                  resolvedContactName = newContact.full_name;
-                  resolvedContactPhone = newPhone;
-
-                  if (setContacts) {
-                    setContacts((prev) => [newContact, ...prev.filter((c) => c.id !== newContactId)]);
-                  }
-                  if (onUpdateContact) {
-                    onUpdateContact(newContact);
-                  }
+                if (isTeamMemberContact) {
+                  const spObj = salespersons?.find((sp) => `ct_sp_${sp.id}` === selectedContactId || sp.id === selectedContactId);
+                  resolvedContactId = selectedContactId;
+                  resolvedContactName = contactTrim || spObj?.full_name || spObj?.name || 'Team Member';
+                  resolvedContactPhone = newPhone || spObj?.phone || spObj?.mobile || '';
+                  resolvedContactEmail = (selectedContactEmail || '').trim() || spObj?.email || '';
+                  // Pure reference linkage: NEVER mutate contacts collection for team members
                 } else {
-                  // SCENARIO B & C: Existing Contact Updates (Upstream Sync)
-                  let updatedCt: Contact = { ...existingContact };
-                  let ctChanged = false;
-                  const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
+                  // Determine if this is an existing contact or a brand new contact
+                  let existingContact: Contact | null = null;
+                  if (selectedContactId) {
+                    const localContacts = await CompanyRepository.getContactsLocal();
+                    existingContact = localContacts.find((ct) => ct.id === selectedContactId) ||
+                      (contacts || []).find((ct) => ct.id === selectedContactId) || null;
+                  } else if (!isAddingNewContact && contactTrim) {
+                    const localContacts = await CompanyRepository.getContactsLocal();
+                    existingContact = localContacts.find(
+                      (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
+                              (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
+                    ) || (contacts || []).find(
+                      (ct) => (ct.company_id === selectedCompanyId || (ct as any).company_ids?.includes(selectedCompanyId)) &&
+                              (ct.full_name || '').toLowerCase() === contactTrim.toLowerCase()
+                    ) || null;
+                  }
 
-                  if (isAddingNewContactPhone) {
-                    // Scenario B: Append new manual phone number
-                    if (newPhone) {
-                      const existingPhones = getContactPhones(updatedCt);
-                      const exists = existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, newPhone));
-                      if (!exists) {
-                        const newPhoneObj = {
-                          id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                          number: newPhone,
-                          value: newPhone,
-                          tag: newPhoneTag || 'Mobile',
-                          label: newPhoneTag || 'Mobile',
-                          isInvalid: isInvalid,
-                          is_invalid: isInvalid
-                        };
-                        updatedCt.phones = [...(updatedCt.phones || []), newPhoneObj];
-                        if (!updatedCt.mobile) updatedCt.mobile = newPhone;
-                        ctChanged = true;
-                      } else {
-                        if (isInvalid) {
-                          updatedCt.phones = (updatedCt.phones || []).map((p: any) => {
+                  if (!existingContact && isAddingNewContact) {
+                    // SCENARIO A: Brand New Contact Creation (ONLY when user explicitly toggled isAddingNewContact)
+                    const newContactId = `cont_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                    const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
+                    const initialPhoneObj = newPhone ? [{
+                      id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                      number: newPhone,
+                      value: newPhone,
+                      tag: newPhoneTag || 'Mobile',
+                      label: newPhoneTag || 'Mobile',
+                      isInvalid: isInvalid,
+                      is_invalid: isInvalid
+                    }] : [];
+
+                    const newContact: Contact = {
+                      id: newContactId,
+                      company_id: selectedCompanyId,
+                      workspace_id: activeWorkspaceId,
+                      full_name: contactTrim || `${targetComp.display_name || targetComp.canonical_name} Representative`,
+                      designation: newContactDesignation.trim() ? newContactDesignation.trim() : undefined,
+                      mobile: newPhone,
+                      phone: newPhone,
+                      phones: initialPhoneObj,
+                      email: selectedContactEmail ? selectedContactEmail.trim() : '',
+                      emails: selectedContactEmail ? [{ id: `email_${Date.now()}`, label: 'Direct', email: selectedContactEmail.trim() }] : [],
+                      is_primary: false,
+                      is_dnc: isDnc || isDncOptOut,
+                      dnc: isDnc || isDncOptOut,
+                      ...(isDnc || isDncOptOut ? { dnc_reason: 'Opt-Out from Activity Log' } : {}),
+                      createdAt: nowIso,
+                      updatedAt: nowIso,
+                      ...(isInvalid && newPhone ? {
+                        restricted_lines: { [newPhone]: 'Invalid' }
+                      } : {})
+                    };
+
+                    await safeSetDoc('contacts', newContactId, newContact);
+                    await CompanyRepository.saveContact(newContact);
+                    resolvedContactId = newContactId;
+                    resolvedContactName = newContact.full_name;
+                    resolvedContactPhone = newPhone;
+
+                    if (setContacts) {
+                      setContacts((prev) => [newContact, ...prev.filter((c) => c.id !== newContactId)]);
+                    }
+                    if (onUpdateContact) {
+                      onUpdateContact(newContact);
+                    }
+                  } else if (existingContact) {
+                    // SCENARIO B & C: Existing Contact (Pure Reference Linkage)
+                    // CRITICAL: Activity metadata must NEVER mutate underlying contact profile details (designation, role, title, department)
+                    let updatedCt: Contact = { ...existingContact };
+                    let ctChanged = false;
+                    const isInvalid = isInvalidNumberCall || status === 'Invalid Number';
+
+                    if (isAddingNewContactPhone) {
+                      // Scenario B: Append new manual phone number if explicitly requested
+                      if (newPhone) {
+                        const existingPhones = getContactPhones(updatedCt);
+                        const exists = existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, newPhone));
+                        if (!exists) {
+                          const newPhoneObj = {
+                            id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                            number: newPhone,
+                            value: newPhone,
+                            tag: newPhoneTag || 'Mobile',
+                            label: newPhoneTag || 'Mobile',
+                            isInvalid: isInvalid,
+                            is_invalid: isInvalid
+                          };
+                          updatedCt.phones = [...(updatedCt.phones || []), newPhoneObj];
+                          if (!updatedCt.mobile) updatedCt.mobile = newPhone;
+                          ctChanged = true;
+                        } else {
+                          if (isInvalid) {
+                            updatedCt.phones = (updatedCt.phones || []).map((p: any) => {
+                              if (isSamePhoneNumber(p.number || p.value, newPhone)) {
+                                return { ...p, isInvalid: true, is_invalid: true };
+                              }
+                              return p;
+                            });
+                            ctChanged = true;
+                          }
+                        }
+                      }
+                    } else {
+                      // Scenario C: Using an existing number
+                      if (isInvalid && newPhone) {
+                        let matchedInArray = false;
+                        if (updatedCt.phones && updatedCt.phones.length > 0) {
+                          updatedCt.phones = updatedCt.phones.map((p: any) => {
                             if (isSamePhoneNumber(p.number || p.value, newPhone)) {
+                              matchedInArray = true;
                               return { ...p, isInvalid: true, is_invalid: true };
                             }
                             return p;
                           });
                           ctChanged = true;
                         }
+                        if (!matchedInArray && (isSamePhoneNumber(updatedCt.mobile, newPhone) || isSamePhoneNumber(updatedCt.landline, newPhone))) {
+                          updatedCt.phones = [
+                            ...(updatedCt.phones || []),
+                            {
+                              id: `phone_${Date.now()}`,
+                              number: newPhone,
+                              value: newPhone,
+                              tag: 'Mobile',
+                              label: 'Mobile',
+                              isInvalid: true,
+                              is_invalid: true
+                            }
+                          ];
+                          ctChanged = true;
+                        }
                       }
                     }
-                  } else {
-                    // Scenario C: Using an existing number
+
+                    // Restricted lines sync for invalid number
                     if (isInvalid && newPhone) {
-                      let matchedInArray = false;
-                      if (updatedCt.phones && updatedCt.phones.length > 0) {
-                        updatedCt.phones = updatedCt.phones.map((p: any) => {
-                          if (isSamePhoneNumber(p.number || p.value, newPhone)) {
-                            matchedInArray = true;
-                            return { ...p, isInvalid: true, is_invalid: true };
-                          }
-                          return p;
-                        });
-                        ctChanged = true;
-                      }
-                      if (!matchedInArray && (isSamePhoneNumber(updatedCt.mobile, newPhone) || isSamePhoneNumber(updatedCt.landline, newPhone))) {
-                        updatedCt.phones = [
-                          ...(updatedCt.phones || []),
-                          {
-                            id: `phone_${Date.now()}`,
-                            number: newPhone,
-                            value: newPhone,
-                            tag: 'Mobile',
-                            label: 'Mobile',
-                            isInvalid: true,
-                            is_invalid: true
-                          }
-                        ];
-                        ctChanged = true;
-                      }
-                    }
-                  }
-
-                  // Restricted lines sync for invalid number
-                  if (isInvalid && newPhone) {
-                    updatedCt.restricted_lines = {
-                      ...(updatedCt.restricted_lines || {}),
-                      [newPhone]: 'Invalid'
-                    };
-                    ctChanged = true;
-                  }
-
-                  // DNC CHECK: Regardless of whether the phone is new or existing
-                  if (isDnc || isDncOptOut) {
-                    updatedCt.is_dnc = true;
-                    updatedCt.dnc = true;
-                    updatedCt.dnc_reason = updatedCt.dnc_reason || 'Opt-Out from Activity Log';
-                    ctChanged = true;
-                  }
-
-                  // Designation sync if updated
-                  if (newContactDesignation && newContactDesignation.trim() && newContactDesignation.trim() !== updatedCt.designation) {
-                    updatedCt.designation = newContactDesignation.trim();
-                    ctChanged = true;
-                  }
-
-                  // Email sync if new
-                  if (selectedContactEmail && selectedContactEmail.trim()) {
-                    const eTrim = selectedContactEmail.trim().toLowerCase();
-                    const existingEmails = getContactEmails(updatedCt);
-                    if (!existingEmails.some((e) => (e.email || e.value || '').toLowerCase() === eTrim)) {
-                      const newEmailObj = { id: `email_${Date.now()}`, label: 'Direct', email: selectedContactEmail.trim() };
-                      updatedCt.emails = [...(updatedCt.emails || []), newEmailObj];
-                      if (!updatedCt.email) updatedCt.email = selectedContactEmail.trim();
+                      updatedCt.restricted_lines = {
+                        ...(updatedCt.restricted_lines || {}),
+                        [newPhone]: 'Invalid'
+                      };
                       ctChanged = true;
                     }
-                  }
 
-                  // Upstream sync to database
-                  if (ctChanged) {
-                    updatedCt.updatedAt = nowIso;
-                    await safeSetDoc('contacts', updatedCt.id!, updatedCt);
-                    await CompanyRepository.saveContact(updatedCt);
-                    if (setContacts) {
-                      setContacts((prev) => prev.map((c) => (c.id === updatedCt.id ? updatedCt : c)));
+                    // DNC CHECK: Regardless of whether the phone is new or existing
+                    if (isDnc || isDncOptOut) {
+                      updatedCt.is_dnc = true;
+                      updatedCt.dnc = true;
+                      updatedCt.dnc_reason = updatedCt.dnc_reason || 'Opt-Out from Activity Log';
+                      ctChanged = true;
                     }
-                    if (onUpdateContact) {
-                      onUpdateContact(updatedCt);
-                    }
-                  }
 
-                  resolvedContactId = updatedCt.id;
-                  resolvedContactName = updatedCt.full_name;
-                  resolvedContactPhone = newPhone || updatedCt.mobile || (updatedCt.phones && updatedCt.phones[0]?.number);
+                    // CRITICAL: We DO NOT mutate designation, role, or title here.
+                    // Activity metadata strictly belongs to the activity log payload!
+
+                    // Upstream sync to database ONLY if phone/DNC actually changed
+                    if (ctChanged) {
+                      updatedCt.updatedAt = nowIso;
+                      await safeSetDoc('contacts', updatedCt.id!, updatedCt);
+                      await CompanyRepository.saveContact(updatedCt);
+                      if (setContacts) {
+                        setContacts((prev) => prev.map((c) => (c.id === updatedCt.id ? updatedCt : c)));
+                      }
+                      if (onUpdateContact) {
+                        onUpdateContact(updatedCt);
+                      }
+                    }
+
+                    resolvedContactId = updatedCt.id;
+                    resolvedContactName = updatedCt.full_name;
+                    resolvedContactPhone = newPhone || updatedCt.mobile || (updatedCt.phones && updatedCt.phones[0]?.number);
+                  } else {
+                    // Contact not in database and user did not toggle isAddingNewContact
+                    resolvedContactId = undefined;
+                    resolvedContactName = contactTrim || undefined;
+                    resolvedContactPhone = newPhone || undefined;
+                    resolvedContactEmail = selectedContactEmail ? selectedContactEmail.trim() : undefined;
+                  }
                 }
               }
             }
@@ -2239,6 +2251,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           ? undefined
           : (isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || '')) : ''),
         channel: channel,
+        category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
+        department: isInternalTask ? 'Administration' : undefined,
+        interaction_purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
+        purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
         requirement_notes: notes.trim(),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
         next_followup_date: followupIsoDate,
@@ -2261,7 +2277,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         handled_by_salesperson_id: currentSalespersonId || undefined,
         handled_by_team_member_name: currentUserInitials || undefined,
         interaction_type: interactionTypeMap[channel] || 'call',
-        purpose: isInternalTask ? undefined : (purpose || undefined),
         created_by_uid: userUid,
         created_by_name: userName,
         last_modified_by_uid: userUid,
@@ -2282,7 +2297,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           date: activityIsoDate,
           status: finalStatus as any,
           outcome: isInternalTask ? undefined : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed')),
-          purpose: isInternalTask ? undefined : (purpose || (activeLog.purpose === 'Discovery / Validation' ? 'Discovery / Qualification' : activeLog.purpose) || 'Discovery / Qualification'),
+          purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || (activeLog.purpose === 'Discovery / Validation' ? 'Discovery / Qualification' : activeLog.purpose) || 'Discovery / Qualification'),
+          category: isInternalTask ? 'Internal Task / Admin' : (channel || activeLog.category || 'General'),
+          department: isInternalTask ? 'Administration' : (activeLog.department || undefined),
+          interaction_purpose: isInternalTask ? (purpose || activeLog.interaction_purpose || 'Administration') : (purpose || activeLog.interaction_purpose || undefined),
           requirement_notes: notes.trim(),
           completed_at: nowIso,
           completedAt: nowIso,
@@ -2294,7 +2312,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
         if (isInternalTask) {
           delete (updatedExistingLog as any).outcome;
-          delete (updatedExistingLog as any).purpose;
         }
 
         let spawnedFollowUpLog: CallLogEntry | null = null;
@@ -2308,8 +2325,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             status: 'Scheduled / Planned',
             outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
             channel: channel,
+            category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
+            department: isInternalTask ? 'Administration' : undefined,
+            interaction_purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
             interaction_type: interactionTypeMap[channel] || 'call',
-            purpose: isInternalTask ? undefined : (purpose || 'Follow-up / Check-in'),
+            purpose: isInternalTask ? (purpose || 'Administration') : (purpose || 'Follow-up / Check-in'),
             requirement_notes: followupIntent.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             company_id: resolvedCompanyId || activeLog.company_id,
@@ -2336,7 +2356,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           if (isInternalTask) {
             delete (spawnedFollowUpLog as any).outcome;
-            delete (spawnedFollowUpLog as any).purpose;
           }
         }
 
@@ -2373,6 +2392,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           outcome: isInternalTask
             ? undefined
             : (outcome || activeLog.outcome || undefined),
+          purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || activeLog.purpose || undefined),
+          category: isInternalTask ? 'Internal Task / Admin' : (channel || activeLog.category || 'General'),
+          department: isInternalTask ? 'Administration' : (activeLog.department || undefined),
+          interaction_purpose: isInternalTask ? (purpose || activeLog.interaction_purpose || 'Administration') : (purpose || activeLog.interaction_purpose || undefined),
           requirement_notes: notes.trim(),
           updatedAt: nowIso,
           last_modified_by_uid: userUid,
@@ -2381,7 +2404,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
         if (isInternalTask) {
           delete (updatedEntry as any).outcome;
-          delete (updatedEntry as any).purpose;
         }
 
         // Dedicated in-place update targeting activity_logs and call_logs
@@ -2408,7 +2430,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             date: followupIsoDate || activityIsoDate,
             status: 'Scheduled / Planned',
             outcome: isInternalTask ? undefined : (outcome || undefined),
-            purpose: isInternalTask ? undefined : (purpose || 'Follow-up / Check-in'),
+            purpose: isInternalTask ? (purpose || 'Administration') : (purpose || 'Follow-up / Check-in'),
+            category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
+            department: isInternalTask ? 'Administration' : undefined,
+            interaction_purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
             requirement_notes: (notes || followupIntent).trim(),
             followup_intent: followupIntent.trim() || undefined,
             next_followup_date: undefined
@@ -2416,7 +2441,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           if (isInternalTask) {
             delete (scheduledTaskEntry as any).outcome;
-            delete (scheduledTaskEntry as any).purpose;
           }
 
           // Single atomic consolidated write path
@@ -2443,7 +2467,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           if (isInternalTask) {
             delete (newEntry as any).outcome;
-            delete (newEntry as any).purpose;
           }
 
           // If a follow-up date was set, spawn exactly ONE linked follow-up task
@@ -2459,7 +2482,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               date: followupIsoDate,
               status: 'Scheduled / Planned' as CallStatus,
               outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
-              purpose: isInternalTask ? undefined : payload.purpose,
+              purpose: isInternalTask ? (purpose || 'Administration') : payload.purpose,
+              category: isInternalTask ? 'Internal Task / Admin' : payload.category,
+              department: isInternalTask ? 'Administration' : payload.department,
+              interaction_purpose: isInternalTask ? (purpose || 'Administration') : payload.interaction_purpose,
               requirement_notes: followupIntent.trim() || '',
               followup_intent: followupIntent.trim() || undefined,
               next_followup_date: undefined,
@@ -2469,7 +2495,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             if (isInternalTask) {
               delete (spawnedFollowUpLog as any).outcome;
-              delete (spawnedFollowUpLog as any).purpose;
             }
           }
 
@@ -2499,7 +2524,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
       // Auto-DNC Suppression Trigger
       if (isDncOptOut) {
-        if (resolvedContactId) {
+        if (resolvedContactId && !resolvedContactId.startsWith('ct_sp_')) {
           await safeUpdateDoc('contacts', resolvedContactId, {
             is_dnc: true,
             dnc_reason: 'Opt-Out from Activity Log',

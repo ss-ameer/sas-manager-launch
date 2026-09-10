@@ -515,6 +515,9 @@ export interface ActivityLogEntry extends SoftDeleteFields {
   handled_by_salesperson_id?: string;
   handled_by_team_member_name?: string;
   interaction_type?: 'call' | 'email' | 'message';
+  category?: string;
+  department?: string;
+  interaction_purpose?: string;
   email_subject?: string;
   email_address?: string;
   message_platform?: string;
