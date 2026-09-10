@@ -3667,28 +3667,11 @@ export default function CompanyModal({
               });
             }
           }}
-          onDelete={async (id) => {
-            try {
-              await safeUpdateDoc('call_logs', id, {
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-                deleted_by_uid: user?.uid || null,
-                deleted_by_name: user?.full_name || user?.username || 'Unknown'
-              });
-              if (setCallLogs) {
-                setCallLogs((prev) => prev.map((cl) => cl.id === id ? {
-                  ...cl,
-                  is_deleted: true,
-                  deleted_at: new Date().toISOString(),
-                  deleted_by_uid: user?.uid,
-                  deleted_by_name: user?.full_name || user?.username || 'Unknown'
-                } : cl));
-              }
-              setSelectedCallLogDetail(null);
-            } catch (err: any) {
-              console.error('Failed to delete call log from CompanyModal:', err);
-              alert('Error deleting call log: ' + err.message);
+          onDelete={(id) => {
+            if (setCallLogs) {
+              setCallLogs((prev) => prev.filter((cl) => cl.id !== id));
             }
+            setSelectedCallLogDetail(null);
           }}
           onOpenEnquiry={onSelectEnquiry}
           companies={companies}

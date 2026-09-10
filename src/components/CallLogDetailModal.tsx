@@ -7,6 +7,7 @@ import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord } from '../utils/permissions';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
+import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import {
   PhoneCall,
   Building2,
@@ -29,7 +30,8 @@ import {
   Sparkles,
   Copy,
   Users,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 
 interface CallLogDetailModalProps {
@@ -40,7 +42,7 @@ interface CallLogDetailModalProps {
   onLeadConverted?: (updatedEntry: CallLogEntry, newCompany: Company, newContact: Contact) => void;
   onClose: () => void;
   onEdit: (entry: CallLogEntry) => void;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
   onOpenCompany360: (companyId: string) => void;
   onOpenEnquiry?: (enquiryId: string) => void;
   onCreateEnquiryFromCall?: (entry: CallLogEntry) => void;
@@ -75,9 +77,43 @@ export default function CallLogDetailModal({
 }: CallLogDetailModalProps) {
   const [copiedDraft, setCopiedDraft] = useState(false);
   const [showConvertModal, setShowConvertModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { openEditCompany, openEditContact } = useEntityEdit();
 
   if (!entry) return null;
+
+  const canEditOrDelete = !currentUser || canEditOrDeleteRecord(currentUser, entry, activeWorkspace?.id, activeWorkspace);
+
+  const handleConfirmDelete = async () => {
+    if (!entry?.id || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const userMeta = currentUser
+        ? { uid: currentUser.uid, name: currentUser.full_name || currentUser.username || currentUser.email || 'User' }
+        : undefined;
+
+      await CallLogRepository.deleteLog(entry.id, userMeta);
+
+      if (onDelete) {
+        onDelete(entry.id);
+      }
+
+      if (triggerToast) {
+        triggerToast('Activity log deleted successfully', 'info');
+      }
+
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (err: any) {
+      console.error('[CallLogDetailModal] Failed to delete activity log:', err);
+      if (triggerToast) {
+        triggerToast(err.message || 'Failed to delete activity log', 'error');
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const linkedCompany = entry.company_id
     ? companies.find((c) => c.id === entry.company_id)
@@ -728,7 +764,7 @@ export default function CallLogDetailModal({
             </button>
           </div>
 
-          {canEditOrDeleteRecord(currentUser, entry) && (
+          {canEditOrDelete && (
             <div className="flex items-center space-x-2">
               <button
                 type="button"
@@ -745,13 +781,15 @@ export default function CallLogDetailModal({
               {entry.id && (
                 <button
                   type="button"
-                  onClick={() => {
-                    onDelete(entry.id!);
-                    onClose();
-                  }}
-                  className="px-3 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 text-xs font-bold rounded-xl flex items-center space-x-1 transition cursor-pointer"
+                  disabled={isDeleting}
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-3 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 text-xs font-bold rounded-xl flex items-center space-x-1 transition cursor-pointer disabled:opacity-50"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  {isDeleting ? (
+                    <Loader2 className="w-3.5 h-3.5 text-rose-400 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  )}
                   <span>Delete</span>
                 </button>
               )}
@@ -759,6 +797,54 @@ export default function CallLogDetailModal({
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center space-x-3 text-rose-400">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Activity Log?</h3>
+                <p className="text-xs text-slate-400">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to delete this activity log from {entry.company_name || entry.unlinked_name || 'this account'}? The record will be permanently marked as deleted.
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 transition cursor-pointer shadow-md"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Log</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showConvertModal && activeWorkspace && (
         <LeadConversionModal

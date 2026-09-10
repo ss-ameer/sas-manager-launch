@@ -2610,7 +2610,10 @@ export default function LiveExecutionModal({
           onEdit={() => {
             setSelectedHistoryLog(null);
           }}
-          onDelete={() => {
+          onDelete={(id) => {
+            if (setCallLogs) {
+              setCallLogs((prev) => prev.filter((l) => l.id !== id));
+            }
             setSelectedHistoryLog(null);
           }}
         />

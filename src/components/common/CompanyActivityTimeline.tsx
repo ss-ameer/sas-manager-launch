@@ -1126,7 +1126,10 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
             setSelectedDetailLog(null);
             if (onSelectCallLog) onSelectCallLog(entry);
           }}
-          onDelete={() => {
+          onDelete={(id) => {
+            if (setCallLogs) {
+              setCallLogs((prev) => prev.filter((l) => l.id !== id));
+            }
             setSelectedDetailLog(null);
             if (onRefreshTimeline) onRefreshTimeline();
           }}

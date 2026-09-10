@@ -218,20 +218,79 @@ export class ActivityLogRepository {
     await syncEngine.enqueue('activity_logs', 'set', entry.id, entry);
   }
 
-  public static async softDelete(id: string, user?: { uid: string; name: string }): Promise<void> {
-    const current = await this.getAllLocal();
-    const idx = current.findIndex((item) => item.id === id);
-    if (idx === -1) return;
+  /**
+   * Dedicated in-place update for an activity / call log entry.
+   * Targets both `activity_logs/${entry.id}` and `call_logs/${entry.id}`.
+   */
+  public static async updateLog(entry: ActivityLogEntry): Promise<ActivityLogEntry> {
+    if (!entry || !entry.id) {
+      throw new Error('[CallLogRepository] Cannot update log without valid ID');
+    }
+    const res = await this.logInteractionWithTask({
+      interaction: entry,
+      followupTask: null,
+      mode: 'update'
+    });
+    return res.interaction;
+  }
 
-    const updated: ActivityLogEntry = {
-      ...current[idx],
+  /**
+   * Dedicated delete method for activity / call logs.
+   * Soft-deletes across Firestore (`activity_logs` and `call_logs`),
+   * updates local cache and sync engine.
+   */
+  public static async deleteLog(id: string, user?: { uid?: string; name?: string }): Promise<void> {
+    if (!id) return;
+    const nowIso = new Date().toISOString();
+    const deletePayload = {
       is_deleted: true,
-      deleted_at: new Date().toISOString(),
-      deleted_by_uid: user?.uid,
-      deleted_by_name: user?.name
+      deleted_at: nowIso,
+      deleted_by_uid: user?.uid || null,
+      deleted_by_name: user?.name || 'User',
+      updatedAt: nowIso
     };
 
-    await this.save(updated);
+    // 1. Direct atomic Firestore update
+    let committed = false;
+    try {
+      const batch = writeBatch(db);
+      const actRef = doc(db, 'activity_logs', id);
+      const callRef = doc(db, 'call_logs', id);
+      batch.set(actRef, deletePayload, { merge: true });
+      batch.set(callRef, deletePayload, { merge: true });
+      await batch.commit();
+      committed = true;
+    } catch (err) {
+      console.warn('[CallLogRepository] Batch delete update failed, trying fallback safeSetDoc:', err);
+    }
+
+    if (!committed) {
+      await Promise.allSettled([
+        safeSetDoc('activity_logs', id, deletePayload, { merge: true }),
+        safeSetDoc('call_logs', id, deletePayload, { merge: true })
+      ]);
+    }
+
+    // 2. Update local cache
+    const current = await this.getAllLocal();
+    const updated = current.map((item) => (item.id === id ? { ...item, ...deletePayload } : item));
+    await this.saveLocalCache(updated);
+
+    // 3. Sync engine queue
+    await syncEngine.enqueue('activity_logs', 'set', id, { id, ...deletePayload });
+    await syncEngine.enqueue('call_logs', 'set', id, { id, ...deletePayload });
+  }
+
+  public static async deleteInteraction(id: string, user?: { uid?: string; name?: string }): Promise<void> {
+    return this.deleteLog(id, user);
+  }
+
+  public static async softDelete(id: string, user?: { uid?: string; name?: string }): Promise<void> {
+    return this.deleteLog(id, user);
+  }
+
+  public static async delete(id: string, user?: { uid?: string; name?: string }): Promise<void> {
+    return this.deleteLog(id, user);
   }
 
   public static async restore(id: string): Promise<void> {
@@ -255,10 +314,6 @@ export class ActivityLogRepository {
     const updated = current.filter((item) => item.id !== id);
     await this.saveLocalCache(updated);
     await syncEngine.enqueue('activity_logs', 'delete', id);
-  }
-
-  public static async delete(id: string, user?: { uid: string; name: string }): Promise<void> {
-    return this.softDelete(id, user);
   }
 
   public static async convertUnsavedLeadToClient(params: ConvertLeadParams): Promise<ConvertLeadResult> {

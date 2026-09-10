@@ -2361,13 +2361,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         } else if (onUpdate) {
           onUpdate(updatedExistingLog, spawnedFollowUpLog || undefined);
         }
-      } else if (drawerMode === 'edit' && activeLog && activeLog.id) {
+      } else if ((drawerMode === 'edit' || (drawerMode !== 'execute' && activeLog && activeLog.id)) && activeLog && activeLog.id) {
         // Track 2: Edit Mode
-        // Standard update on existingLog applying currently selected fields (including nextFollowUpDate). No new log spawned.
+        // Standard in-place update on existingLog targeting existing ID without creating a duplicate record.
         const updatedEntry: CallLogEntry = {
           ...activeLog,
           ...payload,
           id: activeLog.id,
+          date: activityIsoDate || activeLog.date,
+          status: finalStatus as any,
+          outcome: isInternalTask
+            ? undefined
+            : (outcome || activeLog.outcome || undefined),
+          requirement_notes: notes.trim(),
           updatedAt: nowIso,
           last_modified_by_uid: userUid,
           last_modified_by_name: userName
@@ -2378,12 +2384,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           delete (updatedEntry as any).purpose;
         }
 
-        // Single atomic consolidated write path
-        await CallLogRepository.logInteractionWithTask({
-          interaction: updatedEntry,
-          followupTask: null,
-          mode: 'update'
-        });
+        // Dedicated in-place update targeting activity_logs and call_logs
+        await CallLogRepository.updateLog(updatedEntry);
 
         if (setCallLogs) {
           setCallLogs((prev) => prev.map((log) => (log.id === activeLog.id ? updatedEntry : log)));
@@ -2394,7 +2396,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           onSave(updatedEntry);
         }
       } else {
-        // Track 3: Create Mode
+        // Track 3: Create Mode (ONLY when there is no existingLog / logToEdit ID)
         const newId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
         // Check if the activity itself is directly a scheduled task
