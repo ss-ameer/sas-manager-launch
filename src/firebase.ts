@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import { syncEngine } from './services/SyncEngine';
+import { sanitizeFirestorePayload } from './services/attachmentStorage';
 
 const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {
@@ -152,7 +153,7 @@ export async function safeAddDoc(collectionPath: string, data: any) {
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
   const localId = 'local_' + Date.now();
-  const cleanedData = cleanUndefined(data);
+  const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
   if (isQuota || isOffline) {
     handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.CREATE, collectionPath);
@@ -164,13 +165,25 @@ export async function safeAddDoc(collectionPath: string, data: any) {
     const colRef = collection(db, collectionPath);
     return await addDoc(colRef, cleanedData);
   } catch (error) {
-    if (collectionPath === 'audit_logs') {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      if (errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes')) {
-        console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
-        return { id: localId } as any;
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const isSizeError = errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes');
+
+    if (collectionPath === 'audit_logs' && isSizeError) {
+      console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
+      return { id: localId } as any;
+    }
+
+    if (isSizeError) {
+      console.warn(`[Firestore] Document size exceeded 1MB on safeAddDoc for '${collectionPath}'. Forcing sanitized retry...`);
+      try {
+        const sanitized = sanitizeFirestorePayload(cleanedData);
+        const colRef = collection(db, collectionPath);
+        return await addDoc(colRef, sanitized);
+      } catch (retryErr) {
+        console.error('[Firestore] Sanitized retry on safeAddDoc failed:', retryErr);
       }
     }
+
     handleFirestoreError(error, OperationType.CREATE, collectionPath);
     await syncEngine.enqueue(collectionPath, 'set', localId, cleanedData);
     return { id: localId } as any;
@@ -187,7 +200,7 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
-  const cleanedData = cleanUndefined(data);
+  const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
   if (isQuota || isOffline) {
     handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.WRITE, path);
@@ -199,13 +212,26 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
     const docRef = doc(db, collectionPath, docId);
     return await setDoc(docRef, cleanedData, options);
   } catch (error) {
-    if (collectionPath === 'audit_logs') {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      if (errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes')) {
-        console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const isSizeError = errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes');
+
+    if (collectionPath === 'audit_logs' && isSizeError) {
+      console.warn('[Firestore] Dropping massive audit log write to avoid offline queue blocking.');
+      return null;
+    }
+
+    if (isSizeError) {
+      console.warn(`[Firestore] Document size exceeded 1MB on safeSetDoc for '${path}'. Forcing sanitized retry...`);
+      try {
+        const sanitized = sanitizeFirestorePayload(cleanedData);
+        const docRef = doc(db, collectionPath, docId);
+        return await setDoc(docRef, sanitized, options);
+      } catch (retryErr) {
+        console.error(`[Firestore] Sanitized retry on safeSetDoc failed for '${path}':`, retryErr);
         return null;
       }
     }
+
     handleFirestoreError(error, OperationType.WRITE, path);
     await syncEngine.enqueue(collectionPath, 'set', docId, cleanedData);
     return null;
@@ -222,7 +248,7 @@ export async function safeUpdateDoc(collectionPath: string, docId: string, data:
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
-  const cleanedData = cleanUndefined(data);
+  const cleanedData = sanitizeFirestorePayload(cleanUndefined(data));
 
   if (isQuota || isOffline) {
     handleFirestoreError(new Error(`[SIMULATION] Firestore ${isQuota ? 'Quota Limit Exceeded' : 'Forced Offline'}`), OperationType.UPDATE, path);
@@ -234,7 +260,22 @@ export async function safeUpdateDoc(collectionPath: string, docId: string, data:
     const docRef = doc(db, collectionPath, docId);
     return await updateDoc(docRef, cleanedData);
   } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, path);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const isSizeError = errMsg.includes('maximum allowed size') || errMsg.includes('exceeds') || errMsg.includes('bytes');
+
+    if (isSizeError) {
+      console.warn(`[Firestore] Document size exceeded 1MB on safeUpdateDoc for '${path}'. Forcing sanitized setDoc retry...`);
+      try {
+        const sanitized = sanitizeFirestorePayload(cleanedData);
+        const docRef = doc(db, collectionPath, docId);
+        return await setDoc(docRef, sanitized, { merge: true });
+      } catch (retryErr) {
+        console.error(`[Firestore] Sanitized retry on safeUpdateDoc failed for '${path}':`, retryErr);
+        return null;
+      }
+    }
+
+    handleFirestoreError(error, OperationType.UPDATE, path);
     try {
       const docRef = doc(db, collectionPath, docId);
       return await setDoc(docRef, cleanedData, { merge: true });

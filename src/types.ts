@@ -303,10 +303,14 @@ export interface LineItem {
 }
 
 export interface Attachment {
+  id?: string;
   name: string;
   size: number;
   type: string;
   url: string;
+  fileUrl?: string;
+  downloadURL?: string;
+  storageKey?: string;
   uploadedAt: string;
 }
 

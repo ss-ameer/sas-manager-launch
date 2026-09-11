@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
+import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey } from '../services/attachmentStorage';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -993,12 +994,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         attributes: item.attributes || []
       }));
       setLineItems(parsedItems);
-      setAttachments(enquiryToEdit.attachments || []);
-      if (enquiryToEdit.attachments && enquiryToEdit.attachments.length > 0) {
-        const first = enquiryToEdit.attachments[0];
-        setActivePreviewUrl(first.url);
-        setPreviewFileName(first.name);
-        setPreviewFileType(first.type || 'application/pdf');
+      const initialAttachments = enquiryToEdit.attachments || [];
+      setAttachments(initialAttachments);
+      if (initialAttachments.length > 0) {
+        Promise.all(
+          initialAttachments.map(async (att) => {
+            const resolvedUrl = await resolveAttachmentUrl(att);
+            return {
+              ...att,
+              url: resolvedUrl || att.url || ''
+            };
+          })
+        ).then((resolved) => {
+          setAttachments(resolved);
+          if (resolved.length > 0 && resolved[0].url) {
+            setActivePreviewUrl(resolved[0].url);
+            setPreviewFileName(resolved[0].name);
+            setPreviewFileType(resolved[0].type || 'application/pdf');
+          }
+        });
       }
 
       const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
@@ -1128,11 +1142,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           setUploadProgress(percent);
         });
 
+        const storageKey = getAttachmentStorageKey({ name: file.name, size: file.size }, i, enquiryToEdit?.id);
+
         const attachment: Attachment = {
           name: file.name,
           size: file.size,
           type: file.type || 'application/pdf',
           url: downloadUrl,
+          storageKey,
           uploadedAt: new Date().toISOString()
         };
         uploadedList.push(attachment);
@@ -2284,15 +2301,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const spId = selectedSp?.id || (salesPerson && salesPerson.length > 5 ? salesPerson : undefined);
     const spInitialsOrName = selectedSp?.initials || selectedSp?.full_name || salesPerson;
 
-    const cleanAttachments = attachments.map(att => {
-      const actualUrl = (att as any).url || (att as any).fileUrl || (att as any).downloadURL || (att as any).downloadUrl || (att as any).file_url || (att as any).dataUrl || '';
-      return {
-        ...att,
-        url: actualUrl,
-        fileUrl: actualUrl,
-        downloadURL: actualUrl
-      };
-    });
+    const { firestoreAttachments, memoryAttachments } = await prepareAttachmentsForSave(
+      attachments,
+      enquiryToEdit?.id
+    );
 
     const payload: Omit<Enquiry, 'id'> = {
       workspace_id: activeWorkspace.id,
@@ -2308,8 +2320,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       project_location: projectLocation,
       enquiry_source: enquirySource,
       status,
-      raw_source_text: pastedSourceText && pastedSourceText.length > 800000 
-        ? pastedSourceText.substring(0, 800000) + '\n\n[TEXT_TRUNCATED_DUE_TO_SIZE_LIMIT]' 
+      raw_source_text: pastedSourceText && pastedSourceText.length > 500000 
+        ? pastedSourceText.substring(0, 500000) + '\n\n[TEXT_TRUNCATED_DUE_TO_SIZE_LIMIT]' 
         : pastedSourceText || undefined,
       quote_ref_no: quoteRefNo.trim(),
       subject: subject.trim() || undefined,
@@ -2325,7 +2337,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       payment_status: paymentStatus.trim() || undefined,
       custom_project_details: customProjectDetails.filter(d => d.key.trim() && d.value.trim()),
       line_items: cleanLineItems,
-      attachments: cleanAttachments.length > 0 ? cleanAttachments : undefined,
+      attachments: firestoreAttachments && firestoreAttachments.length > 0 ? firestoreAttachments : undefined,
       parent_id: parentId ?? enquiryToEdit?.parent_id ?? null,
       revision_number: typeof revisionNumber === 'number' ? revisionNumber : (enquiryToEdit?.revision_number ?? (parentId ? 1 : 0)),
       created_by_uid: enquiryToEdit?.created_by_uid || enquiryToEdit?.createdByUid || user?.uid || '',
@@ -2342,7 +2354,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     try {
       if (enquiryToEdit && enquiryToEdit.id) {
-        const updatedDoc: Enquiry = { id: enquiryToEdit.id, ...payload };
+        const updatedDoc: Enquiry = { 
+          id: enquiryToEdit.id, 
+          ...payload,
+          attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
+        };
         // Log update audit trail
         const changes = getDiffs(enquiryToEdit, updatedDoc);
         await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
@@ -2360,7 +2376,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       } else {
         const res = await safeAddDoc('enquiries', payload);
         const newId = res?.id || ('enq_' + Date.now());
-        const newDoc: Enquiry = { id: newId, ...payload };
+        const newDoc: Enquiry = { 
+          id: newId, 
+          ...payload,
+          attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
+        };
 
         await logAudit(newId, 'enquiry', 'create', null, payload, []);
 

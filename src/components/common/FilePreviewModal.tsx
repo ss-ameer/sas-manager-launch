@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Attachment } from '../../types';
+import { resolveAttachmentUrl } from '../../services/attachmentStorage';
 import {
   X,
   Download,
@@ -48,6 +49,8 @@ export default function FilePreviewModal({
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const [imageError, setImageError] = useState<boolean>(false);
+  const [asyncUrl, setAsyncUrl] = useState<string>('');
+  const [loadingAsync, setLoadingAsync] = useState<boolean>(false);
 
   // Normalize remote/local URL from any standard property format
   const resolvedUrl = useMemo(() => {
@@ -65,14 +68,29 @@ export default function FilePreviewModal({
     return typeof raw === 'string' ? raw.trim() : '';
   }, [file]);
 
-  // Reset zoom and error states when opening a new file
+  // Reset zoom and error states, and resolve async URL from IndexedDB if url is missing
   useEffect(() => {
     if (isOpen && file) {
       setZoomLevel(100);
       setImageLoaded(false);
       setImageError(false);
+
+      if (!resolvedUrl) {
+        setLoadingAsync(true);
+        resolveAttachmentUrl(file as any)
+          .then((url) => {
+            setAsyncUrl(url || '');
+          })
+          .catch(() => setAsyncUrl(''))
+          .finally(() => setLoadingAsync(false));
+      } else {
+        setAsyncUrl('');
+        setLoadingAsync(false);
+      }
     }
-  }, [isOpen, file]);
+  }, [isOpen, file, resolvedUrl]);
+
+  const effectiveUrl = resolvedUrl || asyncUrl;
 
   // Keyboard shortcut: Esc to close, +/- to zoom if image
   useEffect(() => {
@@ -105,7 +123,7 @@ export default function FilePreviewModal({
 
     const name = (file.name || '').toLowerCase();
     const type = (file.type || '').toLowerCase();
-    const urlLower = resolvedUrl.toLowerCase();
+    const urlLower = effectiveUrl.toLowerCase();
 
     const extMatch = name.match(/\.([0-9a-z]+)(?:[?#]|$)/i);
     const ext = extMatch ? extMatch[1].toUpperCase() : '';
@@ -146,28 +164,28 @@ export default function FilePreviewModal({
       fileExtension: ext || (checkIsPdf ? 'PDF' : checkIsImage ? 'IMAGE' : 'FILE'),
       formattedSize: sizeStr
     };
-  }, [file, resolvedUrl]);
+  }, [file, effectiveUrl]);
 
   // Construct iframe source for PDFs (safely avoiding appending hash to data URIs)
   const pdfIframeSrc = useMemo(() => {
-    if (!resolvedUrl) return '';
-    if (resolvedUrl.startsWith('data:')) {
-      return resolvedUrl;
+    if (!effectiveUrl) return '';
+    if (effectiveUrl.startsWith('data:')) {
+      return effectiveUrl;
     }
-    return resolvedUrl.includes('#') ? resolvedUrl : `${resolvedUrl}#view=FitH`;
-  }, [resolvedUrl]);
+    return effectiveUrl.includes('#') ? effectiveUrl : `${effectiveUrl}#view=FitH`;
+  }, [effectiveUrl]);
 
   if (!isOpen || !file) return null;
 
   const handleDownload = () => {
     if (onDownload) {
-      onDownload({ ...file, url: resolvedUrl, fileUrl: resolvedUrl, downloadURL: resolvedUrl });
+      onDownload({ ...file, url: effectiveUrl, fileUrl: effectiveUrl, downloadURL: effectiveUrl });
       return;
     }
 
-    if (resolvedUrl) {
+    if (effectiveUrl) {
       const link = document.createElement('a');
-      link.href = resolvedUrl;
+      link.href = effectiveUrl;
       link.download = file.name || 'attachment';
       link.target = '_blank';
       link.rel = 'noreferrer';
@@ -182,8 +200,8 @@ export default function FilePreviewModal({
   };
 
   const handleOpenExternal = () => {
-    if (resolvedUrl) {
-      window.open(resolvedUrl, '_blank', 'noreferrer');
+    if (effectiveUrl) {
+      window.open(effectiveUrl, '_blank', 'noreferrer');
     }
   };
 
@@ -320,8 +338,16 @@ export default function FilePreviewModal({
           }
         }}
       >
+        {/* Loading state when resolving from IndexedDB */}
+        {loadingAsync && (
+          <div className="flex flex-col items-center justify-center text-slate-300 space-y-3 p-8">
+            <div className="w-10 h-10 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-mono text-slate-400">Loading attachment data...</span>
+          </div>
+        )}
+
         {/* CASE 1: Image Viewer */}
-        {isImage && resolvedUrl && !imageError && (
+        {!loadingAsync && isImage && effectiveUrl && !imageError && (
           <div className="relative flex items-center justify-center max-w-full max-h-full">
             {!imageLoaded && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 space-y-2">
@@ -330,7 +356,7 @@ export default function FilePreviewModal({
               </div>
             )}
             <img
-              src={resolvedUrl}
+              src={effectiveUrl}
               alt={file.name}
               onLoad={() => setImageLoaded(true)}
               onError={() => {
@@ -357,7 +383,7 @@ export default function FilePreviewModal({
         )}
 
         {/* CASE 2: PDF Document Viewer - Always routes to iframe */}
-        {isPdf && resolvedUrl ? (
+        {!loadingAsync && isPdf && effectiveUrl ? (
           <div className="w-full h-full max-w-6xl max-h-[88vh] flex flex-col rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-700">
             <iframe
               src={pdfIframeSrc}
@@ -368,7 +394,7 @@ export default function FilePreviewModal({
         ) : null}
 
         {/* CASE 3: Fallback for Non-Embeddable Formats (ZIP, DOCX, XLSX, DWG) or when URL is missing */}
-        {(!isImage && !isPdf) || (isImage && imageError) || !resolvedUrl ? (
+        {!loadingAsync && ((!isImage && !isPdf) || (isImage && imageError) || !effectiveUrl) ? (
           <div 
             onClick={(e) => e.stopPropagation()}
             className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl space-y-5 animate-in zoom-in-95 duration-150"
@@ -400,13 +426,13 @@ export default function FilePreviewModal({
             <p className="text-xs text-slate-400 leading-relaxed">
               {imageError
                 ? 'Image stream could not be loaded directly. Please download the file to view it.'
-                : !resolvedUrl
-                ? 'This attachment has no stored remote URL or data URI.'
+                : !effectiveUrl
+                ? 'This attachment has no stored remote URL or local binary data.'
                 : `In-browser interactive preview is not supported for .${fileExtension.toLowerCase()} files. You can securely download this attachment to inspect it in your native desktop software.`}
             </p>
 
             <div className="pt-2 flex flex-col sm:flex-row gap-2.5 justify-center">
-              {resolvedUrl ? (
+              {effectiveUrl ? (
                 <>
                   <button
                     type="button"
@@ -422,14 +448,10 @@ export default function FilePreviewModal({
                     className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-medium border border-slate-700 transition flex items-center justify-center space-x-1.5 cursor-pointer"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Open in Tab</span>
+                    <span>Open in New Tab</span>
                   </button>
                 </>
-              ) : (
-                <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800/60 text-amber-300 text-xs">
-                  This attachment has no stored remote URL.
-                </div>
-              )}
+              ) : null}
             </div>
           </div>
         ) : null}

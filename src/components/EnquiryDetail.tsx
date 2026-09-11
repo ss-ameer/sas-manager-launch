@@ -12,6 +12,7 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
+import { resolveAttachmentUrl } from '../services/attachmentStorage';
 import {
   FileText,
   Building,
@@ -102,9 +103,12 @@ export default function EnquiryDetail({
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
-  const handleDownloadAttachment = (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => {
+  const handleDownloadAttachment = async (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => {
     const f = file as any;
-    const downloadUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src;
+    let downloadUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src;
+    if (!downloadUrl) {
+      downloadUrl = await resolveAttachmentUrl(file as any);
+    }
     if (downloadUrl) {
       const link = document.createElement('a');
       link.href = downloadUrl;

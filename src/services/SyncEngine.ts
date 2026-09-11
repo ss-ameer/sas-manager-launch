@@ -1,6 +1,7 @@
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc, safeSetDoc, safeGetDocs } from '../firebase';
 import { where } from 'firebase/firestore';
 import { enqueueLocalMutation, getPendingMutations, removeLocalMutation, MutationItem } from './db';
+import { sanitizeFirestorePayload } from './attachmentStorage';
 
 type SyncListener = (status: {
   isOnline: boolean;
@@ -35,11 +36,17 @@ class SyncEngine {
       // Purge massive queue items that are blocking
       getPendingMutations().then(async (queue) => {
         for (const item of queue) {
-          if (item.entity === 'audit_logs' || item.entity === 'enquiries') {
+          if (item.entity === 'audit_logs') {
             const size = JSON.stringify(item.payload).length;
             if (size > 800000) {
-              console.warn(`[SyncEngine] Proactively dropping oversized ${item.entity} mutation from queue:`, item.id);
+              console.warn(`[SyncEngine] Proactively dropping oversized audit_logs mutation from queue:`, item.id);
               await removeLocalMutation(item.id);
+            }
+          } else if (item.entity === 'enquiries') {
+            const size = JSON.stringify(item.payload).length;
+            if (size > 700000) {
+              console.warn(`[SyncEngine] Sanitizing oversized enquiry payload in queue:`, item.id);
+              item.payload = sanitizeFirestorePayload(item.payload);
             }
           }
         }
@@ -130,10 +137,11 @@ class SyncEngine {
         if (!this.isOnline) break;
 
         try {
+          const payload = item.payload ? sanitizeFirestorePayload(item.payload) : item.payload;
           if (item.action === 'create' || item.action === 'set') {
-            await safeSetDoc(item.entity, item.docId, item.payload);
+            await safeSetDoc(item.entity, item.docId, payload);
           } else if (item.action === 'update') {
-            await safeUpdateDoc(item.entity, item.docId, item.payload);
+            await safeUpdateDoc(item.entity, item.docId, payload);
           } else if (item.action === 'delete') {
             await safeDeleteDoc(item.entity, item.docId);
           }
