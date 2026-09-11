@@ -20,8 +20,23 @@ import {
 export interface FilePreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  file: Attachment | { name: string; url?: string; size?: number; type?: string; uploadedAt?: string } | null;
-  onDownload?: (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => void;
+  file:
+    | Attachment
+    | {
+        name: string;
+        url?: string;
+        fileUrl?: string;
+        downloadURL?: string;
+        downloadUrl?: string;
+        file_url?: string;
+        dataUrl?: string;
+        src?: string;
+        size?: number;
+        type?: string;
+        uploadedAt?: string;
+      }
+    | null;
+  onDownload?: (file: any) => void;
 }
 
 export default function FilePreviewModal({
@@ -33,7 +48,22 @@ export default function FilePreviewModal({
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const [imageError, setImageError] = useState<boolean>(false);
-  const [pdfLoadError, setPdfLoadError] = useState<boolean>(false);
+
+  // Normalize remote/local URL from any standard property format
+  const resolvedUrl = useMemo(() => {
+    if (!file) return '';
+    const f = file as any;
+    const raw =
+      f.url ||
+      f.fileUrl ||
+      f.downloadURL ||
+      f.downloadUrl ||
+      f.file_url ||
+      f.dataUrl ||
+      f.src ||
+      (typeof f === 'string' ? f : '');
+    return typeof raw === 'string' ? raw.trim() : '';
+  }, [file]);
 
   // Reset zoom and error states when opening a new file
   useEffect(() => {
@@ -41,7 +71,6 @@ export default function FilePreviewModal({
       setZoomLevel(100);
       setImageLoaded(false);
       setImageError(false);
-      setPdfLoadError(false);
     }
   }, [isOpen, file]);
 
@@ -76,7 +105,7 @@ export default function FilePreviewModal({
 
     const name = (file.name || '').toLowerCase();
     const type = (file.type || '').toLowerCase();
-    const url = (file.url || '').toLowerCase();
+    const urlLower = resolvedUrl.toLowerCase();
 
     const extMatch = name.match(/\.([0-9a-z]+)(?:[?#]|$)/i);
     const ext = extMatch ? extMatch[1].toUpperCase() : '';
@@ -85,14 +114,14 @@ export default function FilePreviewModal({
     const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'bmp'];
     const checkIsImage =
       imageTypes.some((t) => type.includes(t)) ||
-      imageExtensions.some((e) => name.endsWith(`.${e}`) || url.includes(`.${e}`)) ||
-      url.startsWith('data:image/');
+      imageExtensions.some((e) => name.endsWith(`.${e}`) || urlLower.includes(`.${e}`)) ||
+      urlLower.startsWith('data:image/');
 
     const checkIsPdf =
       type.includes('pdf') ||
       name.endsWith('.pdf') ||
-      url.includes('.pdf') ||
-      url.startsWith('data:application/pdf');
+      urlLower.includes('.pdf') ||
+      urlLower.startsWith('data:application/pdf');
 
     const checkIsArchive = ['zip', 'rar', '7z', 'tar', 'gz'].some((e) => name.endsWith(`.${e}`));
     const checkIsDoc = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'dwg'].some((e) => name.endsWith(`.${e}`));
@@ -117,31 +146,44 @@ export default function FilePreviewModal({
       fileExtension: ext || (checkIsPdf ? 'PDF' : checkIsImage ? 'IMAGE' : 'FILE'),
       formattedSize: sizeStr
     };
-  }, [file]);
+  }, [file, resolvedUrl]);
+
+  // Construct iframe source for PDFs (safely avoiding appending hash to data URIs)
+  const pdfIframeSrc = useMemo(() => {
+    if (!resolvedUrl) return '';
+    if (resolvedUrl.startsWith('data:')) {
+      return resolvedUrl;
+    }
+    return resolvedUrl.includes('#') ? resolvedUrl : `${resolvedUrl}#view=FitH`;
+  }, [resolvedUrl]);
 
   if (!isOpen || !file) return null;
 
   const handleDownload = () => {
     if (onDownload) {
-      onDownload(file);
+      onDownload({ ...file, url: resolvedUrl, fileUrl: resolvedUrl, downloadURL: resolvedUrl });
       return;
     }
 
-    if (file.url) {
+    if (resolvedUrl) {
       const link = document.createElement('a');
-      link.href = file.url;
+      link.href = resolvedUrl;
       link.download = file.name || 'attachment';
       link.target = '_blank';
       link.rel = 'noreferrer';
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+      }, 100);
     }
   };
 
   const handleOpenExternal = () => {
-    if (file.url) {
-      window.open(file.url, '_blank', 'noreferrer');
+    if (resolvedUrl) {
+      window.open(resolvedUrl, '_blank', 'noreferrer');
     }
   };
 
@@ -279,7 +321,7 @@ export default function FilePreviewModal({
         }}
       >
         {/* CASE 1: Image Viewer */}
-        {isImage && file.url && !imageError && (
+        {isImage && resolvedUrl && !imageError && (
           <div className="relative flex items-center justify-center max-w-full max-h-full">
             {!imageLoaded && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 space-y-2">
@@ -288,7 +330,7 @@ export default function FilePreviewModal({
               </div>
             )}
             <img
-              src={file.url}
+              src={resolvedUrl}
               alt={file.name}
               onLoad={() => setImageLoaded(true)}
               onError={() => {
@@ -314,20 +356,19 @@ export default function FilePreviewModal({
           </div>
         )}
 
-        {/* CASE 2: PDF Document Viewer */}
-        {isPdf && file.url && !pdfLoadError && (
-          <div className="w-full h-full max-w-6xl max-h-[86vh] flex flex-col rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-700">
+        {/* CASE 2: PDF Document Viewer - Always routes to iframe */}
+        {isPdf && resolvedUrl ? (
+          <div className="w-full h-full max-w-6xl max-h-[88vh] flex flex-col rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-700">
             <iframe
-              src={`${file.url}#view=FitH`}
-              title={file.name}
+              src={pdfIframeSrc}
+              title={file.name || 'PDF Document Preview'}
               className="w-full h-full border-0 bg-white"
-              onError={() => setPdfLoadError(true)}
             />
           </div>
-        )}
+        ) : null}
 
-        {/* CASE 3: Fallback for Non-Embeddable Formats (ZIP, DOCX, XLSX, DWG, or load errors) */}
-        {(!isImage && !isPdf) || imageError || pdfLoadError || !file.url ? (
+        {/* CASE 3: Fallback for Non-Embeddable Formats (ZIP, DOCX, XLSX, DWG) or when URL is missing */}
+        {(!isImage && !isPdf) || (isImage && imageError) || !resolvedUrl ? (
           <div 
             onClick={(e) => e.stopPropagation()}
             className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl space-y-5 animate-in zoom-in-95 duration-150"
@@ -337,7 +378,7 @@ export default function FilePreviewModal({
                 <FileArchive className="w-8 h-8 text-amber-400" />
               ) : isDoc ? (
                 <FileSpreadsheet className="w-8 h-8 text-emerald-400" />
-              ) : imageError || pdfLoadError ? (
+              ) : imageError ? (
                 <AlertCircle className="w-8 h-8 text-red-400" />
               ) : (
                 <File className="w-8 h-8 text-slate-300" />
@@ -357,13 +398,15 @@ export default function FilePreviewModal({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              {imageError || pdfLoadError
-                ? 'Embedded preview could not be displayed due to browser security restrictions or invalid file stream. Please download the file to inspect it.'
+              {imageError
+                ? 'Image stream could not be loaded directly. Please download the file to view it.'
+                : !resolvedUrl
+                ? 'This attachment has no stored remote URL or data URI.'
                 : `In-browser interactive preview is not supported for .${fileExtension.toLowerCase()} files. You can securely download this attachment to inspect it in your native desktop software.`}
             </p>
 
             <div className="pt-2 flex flex-col sm:flex-row gap-2.5 justify-center">
-              {file.url ? (
+              {resolvedUrl ? (
                 <>
                   <button
                     type="button"

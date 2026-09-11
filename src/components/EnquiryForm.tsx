@@ -775,6 +775,92 @@ export default function EnquiryForm({
   const [companySearch, setCompanySearch] = useState('');
   const [showCompanyList, setShowCompanyList] = useState(false);
   const [newCompanyModal, setNewCompanyModal] = useState(false);
+  const [isCreatingCompanyInline, setIsCreatingCompanyInline] = useState(false);
+
+  // Inline company creation from search dropdown without losing form state
+  const handleCreateCompanyInline = async (rawQuery: string) => {
+    const trimmed = rawQuery.trim();
+    if (!trimmed || isCreatingCompanyInline) return;
+
+    // Check if already exists in workspace companies
+    const existing = companies.find(
+      (c) =>
+        (c.display_name && c.display_name.toLowerCase() === trimmed.toLowerCase()) ||
+        (c.canonical_name && c.canonical_name.toLowerCase() === trimmed.toLowerCase())
+    );
+
+    if (existing && existing.id) {
+      setCompanyId(existing.id);
+      setCompanySearch(existing.display_name);
+      if (existing.country) setCountry(existing.country);
+      if (existing.city) setProjectLocation(existing.city);
+      setShowCompanyList(false);
+      const prim = contacts.find((ct) => ct.company_id === existing.id && ct.is_primary);
+      setContactId(prim?.id || '');
+      if (triggerToast) {
+        triggerToast(`Matched existing company: "${existing.display_name}"`, 'info');
+      }
+      return;
+    }
+
+    if (!activeWorkspace?.id) {
+      if (triggerToast) {
+        triggerToast('Error: Active workspace context is missing.', 'error');
+      }
+      return;
+    }
+
+    setIsCreatingCompanyInline(true);
+    try {
+      const newCompPayload: Omit<Company, 'id'> = {
+        workspace_id: activeWorkspace.id,
+        display_name: trimmed,
+        canonical_name: trimmed,
+        aliases: [trimmed],
+        legal_suffix: 'None / To Be Added Later',
+        city: projectLocation?.trim() || 'Dubai',
+        country: country?.trim() || 'UAE',
+        general_phone: undefined,
+        general_email: undefined,
+        notes: 'Created inline from Enquiry Form search dropdown',
+        created_by_uid: user?.uid || '',
+        created_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+        last_modified_by_uid: user?.uid || '',
+        last_modified_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const docId = await safeAddDoc('companies', newCompPayload);
+
+      // Log audit
+      await logAudit(docId.id, 'company', 'create', null, newCompPayload, []);
+
+      if (setCompanies) {
+        const newCompObj: Company = { id: docId.id, canonical_name: trimmed, ...newCompPayload };
+        setCompanies((prev) => [newCompObj, ...prev.filter((c) => c.id !== docId.id)]);
+      }
+
+      // Immediately set selection in form and close dropdown without losing form data
+      setCompanyId(docId.id);
+      setCompanySearch(trimmed);
+      if (!country) setCountry(newCompPayload.country);
+      if (!projectLocation) setProjectLocation(newCompPayload.city);
+      setContactId('');
+      setShowCompanyList(false);
+
+      if (triggerToast) {
+        triggerToast(`Created and paired new company: "${trimmed}"`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to create company inline:', err);
+      if (triggerToast) {
+        triggerToast(`Error creating company: ${err?.message || 'Unknown error'}`, 'error');
+      }
+    } finally {
+      setIsCreatingCompanyInline(false);
+    }
+  };
 
   // Raw Excel / Plain text AI paste modal states
   const [rawTextModalOpen, setRawTextModalOpen] = useState(false);
@@ -2130,15 +2216,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     
     let bg = '';
     if (score === 'high') {
-      bg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      bg = 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
     } else if (score === 'medium') {
-      bg = 'bg-amber-50 text-amber-700 border-amber-200';
+      bg = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
     } else {
-      bg = 'bg-rose-50 text-rose-700 border-rose-200';
+      bg = 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
     }
 
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold border ${bg} ml-2 tracking-wider whitespace-nowrap shrink-0`}>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold border ${bg} tracking-wider whitespace-nowrap shrink-0 z-10 shadow-2xs`}>
         AI: {score.toUpperCase()} CONFIDENCE
       </span>
     );
@@ -2199,10 +2285,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const spInitialsOrName = selectedSp?.initials || selectedSp?.full_name || salesPerson;
 
     const cleanAttachments = attachments.map(att => {
-      if (att.url && att.url.startsWith('data:')) {
-        return { ...att, url: '' };
-      }
-      return att;
+      const actualUrl = (att as any).url || (att as any).fileUrl || (att as any).downloadURL || (att as any).downloadUrl || (att as any).file_url || (att as any).dataUrl || '';
+      return {
+        ...att,
+        url: actualUrl,
+        fileUrl: actualUrl,
+        downloadURL: actualUrl
+      };
     });
 
     const payload: Omit<Enquiry, 'id'> = {
@@ -3313,34 +3402,36 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
           {/* Section 2: Account and Contact selection */}
           <div id="field-company" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
                 <span>🏢 Account & Contact Pairing</span>
               </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleAutoDetectClipboard}
+                  className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer z-10"
+                  title="Read clipboard text & auto-detect unregistered companies or contacts with AI"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600" />
+                  <span>Auto-Detect Clipboard</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 relative bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 shadow-2xs">
               {/* Company search */}
               <div className="relative">
-                <div className="flex justify-between items-center mb-1.5">
-                  <div className="flex-1 min-w-0 mr-2 flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
                       Search & Pair Company
                     </MarqueeLabel>
                     {renderConfidenceBadge('company_name')}
-                    <button
-                      type="button"
-                      onClick={handleAutoDetectClipboard}
-                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer"
-                      title="Read clipboard text & auto-detect unregistered companies or contacts with AI"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600" />
-                      <span>Auto-Detect Clipboard</span>
-                    </button>
                   </div>
                   
                   {/* Action Menu Dropdown */}
-                  <div className="relative">
+                  <div className="relative z-20 shrink-0">
                     <button
                       type="button"
                       onClick={() => setCompanyMenuOpen(!companyMenuOpen)}
@@ -3427,7 +3518,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
 
                 {showCompanyList && companySearch.trim().length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-48 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
+                  <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-52 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
                     {matchingCompanies.map((c) => (
                       <button
                         key={c.id}
@@ -3446,16 +3537,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             setContactId('');
                           }
                         }}
-                        className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer"
+                        className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition"
                       >
                         <span className="font-semibold text-slate-800 dark:text-slate-100">{c.display_name}</span>
                         <span className="text-[10px] text-slate-400 font-mono uppercase">{c.city}, {c.country}</span>
                       </button>
                     ))}
-                    {matchingCompanies.length === 0 && (
-                      <div className="p-3 text-xs text-slate-400 text-center font-mono">
-                        No matches. Save this canonical company in the "Companies" tab first.
-                      </div>
+                    {matchingCompanies.length === 0 ? (
+                      <button
+                        type="button"
+                        disabled={isCreatingCompanyInline}
+                        onClick={() => handleCreateCompanyInline(companySearch)}
+                        className="w-full p-3.5 bg-blue-50/90 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-left text-xs font-semibold flex items-center space-x-2.5 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isCreatingCompanyInline ? (
+                          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                        ) : (
+                          <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        )}
+                        <span className="truncate">
+                          + Create New Company: <strong className="underline underline-offset-2">"{companySearch.trim()}"</strong>
+                        </span>
+                      </button>
+                    ) : (
+                      !matchingCompanies.some((c) => c.display_name.toLowerCase() === companySearch.trim().toLowerCase()) && (
+                        <button
+                          type="button"
+                          disabled={isCreatingCompanyInline}
+                          onClick={() => handleCreateCompanyInline(companySearch)}
+                          className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300 text-left text-[11px] font-medium flex items-center space-x-2 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <span className="truncate">
+                            + Create New Company: <strong>"{companySearch.trim()}"</strong>
+                          </span>
+                        </button>
+                      )
                     )}
                   </div>
                 )}
@@ -3463,14 +3580,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Contact lookup */}
               <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <div className="flex-1 min-w-0 mr-2 flex justify-between items-center">
+                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
                   </div>
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={() => {

@@ -103,16 +103,20 @@ export default function EnquiryDetail({
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
   const handleDownloadAttachment = (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => {
-    if (file.url) {
+    const f = file as any;
+    const downloadUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src;
+    if (downloadUrl) {
       const link = document.createElement('a');
-      link.href = file.url;
+      link.href = downloadUrl;
       link.download = file.name || 'attachment';
       link.target = '_blank';
       link.rel = 'noreferrer';
       document.body.appendChild(link);
       link.click();
       setTimeout(() => {
-        document.body.removeChild(link);
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
       }, 100);
       if (triggerToast) {
         triggerToast(`Downloading ${file.name}...`, 'info');
@@ -780,9 +784,16 @@ export default function EnquiryDetail({
                   </div>
                   <div className="grid grid-cols-1 gap-2">
                     {enquiry.attachments.map((file, idx) => {
+                      const f = file as any;
+                      const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src || '';
                       const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name);
                       const isPdf = file.type?.includes('pdf') || /\.pdf$/i.test(file.name);
                       const ext = file.name.split('.').pop()?.toUpperCase() || (isPdf ? 'PDF' : isImg ? 'IMG' : 'FILE');
+                      
+                      const normalizedFile: Attachment = {
+                        ...file,
+                        url: fileUrl
+                      };
                       
                       return (
                         <div
@@ -791,7 +802,7 @@ export default function EnquiryDetail({
                         >
                           {/* Thumbnail / File Info */}
                           <div
-                            onClick={() => setPreviewAttachment(file)}
+                            onClick={() => setPreviewAttachment(normalizedFile)}
                             className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
                             title="Click to preview file in-app"
                           >
@@ -824,7 +835,7 @@ export default function EnquiryDetail({
                           <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-center">
                             <button
                               type="button"
-                              onClick={() => setPreviewAttachment(file)}
+                              onClick={() => setPreviewAttachment(normalizedFile)}
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs"
                               title="Preview attachment in-app"
                             >
@@ -832,10 +843,10 @@ export default function EnquiryDetail({
                               <span>Preview</span>
                             </button>
 
-                            {file.url && (
+                            {fileUrl && (
                               <button
                                 type="button"
-                                onClick={() => handleDownloadAttachment(file)}
+                                onClick={() => handleDownloadAttachment(normalizedFile)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
                                 title="Download proposal attachment"
                               >
