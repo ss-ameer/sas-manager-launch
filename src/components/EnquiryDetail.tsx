@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -11,6 +11,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
+import FilePreviewModal from './common/FilePreviewModal';
 import {
   FileText,
   Building,
@@ -36,7 +37,9 @@ import {
   Minimize2,
   ChevronsUpDown,
   Copy,
-  MessageSquare
+  MessageSquare,
+  Eye,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -50,6 +53,7 @@ interface EnquiryDetailProps {
   enquiries?: Enquiry[];
   activeWorkspace?: Workspace;
   activeWorkspaceId?: string;
+  triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onClose: () => void;
   onDeleteEnquiry: (id: string) => void;
   onEditEnquiry: (enquiry: Enquiry) => void;
@@ -85,7 +89,8 @@ export default function EnquiryDetail({
   onEditEnquiry,
   onSelectEnquiry,
   onOpenActivityDrawer,
-  onInitiateActivity
+  onInitiateActivity,
+  triggerToast
 }: EnquiryDetailProps) {
   const { openEditCompany, openEditContact } = useEntityEdit();
   const launcher = useActivityLauncher();
@@ -95,6 +100,25 @@ export default function EnquiryDetail({
   const [revertSuccess, setRevertSuccess] = useState(false);
   const [isExpandedWidth, setIsExpandedWidth] = useState(false);
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+
+  const handleDownloadAttachment = (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => {
+    if (file.url) {
+      const link = document.createElement('a');
+      link.href = file.url;
+      link.download = file.name || 'attachment';
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+      if (triggerToast) {
+        triggerToast(`Downloading ${file.name}...`, 'info');
+      }
+    }
+  };
 
   // Strict Zero-Trust Audit: Force close if workspace changes or mismatch detected
   useEffect(() => {
@@ -746,30 +770,84 @@ export default function EnquiryDetail({
               {/* Attachments */}
               {enquiry.attachments && enquiry.attachments.length > 0 && (
                 <div className="space-y-2.5">
-                  <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">Source Proposal Attachments</h4>
-                  {enquiry.attachments.map((file, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between text-xs font-mono text-slate-700"
-                    >
-                      <div className="flex items-center space-x-2.5 truncate">
-                        <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                        <span className="truncate font-semibold">{file.name}</span>
-                        <span className="text-[10px] text-slate-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
-                      </div>
-                      {file.url && (
-                        <a
-                          href={file.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-150 rounded-lg text-slate-500 hover:text-slate-800 transition flex items-center justify-center shadow-sm"
-                          title="Download Proposal Document"
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
+                      Source Proposal Attachments ({enquiry.attachments.length})
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Click attachment to preview in-app
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {enquiry.attachments.map((file, idx) => {
+                      const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name);
+                      const isPdf = file.type?.includes('pdf') || /\.pdf$/i.test(file.name);
+                      const ext = file.name.split('.').pop()?.toUpperCase() || (isPdf ? 'PDF' : isImg ? 'IMG' : 'FILE');
+                      
+                      return (
+                        <div
+                          key={idx}
+                          className="group bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition shadow-2xs"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                          {/* Thumbnail / File Info */}
+                          <div
+                            onClick={() => setPreviewAttachment(file)}
+                            className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
+                            title="Click to preview file in-app"
+                          >
+                            <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 shrink-0 group-hover:scale-105 transition">
+                              {isImg ? (
+                                <ImageIcon className="w-4 h-4" />
+                              ) : isPdf ? (
+                                <FileText className="w-4 h-4 text-red-500" />
+                              ) : (
+                                <Paperclip className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="truncate">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-semibold text-xs text-slate-800 group-hover:text-blue-600 transition">
+                                  {file.name}
+                                </span>
+                                <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded shrink-0">
+                                  {ext}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                {(file.size / 1024).toFixed(1)} KB
+                                {file.uploadedAt && ` • ${new Date(file.uploadedAt).toLocaleDateString()}`}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Dual Action Buttons: Preview & Download */}
+                          <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewAttachment(file)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs"
+                              title="Preview attachment in-app"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Preview</span>
+                            </button>
+
+                            {file.url && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadAttachment(file)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                                title="Download proposal attachment"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -1136,6 +1214,14 @@ export default function EnquiryDetail({
           </div>
         </div>
       )}
+
+      {/* In-App Attachment Preview Modal */}
+      <FilePreviewModal
+        isOpen={Boolean(previewAttachment)}
+        onClose={() => setPreviewAttachment(null)}
+        file={previewAttachment}
+        onDownload={handleDownloadAttachment}
+      />
     </div>
   );
 }

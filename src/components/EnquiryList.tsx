@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, getInitials } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials } from '../types';
 import { BRAND_CONFIG } from '../config';
+import EnquiryExportModal from './EnquiryExportModal';
 import {
   FileText,
   Search,
@@ -38,6 +39,7 @@ interface EnquiryListProps {
   enquiries: Enquiry[];
   companies: Company[];
   salespersons: Salesperson[];
+  contacts?: Contact[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   onSelectEnquiry: (id: string) => void;
   onAddEnquiry: () => void;
@@ -49,6 +51,7 @@ interface EnquiryListProps {
   onOpenCompany360?: (companyId: string) => void;
   onViewCompany360?: (company: Company) => void;
   setSelectedCompanyForDetail?: (company: Company | null) => void;
+  triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onOpenActivityDrawer?: (context: {
     companyId?: string;
     companyName?: string;
@@ -75,6 +78,8 @@ export default function EnquiryList({
   onDeleteEnquiry,
   onBulkDeleteEnquiries,
   user,
+  contacts = [],
+  triggerToast,
   onOpenMobileMenu,
   onOpenCompany360,
   onViewCompany360,
@@ -85,6 +90,7 @@ export default function EnquiryList({
   const launcher = useActivityLauncher();
   const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
+  const [showExportModal, setShowExportModal] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -346,100 +352,9 @@ export default function EnquiryList({
     return filteredEnquiries.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredEnquiries, currentPage, itemsPerPage]);
 
-  // Export Flattened CSV (Section 4.6 requirement)
+  // Export Enquiries (Audited Section with Scope Selection, RFC 4180 Sanitization & Feedback)
   const handleExportCSV = () => {
-    if (enquiries.length === 0) return;
-
-    // Header array
-    const headers = [
-      'S/N',
-      'Quote Ref No',
-      'Enquiry Date',
-      'Sales Person',
-      'Client Company',
-      'Country',
-      'Location',
-      'Source',
-      'Status',
-      'Product Type',
-      'Item Description',
-      'Qty',
-      'Unit',
-      'Unit Price',
-      'Total Price',
-      'Lead Time',
-      'Total Package AED',
-      'Invoice PO',
-      'Payment Status',
-      'Remarks'
-    ];
-
-    const rows: string[][] = [];
-
-    enquiries.forEach((e) => {
-      const compName = companyMap.get(e.company_id) || 'Unknown';
-      if (e.line_items && e.line_items.length > 0) {
-        e.line_items.forEach((item) => {
-          rows.push([
-            e.sn.toString(),
-            e.quote_ref_no,
-            e.enquiry_date,
-            e.sales_person,
-            compName,
-            e.country,
-            e.project_location,
-            e.enquiry_source,
-            e.status,
-            item.product_type,
-            item.description.replace(/"/g, '""'), // Escape quotes
-            item.quantity.toString(),
-            item.unit,
-            item.unit_price.toString(),
-            item.total_price.toString(),
-            item.lead_time_note || '—',
-            e.value_aed.toString(),
-            e.invoice_po_no || '—',
-            e.payment_status || '—',
-            (e.remarks || '').replace(/\n/g, ' ').replace(/"/g, '""')
-          ]);
-        });
-      } else {
-        rows.push([
-          e.sn.toString(),
-          e.quote_ref_no,
-          e.enquiry_date,
-          e.sales_person,
-          compName,
-          e.country,
-          e.project_location,
-          e.enquiry_source,
-          e.status,
-          '—',
-          '—',
-          '0',
-          'Nos',
-          '0',
-          '0',
-          '—',
-          e.value_aed.toString(),
-          e.invoice_po_no || '—',
-          e.payment_status || '—',
-          (e.remarks || '').replace(/\n/g, ' ').replace(/"/g, '""')
-        ]);
-      }
-    });
-
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((r) => r.map((cell) => `"${cell}"`).join(','))].join('\n');
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${BRAND_CONFIG.shortName}_Enquiries_Export_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setShowExportModal(true);
   };
 
   // Parsing pasted clipboard raw tab/comma CSV text
@@ -1342,7 +1257,7 @@ export default function EnquiryList({
           companyId={selected360CompanyId}
           companies={companies}
           setCompanies={setCompanies}
-          contacts={[]}
+          contacts={contacts}
           salespersons={salespersons}
           enquiries={enquiries}
           callLogs={[]}
@@ -1352,6 +1267,27 @@ export default function EnquiryList({
           onInitiateActivity={onInitiateActivity}
         />
       )}
+
+      {/* Audited Enquiry Export Modal with Scope & Format Configuration */}
+      <EnquiryExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        filteredEnquiries={filteredEnquiries}
+        allEnquiries={enquiries.filter((e) => !e.is_deleted)}
+        companies={companies}
+        contacts={contacts}
+        salespersons={salespersons}
+        activeFilterLabels={activeEnquiryFilterLabels}
+        searchQuery={searchInput || searchQuery}
+        onSuccess={(result) => {
+          if (triggerToast) {
+            triggerToast(
+              `Successfully exported ${result.enquiriesCount} enquiries (${result.lineItemsCount} items) to CSV`,
+              'success'
+            );
+          }
+        }}
+      />
     </PageBody>
   </>
 );

@@ -1705,6 +1705,7 @@ export default function App() {
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
             setCompanies={setCompanies}
+            contacts={workspaceContacts}
             salespersons={workspaceSalespersons}
             onSelectEnquiry={setSelectedEnquiryId}
             onAddEnquiry={() => {
@@ -1718,6 +1719,7 @@ export default function App() {
             onDeleteEnquiry={handleDeleteEnquiry}
             onBulkDeleteEnquiries={handleBulkDeleteEnquiries}
             user={user}
+            triggerToast={triggerToast}
             onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
             onOpenActivityDrawer={(context) => {
               setActivityDrawerContext(context);
@@ -1865,6 +1867,7 @@ export default function App() {
             setIsActivityDrawerOpen(true);
           }}
           onInitiateActivity={initiateActivity}
+          triggerToast={triggerToast}
         />
       )}
 
