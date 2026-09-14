@@ -9,9 +9,12 @@ export interface WorkspaceProfile {
 
 export interface UserProfile {
   uid: string;
+  id?: string;
   email: string;
   username: string;
   full_name?: string;
+  displayName?: string;
+  name?: string;
   initials?: string;
   role?: UserRole | string;
   workspace_roles?: Record<string, UserRole | string>;
@@ -337,11 +340,16 @@ export interface Enquiry extends SoftDeleteFields {
   sales_person?: string; // initials (e.g. PV, NS) or display name
   salesperson_id?: string;
   salesperson?: string;
-  additional_team?: string[] | string;
-  shared_with_uids?: string[];
-  shared_with_names?: string[];
+  sales_rep_id?: string;
+  salesRepresentativeId?: string;
+  sales_representative?: string;
+  salesRep?: string;
+  additional_team?: (string | Record<string, any>)[] | string;
+  shared_with_uids?: (string | Record<string, any>)[];
+  shared_with_names?: (string | Record<string, any>)[];
   created_by?: string;
   created_by_uid?: string;
+  creator_id?: string;
   created_by_name?: string;
   company_id: string;
   contact_id?: string;

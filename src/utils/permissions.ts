@@ -111,18 +111,32 @@ export function isRecordOwner(
   const targetWsId = workspaceId || (record as any)?.workspaceId || (record as any)?.workspace_id;
   if (isAdmin(user, targetWsId)) return true;
 
-  const uUid = user.uid?.toLowerCase();
-  const uEmail = user.email?.toLowerCase();
-  const uInitials = user.initials?.toUpperCase();
-  const uFullName = user.full_name?.toLowerCase();
-  const uUsername = user.username?.toLowerCase();
-  const uSpCode = (user as any).salesperson_code?.toUpperCase();
+  const uUid = (user.uid || (user as any).id)?.toLowerCase()?.trim();
+  const uEmail = user.email?.toLowerCase()?.trim();
+  const uInitials = user.initials?.toUpperCase()?.trim();
+  const uFullName = (user.full_name || (user as any).displayName || (user as any).name)?.toLowerCase()?.trim();
+  const uUsername = user.username?.toLowerCase()?.trim();
+  const uSpCode = (user as any).salesperson_code?.toUpperCase()?.trim();
 
-  const cBy = (record.created_by || record.created_by_user_id)?.toLowerCase();
-  const oUserId = record.owner_user_id?.toLowerCase();
+  const cBy = (
+    record.created_by ||
+    record.created_by_user_id ||
+    (record as any).created_by_uid ||
+    (record as any).createdByUid ||
+    (record as any).creator_id
+  )?.toLowerCase()?.trim();
+  const oUserId = record.owner_user_id?.toLowerCase()?.trim();
   if (oUserId && uUid && oUserId === uUid) return true;
 
-  const sPersonRaw = record.sales_person || record.salesperson_id;
+  const sPersonRaw =
+    record.sales_person ||
+    (record as any).salesperson ||
+    (record as any).sales_representative ||
+    (record as any).salesRep ||
+    record.salesperson_id ||
+    (record as any).sales_person_id ||
+    (record as any).sales_rep_id ||
+    (record as any).salesRepresentativeId;
   const sPerson = sPersonRaw ? String(sPersonRaw).toUpperCase() : undefined;
   const hBy = (record.handled_by || record.logged_by || record.assigned_to)?.toLowerCase();
   const rEmail = record.email?.toLowerCase();
@@ -202,6 +216,61 @@ export function canEditOrDeleteRecord(
 }
 
 /**
+ * Normalizes all possible identifiers for the current user (UIDs, emails, names, initials)
+ * to defensively evaluate RBAC permissions against arbitrary schema variations.
+ */
+export function normalizeUserIdentifiers(
+  currentUser: UserProfile | undefined | null,
+  targetWsId?: string | null
+) {
+  if (!currentUser) {
+    return {
+      uids: [] as string[],
+      email: '',
+      names: [] as string[],
+      initials: [] as string[]
+    };
+  }
+
+  const uids: string[] = Array.from(
+    new Set(
+      [currentUser.uid, (currentUser as any).id]
+        .map((id) => String(id || '').toLowerCase().trim())
+        .filter(Boolean)
+    )
+  );
+
+  const email = (currentUser.email || '').toLowerCase().trim();
+
+  const names: string[] = Array.from(
+    new Set(
+      [
+        currentUser.full_name,
+        (currentUser as any).displayName,
+        (currentUser as any).name,
+        currentUser.username
+      ]
+        .map((name) => String(name || '').toLowerCase().trim())
+        .filter(Boolean)
+    )
+  );
+
+  const initials: string[] = Array.from(
+    new Set(
+      [
+        currentUser.initials,
+        targetWsId ? currentUser.workspace_profiles?.[targetWsId]?.initials : undefined,
+        (currentUser as any).salesperson_code
+      ]
+        .map((init) => String(init || '').toUpperCase().trim())
+        .filter(Boolean)
+    )
+  );
+
+  return { uids, email, names, initials };
+}
+
+/**
  * Canonical Permission Evaluator: Scoped Enquiry Access Control (RBAC).
  * Enforces role-based visibility:
  * - Owners, Admins, and SuperAdmins retain universal workspace access.
@@ -238,97 +307,153 @@ export function canAccessEnquiry(
   }
 
   // 3. Current user normalized tokens
-  const uUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
-  const uEmail = (currentUser.email || '').toLowerCase().trim();
-  const uUsername = (currentUser.username || '').toLowerCase().trim();
-  const uFullName = (currentUser.full_name || '').toLowerCase().trim();
-  const uInitials = (
-    currentUser.workspace_profiles?.[targetWsId || '']?.initials ||
-    currentUser.initials ||
-    (currentUser as any).salesperson_code ||
-    ''
-  ).toUpperCase().trim();
+  const userIdentifiers = normalizeUserIdentifiers(currentUser, targetWsId);
+  const { uids: userUids, email: userEmail, names: userNames, initials: userInitials } = userIdentifiers;
 
-  // 4. Creator Check:
-  // enquiry.created_by_uid === currentUser.uid OR enquiry.created_by === currentUser.email / username
-  const cByUid = (enquiry.created_by_uid || (enquiry as any).createdByUid || '').toLowerCase().trim();
-  const cBy = (enquiry.created_by || (enquiry as any).createdByUsername || '').toLowerCase().trim();
-  const cByName = ((enquiry as any).created_by_name || '').toLowerCase().trim();
+  // 4. Creator Match:
+  // User ID matches enquiry.created_by_uid, enquiry.createdByUid, enquiry.created_by, or enquiry.creator_id.
+  // Or email matches enquiry.created_by. Also check username / created_by_name.
+  const creatorUids = [
+    enquiry.created_by_uid,
+    (enquiry as any).createdByUid,
+    enquiry.created_by,
+    (enquiry as any).creator_id
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  if (uUid && cByUid && uUid === cByUid) return true;
-  if (cBy && (cBy === uEmail || cBy === uUsername || (uUid && cBy === uUid))) return true;
-  if (uFullName && cByName && uFullName === cByName) return true;
+  const isCreatorIdMatch = userUids.length > 0 && userUids.some((u) => creatorUids.includes(u));
+
+  const creatorTokens = [
+    enquiry.created_by,
+    (enquiry as any).createdByUsername,
+    (enquiry as any).created_by_name
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  const isCreatorEmailOrNameMatch = Boolean(
+    (userEmail && creatorTokens.includes(userEmail)) ||
+    userNames.some((n) => creatorTokens.includes(n))
+  );
+
+  const isCreator = isCreatorIdMatch || isCreatorEmailOrNameMatch;
 
   // 5. Primary Salesperson Check:
-  // enquiry.salesperson_id === currentUser.uid OR enquiry.salesperson === currentUser.full_name (or initials/code)
-  const spId = (enquiry.salesperson_id || enquiry.sales_person_id || '').toLowerCase().trim();
-  const sp = (enquiry.salesperson || enquiry.sales_person || '').trim();
-  const spLower = sp.toLowerCase();
-  const spUpper = sp.toUpperCase();
+  // User ID matches enquiry.salesperson_id, enquiry.sales_rep_id, or enquiry.salesRepresentativeId (or sales_person_id).
+  // User Name matches enquiry.salesperson, enquiry.sales_representative, or enquiry.salesRep (case-insensitive trim, or sales_person).
+  const salesRepIds = [
+    enquiry.salesperson_id,
+    enquiry.sales_rep_id,
+    (enquiry as any).salesRepresentativeId,
+    enquiry.sales_person_id
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  if (uUid && spId && uUid === spId) return true;
-  if (sp) {
-    if (uFullName && (spLower === uFullName || spLower.includes(uFullName))) return true;
-    if (uInitials && spUpper === uInitials) return true;
-    if (uUsername && spLower === uUsername) return true;
-    if (uEmail && spLower === uEmail) return true;
-    if (uUid && spLower === uUid) return true;
-  }
+  const isSalesRepIdMatch = userUids.length > 0 && userUids.some((u) => salesRepIds.includes(u));
+
+  const salesRepNames = [
+    enquiry.salesperson,
+    enquiry.sales_representative,
+    (enquiry as any).salesRep,
+    enquiry.sales_person
+  ]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+
+  const isSalesRepNameMatch = salesRepNames.some((rep) => {
+    const repLower = rep.toLowerCase();
+    const repUpper = rep.toUpperCase();
+    if (userNames.some((n) => n === repLower || repLower.includes(n) || n.includes(repLower))) return true;
+    if (userInitials.some((init) => init === repUpper)) return true;
+    if (userEmail && userEmail === repLower) return true;
+    if (userUids.some((u) => u === repLower)) return true;
+    return false;
+  });
+
+  const isSalesRep = isSalesRepIdMatch || isSalesRepNameMatch;
 
   // 6. Collaborator / Sharing Check:
-  // Current user tagged in additional_team / shared_with_uids / shared_with_names (matching UID, name, or initials)
-  if (enquiry.shared_with_uids && Array.isArray(enquiry.shared_with_uids)) {
-    if (uUid && enquiry.shared_with_uids.some((id) => String(id).toLowerCase().trim() === uUid)) {
-      return true;
+  // Check enquiry.shared_with_uids (supporting both string arrays and object arrays with .uid or .id)
+  let isSharedUidMatch = false;
+  if (Array.isArray(enquiry.shared_with_uids)) {
+    const sharedUids = enquiry.shared_with_uids
+      .map((item) => {
+        if (!item) return '';
+        if (typeof item === 'string') return item.toLowerCase().trim();
+        if (typeof item === 'object') {
+          return String((item as any).uid || (item as any).id || '').toLowerCase().trim();
+        }
+        return String(item).toLowerCase().trim();
+      })
+      .filter(Boolean);
+
+    if (userUids.some((u) => sharedUids.includes(u))) {
+      isSharedUidMatch = true;
     }
   }
 
-  if (enquiry.shared_with_names && Array.isArray(enquiry.shared_with_names)) {
-    const isSharedByName = enquiry.shared_with_names.some((val) => {
-      if (!val) return false;
-      const v = String(val).trim();
-      const vLower = v.toLowerCase();
-      const vUpper = v.toUpperCase();
-      return (
-        (uUid && vLower === uUid) ||
-        (uEmail && vLower === uEmail) ||
-        (uUsername && vLower === uUsername) ||
-        (uFullName && (vLower === uFullName || vLower.includes(uFullName))) ||
-        (uInitials && vUpper === uInitials)
-      );
-    });
-    if (isSharedByName) return true;
-  }
-
+  // Check enquiry.additional_team (supporting string arrays of names/initials/UIDs OR array of objects containing uid, id, name, or initials)
+  let isAdditionalTeamMatch = false;
   const rawAdditional = enquiry.additional_team;
   if (rawAdditional) {
-    const teamMembers: string[] = Array.isArray(rawAdditional)
-      ? rawAdditional.map((item) => {
-          if (typeof item === 'string') return item;
-          if (item && typeof item === 'object') {
-            return (item as any).uid || (item as any).id || (item as any).name || (item as any).initials || (item as any).email || '';
-          }
-          return String(item || '');
-        })
-      : typeof rawAdditional === 'string'
-      ? rawAdditional.split(/[,;]+/).map((s) => s.trim())
-      : [];
+    const teamItems: { uid?: string; name?: string; initials?: string }[] = [];
+    if (Array.isArray(rawAdditional)) {
+      for (const item of rawAdditional) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          const str = item.trim();
+          teamItems.push({ uid: str.toLowerCase(), name: str.toLowerCase(), initials: str.toUpperCase() });
+        } else if (typeof item === 'object') {
+          const oUid = String((item as any).uid || (item as any).id || '').toLowerCase().trim();
+          const oName = String((item as any).name || (item as any).full_name || '').toLowerCase().trim();
+          const oInit = String((item as any).initials || '').toUpperCase().trim();
+          teamItems.push({ uid: oUid, name: oName, initials: oInit });
+        }
+      }
+    } else if (typeof rawAdditional === 'string') {
+      const parts = rawAdditional.split(/[,;|]+/).map((s) => s.trim()).filter(Boolean);
+      for (const p of parts) {
+        teamItems.push({ uid: p.toLowerCase(), name: p.toLowerCase(), initials: p.toUpperCase() });
+      }
+    }
 
-    const isTaggedInTeam = teamMembers.some((member) => {
-      if (!member) return false;
-      const m = String(member).trim();
-      const mLower = m.toLowerCase();
-      const mUpper = m.toUpperCase();
-      return (
-        (uUid && mLower === uUid) ||
-        (uEmail && mLower === uEmail) ||
-        (uUsername && mLower === uUsername) ||
-        (uFullName && (mLower === uFullName || mLower.includes(uFullName))) ||
-        (uInitials && mUpper === uInitials)
-      );
+    isAdditionalTeamMatch = teamItems.some((item) => {
+      if (item.uid && userUids.some((u) => u === item.uid)) return true;
+      if (item.name && userNames.some((n) => n === item.name || item.name!.includes(n) || n.includes(item.name!))) return true;
+      if (item.initials && userInitials.some((i) => i === item.initials)) return true;
+      if (item.name && userEmail && item.name === userEmail) return true;
+      return false;
     });
-    if (isTaggedInTeam) return true;
   }
+
+  // Check enquiry.shared_with_names
+  let isSharedNameMatch = false;
+  if (Array.isArray(enquiry.shared_with_names)) {
+    const sharedNames = enquiry.shared_with_names
+      .map((item) => {
+        if (!item) return '';
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'object') {
+          return String((item as any).name || (item as any).full_name || (item as any).initials || '').trim();
+        }
+        return String(item).trim();
+      })
+      .filter(Boolean);
+
+    isSharedNameMatch = sharedNames.some((sn) => {
+      const snLower = sn.toLowerCase();
+      const snUpper = sn.toUpperCase();
+      if (userNames.some((n) => n === snLower || snLower.includes(n) || n.includes(snLower))) return true;
+      if (userInitials.some((init) => init === snUpper)) return true;
+      if (userEmail && userEmail === snLower) return true;
+      if (userUids.some((u) => u === snLower)) return true;
+      return false;
+    });
+  }
+
+  const isCollaborator = isSharedUidMatch || isAdditionalTeamMatch || isSharedNameMatch;
 
   // Legacy concerned_persons field
   const concernedList: string[] = Array.isArray(enquiry.concerned_persons)
@@ -337,52 +462,66 @@ export function canAccessEnquiry(
     ? [enquiry.concerned_person]
     : [];
 
-  if (concernedList.length > 0) {
-    const isConcerned = concernedList.some((p) => {
-      if (!p) return false;
-      const pClean = String(p).trim();
-      const pLower = pClean.toLowerCase();
-      const pUpper = pClean.toUpperCase();
-      return (
-        (uUid && pLower === uUid) ||
-        (uEmail && pLower === uEmail) ||
-        (uUsername && pLower === uUsername) ||
-        (uFullName && (pLower === uFullName || pLower.includes(uFullName))) ||
-        (uInitials && pUpper === uInitials)
-      );
-    });
-    if (isConcerned) return true;
-  }
+  const isConcerned = concernedList.some((p) => {
+    if (!p) return false;
+    const pClean = String(p).trim();
+    const pLower = pClean.toLowerCase();
+    const pUpper = pClean.toUpperCase();
+    return (
+      userUids.some((u) => u === pLower) ||
+      (userEmail && pLower === userEmail) ||
+      userNames.some((n) => n === pLower || pLower.includes(n)) ||
+      userInitials.some((init) => init === pUpper)
+    );
+  });
 
   // Fallback to record owner evaluator
-  if (isRecordOwner(currentUser, enquiry, targetWsId)) {
-    return true;
-  }
+  const isOwnerFallback = isRecordOwner(currentUser, enquiry, targetWsId);
 
   // 7. Edge-Case Fallback:
-  // If an enquiry has no assigned salesperson or legacy creator metadata,
+  // If an enquiry has no assigned salesperson and no legacy creator metadata,
   // allow viewing by default so historical records do not disappear.
   const hasSalesperson = Boolean(
     (enquiry.salesperson && enquiry.salesperson.trim() !== '') ||
     (enquiry.sales_person && enquiry.sales_person.trim() !== '') ||
+    (enquiry.sales_representative && enquiry.sales_representative.trim() !== '') ||
+    ((enquiry as any).salesRep && String((enquiry as any).salesRep).trim() !== '') ||
     (enquiry.salesperson_id && enquiry.salesperson_id.trim() !== '') ||
-    (enquiry.sales_person_id && enquiry.sales_person_id.trim() !== '')
+    (enquiry.sales_person_id && enquiry.sales_person_id.trim() !== '') ||
+    (enquiry.sales_rep_id && enquiry.sales_rep_id.trim() !== '') ||
+    ((enquiry as any).salesRepresentativeId && String((enquiry as any).salesRepresentativeId).trim() !== '')
   );
 
   const hasCreator = Boolean(
     (enquiry.created_by && enquiry.created_by.trim() !== '') ||
     (enquiry.created_by_uid && enquiry.created_by_uid.trim() !== '') ||
     ((enquiry as any).createdByUid && String((enquiry as any).createdByUid).trim() !== '') ||
+    ((enquiry as any).creator_id && String((enquiry as any).creator_id).trim() !== '') ||
     ((enquiry as any).createdByUsername && String((enquiry as any).createdByUsername).trim() !== '') ||
     ((enquiry as any).created_by_name && String((enquiry as any).created_by_name).trim() !== '')
   );
 
-  if (!hasSalesperson && !hasCreator) {
-    return true;
+  const isEdgeCaseFallback = !hasSalesperson && !hasCreator;
+
+  const result = Boolean(
+    isCreator ||
+    isSalesRep ||
+    isCollaborator ||
+    isConcerned ||
+    isOwnerFallback ||
+    isEdgeCaseFallback
+  );
+
+  // 4. Temporary Dev Diagnostic Log:
+  // If an enquiry is evaluated for a non-admin user, output a single concise debug log in development mode.
+  if (
+    (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV)
+  ) {
+    console.debug('[RBAC Check]', { enquiryId: enquiry.id, user: userIdentifiers, allowed: result });
   }
 
-  // 8. Deny access otherwise for standard sales reps/members
-  return false;
+  return result;
 }
 
 /**
@@ -417,40 +556,63 @@ export function canManageEnquirySharing(
     return true;
   }
 
-  const uUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
-  const uEmail = (currentUser.email || '').toLowerCase().trim();
-  const uUsername = (currentUser.username || '').toLowerCase().trim();
-  const uFullName = (currentUser.full_name || '').toLowerCase().trim();
-  const uInitials = (
-    currentUser.workspace_profiles?.[targetWsId || '']?.initials ||
-    currentUser.initials ||
-    (currentUser as any).salesperson_code ||
-    ''
-  ).toUpperCase().trim();
+  const { uids: userUids, email: userEmail, names: userNames, initials: userInitials } = normalizeUserIdentifiers(currentUser, targetWsId);
 
   // 3. Deal Creator
-  const cByUid = (enquiry.created_by_uid || (enquiry as any).createdByUid || '').toLowerCase().trim();
-  const cBy = (enquiry.created_by || (enquiry as any).createdByUsername || '').toLowerCase().trim();
-  const cByName = ((enquiry as any).created_by_name || '').toLowerCase().trim();
+  const creatorUids = [
+    enquiry.created_by_uid,
+    (enquiry as any).createdByUid,
+    enquiry.created_by,
+    (enquiry as any).creator_id
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  if (uUid && cByUid && uUid === cByUid) return true;
-  if (cBy && (cBy === uEmail || cBy === uUsername || (uUid && cBy === uUid))) return true;
-  if (uFullName && cByName && uFullName === cByName) return true;
+  if (userUids.some((u) => creatorUids.includes(u))) return true;
+
+  const creatorTokens = [
+    enquiry.created_by,
+    (enquiry as any).createdByUsername,
+    (enquiry as any).created_by_name
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  if (userEmail && creatorTokens.includes(userEmail)) return true;
+  if (userNames.some((n) => creatorTokens.includes(n))) return true;
 
   // 4. Assigned Primary Salesperson
-  const spId = (enquiry.salesperson_id || enquiry.sales_person_id || '').toLowerCase().trim();
-  const sp = (enquiry.salesperson || enquiry.sales_person || '').trim();
-  const spLower = sp.toLowerCase();
-  const spUpper = sp.toUpperCase();
+  const salesRepIds = [
+    enquiry.salesperson_id,
+    enquiry.sales_rep_id,
+    (enquiry as any).salesRepresentativeId,
+    enquiry.sales_person_id
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  if (uUid && spId && uUid === spId) return true;
-  if (sp) {
-    if (uFullName && (spLower === uFullName || spLower.includes(uFullName))) return true;
-    if (uInitials && spUpper === uInitials) return true;
-    if (uUsername && spLower === uUsername) return true;
-    if (uEmail && spLower === uEmail) return true;
-    if (uUid && spLower === uUid) return true;
-  }
+  if (userUids.some((u) => salesRepIds.includes(u))) return true;
+
+  const salesRepNames = [
+    enquiry.salesperson,
+    enquiry.sales_representative,
+    (enquiry as any).salesRep,
+    enquiry.sales_person
+  ]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+
+  const matchedRep = salesRepNames.some((rep) => {
+    const repLower = rep.toLowerCase();
+    const repUpper = rep.toUpperCase();
+    if (userNames.some((n) => n === repLower || repLower.includes(n) || n.includes(repLower))) return true;
+    if (userInitials.some((init) => init === repUpper)) return true;
+    if (userEmail && userEmail === repLower) return true;
+    if (userUids.some((u) => u === repLower)) return true;
+    return false;
+  });
+
+  if (matchedRep) return true;
 
   return false;
 }

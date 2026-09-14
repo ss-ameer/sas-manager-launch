@@ -297,8 +297,12 @@ export default function EnquiryList({
     authorizedEnquiries.forEach((e) => {
       if (e.sales_person_id) activeReps.add(e.sales_person_id.toLowerCase().trim());
       if (e.salesperson_id) activeReps.add(e.salesperson_id.toLowerCase().trim());
+      if (e.sales_rep_id) activeReps.add(e.sales_rep_id.toLowerCase().trim());
+      if ((e as any).salesRepresentativeId) activeReps.add(String((e as any).salesRepresentativeId).toLowerCase().trim());
       if (e.sales_person) activeReps.add(e.sales_person.toLowerCase().trim());
       if (e.salesperson) activeReps.add(e.salesperson.toLowerCase().trim());
+      if (e.sales_representative) activeReps.add(e.sales_representative.toLowerCase().trim());
+      if ((e as any).salesRep) activeReps.add(String((e as any).salesRep).toLowerCase().trim());
     });
 
     const filtered = salespersons.filter((s) => {

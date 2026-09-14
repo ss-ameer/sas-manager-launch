@@ -246,7 +246,7 @@ export default function EnquiryDetail({
     const nextUids = Array.from(
       new Set(
         updatedMembers
-          .map((m) => m.linked_user_id || m.id)
+          .flatMap((m) => [m.linked_user_id, m.id])
           .filter(Boolean) as string[]
       )
     );
@@ -309,7 +309,7 @@ export default function EnquiryDetail({
       const nextUids = Array.from(
         new Set(
           activeCollaboratorMembers
-            .map((m) => m.linked_user_id || m.id)
+            .flatMap((m) => [m.linked_user_id, m.id])
             .filter(Boolean) as string[]
         )
       );

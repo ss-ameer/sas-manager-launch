@@ -136,19 +136,61 @@ export class EnquiryRepository {
    */
   public static async updateCollaborators(
     id: string,
-    additional_team: string[],
-    shared_with_uids: string[],
-    shared_with_names?: string[]
+    additional_team: (string | Record<string, any>)[],
+    shared_with_uids: (string | Record<string, any>)[],
+    shared_with_names?: (string | Record<string, any>)[]
   ): Promise<Enquiry | null> {
     const current = await this.getAllLocal();
     const idx = current.findIndex((item) => item.id === id);
     if (idx === -1) return null;
 
+    // Plain string UID arrays (shared_with_uids: string[])
+    const cleanUids: string[] = Array.from(
+      new Set(
+        (shared_with_uids || [])
+          .map((item) => {
+            if (!item) return '';
+            if (typeof item === 'string') return item.trim();
+            if (typeof item === 'object') return String((item as any).uid || (item as any).id || '').trim();
+            return String(item).trim();
+          })
+          .filter(Boolean)
+      )
+    );
+
+    // Name/display string arrays (additional_team: string[])
+    const cleanTeam: string[] = Array.from(
+      new Set(
+        (additional_team || [])
+          .map((item) => {
+            if (!item) return '';
+            if (typeof item === 'string') return item.trim();
+            if (typeof item === 'object') return String((item as any).name || (item as any).full_name || (item as any).initials || '').trim();
+            return String(item).trim();
+          })
+          .filter(Boolean)
+      )
+    );
+
+    // Name/display string arrays (shared_with_names: string[])
+    const cleanNames: string[] = Array.from(
+      new Set(
+        (shared_with_names && shared_with_names.length > 0 ? shared_with_names : cleanTeam)
+          .map((item) => {
+            if (!item) return '';
+            if (typeof item === 'string') return item.trim();
+            if (typeof item === 'object') return String((item as any).name || (item as any).full_name || '').trim();
+            return String(item).trim();
+          })
+          .filter(Boolean)
+      )
+    );
+
     const updatedEnquiry: Enquiry = {
       ...current[idx],
-      additional_team,
-      shared_with_uids,
-      shared_with_names: shared_with_names || additional_team,
+      additional_team: cleanTeam,
+      shared_with_uids: cleanUids,
+      shared_with_names: cleanNames,
       updatedAt: new Date().toISOString()
     };
 
@@ -161,9 +203,9 @@ export class EnquiryRepository {
         'enquiries',
         id,
         {
-          additional_team,
-          shared_with_uids,
-          shared_with_names: shared_with_names || additional_team,
+          additional_team: cleanTeam,
+          shared_with_uids: cleanUids,
+          shared_with_names: cleanNames,
           updatedAt: updatedEnquiry.updatedAt
         },
         { merge: true }

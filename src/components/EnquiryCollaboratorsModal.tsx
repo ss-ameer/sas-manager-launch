@@ -38,8 +38,20 @@ export default function EnquiryCollaboratorsModal({
 
   // Identify the primary assigned salesperson to exclude from collaborator picker
   const primarySp = useMemo(() => {
-    const spVal = (enquiry.salesperson || enquiry.sales_person || '').trim().toLowerCase();
-    const spId = (enquiry.salesperson_id || enquiry.sales_person_id || '').toLowerCase();
+    const spVal = (
+      enquiry.salesperson ||
+      enquiry.sales_person ||
+      enquiry.sales_representative ||
+      (enquiry as any).salesRep ||
+      ''
+    ).trim().toLowerCase();
+    const spId = (
+      enquiry.salesperson_id ||
+      enquiry.sales_person_id ||
+      enquiry.sales_rep_id ||
+      (enquiry as any).salesRepresentativeId ||
+      ''
+    ).toLowerCase();
     return salespersons.find((s) => {
       if (spId && (s.id?.toLowerCase() === spId || s.linked_user_id?.toLowerCase() === spId)) return true;
       if (spVal && (s.full_name?.toLowerCase() === spVal || s.initials?.toLowerCase() === spVal)) return true;
@@ -125,12 +137,12 @@ export default function EnquiryCollaboratorsModal({
         <div className="px-6 py-3 bg-amber-50/70 border-b border-amber-100 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs font-mono shrink-0">
-              {primarySp?.initials || (enquiry.salesperson || enquiry.sales_person || 'REP').slice(0, 2).toUpperCase()}
+              {primarySp?.initials || (enquiry.salesperson || enquiry.sales_person || enquiry.sales_representative || (enquiry as any).salesRep || 'REP').slice(0, 2).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
                 <span className="text-xs font-bold text-slate-800 font-sans">
-                  {primarySp?.full_name || enquiry.salesperson || enquiry.sales_person || 'Assigned Salesperson'}
+                  {primarySp?.full_name || enquiry.salesperson || enquiry.sales_person || enquiry.sales_representative || (enquiry as any).salesRep || 'Assigned Salesperson'}
                 </span>
                 <span className="px-1.5 py-0.2 text-[10px] font-semibold bg-amber-200/80 text-amber-900 rounded-md font-mono">
                   Primary Owner
