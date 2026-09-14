@@ -436,6 +436,8 @@ export interface AuditLog {
 
 export interface Salesperson {
   id?: string;
+  uid?: string;
+  userId?: string;
   workspace_id?: string;
   initials?: string;
   full_name: string;

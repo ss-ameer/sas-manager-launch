@@ -387,14 +387,29 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
   const wsId = raw?.workspace_id || raw?.workspaceId || activeWsId || 'ws_default';
 
   // Dual-Key Salesperson: sales_person_id and sales_person initials fallback
-  let sales_person_id = raw?.sales_person_id || raw?.salesperson_id || '';
-  let sales_person = raw?.sales_person || raw?.salesperson || '';
+  let sales_person_id = raw?.sales_person_id || raw?.salesperson_id || raw?.sales_rep_id || raw?.salesRepresentativeId || '';
+  let sales_person = raw?.sales_person || raw?.salesperson || raw?.sales_representative || raw?.salesRep || '';
 
   if (!sales_person && raw?.sales_person_name) {
     sales_person = getInitials(raw.sales_person_name);
   } else if (!sales_person && sales_person_id) {
     sales_person = getInitials(sales_person_id);
   }
+
+  // Ensure collaborator fields are explicitly mapped and preserved across reloads
+  const cleanUids = Array.isArray(raw?.shared_with_uids)
+    ? raw.shared_with_uids.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
+    : [];
+
+  const cleanTeam = Array.isArray(raw?.additional_team)
+    ? raw.additional_team.map((t: any) => (typeof t === 'string' ? t.trim() : String(t?.name || t?.full_name || t?.initials || '').trim())).filter(Boolean)
+    : typeof raw?.additional_team === 'string' && raw.additional_team.trim()
+    ? raw.additional_team.split(/[,;|]/).map((s: string) => s.trim()).filter(Boolean)
+    : [];
+
+  const cleanNames = Array.isArray(raw?.shared_with_names)
+    ? raw.shared_with_names.map((n: any) => (typeof n === 'string' ? n.trim() : String(n?.name || n?.full_name || '').trim())).filter(Boolean)
+    : [];
 
   return {
     ...raw,
@@ -404,6 +419,15 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
     is_deleted: Boolean(raw?.is_deleted),
     sales_person_id,
     sales_person,
+    salesperson_id: sales_person_id,
+    salesperson: sales_person,
+    sales_rep_id: sales_person_id,
+    sales_representative: sales_person,
+    created_by_uid: raw?.created_by_uid || raw?.createdByUid || '',
+    createdByUid: raw?.createdByUid || raw?.created_by_uid || '',
+    shared_with_uids: cleanUids,
+    additional_team: cleanTeam,
+    shared_with_names: cleanNames,
     sn: typeof raw?.sn === 'number' ? raw.sn : 0,
     enquiry_date: raw?.enquiry_date || now.split('T')[0],
     company_id: raw?.company_id || '',

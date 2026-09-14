@@ -20,6 +20,7 @@ interface EnquiryCollaboratorsModalProps {
   canManage: boolean;
   onToggleCollaborator: (salesperson: Salesperson, isCurrentlyCollaborator: boolean) => Promise<void>;
   isCollaboratorCheck: (salesperson: Salesperson) => boolean;
+  workspaceId?: string | null;
 }
 
 export default function EnquiryCollaboratorsModal({
@@ -33,6 +34,7 @@ export default function EnquiryCollaboratorsModal({
 }: EnquiryCollaboratorsModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingMemberId, setLoadingMemberId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Identify the primary assigned salesperson to exclude from collaborator picker
   const primarySp = useMemo(() => {
@@ -52,7 +54,8 @@ export default function EnquiryCollaboratorsModal({
       ''
     ).toLowerCase();
     return (salespersons || []).find((s) => {
-      if (spId && (s.id?.toLowerCase() === spId || s.linked_user_id?.toLowerCase() === spId)) return true;
+      const sUid = (s.uid || (s as any).userId || s.linked_user_id || s.id || '').toLowerCase();
+      if (spId && (s.id?.toLowerCase() === spId || sUid === spId)) return true;
       if (spVal && (s.full_name?.toLowerCase() === spVal || s.initials?.toLowerCase() === spVal)) return true;
       return false;
     });
@@ -61,8 +64,13 @@ export default function EnquiryCollaboratorsModal({
   // Active workspace team members excluding primary salesperson
   const eligibleMembers = useMemo(() => {
     return (salespersons || []).filter((s) => {
-      if (primarySp && (s.id === primarySp.id || (s.initials && s.initials === primarySp.initials))) {
-        return false;
+      if (primarySp) {
+        const sUid = s.uid || (s as any).userId || s.linked_user_id || s.id;
+        const pUid = primarySp.uid || (primarySp as any).userId || primarySp.linked_user_id || primarySp.id;
+        if (sUid && pUid && sUid === pUid) return false;
+        if (s.id === primarySp.id) return false;
+        if (s.initials && primarySp.initials && s.initials === primarySp.initials) return false;
+        if (s.full_name && primarySp.full_name && s.full_name.toLowerCase() === primarySp.full_name.toLowerCase()) return false;
       }
       return true;
     });
@@ -88,11 +96,15 @@ export default function EnquiryCollaboratorsModal({
 
   const handleToggle = async (sp: Salesperson) => {
     if (!canManage) return;
-    const memberKey = sp.id || sp.initials || sp.full_name;
+    const memberKey = sp.uid || (sp as any).userId || sp.linked_user_id || sp.id || sp.initials || sp.full_name;
     setLoadingMemberId(memberKey);
+    setErrorMessage(null);
     try {
       const isCurrently = isCollaboratorCheck(sp);
       await onToggleCollaborator(sp, isCurrently);
+    } catch (err: any) {
+      console.error('[EnquiryCollaboratorsModal] Error toggling collaborator:', err);
+      setErrorMessage(err?.message || 'Failed to update collaborator. Please try again.');
     } finally {
       setLoadingMemberId(null);
     }
@@ -133,6 +145,21 @@ export default function EnquiryCollaboratorsModal({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Inline Error Banner */}
+        {errorMessage && (
+          <div className="px-6 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center space-x-2 text-xs text-rose-700">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span className="flex-1">{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-400 hover:text-rose-600 p-0.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Primary Deal Owner Section */}
         <div className="px-6 py-3 bg-amber-50/70 border-b border-amber-100 flex items-center justify-between">
@@ -200,7 +227,7 @@ export default function EnquiryCollaboratorsModal({
           ) : (
             filteredMembers.map((sp) => {
               const isCollab = isCollaboratorCheck(sp);
-              const memberKey = sp.id || sp.initials || sp.full_name;
+              const memberKey = sp.uid || (sp as any).userId || sp.linked_user_id || sp.id || sp.initials || sp.full_name;
               const isLoading = loadingMemberId === memberKey;
               const initials = sp.initials || sp.full_name.slice(0, 2).toUpperCase();
 

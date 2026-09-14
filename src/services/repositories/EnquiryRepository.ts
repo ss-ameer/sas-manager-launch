@@ -1,13 +1,51 @@
 import { Enquiry } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { safeGetDocs, safeGetDoc, safeSetDoc } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
+import { doc, updateDoc, setDoc } from 'firebase/firestore';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
 
+  /**
+   * Explicit Deserialization Mapping:
+   * Maps raw snapshot/local object into typed Enquiry, explicitly preserving
+   * shared_with_uids, additional_team, and shared_with_names so collaborator
+   * state is never lost on refresh.
+   */
+  public static docToEnquiry(id: string, data: any): Enquiry {
+    if (!data) return { id } as Enquiry;
+
+    const cleanUids: string[] = Array.isArray(data.shared_with_uids)
+      ? data.shared_with_uids.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
+      : [];
+
+    const cleanTeam: string[] = Array.isArray(data.additional_team)
+      ? data.additional_team.map((t: any) => (typeof t === 'string' ? t.trim() : String(t?.name || t?.full_name || t?.initials || '').trim())).filter(Boolean)
+      : typeof data.additional_team === 'string' && data.additional_team.trim()
+      ? data.additional_team.split(/[,;|]/).map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
+    const cleanNames: string[] = Array.isArray(data.shared_with_names)
+      ? data.shared_with_names.map((n: any) => (typeof n === 'string' ? n.trim() : String(n?.name || n?.full_name || '').trim())).filter(Boolean)
+      : [];
+
+    return {
+      ...data,
+      id: id || data.id,
+      shared_with_uids: cleanUids,
+      additional_team: cleanTeam,
+      shared_with_names: cleanNames,
+    } as Enquiry;
+  }
+
   public static async getAllLocal(): Promise<Enquiry[]> {
-    return getFromLocalStore<Enquiry>(this.STORE_NAME);
+    const raw = await getFromLocalStore<Enquiry>(this.STORE_NAME);
+    return (raw || []).map((item) => this.docToEnquiry(item.id, item));
+  }
+
+  public static async getAll(): Promise<Enquiry[]> {
+    return this.getAllLocal();
   }
 
   public static async saveLocalCache(items: Enquiry[]): Promise<void> {
@@ -18,11 +56,11 @@ export class EnquiryRepository {
    * Hardened Single-Document Read Guard:
    * Fetches document by ID and verifies workspace boundary before returning data.
    */
-  public static async getEnquiryById(id: string, currentActiveWorkspaceId: string): Promise<Enquiry | null> {
+  public static async getEnquiryById(id: string, currentActiveWorkspaceId?: string): Promise<Enquiry | null> {
     let enquiry: Enquiry | null = null;
     const docSnap = await safeGetDoc('enquiries', id);
     if (docSnap && docSnap.exists()) {
-      enquiry = { id: docSnap.id, ...docSnap.data() } as Enquiry;
+      enquiry = this.docToEnquiry(docSnap.id, docSnap.data());
     } else {
       const localEnquiries = await this.getAllLocal();
       enquiry = localEnquiries.find((e) => e.id === id) || null;
@@ -43,7 +81,7 @@ export class EnquiryRepository {
     try {
       const snap = await safeGetDocs('enquiries');
       if (!snap || snap.empty) return this.getAllLocal();
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Enquiry));
+      const docs = snap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
       const filtered = docs.filter((e) => {
         const docWsId = e.workspace_id || (e as any).workspaceId || 'ws_default';
         if (workspaceId === 'ws_default') return docWsId === 'ws_default' || !docWsId;
@@ -133,25 +171,52 @@ export class EnquiryRepository {
    * Atomic Collaborator Sharing Mutation:
    * Syncs additional_team (names/initials) and shared_with_uids (UID array)
    * to guarantee instant RBAC permission matching in canAccessEnquiry.
+   *
+   * Supports both signatures:
+   * - updateCollaborators(workspaceId, enquiryId, uids, names)
+   * - updateCollaborators(enquiryId, additional_team, shared_with_uids, shared_with_names, workspaceId)
    */
   public static async updateCollaborators(
-    id: string,
-    additional_team: (string | Record<string, any>)[],
-    shared_with_uids: (string | Record<string, any>)[],
-    shared_with_names?: (string | Record<string, any>)[]
+    param1: string,
+    param2: string | (string | Record<string, any>)[],
+    param3?: (string | Record<string, any>)[],
+    param4?: (string | Record<string, any>)[],
+    param5?: string | null
   ): Promise<Enquiry | null> {
-    const current = await this.getAllLocal();
-    const idx = current.findIndex((item) => item.id === id);
-    if (idx === -1) return null;
+    let workspaceId: string | null = null;
+    let targetId: string = '';
+    let rawTeam: (string | Record<string, any>)[] = [];
+    let rawUids: (string | Record<string, any>)[] = [];
+    let rawNames: (string | Record<string, any>)[] = [];
+
+    if (typeof param2 === 'string') {
+      // Called as: updateCollaborators(workspaceId, enquiryId, uids, names)
+      workspaceId = param1;
+      targetId = param2;
+      rawUids = param3 || [];
+      rawNames = param4 || [];
+      rawTeam = param4 && param4.length > 0 ? param4 : param3 || [];
+    } else {
+      // Called as: updateCollaborators(enquiryId, additional_team, shared_with_uids, shared_with_names, workspaceId)
+      targetId = param1;
+      rawTeam = param2 || [];
+      rawUids = param3 || [];
+      rawNames = param4 || [];
+      workspaceId = param5 || null;
+    }
+
+    if (!targetId) {
+      throw new Error('[EnquiryRepository] Cannot update collaborators: missing enquiry ID.');
+    }
 
     // Plain string UID arrays (shared_with_uids: string[])
     const cleanUids: string[] = Array.from(
       new Set(
-        (shared_with_uids || [])
+        (rawUids || [])
           .map((item) => {
             if (!item) return '';
             if (typeof item === 'string') return item.trim();
-            if (typeof item === 'object') return String((item as any).uid || (item as any).id || '').trim();
+            if (typeof item === 'object') return String((item as any).uid || (item as any).id || (item as any).userId || '').trim();
             return String(item).trim();
           })
           .filter(Boolean)
@@ -161,7 +226,7 @@ export class EnquiryRepository {
     // Name/display string arrays (additional_team: string[])
     const cleanTeam: string[] = Array.from(
       new Set(
-        (additional_team || [])
+        (rawTeam || [])
           .map((item) => {
             if (!item) return '';
             if (typeof item === 'string') return item.trim();
@@ -175,7 +240,7 @@ export class EnquiryRepository {
     // Name/display string arrays (shared_with_names: string[])
     const cleanNames: string[] = Array.from(
       new Set(
-        (shared_with_names && shared_with_names.length > 0 ? shared_with_names : cleanTeam)
+        (rawNames && rawNames.length > 0 ? rawNames : cleanTeam)
           .map((item) => {
             if (!item) return '';
             if (typeof item === 'string') return item.trim();
@@ -186,8 +251,15 @@ export class EnquiryRepository {
       )
     );
 
+    const current = await this.getAllLocal();
+    const idx = current.findIndex((item) => item.id === targetId);
+    const existing = idx !== -1 ? current[idx] : ({ id: targetId } as Enquiry);
+    const targetWsId = workspaceId || existing.workspace_id || (existing as any).workspaceId || 'ws_default';
+
     const updatedEnquiry: Enquiry = {
-      ...current[idx],
+      ...existing,
+      id: targetId,
+      workspace_id: targetWsId,
       additional_team: cleanTeam,
       shared_with_uids: cleanUids,
       shared_with_names: cleanNames,
@@ -197,21 +269,67 @@ export class EnquiryRepository {
     // 1. Optimistic write to local cache and enqueue to syncEngine
     await this.save(updatedEnquiry);
 
-    // 2. Direct atomic cloud update in Firestore
+    // Also update localStorage 'omni_enquiries' cache if present
     try {
-      await safeSetDoc(
-        'enquiries',
-        id,
-        {
-          additional_team: cleanTeam,
-          shared_with_uids: cleanUids,
-          shared_with_names: cleanNames,
-          updatedAt: updatedEnquiry.updatedAt
-        },
-        { merge: true }
-      );
-    } catch (cloudErr) {
-      console.warn('[EnquiryRepository] Direct Firestore update of collaborators queued via syncEngine:', cloudErr);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const rawCached = window.localStorage.getItem('omni_enquiries');
+        if (rawCached) {
+          const parsed = JSON.parse(rawCached);
+          if (Array.isArray(parsed)) {
+            const pIdx = parsed.findIndex((e: any) => e.id === targetId);
+            if (pIdx !== -1) {
+              parsed[pIdx] = {
+                ...parsed[pIdx],
+                additional_team: cleanTeam,
+                shared_with_uids: cleanUids,
+                shared_with_names: cleanNames,
+                updatedAt: updatedEnquiry.updatedAt
+              };
+            }
+            window.localStorage.setItem('omni_enquiries', JSON.stringify(parsed));
+          }
+        }
+      }
+    } catch (lsErr) {
+      console.warn('[EnquiryRepository] Failed to update omni_enquiries cache:', lsErr);
+    }
+
+    // 2. Direct atomic cloud update in Firestore
+    const cloudPayload = {
+      additional_team: cleanTeam,
+      shared_with_uids: cleanUids,
+      shared_with_names: cleanNames,
+      updatedAt: updatedEnquiry.updatedAt
+    };
+
+    try {
+      // Primary atomic write to 'enquiries/{id}'
+      const docRef = doc(db, 'enquiries', targetId);
+      await updateDoc(docRef, cloudPayload);
+    } catch (directErr: any) {
+      console.warn('[EnquiryRepository] Direct atomic updateDoc failed, attempting safeSetDoc fallback:', directErr);
+      try {
+        // Fallback: safeSetDoc with merge
+        await safeSetDoc('enquiries', targetId, cloudPayload, { merge: true });
+      } catch (fallbackErr: any) {
+        console.error('[EnquiryRepository] Cloud collaborator update failed on enquiries:', fallbackErr);
+        throw fallbackErr;
+      }
+
+      // If it failed because of permission-denied, propagate to caller
+      if (directErr && (directErr.code === 'permission-denied' || directErr.message?.includes('permission-denied'))) {
+        throw new Error('Permission denied: You do not have permission to update collaborators on this enquiry in Firestore.');
+      }
+    }
+
+    // If workspace-scoped subcollection is also used
+    if (targetWsId && targetWsId !== 'ws_default') {
+      try {
+        const wsDocRef = doc(db, `workspaces/${targetWsId}/enquiries`, targetId);
+        await setDoc(wsDocRef, cloudPayload, { merge: true });
+      } catch (wsErr) {
+        // Optional workspace subcollection path
+      }
     }
 
     return updatedEnquiry;

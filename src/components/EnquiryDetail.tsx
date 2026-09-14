@@ -246,7 +246,7 @@ export default function EnquiryDetail({
     const nextUids = Array.from(
       new Set(
         updatedMembers
-          .flatMap((m) => [m.linked_user_id, m.id])
+          .flatMap((m) => [(m as any).uid, (m as any).userId, m.linked_user_id, m.id])
           .filter(Boolean) as string[]
       )
     );
@@ -275,8 +275,9 @@ export default function EnquiryDetail({
     }
 
     // 2. Atomic persistence to local storage and Firestore
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
     try {
-      await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames);
+      await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames, wsId);
       if (triggerToast) {
         if (isCurrentlyCollaborator) {
           triggerToast(`Access revoked for ${sp.full_name}`, 'info');
@@ -309,7 +310,7 @@ export default function EnquiryDetail({
       const nextUids = Array.from(
         new Set(
           activeCollaboratorMembers
-            .flatMap((m) => [m.linked_user_id, m.id])
+            .flatMap((m) => [(m as any).uid, (m as any).userId, m.linked_user_id, m.id])
             .filter(Boolean) as string[]
         )
       );
@@ -336,8 +337,9 @@ export default function EnquiryDetail({
         onUpdateEnquiry(updatedPayload);
       }
 
+      const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
       try {
-        await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames);
+        await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames, wsId);
         if (triggerToast) {
           triggerToast(`Removed ${spOrName} from collaborators`, 'info');
         }
@@ -625,17 +627,21 @@ export default function EnquiryDetail({
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl lg:max-w-7xl' : 'max-w-3xl lg:max-w-4xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Header Block */}
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <span className="text-xs font-mono bg-slate-50 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-md font-bold">
+        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-3 min-w-0 bg-white sticky top-0 z-20">
+          {/* Left Title & Metadata: flexible and truncates gracefully */}
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
+            <span className="text-xs font-mono bg-slate-50 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-md font-bold shrink-0">
               #{enquiry.sn}
             </span>
-            <div className="flex items-center space-x-2 truncate max-w-[320px] md:max-w-[480px]">
-              <h3 className="text-xl font-bold text-slate-900 font-sans truncate">
+            <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <h3
+                className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate"
+                title={matchedCompany?.display_name || 'Unassigned Account'}
+              >
                 {matchedCompany?.display_name || 'Unassigned Account'}
               </h3>
               {matchedCompany && (
-                <>
+                <div className="hidden md:flex items-center space-x-2 shrink-0">
                   <GoogleSearchButton
                     companyName={matchedCompany.display_name}
                     location={matchedCompany.city}
@@ -650,11 +656,14 @@ export default function EnquiryDetail({
                     setCompanies={setCompanies}
                   />
                   <IndustryBadge company={matchedCompany} size="sm" showEmpty />
-                </>
+                </div>
               )}
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+
+          {/* Right Action & Control Buttons */}
+          <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
+            {/* Primary Action Buttons (condense labels cleanly on compact viewports) */}
             <button
               type="button"
               onClick={(e) => {
@@ -669,25 +678,26 @@ export default function EnquiryDetail({
                   e
                 });
               }}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer mr-1"
+              className="px-2.5 sm:px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
               title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
             >
               <Phone className="w-3.5 h-3.5" />
-              <span>Log Activity</span>
+              <span className="hidden sm:inline">Log Activity</span>
             </button>
             <button
               type="button"
               onClick={handleCreateRevision}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer mr-1"
+              className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
               title="Create a new quote revision (clones line items, links, currency & value)"
             >
               <GitFork className="w-3.5 h-3.5" />
-              <span>📄 + Create Revision</span>
+              <span className="hidden sm:inline">📄 + Create Revision</span>
+              <span className="sm:hidden">Revision</span>
             </button>
             <button
               type="button"
               onClick={() => setIsShareModalOpen(true)}
-              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-2xs transition cursor-pointer mr-1"
+              className="px-2.5 sm:px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-2xs transition cursor-pointer shrink-0"
               title="Share Enquiry & Manage Collaborators"
             >
               <Users className="w-3.5 h-3.5 text-indigo-600" />
@@ -698,61 +708,67 @@ export default function EnquiryDetail({
                 </span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setIsExpandedWidth(!isExpandedWidth)}
-              className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition mr-1"
-              title={isExpandedWidth ? "Compress drawer width" : "Expand full width"}
-            >
-              {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-            {canEditOrDeleteRecord(user, enquiry) && (
+
+            {/* Dedicated Pinned Window Controls: shrink-0, ml-auto, permanently visible */}
+            <div className="flex items-center space-x-1 pl-1 border-l border-slate-200 shrink-0 ml-auto z-10">
               <button
                 type="button"
-                onClick={() => {
-                  onEditEnquiry(enquiry);
-                  onClose();
-                }}
-                className="p-1.5 hover:bg-blue-50 text-blue-500 hover:text-blue-700 rounded-lg transition"
-                title="Edit Enquiry"
+                onClick={() => setIsExpandedWidth(!isExpandedWidth)}
+                className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                title={isExpandedWidth ? "Compress drawer width" : "Expand full width"}
               >
-                <Edit2 className="w-5 h-5" />
+                {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
-            )}
-            {canEditOrDeleteRecord(user, enquiry) && (
-              <button
-                type="button"
-                onClick={() => {
-                  const targetId = enquiry.id || (enquiry as any)._id;
-                  if (!targetId) {
-                    alert('Error: Enquiry ID is missing. Cannot delete.');
-                    return;
-                  }
-                  setConfirmDialog({
-                    isOpen: true,
-                    title: 'Delete Enquiry',
-                    message: `Are you sure you want to delete Enquiry #${enquiry.sn}? This action is irreversible.`,
-                    confirmText: 'Delete',
-                    cancelText: 'Cancel',
-                    isDestructive: true,
-                    onConfirm: () => {
-                      onDeleteEnquiry(targetId);
-                      onClose();
+              {canEditOrDeleteRecord(user, enquiry) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onEditEnquiry(enquiry);
+                    onClose();
+                  }}
+                  className="p-1.5 hover:bg-blue-50 text-blue-500 hover:text-blue-700 rounded-lg transition shrink-0 cursor-pointer"
+                  title="Edit Enquiry"
+                >
+                  <Edit2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
+              {canEditOrDeleteRecord(user, enquiry) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = enquiry.id || (enquiry as any)._id;
+                    if (!targetId) {
+                      alert('Error: Enquiry ID is missing. Cannot delete.');
+                      return;
                     }
-                  });
-                }}
-                className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition cursor-pointer"
-                title="Delete Enquiry"
+                    setConfirmDialog({
+                      isOpen: true,
+                      title: 'Delete Enquiry',
+                      message: `Are you sure you want to delete Enquiry #${enquiry.sn}? This action is irreversible.`,
+                      confirmText: 'Delete',
+                      cancelText: 'Cancel',
+                      isDestructive: true,
+                      onConfirm: () => {
+                        onDeleteEnquiry(targetId);
+                        onClose();
+                      }
+                    });
+                  }}
+                  className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition shrink-0 cursor-pointer"
+                  title="Delete Enquiry"
+                >
+                  <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                title="Close"
               >
-                <Trash2 className="w-5 h-5" />
+                <X className="w-5 h-5 text-slate-600" />
               </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-800 rounded-lg transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            </div>
           </div>
         </div>
 
@@ -1663,6 +1679,7 @@ export default function EnquiryDetail({
         canManage={canManageSharing}
         onToggleCollaborator={handleToggleCollaborator}
         isCollaboratorCheck={(sp) => isMemberCollaborator(sp, currentEnquiry)}
+        workspaceId={currentEnquiry.workspace_id || activeWorkspaceId}
       />
     </div>
   );
