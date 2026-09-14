@@ -34,10 +34,9 @@ export default function EnquiryCollaboratorsModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingMemberId, setLoadingMemberId] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
   // Identify the primary assigned salesperson to exclude from collaborator picker
   const primarySp = useMemo(() => {
+    if (!enquiry) return undefined;
     const spVal = (
       enquiry.salesperson ||
       enquiry.sales_person ||
@@ -52,7 +51,7 @@ export default function EnquiryCollaboratorsModal({
       (enquiry as any).salesRepresentativeId ||
       ''
     ).toLowerCase();
-    return salespersons.find((s) => {
+    return (salespersons || []).find((s) => {
       if (spId && (s.id?.toLowerCase() === spId || s.linked_user_id?.toLowerCase() === spId)) return true;
       if (spVal && (s.full_name?.toLowerCase() === spVal || s.initials?.toLowerCase() === spVal)) return true;
       return false;
@@ -61,7 +60,7 @@ export default function EnquiryCollaboratorsModal({
 
   // Active workspace team members excluding primary salesperson
   const eligibleMembers = useMemo(() => {
-    return salespersons.filter((s) => {
+    return (salespersons || []).filter((s) => {
       if (primarySp && (s.id === primarySp.id || (s.initials && s.initials === primarySp.initials))) {
         return false;
       }
@@ -98,6 +97,8 @@ export default function EnquiryCollaboratorsModal({
       setLoadingMemberId(null);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div
