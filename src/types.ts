@@ -49,6 +49,7 @@ export interface WorkspaceMember {
   role?: UserRole | string;
   workspace_roles?: Record<string, UserRole | string>;
   joined_at?: string;
+  salesperson_id?: string;
 }
 
 export interface Workspace {
@@ -67,6 +68,7 @@ export interface Workspace {
   geography_options?: string[];
   members?: WorkspaceMember[] | Record<string, WorkspaceMember | { role?: WorkspaceRole | UserRole | string; [key: string]: any }>;
   member_emails?: string[];
+  join_code?: string;
 }
 
 export type LegalSuffix = 'None / To Be Added Later' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other';
@@ -362,6 +364,7 @@ export interface Enquiry extends SoftDeleteFields {
   created_by_uid?: string;
   creator_id?: string;
   created_by_name?: string;
+  assigned_to?: string;
   company_id: string;
   contact_id?: string;
   country: string;

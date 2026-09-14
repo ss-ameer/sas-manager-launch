@@ -1854,6 +1854,7 @@ export default function App() {
             setAllowUserSalespersonSelection={setAllowUserSalespersonSelection}
             triggerToast={triggerToast}
             workspaces={visibleWorkspaces}
+            setWorkspaces={setWorkspaces}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}

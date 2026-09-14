@@ -116,6 +116,7 @@ interface SettingsHubProps {
   setAllowUserSalespersonSelection?: (allow: boolean) => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   workspaces?: Workspace[];
+  setWorkspaces?: React.Dispatch<React.SetStateAction<Workspace[]>>;
   onOpenMobileMenu?: () => void;
 }
 
@@ -164,6 +165,7 @@ export default function SettingsHub({
   setAllowUserSalespersonSelection,
   triggerToast,
   workspaces = [],
+  setWorkspaces,
   onOpenMobileMenu
 }: SettingsHubProps) {
   const effectiveRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
@@ -494,9 +496,9 @@ export default function SettingsHub({
     },
     {
       id: 'users' as const,
-      label: 'Team & Members',
+      label: 'Team & Access',
       icon: Users,
-      description: 'Manage platform users, roles, statuses and workspace permissions',
+      description: 'Manage workspace members, 3-tier access roles, salesperson links, and invitations',
       adminOnly: true
     },
     {
@@ -870,9 +872,14 @@ export default function SettingsHub({
               enquiries={enquiries}
               salespersons={salespersons}
               callLogs={callLogs}
+              invites={invites}
               setEnquiries={setEnquiries}
               setCallLogs={setCallLogs}
+              setInvites={setInvites}
+              setWorkspaces={setWorkspaces}
+              setSalespersons={setSalespersons}
               triggerToast={triggerToast}
+              onOpenHandoverWizard={() => setIsHandoverWizardOpen(true)}
             />
 
             {/* Admin Data Visibility Scope & Salesperson Assignment Permissions Panel */}
