@@ -59,6 +59,85 @@ export default function DocsSystemHub() {
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.73.0',
+      date: '2026-09-14',
+      type: 'MINOR',
+      changes: [
+        'Smart S/N Collision Re-Indexing (EnquiryForm.tsx): Built real-time collision detection and preview notification when entering or updating enquiry serial numbers. Automatically shifts colliding and subsequent enquiry numbers (>= N) upward by +1 using chunked atomic Firestore writeBatches, maintaining seamless chronological sequence without gap errors.',
+        'Universal Optional Marking Mode: Replaced persistent selection checkboxes with an on-demand "Marking Mode" toggle across Enquiry Log (EnquiryList.tsx), Personnel & Contacts Directory (CompanyModal.tsx), and Customer Touchpoint History (CallLogManager.tsx).',
+        'De-cluttered Table & Card Viewports: All lists now default to a clean, reading-optimized state with selection checkboxes hidden until explicitly activated by the operator.',
+        'Contextual Floating Batch Actions: Floating bulk deletion and batch reassignment action bars only mount when Marking Mode is active and items are selected, complete with instant Done Marking dismissal.'
+      ]
+    },
+    {
+      version: '0.72.0',
+      date: '2026-09-02',
+      type: 'MINOR',
+      changes: [
+        'Omni-Channel Quick Activity Drawer (QuickActivityDrawer.tsx): High-efficiency outreach drawer supporting multi-channel logging (Phone Call, Email, WhatsApp, In-Person Meeting, Site Visit, Internal Task) with disposition categorization and follow-up date scheduling.',
+        'Fast Queue Dialing Engine: Built sequential outbound lead processing pipeline with auto-advancing queue drawers, status badges, and rapid resolution disposition shortcuts.',
+        'Inline Contact Association & Validation: Added capability to log touchpoints for existing company personnel or create, validate, and associate new contacts directly from the active drawer.'
+      ]
+    },
+    {
+      version: '0.70.0',
+      date: '2026-08-28',
+      type: 'MINOR',
+      changes: [
+        'Live Execution Simulation Console (LiveExecutionModal.tsx): Built real-time diagnostic console monitoring live system events, AI extraction telemetry, and pipeline transition triggers.',
+        'System Simulator Suite (SystemSimulator.tsx): Stress-testing sandbox for evaluating edge-case state transitions, quota saturation, and network failure modes under synthetic workloads.'
+      ]
+    },
+    {
+      version: '0.65.0',
+      date: '2026-08-23',
+      type: 'MINOR',
+      changes: [
+        'Automated Lead Temperature Recalibration Engine (temperatureCycle.ts, TemperatureBadge.tsx): Lead scoring engine tracking account engagement (Hot, Warm, Cold) based on activity recency and deal velocity.',
+        'DNC Compliance & Phone Normalization (PhoneDataDiagnosticModal.tsx): Automated phone number sanitization, international dial-code formatting, and Do-Not-Call (DNC) compliance safeguards.',
+        'Entity Deduplication Engine (DuplicateMatchModal.tsx, deduplicator.ts, fuzzyMatch.ts): Levenshtein distance and token-based similarity scanner detecting duplicate company names, phone numbers, and emails with merge recommendations.'
+      ]
+    },
+    {
+      version: '0.60.0',
+      date: '2026-08-18',
+      type: 'MINOR',
+      changes: [
+        '3-Tier Industry Taxonomy Management (IndustryTaxonomyManager.tsx, useIndustryTaxonomy.ts, taxonomy.tsx): Hierarchical sector classification (Broad Sector, Sub-Sector, Niche Specialty) for company segmentation and granular market filtering.',
+        'Faceted Combobox Taxonomy Selector: Multi-level searchable dropdown with inline custom category creation capabilities during company registration and editing.',
+        'Custom Label & Creatable Combobox Controls (CreatableCombobox.tsx, CustomLabelSelect.tsx): Reusable UI inputs providing flexible tag assignment and searchable select states.'
+      ]
+    },
+    {
+      version: '0.55.0',
+      date: '2026-08-15',
+      type: 'MINOR',
+      changes: [
+        'Super Admin Console & Multi-Tenant Governance Hub (SuperAdminConsoleModal.tsx, SuperAdminEngine.ts): Multi-tenant administration portal enabling super-admin operators to inspect workspaces, monitor quota metrics, and manage global permissions.',
+        'Workspace Soft-Delete & Recycle Bin (TrashBinModal.tsx): Two-tier deletion workflow preserving deleted enquiries, contacts, and companies in a restorable state prior to permanent purge.',
+        'Salesperson Performance & Profile Roster (SalespersonProfiles.tsx): Workspace sales representative performance tracker mapping enquiry volume, deal conversion, and account ownership.'
+      ]
+    },
+    {
+      version: '0.50.0',
+      date: '2026-08-12',
+      type: 'MINOR',
+      changes: [
+        'Workspace Handover Wizard (WorkspaceHandoverWizardModal.tsx, AccountDeletionService.ts): Multi-step ownership resolution wizard for sole-owner (Category 1) and co-owner (Category 2) workspaces ensuring safe transfer before user account deletion.',
+        'Export & Reporting Center (CompanyExportModal.tsx, CallLogReportModal.tsx, exportService.ts): Multi-format report generation supporting filtered CSV downloads, custom printable layouts, and styled PDF document export.',
+        'Company 360 Panoramic Dossier (Company360Modal.tsx, CompanyDetailView.tsx): Unified account view combining company profile, contact personnel, active enquiries, and touchpoint chronology into a cohesive single-pane interface.'
+      ]
+    },
+    {
+      version: '0.45.0',
+      date: '2026-08-10',
+      type: 'MINOR',
+      changes: [
+        'Onboarding & Fresh Account Initialization (FreshAccountOnboardingModal.tsx): Guided initial configuration walkthrough for new users and workspace invitees.',
+        'Enquiry Export & Audit Log Sanitization (EnquiryExportModal.tsx, sanitizeAuditLog.ts): Configurable enquiry dataset export with PII masking options for external audits.'
+      ]
+    },
+    {
       version: '0.40.2',
       date: '2026-08-08',
       type: 'PATCH',

@@ -296,7 +296,7 @@ export default function CloudSyncHub({
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     System Health & Connectivity
                     <span className="text-[10px] uppercase tracking-widest font-mono bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full">
-                      v0.57.0
+                      v0.73.0
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
