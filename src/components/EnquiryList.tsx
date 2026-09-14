@@ -22,7 +22,8 @@ import {
   Trash,
   ChevronDown,
   Clock,
-  RotateCcw
+  RotateCcw,
+  CheckSquare
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { db } from '../firebase';
@@ -105,7 +106,8 @@ export default function EnquiryList({
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // Bulk deletion multi-select state
+  // Bulk deletion multi-select state (Marking is optional)
+  const [isMarkingMode, setIsMarkingMode] = useState(false);
   const [selectedEnquiryIds, setSelectedEnquiryIds] = useState<string[]>([]);
 
   // Custom confirmation dialog state
@@ -516,6 +518,15 @@ export default function EnquiryList({
             : undefined
         }
         secondaryActions={[
+          {
+            label: isMarkingMode ? 'Exit Marking Mode' : 'Mark / Select',
+            icon: CheckSquare,
+            onClick: () => {
+              const next = !isMarkingMode;
+              setIsMarkingMode(next);
+              if (!next) setSelectedEnquiryIds([]);
+            }
+          },
           ...(user.role === 'Admin'
             ? [
                 {
@@ -632,32 +643,75 @@ export default function EnquiryList({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
+            {/* Table Utility & Marking Controls Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs">
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isMarkingMode;
+                    setIsMarkingMode(next);
+                    if (!next) setSelectedEnquiryIds([]);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition border cursor-pointer ${
+                    isMarkingMode
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Toggle row selection checkboxes for bulk actions"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>{isMarkingMode ? 'Done Marking' : 'Marking Mode'}</span>
+                  {isMarkingMode && selectedEnquiryIds.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
+                      {selectedEnquiryIds.length}
+                    </span>
+                  )}
+                </button>
+                {isMarkingMode ? (
+                  <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                    Click checkboxes to mark enquiries for batch deletion.
+                  </span>
+                ) : (
+                  <span className="text-slate-400 dark:text-slate-500 text-[11px] hidden sm:inline">
+                    Marking is optional. Click &ldquo;Marking Mode&rdquo; to select multiple rows.
+                  </span>
+                )}
+              </div>
+
+              <div className="text-slate-500 dark:text-slate-400 text-xs">
+                Showing <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">{filteredEnquiries.length}</span> enquiries
+              </div>
+            </div>
+
             <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/70 dark:bg-slate-950/60 uppercase">
-                  <th className="py-3.5 px-6 w-12 text-center">
-                    <input
-                      type="checkbox"
-                      checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
-                      onChange={(e) => {
-                        const pageIds = paginatedEnquiries.map((eq) => eq.id!).filter(Boolean);
-                        if (e.target.checked) {
-                          setSelectedEnquiryIds((prev) => {
-                            const union = [...prev];
-                            pageIds.forEach((id) => {
-                              if (!union.includes(id)) union.push(id);
+                  {isMarkingMode && (
+                    <th className="py-3.5 px-6 w-12 text-center">
+                      <input
+                        type="checkbox"
+                        checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
+                        onChange={(e) => {
+                          const pageIds = paginatedEnquiries.map((eq) => eq.id!).filter(Boolean);
+                          if (e.target.checked) {
+                            setSelectedEnquiryIds((prev) => {
+                              const union = [...prev];
+                              pageIds.forEach((id) => {
+                                if (!union.includes(id)) union.push(id);
+                              });
+                              return union;
                             });
-                            return union;
-                          });
-                        } else {
-                          setSelectedEnquiryIds((prev) => prev.filter((id) => !pageIds.includes(id)));
-                        }
-                      }}
-                      className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
-                      title="Select all on current page"
-                    />
-                  </th>
+                          } else {
+                            setSelectedEnquiryIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+                          }
+                        }}
+                        className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
+                        title="Select all on current page"
+                      />
+                    </th>
+                  )}
                   <th onClick={() => handleSort('sn')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
                     <div className="flex items-center space-x-1">
                       <span>S/N</span>
@@ -692,23 +746,25 @@ export default function EnquiryList({
                     <tr
                       key={e.id}
                       className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
-                        isChecked ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
+                        isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
                       }`}
                     >
-                      <td className="py-3.5 px-6 text-center">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(chk) => {
-                            if (chk.target.checked) {
-                              setSelectedEnquiryIds((prev) => [...prev, e.id!]);
-                            } else {
-                              setSelectedEnquiryIds((prev) => prev.filter((id) => id !== e.id!));
-                            }
-                          }}
-                          className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
-                        />
-                      </td>
+                      {isMarkingMode && (
+                        <td className="py-3.5 px-6 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(chk) => {
+                              if (chk.target.checked) {
+                                setSelectedEnquiryIds((prev) => [...prev, e.id!]);
+                              } else {
+                                setSelectedEnquiryIds((prev) => prev.filter((id) => id !== e.id!));
+                              }
+                            }}
+                            className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
+                          />
+                        </td>
+                      )}
                       <td className="py-3.5 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap">
                         #{e.sn}
                       </td>
@@ -1180,7 +1236,7 @@ export default function EnquiryList({
       )}
 
       {/* FLOATING BULK DELETION ACTION BAR */}
-      {selectedEnquiryIds.length > 0 && (
+      {isMarkingMode && selectedEnquiryIds.length > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-slate-950 text-white rounded-2xl shadow-2xl py-3 px-5 border border-slate-800 flex items-center space-x-6 animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center space-x-2">
             <span className="text-xs font-semibold text-slate-300">
@@ -1192,7 +1248,16 @@ export default function EnquiryList({
               onClick={() => setSelectedEnquiryIds([])}
               className="py-1 px-3 bg-transparent border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold font-sans transition"
             >
-              Cancel
+              Clear
+            </button>
+            <button
+              onClick={() => {
+                setSelectedEnquiryIds([]);
+                setIsMarkingMode(false);
+              }}
+              className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold font-sans transition"
+            >
+              Done Marking
             </button>
             <button
               onClick={() => {

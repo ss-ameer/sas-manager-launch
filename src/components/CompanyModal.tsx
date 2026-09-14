@@ -69,7 +69,8 @@ import {
   MessageSquare,
   Link2,
   Eye,
-  RotateCcw
+  RotateCcw,
+  CheckSquare
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
@@ -325,7 +326,8 @@ export default function CompanyModal({
   const [companyViewStyle, setCompanyViewStyle] = useState<'cards' | 'table'>('table');
   const [contactViewStyle, setContactViewStyle] = useState<'table' | 'cards'>('table');
 
-  // Multi-select Contact State & Bulk Reassign State
+  // Multi-select Contact State & Bulk Reassign State (Marking is optional)
+  const [isContactMarkingMode, setIsContactMarkingMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [showBulkReassignModal, setShowBulkReassignModal] = useState(false);
   const [bulkReassignCompanyId, setBulkReassignCompanyId] = useState('');
@@ -2300,6 +2302,31 @@ export default function CompanyModal({
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Cards</span>
                 </button>
+
+                <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isContactMarkingMode;
+                    setIsContactMarkingMode(next);
+                    if (!next) setSelectedContactIds([]);
+                  }}
+                  title="Toggle marking checkboxes for bulk contact operations"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 border cursor-pointer ${
+                    isContactMarkingMode
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>{isContactMarkingMode ? 'Done Marking' : 'Marking'}</span>
+                  {isContactMarkingMode && selectedContactIds.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
+                      {selectedContactIds.length}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -2315,7 +2342,7 @@ export default function CompanyModal({
           />
 
           {/* Bulk Actions Toolbar for Contacts */}
-          {selectedContactIds.length > 0 && (
+          {isContactMarkingMode && selectedContactIds.length > 0 && (
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-150">
               <div className="flex items-center space-x-2">
                 <span className="px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold font-mono">
@@ -2327,6 +2354,17 @@ export default function CompanyModal({
               </div>
 
               <div className="flex items-center space-x-2 flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedContactIds([]);
+                    setIsContactMarkingMode(false);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition shadow-2xs cursor-pointer"
+                >
+                  Done Marking
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowBulkReassignModal(true)}
@@ -2382,20 +2420,22 @@ export default function CompanyModal({
                 <div
                   key={ct.id}
                   onClick={() => setSelectedContactDetail(ct)}
-                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800'}`}
+                  className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition cursor-pointer ${isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id) ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-800'}`}
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center space-x-2.5">
-                        <input
-                          type="checkbox"
-                          checked={!!(ct.id && selectedContactIds.includes(ct.id))}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            ct.id && handleToggleSelectContact(ct.id);
-                          }}
-                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0 mt-0.5"
-                        />
+                        {isContactMarkingMode && (
+                          <input
+                            type="checkbox"
+                            checked={!!(ct.id && selectedContactIds.includes(ct.id))}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              ct.id && handleToggleSelectContact(ct.id);
+                            }}
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0 mt-0.5"
+                          />
+                        )}
                         <h4 className="font-semibold text-slate-900 dark:text-white text-sm font-sans flex items-center space-x-2">
                           <span>{ct.full_name}</span>
                           {ct.is_primary && (
@@ -2499,15 +2539,17 @@ export default function CompanyModal({
               <table className="w-full text-left border-collapse text-xs font-sans">
               <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="py-3.5 px-4 w-10 text-center">
-                    <input
-                      type="checkbox"
-                      checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
-                      onChange={handleSelectAllContacts}
-                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                      title="Select/Deselect All Filtered Contacts"
-                    />
-                  </th>
+                  {isContactMarkingMode && (
+                    <th className="py-3.5 px-4 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
+                        onChange={handleSelectAllContacts}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        title="Select/Deselect All Filtered Contacts"
+                      />
+                    </th>
+                  )}
                   <th className="py-3.5 px-4">Contact Name & Role</th>
                   <th className="py-3.5 px-4">Assigned Company</th>
                   <th className="py-3.5 px-4">Mobile Phone</th>
@@ -2521,16 +2563,18 @@ export default function CompanyModal({
                   <tr
                     key={ct.id}
                     onClick={() => setSelectedContactDetail(ct)}
-                    className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${ct.id && selectedContactIds.includes(ct.id) ? 'bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
+                    className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id) ? 'bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
                   >
-                    <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={!!(ct.id && selectedContactIds.includes(ct.id))}
-                        onChange={() => ct.id && handleToggleSelectContact(ct.id)}
-                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </td>
+                    {isContactMarkingMode && (
+                      <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={!!(ct.id && selectedContactIds.includes(ct.id))}
+                          onChange={() => ct.id && handleToggleSelectContact(ct.id)}
+                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="py-4 px-4">
                       <div className="font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
                         <span>{ct.full_name}</span>

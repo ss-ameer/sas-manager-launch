@@ -49,6 +49,7 @@ export interface Workspace {
     enquiriesEnabled: boolean;
     callLogEnabled: boolean;
   };
+  is_default?: boolean;
   geography_options?: string[];
   members?: WorkspaceMember[];
   member_emails?: string[];

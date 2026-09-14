@@ -1897,6 +1897,7 @@ export default function App() {
       {/* Full form entry for Add/Edit Enquiry */}
       {showEnquiryForm && (
         <EnquiryForm
+          enquiries={workspaceEnquiries}
           companies={workspaceCompanies}
           contacts={workspaceContacts}
           salespersons={workspaceSalespersons}

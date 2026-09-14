@@ -236,6 +236,7 @@ interface CatalogItem {
 }
 
 interface EnquiryFormProps {
+  enquiries?: Enquiry[];
   companies: Company[];
   contacts: Contact[];
   salespersons: { id?: string; initials?: string; full_name: string }[];
@@ -261,6 +262,7 @@ interface EnquiryFormProps {
 }
 
 export default function EnquiryForm({
+  enquiries = [],
   companies,
   contacts,
   salespersons,
@@ -946,6 +948,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
     }
   }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom]);
+
+  // Compute how many existing enquiries would need to shift if this S/N is submitted
+  const collidingShiftCount = React.useMemo(() => {
+    if (!enquiries || enquiries.length === 0 || isNaN(sn) || sn <= 0) return 0;
+    const isEditing = Boolean(enquiryToEdit && enquiryToEdit.id);
+    if (isEditing && enquiryToEdit?.sn === sn) return 0;
+    const currentWorkspaceId = activeWorkspace?.id;
+    return enquiries.filter((e) => {
+      if (e.is_deleted) return false;
+      if (isEditing && e.id === enquiryToEdit?.id) return false;
+      const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
+      const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
+      if (!sameWorkspace) return false;
+      return typeof e.sn === 'number' && e.sn >= sn;
+    }).length;
+  }, [enquiries, sn, enquiryToEdit, activeWorkspace]);
 
   // Load edit values
   useEffect(() => {
@@ -2353,6 +2371,54 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     };
 
     try {
+      const targetSn = Number(sn);
+      const isEditing = Boolean(enquiryToEdit && enquiryToEdit.id);
+      const isSnChanged = !isEditing || (enquiryToEdit?.sn !== targetSn);
+
+      // Smart S/N auto-adjustment: if user specifies an S/N that collides or fits before existing records,
+      // shift all subsequent records with S/N >= targetSn by +1 so that order is strictly preserved.
+      const shiftedMap = new Map<string, number>();
+      if (isSnChanged && enquiries && enquiries.length > 0 && !isNaN(targetSn) && targetSn > 0) {
+        try {
+          const currentWorkspaceId = activeWorkspace?.id;
+          const toShift = enquiries
+            .filter((e) => {
+              if (e.is_deleted) return false;
+              if (isEditing && e.id === enquiryToEdit?.id) return false;
+              const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
+              const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
+              if (!sameWorkspace) return false;
+              return typeof e.sn === 'number' && e.sn >= targetSn;
+            })
+            .sort((a, b) => (b.sn || 0) - (a.sn || 0)); // Descending order so higher numbers increment first
+
+          if (toShift.length > 0) {
+            const chunkSize = 400;
+            for (let i = 0; i < toShift.length; i += chunkSize) {
+              const chunk = toShift.slice(i, i + chunkSize);
+              const batch = writeBatch(db);
+              for (const item of chunk) {
+                if (item.id) {
+                  const newSn = (item.sn || 0) + 1;
+                  shiftedMap.set(item.id, newSn);
+                  const ref = doc(db, 'enquiries', item.id);
+                  batch.update(ref, {
+                    sn: newSn,
+                    updatedAt: new Date().toISOString()
+                  });
+                }
+              }
+              await batch.commit();
+            }
+          }
+        } catch (shiftErr) {
+          console.error('Failed to auto-shift existing enquiries S/N:', shiftErr);
+        }
+      }
+
+      const shiftCount = shiftedMap.size;
+      const shiftNotice = shiftCount > 0 ? ` (${shiftCount} subsequent ${shiftCount === 1 ? 'record' : 'records'} shifted by +1)` : '';
+
       if (enquiryToEdit && enquiryToEdit.id) {
         const updatedDoc: Enquiry = { 
           id: enquiryToEdit.id, 
@@ -2364,13 +2430,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
         await logAudit(enquiryToEdit.id, 'enquiry', 'update', enquiryToEdit, updatedDoc, changes);
 
-        // Instant local state update
+        // Instant local state update with shifted S/Ns
         if (setEnquiries) {
-          setEnquiries((prev) => prev.map((e) => (e.id === enquiryToEdit.id ? updatedDoc : e)));
+          setEnquiries((prev) => {
+            const shiftedList = prev.map((e) => {
+              if (shiftedMap.has(e.id!)) {
+                return { ...e, sn: shiftedMap.get(e.id!)! };
+              }
+              return e;
+            });
+            return shiftedList.map((e) => (e.id === enquiryToEdit.id ? updatedDoc : e));
+          });
         }
 
         if (triggerToast) {
-          triggerToast(`Enquiry #${enquiryToEdit.sn} has been updated successfully.`, 'success');
+          triggerToast(`Enquiry #${targetSn} has been updated successfully${shiftNotice}.`, 'success');
         }
         onClose();
       } else {
@@ -2384,13 +2458,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         await logAudit(newId, 'enquiry', 'create', null, payload, []);
 
-        // Instant local state update
+        // Instant local state update with shifted S/Ns
         if (setEnquiries) {
-          setEnquiries((prev) => [newDoc, ...prev.filter((e) => e.id !== newId)]);
+          setEnquiries((prev) => {
+            const shiftedList = prev.map((e) => {
+              if (shiftedMap.has(e.id!)) {
+                return { ...e, sn: shiftedMap.get(e.id!)! };
+              }
+              return e;
+            });
+            return [newDoc, ...shiftedList.filter((e) => e.id !== newId)];
+          });
         }
 
         if (triggerToast) {
-          triggerToast(`Enquiry #${sn} has been registered successfully.`, 'success');
+          triggerToast(`Enquiry #${targetSn} registered successfully${shiftNotice}.`, 'success');
         }
         if (submitModeRef.current === 'another') {
           resetForm(Number(sn) + 1);
@@ -3014,6 +3096,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       onChange={(e) => setSn(Number(e.target.value))}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                     />
+                    {collidingShiftCount > 0 && (
+                      <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/70 animate-in fade-in duration-150">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        <span className="leading-tight">
+                          <strong>Smart S/N:</strong> #{sn} is occupied. Saving will automatically shift {collidingShiftCount} existing {collidingShiftCount === 1 ? 'enquiry' : 'enquiries'} (#{sn} and above) by +1.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div id="field-received_date">
