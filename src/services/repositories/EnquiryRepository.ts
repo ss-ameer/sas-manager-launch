@@ -1,7 +1,7 @@
 import { Enquiry } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { safeGetDocs, safeGetDoc } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc } from '../../firebase';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -127,5 +127,51 @@ export class EnquiryRepository {
 
   public static async delete(id: string, user?: { uid: string; name: string }): Promise<void> {
     return this.softDelete(id, user);
+  }
+
+  /**
+   * Atomic Collaborator Sharing Mutation:
+   * Syncs additional_team (names/initials) and shared_with_uids (UID array)
+   * to guarantee instant RBAC permission matching in canAccessEnquiry.
+   */
+  public static async updateCollaborators(
+    id: string,
+    additional_team: string[],
+    shared_with_uids: string[],
+    shared_with_names?: string[]
+  ): Promise<Enquiry | null> {
+    const current = await this.getAllLocal();
+    const idx = current.findIndex((item) => item.id === id);
+    if (idx === -1) return null;
+
+    const updatedEnquiry: Enquiry = {
+      ...current[idx],
+      additional_team,
+      shared_with_uids,
+      shared_with_names: shared_with_names || additional_team,
+      updatedAt: new Date().toISOString()
+    };
+
+    // 1. Optimistic write to local cache and enqueue to syncEngine
+    await this.save(updatedEnquiry);
+
+    // 2. Direct atomic cloud update in Firestore
+    try {
+      await safeSetDoc(
+        'enquiries',
+        id,
+        {
+          additional_team,
+          shared_with_uids,
+          shared_with_names: shared_with_names || additional_team,
+          updatedAt: updatedEnquiry.updatedAt
+        },
+        { merge: true }
+      );
+    } catch (cloudErr) {
+      console.warn('[EnquiryRepository] Direct Firestore update of collaborators queued via syncEngine:', cloudErr);
+    }
+
+    return updatedEnquiry;
   }
 }

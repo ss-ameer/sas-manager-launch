@@ -1856,6 +1856,7 @@ export default function App() {
           auditLogs={auditLogs}
           user={user}
           enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
+          setEnquiries={setEnquiries}
           onClose={() => setSelectedEnquiryId(null)}
           onDeleteEnquiry={handleDeleteEnquiry}
           onEditEnquiry={(enq) => {

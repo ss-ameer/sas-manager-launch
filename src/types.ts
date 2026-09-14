@@ -341,6 +341,8 @@ export interface Enquiry extends SoftDeleteFields {
   shared_with_uids?: string[];
   shared_with_names?: string[];
   created_by?: string;
+  created_by_uid?: string;
+  created_by_name?: string;
   company_id: string;
   contact_id?: string;
   country: string;

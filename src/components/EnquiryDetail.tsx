@@ -4,7 +4,7 @@ import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
-import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
+import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -13,6 +13,8 @@ import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
 import { resolveAttachmentUrl } from '../services/attachmentStorage';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import {
   FileText,
   Building,
@@ -28,6 +30,7 @@ import {
   TrendingUp,
   X,
   ShieldCheck,
+  Shield,
   Download,
   Trash2,
   Edit2,
@@ -40,7 +43,9 @@ import {
   Copy,
   MessageSquare,
   Eye,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Users,
+  UserPlus
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -52,6 +57,8 @@ interface EnquiryDetailProps {
   salespersons: Salesperson[];
   user: UserProfile;
   enquiries?: Enquiry[];
+  setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
+  onUpdateEnquiry?: (enquiry: Enquiry) => void;
   activeWorkspace?: Workspace;
   activeWorkspaceId?: string;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -83,6 +90,8 @@ export default function EnquiryDetail({
   salespersons,
   user,
   enquiries = [],
+  setEnquiries,
+  onUpdateEnquiry,
   activeWorkspace,
   activeWorkspaceId,
   onClose,
@@ -96,12 +105,250 @@ export default function EnquiryDetail({
   const { openEditCompany, openEditContact } = useEntityEdit();
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
+  const [currentEnquiry, setCurrentEnquiry] = useState<Enquiry>(enquiry);
   const [activeTab, setActiveTab] = useState<'details' | 'items' | 'history' | 'revisions'>('details');
   const [reverting, setReverting] = useState(false);
   const [revertSuccess, setRevertSuccess] = useState(false);
   const [isExpandedWidth, setIsExpandedWidth] = useState(false);
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+
+  // Synchronize local enquiry when prop updates
+  useEffect(() => {
+    setCurrentEnquiry(enquiry);
+  }, [enquiry]);
+
+  const currentWsId = activeWorkspaceId || activeWorkspace?.id || currentEnquiry.workspace_id;
+
+  // Evaluate RBAC permissions to manage collaborators and sharing
+  const canManageSharing = React.useMemo(() => {
+    return canManageEnquirySharing(user, currentEnquiry, currentWsId, activeWorkspace);
+  }, [user, currentEnquiry, currentWsId, activeWorkspace]);
+
+  // Helper to determine if a salesperson is currently an active collaborator
+  const isMemberCollaborator = React.useCallback((sp: Salesperson, targetEnquiry: Enquiry = currentEnquiry): boolean => {
+    const spId = (sp.id || '').toLowerCase();
+    const spLinkedUid = (sp.linked_user_id || '').toLowerCase();
+    const spFullName = (sp.full_name || '').toLowerCase().trim();
+    const spInitials = (sp.initials || '').toUpperCase().trim();
+    const spEmail = (sp.email || '').toLowerCase().trim();
+
+    // 1. Check shared_with_uids
+    if (Array.isArray(targetEnquiry.shared_with_uids)) {
+      const uids = targetEnquiry.shared_with_uids.map((u) => String(u).toLowerCase().trim());
+      if (spLinkedUid && uids.includes(spLinkedUid)) return true;
+      if (spId && uids.includes(spId)) return true;
+    }
+
+    // 2. Check shared_with_names
+    if (Array.isArray(targetEnquiry.shared_with_names)) {
+      const names = targetEnquiry.shared_with_names.map((n) => String(n).toLowerCase().trim());
+      if (spFullName && names.includes(spFullName)) return true;
+    }
+
+    // 3. Check additional_team
+    const rawTeam = targetEnquiry.additional_team;
+    if (Array.isArray(rawTeam)) {
+      for (const item of rawTeam) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          const itemTrimmed = item.trim();
+          const itemLower = itemTrimmed.toLowerCase();
+          const itemUpper = itemTrimmed.toUpperCase();
+          if (spFullName && (itemLower === spFullName || itemLower.includes(spFullName))) return true;
+          if (spInitials && itemUpper === spInitials) return true;
+          if (spEmail && itemLower === spEmail) return true;
+          if (spId && itemLower === spId) return true;
+          if (spLinkedUid && itemLower === spLinkedUid) return true;
+        } else if (typeof item === 'object') {
+          const oName = String((item as any).name || (item as any).full_name || '').toLowerCase();
+          const oUid = String((item as any).uid || (item as any).id || '').toLowerCase();
+          const oInit = String((item as any).initials || '').toUpperCase();
+          if (spFullName && oName === spFullName) return true;
+          if (spLinkedUid && oUid === spLinkedUid) return true;
+          if (spId && oUid === spId) return true;
+          if (spInitials && oInit === spInitials) return true;
+        }
+      }
+    } else if (typeof rawTeam === 'string' && rawTeam.trim()) {
+      const parts = rawTeam.split(/[,;|]/).map((s) => s.trim());
+      for (const p of parts) {
+        if (!p) continue;
+        if (spFullName && p.toLowerCase() === spFullName) return true;
+        if (spInitials && p.toUpperCase() === spInitials) return true;
+      }
+    }
+
+    return false;
+  }, [currentEnquiry]);
+
+  // Extract all active collaborator salesperson profiles (excluding primary salesperson)
+  const activeCollaboratorMembers = React.useMemo(() => {
+    const spVal = (currentEnquiry.salesperson || currentEnquiry.sales_person || '').trim().toLowerCase();
+    const spId = (currentEnquiry.salesperson_id || currentEnquiry.sales_person_id || '').toLowerCase();
+
+    return salespersons.filter((sp) => {
+      // Exclude primary salesperson
+      if (spId && (sp.id?.toLowerCase() === spId || sp.linked_user_id?.toLowerCase() === spId)) return false;
+      if (spVal && (sp.full_name?.toLowerCase() === spVal || sp.initials?.toLowerCase() === spVal)) return false;
+      return isMemberCollaborator(sp, currentEnquiry);
+    });
+  }, [currentEnquiry, salespersons, isMemberCollaborator]);
+
+  // Extract any legacy or unlinked names from additional_team
+  const extraCollaboratorNames = React.useMemo(() => {
+    const matchedNames = new Set(activeCollaboratorMembers.map((m) => m.full_name.toLowerCase()));
+    const matchedInitials = new Set(activeCollaboratorMembers.map((m) => (m.initials || '').toUpperCase()));
+    const extras: string[] = [];
+
+    const rawTeam = currentEnquiry.additional_team;
+    const items: string[] = Array.isArray(rawTeam)
+      ? rawTeam.map((i) => (typeof i === 'string' ? i : (i as any).name || (i as any).full_name || '')).filter(Boolean)
+      : typeof rawTeam === 'string'
+      ? rawTeam.split(/[,;|]/).map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    for (const it of items) {
+      if (!it) continue;
+      if (!matchedNames.has(it.toLowerCase()) && !matchedInitials.has(it.toUpperCase())) {
+        extras.push(it);
+      }
+    }
+    return extras;
+  }, [currentEnquiry.additional_team, activeCollaboratorMembers]);
+
+  const totalCollaboratorsCount = activeCollaboratorMembers.length + extraCollaboratorNames.length;
+
+  // Atomic toggle handler for adding/removing collaborators
+  const handleToggleCollaborator = async (sp: Salesperson, isCurrentlyCollaborator: boolean) => {
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId) {
+      if (triggerToast) triggerToast('Error: Enquiry ID is missing.', 'error');
+      return;
+    }
+
+    let updatedMembers: Salesperson[];
+    if (isCurrentlyCollaborator) {
+      updatedMembers = activeCollaboratorMembers.filter(
+        (m) => m.id !== sp.id && m.initials !== sp.initials && m.full_name !== sp.full_name
+      );
+    } else {
+      updatedMembers = [...activeCollaboratorMembers, sp];
+    }
+
+    const nextTeam = Array.from(
+      new Set([
+        ...updatedMembers.flatMap((m) => [m.initials, m.full_name].filter(Boolean) as string[]),
+        ...extraCollaboratorNames
+      ])
+    );
+    const nextUids = Array.from(
+      new Set(
+        updatedMembers
+          .map((m) => m.linked_user_id || m.id)
+          .filter(Boolean) as string[]
+      )
+    );
+    const nextNames = Array.from(
+      new Set([
+        ...updatedMembers.map((m) => m.full_name).filter(Boolean),
+        ...extraCollaboratorNames
+      ])
+    );
+
+    const updatedPayload: Enquiry = {
+      ...currentEnquiry,
+      additional_team: nextTeam,
+      shared_with_uids: nextUids,
+      shared_with_names: nextNames,
+      updatedAt: new Date().toISOString()
+    };
+
+    // 1. Instant local state updates
+    setCurrentEnquiry(updatedPayload);
+    if (setEnquiries) {
+      setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedPayload : e)));
+    }
+    if (onUpdateEnquiry) {
+      onUpdateEnquiry(updatedPayload);
+    }
+
+    // 2. Atomic persistence to local storage and Firestore
+    try {
+      await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames);
+      if (triggerToast) {
+        if (isCurrentlyCollaborator) {
+          triggerToast(`Access revoked for ${sp.full_name}`, 'info');
+        } else {
+          triggerToast(`Access granted to ${sp.full_name}`, 'success');
+        }
+      }
+    } catch (err) {
+      console.error('[EnquiryDetail] Failed to update collaborators:', err);
+      if (triggerToast) {
+        triggerToast('Failed to sync collaborator changes with server', 'error');
+      }
+    }
+  };
+
+  // Direct dismiss removal handler
+  const handleRemoveCollaborator = async (spOrName: Salesperson | string) => {
+    if (!canManageSharing) return;
+    if (typeof spOrName === 'string') {
+      const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+      if (!enquiryId) return;
+
+      const nextExtras = extraCollaboratorNames.filter((n) => n !== spOrName);
+      const nextTeam = Array.from(
+        new Set([
+          ...activeCollaboratorMembers.flatMap((m) => [m.initials, m.full_name].filter(Boolean) as string[]),
+          ...nextExtras
+        ])
+      );
+      const nextUids = Array.from(
+        new Set(
+          activeCollaboratorMembers
+            .map((m) => m.linked_user_id || m.id)
+            .filter(Boolean) as string[]
+        )
+      );
+      const nextNames = Array.from(
+        new Set([
+          ...activeCollaboratorMembers.map((m) => m.full_name).filter(Boolean),
+          ...nextExtras
+        ])
+      );
+
+      const updatedPayload: Enquiry = {
+        ...currentEnquiry,
+        additional_team: nextTeam,
+        shared_with_uids: nextUids,
+        shared_with_names: nextNames,
+        updatedAt: new Date().toISOString()
+      };
+
+      setCurrentEnquiry(updatedPayload);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedPayload : e)));
+      }
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry(updatedPayload);
+      }
+
+      try {
+        await EnquiryRepository.updateCollaborators(enquiryId, nextTeam, nextUids, nextNames);
+        if (triggerToast) {
+          triggerToast(`Removed ${spOrName} from collaborators`, 'info');
+        }
+      } catch (err) {
+        console.error('[EnquiryDetail] Failed to remove collaborator:', err);
+        if (triggerToast) triggerToast('Failed to update collaborators', 'error');
+      }
+    } else {
+      await handleToggleCollaborator(spOrName, true);
+    }
+  };
 
   const handleDownloadAttachment = async (file: Attachment | { name: string; url?: string; size?: number; type?: string }) => {
     const f = file as any;
@@ -439,6 +686,20 @@ export default function EnquiryDetail({
             </button>
             <button
               type="button"
+              onClick={() => setIsShareModalOpen(true)}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-2xs transition cursor-pointer mr-1"
+              title="Share Enquiry & Manage Collaborators"
+            >
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Share</span>
+              {totalCollaboratorsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono font-bold">
+                  {totalCollaboratorsCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setIsExpandedWidth(!isExpandedWidth)}
               className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition mr-1"
               title={isExpandedWidth ? "Compress drawer width" : "Expand full width"}
@@ -743,6 +1004,161 @@ export default function EnquiryDetail({
                       {enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
                     </span>
                   </div>
+                </div>
+              </div>
+
+              {/* Collaborating Team & Sharing Card */}
+              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-4 h-4 text-indigo-600" />
+                    <h4 className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
+                      Collaborating Team & Sharing ({totalCollaboratorsCount + 1})
+                    </h4>
+                  </div>
+                  {canManageSharing ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsShareModalOpen(true)}
+                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-indigo-200 hover:border-indigo-300 transition shadow-2xs"
+                      title="Add or Remove Team Collaborators"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Manage Access</span>
+                    </button>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-md flex items-center gap-1">
+                      <Shield className="w-3 h-3 text-slate-400" />
+                      <span>View-only</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2.5">
+                  {/* Primary Deal Owner */}
+                  <div className="flex items-center justify-between p-2.5 bg-amber-50/80 border border-amber-200/80 rounded-xl">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-7 h-7 rounded-full bg-amber-200 text-amber-800 font-mono font-bold text-xs flex items-center justify-center">
+                        {(() => {
+                          const sp = salespersons.find(
+                            (s) =>
+                              s.id === currentEnquiry.salesperson_id ||
+                              s.id === currentEnquiry.sales_person_id ||
+                              s.initials === currentEnquiry.sales_person ||
+                              s.full_name === currentEnquiry.salesperson
+                          );
+                          return sp?.initials || (currentEnquiry.salesperson || currentEnquiry.sales_person || 'REP').slice(0, 2).toUpperCase();
+                        })()}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs font-bold text-slate-800 font-sans">
+                            {(() => {
+                              const sp = salespersons.find(
+                                (s) =>
+                                  s.id === currentEnquiry.salesperson_id ||
+                                  s.id === currentEnquiry.sales_person_id ||
+                                  s.initials === currentEnquiry.sales_person ||
+                                  s.full_name === currentEnquiry.salesperson
+                              );
+                              return sp ? sp.full_name : (currentEnquiry.salesperson || currentEnquiry.sales_person || 'Assigned Representative');
+                            })()}
+                          </span>
+                          <span className="text-[10px] font-semibold bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-mono">
+                            Primary Owner
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">Universal record management & primary attribution</span>
+                      </div>
+                    </div>
+                    <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  </div>
+
+                  {/* Collaborator chips */}
+                  {totalCollaboratorsCount > 0 ? (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Active Collaborators ({totalCollaboratorsCount})
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {activeCollaboratorMembers.map((member) => (
+                          <div
+                            key={member.id || member.initials || member.full_name}
+                            className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-indigo-200 text-indigo-900 rounded-lg text-xs shadow-2xs transition hover:border-indigo-300"
+                          >
+                            <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
+                              {member.initials || member.full_name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <span className="font-medium font-sans">{member.full_name}</span>
+                            {member.initials && (
+                              <span className="text-[10px] font-mono text-indigo-500 font-bold">
+                                ({member.initials})
+                              </span>
+                            )}
+                            {canManageSharing && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCollaborator(member)}
+                                className="ml-1 p-0.5 text-indigo-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                                title={`Revoke access for ${member.full_name}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+
+                        {extraCollaboratorNames.map((name) => (
+                          <div
+                            key={name}
+                            className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs shadow-2xs"
+                          >
+                            <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
+                              {name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <span className="font-medium font-sans">{name}</span>
+                            {canManageSharing && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCollaborator(name)}
+                                className="ml-1 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                                title={`Remove ${name}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+
+                        {canManageSharing && (
+                          <button
+                            type="button"
+                            onClick={() => setIsShareModalOpen(true)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-dashed border-indigo-300 text-indigo-700 rounded-lg text-xs font-semibold transition cursor-pointer"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            <span>+ Add</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-white border border-dashed border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-500">
+                      <span>No additional collaborators added yet.</span>
+                      {canManageSharing ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsShareModalOpen(true)}
+                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>+ Add Collaborator</span>
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">Only deal owners & admins can add</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1236,6 +1652,17 @@ export default function EnquiryDetail({
         onClose={() => setPreviewAttachment(null)}
         file={previewAttachment}
         onDownload={handleDownloadAttachment}
+      />
+
+      {/* Collaborators & Access Sharing Modal */}
+      <EnquiryCollaboratorsModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        enquiry={currentEnquiry}
+        salespersons={salespersons}
+        canManage={canManageSharing}
+        onToggleCollaborator={handleToggleCollaborator}
+        isCollaboratorCheck={(sp) => isMemberCollaborator(sp, currentEnquiry)}
       />
     </div>
   );

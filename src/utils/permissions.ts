@@ -385,6 +385,76 @@ export function canAccessEnquiry(
   return false;
 }
 
+/**
+ * Evaluates whether the current user is authorized to manage enquiry sharing & collaborators.
+ * Permitted roles:
+ * - Deal Creator
+ * - Assigned Primary Salesperson
+ * - Workspace Admins / Owners / SuperAdmins
+ * Standard collaborators or unauthorized viewers are restricted to read-only access.
+ */
+export function canManageEnquirySharing(
+  currentUser: UserProfile | undefined | null,
+  enquiry: Enquiry | undefined | null,
+  workspaceId?: string | null,
+  activeWorkspace?: any | null
+): boolean {
+  if (!currentUser || !enquiry) return false;
+
+  // 1. SuperAdmin universal access
+  if (isSuperAdmin(currentUser)) return true;
+
+  // 2. Workspace Admin or Owner
+  const targetWsId = workspaceId || enquiry.workspace_id || currentUser.defaultWorkspaceId;
+  const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
+  const roleLower = String(role || currentUser.role || '').toLowerCase();
+  if (
+    roleLower === 'admin' ||
+    roleLower === 'owner' ||
+    roleLower === 'superadmin' ||
+    isAdmin(currentUser, targetWsId, activeWorkspace)
+  ) {
+    return true;
+  }
+
+  const uUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+  const uEmail = (currentUser.email || '').toLowerCase().trim();
+  const uUsername = (currentUser.username || '').toLowerCase().trim();
+  const uFullName = (currentUser.full_name || '').toLowerCase().trim();
+  const uInitials = (
+    currentUser.workspace_profiles?.[targetWsId || '']?.initials ||
+    currentUser.initials ||
+    (currentUser as any).salesperson_code ||
+    ''
+  ).toUpperCase().trim();
+
+  // 3. Deal Creator
+  const cByUid = (enquiry.created_by_uid || (enquiry as any).createdByUid || '').toLowerCase().trim();
+  const cBy = (enquiry.created_by || (enquiry as any).createdByUsername || '').toLowerCase().trim();
+  const cByName = ((enquiry as any).created_by_name || '').toLowerCase().trim();
+
+  if (uUid && cByUid && uUid === cByUid) return true;
+  if (cBy && (cBy === uEmail || cBy === uUsername || (uUid && cBy === uUid))) return true;
+  if (uFullName && cByName && uFullName === cByName) return true;
+
+  // 4. Assigned Primary Salesperson
+  const spId = (enquiry.salesperson_id || enquiry.sales_person_id || '').toLowerCase().trim();
+  const sp = (enquiry.salesperson || enquiry.sales_person || '').trim();
+  const spLower = sp.toLowerCase();
+  const spUpper = sp.toUpperCase();
+
+  if (uUid && spId && uUid === spId) return true;
+  if (sp) {
+    if (uFullName && (spLower === uFullName || spLower.includes(uFullName))) return true;
+    if (uInitials && spUpper === uInitials) return true;
+    if (uUsername && spLower === uUsername) return true;
+    if (uEmail && spLower === uEmail) return true;
+    if (uUid && spLower === uUid) return true;
+  }
+
+  return false;
+}
+
 export function getUserVisibilityTier(
   user: UserProfile | undefined | null,
   workspaceId?: string | null
