@@ -3,7 +3,7 @@ import { UserProfile, Workspace } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
-import { getUserRoleInWorkspace } from '../utils/permissions';
+import { getUserWorkspaceRole } from '../utils/permissions';
 import {
   LayoutDashboard,
   FileText,
@@ -46,6 +46,9 @@ export default function Sidebar({
   isOpen = false,
   onClose
 }: SidebarProps) {
+  const userWsRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+  const isAdmin = userWsRole === 'Admin';
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, role: 'Viewer' },
     { id: 'call_log', label: 'Call Center & Logs', icon: Phone, role: 'Viewer' },
@@ -159,7 +162,7 @@ export default function Sidebar({
             <div className="flex items-center space-x-1 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[9px] font-mono text-slate-600 capitalize bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
-                {getUserRoleInWorkspace(user, activeWorkspace?.id)}
+                {userWsRole}
               </span>
             </div>
           </div>
@@ -170,7 +173,6 @@ export default function Sidebar({
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
           const Icon = item.icon;
-          const userWsRole = getUserRoleInWorkspace(user, activeWorkspace?.id);
           // Filter tabs based on role permissions
           if (item.role === 'Admin' && userWsRole !== 'Admin') return null;
           if (item.role === 'Member' && userWsRole === 'Viewer') return null;
@@ -206,13 +208,13 @@ export default function Sidebar({
 
       {/* Footer Block */}
       <div className="p-3 border-t border-slate-200 space-y-1">
-        {onOpenTrashBin && (
+        {onOpenTrashBin && isAdmin && (
           <button
             onClick={() => {
               onOpenTrashBin();
               if (onClose) onClose();
             }}
-            className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition duration-150"
+            className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition duration-150 cursor-pointer"
           >
             <Trash2 className="w-4 h-4 text-slate-400" />
             <span className="font-sans">Recycle Bin</span>

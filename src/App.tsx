@@ -42,7 +42,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -172,12 +172,6 @@ export default function App() {
 
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [isSuperAdminConsoleOpen, setIsSuperAdminConsoleOpen] = useState(false);
-
-  useEffect(() => {
-    const handleOpenSuperAdmin = () => setIsSuperAdminConsoleOpen(true);
-    window.addEventListener('open-super-admin-console', handleOpenSuperAdmin);
-    return () => window.removeEventListener('open-super-admin-console', handleOpenSuperAdmin);
-  }, []);
 
   // Firestore & Local Workspace Collections State
   const [companies, setCompanies] = useState<Company[]>(() =>
@@ -567,6 +561,16 @@ export default function App() {
     );
   }, [activeWorkspace.id, user?.defaultWorkspaceId, visibleWorkspaces]);
 
+  useEffect(() => {
+    const handleOpenSuperAdmin = () => {
+      if (user && activeWorkspace && isAdmin(user, activeWorkspace.id, activeWorkspace)) {
+        setIsSuperAdminConsoleOpen(true);
+      }
+    };
+    window.addEventListener('open-super-admin-console', handleOpenSuperAdmin);
+    return () => window.removeEventListener('open-super-admin-console', handleOpenSuperAdmin);
+  }, [user, activeWorkspace]);
+
   // Workspace-filtered views
   const workspaceCompanies = useMemo(() => {
     return companies.filter((c) => {
@@ -619,6 +623,18 @@ export default function App() {
   const currentUserInitials = useMemo(() => {
     return user?.initials || (user?.full_name ? user.full_name.split(' ').map((n) => n[0]).join('').toUpperCase() : '') || user?.username || '';
   }, [user]);
+
+  // Tab Guardrail: Ensure non-admins are not stranded on restricted admin routes
+  useEffect(() => {
+    if (user && activeWorkspace) {
+      const userWsRole = getUserWorkspaceRole(user, activeWorkspace.id, activeWorkspace);
+      if (userWsRole !== 'Admin') {
+        if (currentTab === 'invites') {
+          setCurrentTab('settings');
+        }
+      }
+    }
+  }, [user, activeWorkspace, currentTab]);
 
   const currentSalespersonId = useMemo(() => {
     if (!user) return '';

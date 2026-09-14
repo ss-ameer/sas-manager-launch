@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Settings,
   Sliders,
@@ -27,14 +27,20 @@ import {
   Download,
   Printer,
   Search,
-  Filter
+  Filter,
+  Building2,
+  FolderTree,
+  Save,
+  Info,
+  Check
 } from 'lucide-react';
 import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
+import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 import { signOut, deleteUser } from 'firebase/auth';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove } from 'firebase/firestore';
 import { auth, db, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
-import { isWorkspaceAdmin, getUserRoleInWorkspace } from '../utils/permissions';
+import { isWorkspaceAdmin, getUserRoleInWorkspace, getUserWorkspaceRole, canManageWorkspace, canModifyRegistrySettings } from '../utils/permissions';
 import { clearAllLocalStores } from '../services/db';
 import {
   UserProfile,
@@ -160,7 +166,72 @@ export default function SettingsHub({
   workspaces = [],
   onOpenMobileMenu
 }: SettingsHubProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'dropdowns' | 'users' | 'api_db' | 'simulator' | 'invites' | 'cloud' | 'account' | 'docs'>('dropdowns');
+  const effectiveRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+  const isAdmin = effectiveRole === 'Admin';
+
+  const [activeSubTab, setActiveSubTab] = useState<
+    | 'workspace'
+    | 'account'
+    | 'docs'
+    | 'users'
+    | 'dropdowns'
+    | 'taxonomy'
+    | 'simulator'
+    | 'api_db'
+    | 'invites'
+    | 'cloud'
+  >(() => (isAdmin ? 'workspace' : 'account'));
+
+  // Workspace details form state (for admin editing)
+  const [wsName, setWsName] = useState(activeWorkspace?.name || '');
+  const [wsDescription, setWsDescription] = useState(activeWorkspace?.description || '');
+  const [wsEnquiriesEnabled, setWsEnquiriesEnabled] = useState(activeWorkspace?.modules?.enquiriesEnabled !== false);
+  const [wsCallLogEnabled, setWsCallLogEnabled] = useState(activeWorkspace?.modules?.callLogEnabled !== false);
+  const [savingWs, setSavingWs] = useState(false);
+
+  useEffect(() => {
+    if (activeWorkspace) {
+      setWsName(activeWorkspace.name || '');
+      setWsDescription(activeWorkspace.description || '');
+      setWsEnquiriesEnabled(activeWorkspace.modules?.enquiriesEnabled !== false);
+      setWsCallLogEnabled(activeWorkspace.modules?.callLogEnabled !== false);
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.name, activeWorkspace?.description]);
+
+  // Tab Guardrail & State Protection:
+  // If activeSubTab points to a restricted tab and user is not an Admin, reset to authorized tab
+  useEffect(() => {
+    const authorizedTabIds = isAdmin
+      ? ['workspace', 'users', 'dropdowns', 'taxonomy', 'simulator', 'docs', 'account', 'api_db', 'invites', 'cloud']
+      : ['account', 'workspace', 'docs'];
+
+    if (!authorizedTabIds.includes(activeSubTab)) {
+      setActiveSubTab(isAdmin ? 'workspace' : 'account');
+    }
+  }, [isAdmin, activeSubTab]);
+
+  const handleSaveWorkspace = async () => {
+    if (!activeWorkspace?.id || !isAdmin) return;
+    setSavingWs(true);
+    try {
+      await safeUpdateDoc('workspaces', activeWorkspace.id, {
+        name: wsName.trim() || activeWorkspace.name,
+        description: wsDescription.trim(),
+        modules: {
+          enquiriesEnabled: wsEnquiriesEnabled,
+          callLogEnabled: wsCallLogEnabled
+        },
+        updatedAt: new Date().toISOString()
+      });
+      if (triggerToast) triggerToast('Workspace details saved successfully!', 'success');
+    } catch (err: any) {
+      console.error('Failed to save workspace details:', err);
+      if (triggerToast) triggerToast('Failed to save workspace details: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setSavingWs(false);
+    }
+  };
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -318,9 +389,6 @@ export default function SettingsHub({
     if (triggerToast) triggerToast('Audit log PDF printable report opened', 'info');
   };
 
-  const isAdmin = isWorkspaceAdmin(user, activeWorkspace?.id);
-  const effectiveRole = getUserRoleInWorkspace(user, activeWorkspace?.id);
-
   const handleTestApiKey = async () => {
     setTestingApiKey(true);
     setApiKeyTestResult(null);
@@ -404,17 +472,52 @@ export default function SettingsHub({
 
   const subTabs = [
     {
-      id: 'dropdowns' as const,
-      label: 'Dropdown Settings',
-      icon: Layers,
-      description: 'Manage sources, categories, and units',
+      id: 'workspace' as const,
+      label: isAdmin ? 'Workspace Details' : 'Workspace Info',
+      icon: Building2,
+      description: isAdmin ? 'Configure workspace profile, modules & regional geographies' : 'Read-only workspace identity and active modules overview',
+      adminOnly: false
+    },
+    {
+      id: 'account' as const,
+      label: 'User Profile',
+      icon: User,
+      description: 'Profile options, personal API keys and session preferences',
+      adminOnly: false
+    },
+    {
+      id: 'docs' as const,
+      label: 'Docs & System Hub',
+      icon: BookOpen,
+      description: 'Architecture specs, ledger & release history',
       adminOnly: false
     },
     {
       id: 'users' as const,
-      label: 'User Roster & Access Control',
+      label: 'Team & Members',
       icon: Users,
       description: 'Manage platform users, roles, statuses and workspace permissions',
+      adminOnly: true
+    },
+    {
+      id: 'dropdowns' as const,
+      label: 'Dropdown Settings',
+      icon: Sliders,
+      description: 'Manage sources, categories, and units',
+      adminOnly: true
+    },
+    {
+      id: 'taxonomy' as const,
+      label: 'Industry Taxonomy',
+      icon: FolderTree,
+      description: 'Configure 2-tier parent industry sectors and business sub-types',
+      adminOnly: true
+    },
+    {
+      id: 'simulator' as const,
+      label: 'Diagnostics & Simulator',
+      icon: Activity,
+      description: 'Admin diagnostic mode: simulate API rate limits, Firestore outages, forced offline & latency',
       adminOnly: true
     },
     {
@@ -422,13 +525,6 @@ export default function SettingsHub({
       label: 'API & Database Health',
       icon: Cpu,
       description: 'Check Gemini API Key status and database usage/limits',
-      adminOnly: false
-    },
-    {
-      id: 'simulator' as const,
-      label: 'Diagnostic Mode & Outage Simulator',
-      icon: Activity,
-      description: 'Admin diagnostic mode: simulate API rate limits, Firestore outages, forced offline & latency',
       adminOnly: true
     },
     {
@@ -443,21 +539,7 @@ export default function SettingsHub({
       label: 'Cloud Sync & Repository',
       icon: HardDrive,
       description: 'Push, pull & export local workspace data',
-      adminOnly: false
-    },
-    {
-      id: 'account' as const,
-      label: 'User Account & Reset',
-      icon: User,
-      description: 'Profile options, session reset and account deletion',
-      adminOnly: false
-    },
-    {
-      id: 'docs' as const,
-      label: 'Docs & System Hub',
-      icon: BookOpen,
-      description: 'Architecture specs, ledger & release history',
-      adminOnly: false
+      adminOnly: true
     }
   ];
 
@@ -510,7 +592,225 @@ export default function SettingsHub({
 
       {/* Main Tab View Rendering */}
       <div className="mt-4">
-        {activeSubTab === 'dropdowns' && (
+        {activeSubTab === 'workspace' && (
+          <CardPanel padding="spacious" className="space-y-6">
+            <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-blue-600" />
+                  <span>{isAdmin ? 'Workspace Configuration & Identity' : 'Active Workspace Information'}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5 font-sans">
+                  {isAdmin
+                    ? 'Manage workspace profile, module activations, and regional market geographies.'
+                    : 'Read-only overview of workspace metadata, operational status, and assigned permissions.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono border ${
+                  isAdmin ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}>
+                  Role: {effectiveRole}
+                </span>
+              </div>
+            </div>
+
+            {isAdmin ? (
+              /* Admin Editable Workspace Form */
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 font-sans">Workspace Name</label>
+                    <input
+                      type="text"
+                      value={wsName}
+                      onChange={(e) => setWsName(e.target.value)}
+                      placeholder="e.g. Acme Middle East FZE"
+                      className="w-full px-3.5 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-sans"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 font-sans">Workspace Identifier</label>
+                    <input
+                      type="text"
+                      value={activeWorkspace?.id || 'ws_default'}
+                      disabled
+                      className="w-full px-3.5 py-2 text-xs font-mono bg-slate-100 border border-slate-200 text-slate-500 rounded-xl cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 font-sans">Workspace Description / Entity</label>
+                  <textarea
+                    value={wsDescription}
+                    onChange={(e) => setWsDescription(e.target.value)}
+                    rows={2}
+                    placeholder="Commercial operations branch, territory, or business division notes..."
+                    className="w-full px-3.5 py-2 text-xs font-medium bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-sans"
+                  />
+                </div>
+
+                {/* Subsystem Modules */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900 font-sans flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-blue-600" />
+                    <span>Workspace Feature Modules</span>
+                  </h4>
+                  <p className="text-xs text-slate-500 font-sans">
+                    Toggle functional subsystems on or off for all members of this workspace.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <label className="flex items-start space-x-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-slate-300 transition">
+                      <input
+                        type="checkbox"
+                        checked={wsEnquiriesEnabled}
+                        onChange={(e) => setWsEnquiriesEnabled(e.target.checked)}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 block font-sans">Enquiries & Quotations System</span>
+                        <span className="text-[11px] text-slate-500 block font-sans">Commercial quotes, RFQs, line items, revisions, and status progression.</span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start space-x-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-slate-300 transition">
+                      <input
+                        type="checkbox"
+                        checked={wsCallLogEnabled}
+                        onChange={(e) => setWsCallLogEnabled(e.target.checked)}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 block font-sans">Call Center & Activity Logging</span>
+                        <span className="text-[11px] text-slate-500 block font-sans">Daily interactions, calls, WhatsApp chats, meetings, and follow-ups.</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Regional Geographies */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 font-sans">Configured Regional Geographies</label>
+                  <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    {(activeWorkspace?.geography_options || ['UAE', 'Dubai', 'Abu Dhabi', 'Sharjah', 'GCC', 'International']).map((geo, idx) => (
+                      <span key={idx} className="px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold font-sans shadow-2xs">
+                        {geo}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Save Bar */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <p className="text-xs text-slate-400 font-sans">
+                    Created: {activeWorkspace?.createdAt ? new Date(activeWorkspace.createdAt).toLocaleDateString() : 'Active'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSaveWorkspace}
+                    disabled={savingWs}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-2 cursor-pointer"
+                  >
+                    <Save className={`w-3.5 h-3.5 ${savingWs ? 'animate-spin' : ''}`} />
+                    <span>{savingWs ? 'Saving Changes...' : 'Save Workspace Details'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Non-Admin Read-Only Info Card */
+              <div className="space-y-6">
+                {/* Workspace Identity Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Workspace Name</span>
+                    <span className="text-sm font-bold text-slate-900 font-sans">{activeWorkspace?.name || 'Commercial Workspace'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Identifier</span>
+                    <span className="text-sm font-semibold text-slate-700 font-mono truncate block">{activeWorkspace?.id || 'ws_default'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Your Active Role</span>
+                    <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200 inline-block mt-0.5 font-sans">
+                      {effectiveRole}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Description */}
+                {activeWorkspace?.description && (
+                  <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Description & Scope</span>
+                    <p className="text-xs text-slate-700 font-sans leading-relaxed">{activeWorkspace.description}</p>
+                  </div>
+                )}
+
+                {/* Operational Modules Status */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Active Workspace Modules</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block font-sans">Enquiries & Quotations</span>
+                        <span className="text-[11px] text-slate-500 block font-sans">Commercial quotes & RFQs</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        activeWorkspace?.modules?.enquiriesEnabled !== false
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {activeWorkspace?.modules?.enquiriesEnabled !== false ? 'ACTIVE' : 'DISABLED'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block font-sans">Call Center & Logs</span>
+                        <span className="text-[11px] text-slate-500 block font-sans">Customer communications & activities</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        activeWorkspace?.modules?.callLogEnabled !== false
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {activeWorkspace?.modules?.callLogEnabled !== false ? 'ACTIVE' : 'DISABLED'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Regional Geographies */}
+                <div className="p-4 bg-white border border-slate-200 rounded-xl space-y-2">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Covered Commercial Geographies</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(activeWorkspace?.geography_options || ['UAE', 'Dubai', 'Abu Dhabi', 'Sharjah', 'GCC', 'International']).map((geo, idx) => (
+                      <span key={idx} className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-medium font-sans">
+                        {geo}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Read-Only Notice */}
+                <div className="p-4 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-start space-x-3 text-blue-900">
+                  <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold font-sans">Workspace Configuration Managed by Administrator</h4>
+                    <p className="text-xs text-blue-800/80 font-sans leading-relaxed">
+                      Administrative parameters, module integrations, and invitation links are configured by your Workspace Administrator.
+                      Contact an administrator if you require additional module activations or role elevation.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardPanel>
+        )}
+
+        {activeSubTab === 'dropdowns' && isAdmin && (
           <DropdownSettingsManager
             enquirySources={enquirySources}
             productCategories={productCategories}
@@ -546,7 +846,22 @@ export default function SettingsHub({
           />
         )}
 
-        {activeSubTab === 'users' && (
+        {activeSubTab === 'taxonomy' && isAdmin && (
+          <IndustryTaxonomyManager
+            companies={companies}
+            contacts={contacts}
+            salespersons={salespersons}
+            enquiries={enquiries}
+            callLogs={callLogs}
+            setCompanies={setCompanies}
+            user={user}
+            activeWorkspaceId={activeWorkspace?.id}
+            activeWorkspace={activeWorkspace}
+            isAdmin={isAdmin}
+          />
+        )}
+
+        {activeSubTab === 'users' && isAdmin && (
           <div className="space-y-6">
             <UserManagementHub
               currentUser={user}
@@ -698,7 +1013,7 @@ export default function SettingsHub({
           </div>
         )}
 
-        {activeSubTab === 'api_db' && (
+        {activeSubTab === 'api_db' && isAdmin && (
           <div className="space-y-6">
             {/* Live API Key Verification Card */}
             <CardPanel padding="spacious" className="space-y-4">
@@ -1060,14 +1375,14 @@ export default function SettingsHub({
           </div>
         )}
 
-        {activeSubTab === 'simulator' && (
+        {activeSubTab === 'simulator' && isAdmin && (
           <SystemSimulator
             user={user}
             triggerToast={triggerToast}
           />
         )}
 
-        {activeSubTab === 'invites' && (
+        {activeSubTab === 'invites' && isAdmin && (
           <InviteManager
             invites={invites}
             currentUserId={user.uid}
@@ -1099,9 +1414,9 @@ export default function SettingsHub({
                 <span className="text-sm font-semibold text-slate-700 font-mono truncate block">{user.email}</span>
               </div>
               <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Access Role</span>
-                <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 inline-block mt-0.5">
-                  {user.role}
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Workspace Role</span>
+                <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200 inline-block mt-0.5 font-sans">
+                  {effectiveRole}
                 </span>
               </div>
             </div>
@@ -1227,7 +1542,7 @@ export default function SettingsHub({
           </CardPanel>
         )}
 
-        {activeSubTab === 'cloud' && (
+        {activeSubTab === 'cloud' && isAdmin && (
           <CardPanel padding="spacious">
             <div className="border-b border-slate-100 pb-4 mb-6">
               <h3 className="text-base font-bold text-slate-800 font-sans flex items-center gap-2">
