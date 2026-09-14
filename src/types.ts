@@ -37,6 +37,8 @@ export interface UserProfile {
   dataVisibilityTier?: 'ADVANCED' | 'BASIC';
   allowSalespersonSelection?: boolean;
   is_super_admin?: boolean;
+  photoURL?: string;
+  avatarUrl?: string;
 }
 
 export type User = UserProfile;
