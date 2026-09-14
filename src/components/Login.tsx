@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously, signOut } from 'firebase/auth';
+import { where, limit } from 'firebase/firestore';
 import { safeGetDoc, safeGetDocs, safeSetDoc } from '../firebase';
 import { Shield, AlertCircle, Sparkles, Building, UserCheck } from 'lucide-react';
 import { UserProfile, UserRole } from '../types';
@@ -100,41 +101,44 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       }
 
       // 2. Prevent Duplication: Check if an account already exists with the same email address
-      let existingUsers: UserProfile[] = [];
-      try {
-        const usersSnap = await safeGetDocs('users');
-        if (usersSnap && !usersSnap.empty) {
-          usersSnap.forEach((docSnap) => {
-            const data = docSnap.data() as UserProfile;
-            existingUsers.push({ ...data, uid: docSnap.id });
-          });
+      let matchedProfile: UserProfile | null = null;
+      if (targetEmail) {
+        try {
+          const usersSnap = await safeGetDocs('users', where('email', '==', targetEmail), limit(1));
+          if (usersSnap && !usersSnap.empty) {
+            const firstDoc = usersSnap.docs[0];
+            matchedProfile = { ...(firstDoc.data() as UserProfile), uid: firstDoc.id };
+          }
+        } catch (e) {
+          console.warn("Could not query users for email duplication check:", e);
         }
-      } catch (e) {
-        console.warn("Could not list users for email duplication check:", e);
       }
 
-      if (targetEmail) {
-        const matchedProfile = existingUsers.find((u) => (u.email || '').trim().toLowerCase() === targetEmail);
-        if (matchedProfile) {
-          if (matchedProfile.blocked) {
-            setError('Your account has been deactivated by the Admin.');
-            await signOut(auth);
-            return;
-          }
-          // Link / preserve existing account rather than creating a duplicate user doc
-          const updatedProfile: UserProfile = {
-            ...matchedProfile,
-            uid: user.uid,
-            email: user.email || matchedProfile.email
-          };
-          await safeSetDoc('users', user.uid, updatedProfile);
-          onLoginSuccess(updatedProfile);
+      if (matchedProfile) {
+        if (matchedProfile.blocked) {
+          setError('Your account has been deactivated by the Admin.');
+          await signOut(auth);
           return;
         }
+        // Link / preserve existing account rather than creating a duplicate user doc
+        const updatedProfile: UserProfile = {
+          ...matchedProfile,
+          uid: user.uid,
+          email: user.email || matchedProfile.email
+        };
+        await safeSetDoc('users', user.uid, updatedProfile);
+        onLoginSuccess(updatedProfile);
+        return;
       }
 
       // 3. New User Registration (No existing match found)
-      const isFirstUser = existingUsers.length === 0;
+      let isFirstUser = false;
+      try {
+        const anyUserSnap = await safeGetDocs('users', limit(1));
+        isFirstUser = !anyUserSnap || anyUserSnap.empty;
+      } catch (e) {
+        console.warn("Could not check if first user:", e);
+      }
       if (isFirstUser) {
         const adminName = user.displayName || `${BRAND_CONFIG.shortName} Admin`;
         const newProfile: UserProfile = {

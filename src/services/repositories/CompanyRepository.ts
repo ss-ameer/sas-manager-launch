@@ -2,6 +2,7 @@ import { Company, Contact, getCompanyPhones, getCompanyEmails, isSamePhoneNumber
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeUpdateDoc, safeSetDoc } from '../../firebase';
+import { where } from 'firebase/firestore';
 
 export class CompanyRepository {
   private static COMPANY_STORE = 'companies';
@@ -18,14 +19,19 @@ export class CompanyRepository {
 
   public static async fetchWorkspaceCompaniesFromCloud(workspaceId: string): Promise<Company[]> {
     try {
-      const snap = await safeGetDocs('companies');
-      if (!snap || snap.empty) return this.getCompaniesLocal();
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Company));
-      const filtered = docs.filter((c) =>
-        c.workspace_id === workspaceId || (!c.workspace_id && workspaceId === 'ws_default')
-      );
-      await this.saveCompaniesLocalCache(filtered);
-      return filtered;
+      const snap = await safeGetDocs('companies', where('workspace_id', '==', workspaceId));
+      let docs: Company[] = [];
+      if (snap && !snap.empty) {
+        docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Company));
+      } else if (workspaceId === 'ws_default') {
+        const legacySnap = await safeGetDocs('companies', where('workspaceId', '==', 'ws_default'));
+        if (legacySnap && !legacySnap.empty) {
+          docs = legacySnap.docs.map((d) => ({ id: d.id, ...d.data() } as Company));
+        }
+      }
+      if (docs.length === 0) return this.getCompaniesLocal();
+      await this.saveCompaniesLocalCache(docs);
+      return docs;
     } catch (e) {
       console.warn('[CompanyRepository] Cloud fetch failed, using local cache:', e);
       return this.getCompaniesLocal();
@@ -198,11 +204,11 @@ export class CompanyRepository {
       // 3. Cascade update Firestore collections ('call_logs' and 'activity_logs') directly
       for (const colName of storesToUpdate) {
         try {
-          const snap = await safeGetDocs(colName);
+          const snap = await safeGetDocs(colName, where('company_id', '==', companyId));
           if (snap && !snap.empty) {
             const affectedDocs = snap.docs.filter((d) => {
               const data = d.data();
-              return data.company_id === companyId && data.company_name !== newCompanyName;
+              return data.company_name !== newCompanyName;
             });
 
             for (const docSnap of affectedDocs) {
@@ -281,14 +287,19 @@ export class CompanyRepository {
 
   public static async fetchWorkspaceContactsFromCloud(workspaceId: string): Promise<Contact[]> {
     try {
-      const snap = await safeGetDocs('contacts');
-      if (!snap || snap.empty) return this.getContactsLocal();
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact));
-      const filtered = docs.filter((c) =>
-        c.workspace_id === workspaceId || (!c.workspace_id && workspaceId === 'ws_default')
-      );
-      await this.saveContactsLocalCache(filtered);
-      return filtered;
+      const snap = await safeGetDocs('contacts', where('workspace_id', '==', workspaceId));
+      let docs: Contact[] = [];
+      if (snap && !snap.empty) {
+        docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact));
+      } else if (workspaceId === 'ws_default') {
+        const legacySnap = await safeGetDocs('contacts', where('workspaceId', '==', 'ws_default'));
+        if (legacySnap && !legacySnap.empty) {
+          docs = legacySnap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact));
+        }
+      }
+      if (docs.length === 0) return this.getContactsLocal();
+      await this.saveContactsLocalCache(docs);
+      return docs;
     } catch (e) {
       console.warn('[CompanyRepository] Contacts cloud fetch failed:', e);
       return this.getContactsLocal();

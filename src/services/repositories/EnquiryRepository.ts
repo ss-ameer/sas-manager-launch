@@ -2,7 +2,7 @@ import { Enquiry } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
-import { doc, updateDoc, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -79,16 +79,19 @@ export class EnquiryRepository {
 
   public static async fetchWorkspaceEnquiriesFromCloud(workspaceId: string): Promise<Enquiry[]> {
     try {
-      const snap = await safeGetDocs('enquiries');
-      if (!snap || snap.empty) return this.getAllLocal();
-      const docs = snap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
-      const filtered = docs.filter((e) => {
-        const docWsId = e.workspace_id || (e as any).workspaceId || 'ws_default';
-        if (workspaceId === 'ws_default') return docWsId === 'ws_default' || !docWsId;
-        return docWsId === workspaceId;
-      });
-      await this.saveLocalCache(filtered);
-      return filtered;
+      const snap = await safeGetDocs('enquiries', where('workspace_id', '==', workspaceId));
+      let docs: Enquiry[] = [];
+      if (snap && !snap.empty) {
+        docs = snap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
+      } else if (workspaceId === 'ws_default') {
+        const legacySnap = await safeGetDocs('enquiries', where('workspaceId', '==', 'ws_default'));
+        if (legacySnap && !legacySnap.empty) {
+          docs = legacySnap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
+        }
+      }
+      if (docs.length === 0) return this.getAllLocal();
+      await this.saveLocalCache(docs);
+      return docs;
     } catch (e) {
       console.warn('[EnquiryRepository] Cloud fetch failed, using local cache:', e);
       return this.getAllLocal();

@@ -42,6 +42,7 @@ import { writeBatch, collection, query, where, getDocs, doc, arrayRemove } from 
 import { auth, db, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
 import { isWorkspaceAdmin, getUserRoleInWorkspace, getUserWorkspaceRole, canManageWorkspace, canModifyRegistrySettings } from '../utils/permissions';
 import { clearAllLocalStores } from '../services/db';
+import { backfillMissingWorkspaceIds } from '../utils/migration';
 import {
   UserProfile,
   Company,
@@ -1249,6 +1250,26 @@ export default function SettingsHub({
                   className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition shrink-0"
                 >
                   Run S/N Re-index Batch
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 font-sans">Workspace ID Partition Backfill</h4>
+                  <p className="text-[11px] text-slate-500 font-sans mt-0.5">
+                    Checks legacy records and ensures every company, contact, enquiry, and log has an explicit workspace_id.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    triggerToast('Scanning and backfilling workspace IDs...', 'info');
+                    const res = await backfillMissingWorkspaceIds(true);
+                    triggerToast(res.message, res.success ? 'success' : 'error');
+                  }}
+                  className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
+                >
+                  Run Workspace Backfill
                 </button>
               </div>
             </CardPanel>

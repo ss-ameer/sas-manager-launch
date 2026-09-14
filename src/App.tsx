@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc } from './firebase';
+import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDocs } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, DropdownOption, Workspace, CallLogEntry, CallStatus } from './types';
@@ -731,12 +731,6 @@ export default function App() {
   }, [activeWorkspaceId]);
 
   useEffect(() => {
-    if (user) {
-      backfillMissingWorkspaceIds();
-    }
-  }, [user?.uid]);
-
-  useEffect(() => {
     if (user?.uid) {
       const email = (user.email || '').toLowerCase().trim();
       if (email === 'sibuma.syedameer@gmail.com' && user.is_super_admin !== true) {
@@ -1094,301 +1088,305 @@ export default function App() {
     };
   }, []);
 
-  // Real-time Firestore Sync listeners (Only active when fully logged in and profile is available)
+  // Synchronize dropdown and metadata local storage caches whenever state changes
+  useEffect(() => { setLocalCache('omni_sources', enquirySources); }, [enquirySources]);
+  useEffect(() => { setLocalCache('omni_categories', productCategories); }, [productCategories]);
+  useEffect(() => { setLocalCache('omni_units', units); }, [units]);
+  useEffect(() => { setLocalCache('omni_call_statuses', callStatuses); }, [callStatuses]);
+  useEffect(() => { setLocalCache('omni_call_purposes', callPurposes); }, [callPurposes]);
+  useEffect(() => { setLocalCache('omni_call_outcomes', callOutcomes); }, [callOutcomes]);
+  useEffect(() => { setLocalCache('omni_products', products); }, [products]);
+
+  // 1. Static Metadata & Dropdowns: Cached locally with 24-hour TTL (eliminates 7 continuous real-time listeners)
+  const fetchMetadataAndDropdownsOnce = useCallback(async (force = false) => {
+    if (!user?.uid) return;
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    const lastFetchStr = localStorage.getItem('omni_metadata_last_fetched_at');
+    const lastFetchTime = lastFetchStr ? parseInt(lastFetchStr, 10) : 0;
+    const isExpired = Date.now() - lastFetchTime > TTL_MS;
+
+    if (!force && !isExpired && lastFetchTime > 0) {
+      return; // Already freshly cached in IndexedDB/localStorage
+    }
+
+    try {
+      // Products
+      const prods = await MetadataRepository.fetchProductsOnce();
+      if (prods && prods.length > 0) {
+        setProducts(prods);
+        setLocalCache('omni_products', prods);
+      }
+
+      // Enquiry Sources
+      const srcSnap = await safeGetDocs('dropdown_enquiry_sources');
+      if (srcSnap && !srcSnap.empty) {
+        const list = srcSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
+        setEnquirySources(list);
+        setLocalCache('omni_sources', list);
+      }
+
+      // Product Categories
+      const catSnap = await safeGetDocs('dropdown_product_categories');
+      if (catSnap && !catSnap.empty) {
+        const list = catSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
+        setProductCategories(list);
+        setLocalCache('omni_categories', list);
+      }
+
+      // Units
+      const unitSnap = await safeGetDocs('dropdown_units');
+      if (unitSnap && !unitSnap.empty) {
+        const list = unitSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
+        setUnits(list);
+        setLocalCache('omni_units', list);
+      }
+
+      // Call Statuses
+      const csSnap = await safeGetDocs('dropdown_call_statuses');
+      if (csSnap && !csSnap.empty) {
+        const list = csSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
+        const healed = healDropdownOptions(list, FALLBACK_CALL_STATUSES, 'cs');
+        setCallStatuses(healed.mergedList);
+        setLocalCache('omni_call_statuses', healed.mergedList);
+      }
+
+      // Call Purposes
+      const cpSnap = await safeGetDocs('dropdown_call_purposes');
+      if (cpSnap && !cpSnap.empty) {
+        const list = cpSnap.docs.map((d) => ({ id: d.id, ...d.data() } as DropdownOption));
+        const healed = healDropdownOptions(list, FALLBACK_CALL_PURPOSES, 'purp');
+        setCallPurposes(healed.mergedList);
+        setLocalCache('omni_call_purposes', healed.mergedList);
+      }
+
+      // Call Outcomes
+      const coSnap = await safeGetDocs('dropdown_call_outcomes');
+      if (coSnap && !coSnap.empty) {
+        const list = coSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
+        const healed = healDropdownOptions(list, FALLBACK_CALL_OUTCOMES, 'co');
+        setCallOutcomes(healed.mergedList);
+        setLocalCache('omni_call_outcomes', healed.mergedList);
+      }
+
+      localStorage.setItem('omni_metadata_last_fetched_at', Date.now().toString());
+    } catch (err) {
+      console.warn('Metadata one-time fetch error:', err);
+    }
+  }, [user?.uid]);
+
   useEffect(() => {
-    // If user is null or realtimeSync is disabled, ensure all listeners are cleaned up
-    if (!user || !realtimeSyncEnabled) {
-      cleanupAllListeners();
+    if (user?.uid) {
+      fetchMetadataAndDropdownsOnce();
+    }
+  }, [user?.uid, fetchMetadataAndDropdownsOnce]);
+
+  // 2. Workspace Members & Workspaces Listeners (Decoupled from operational collection listeners)
+  useEffect(() => {
+    if (!user?.uid || !realtimeSyncEnabled) {
+      if (activeUnsubscribersRef.current.workspaces) {
+        activeUnsubscribersRef.current.workspaces();
+        activeUnsubscribersRef.current.workspaces = null;
+      }
+      if (activeUnsubscribersRef.current.workspaceMembers) {
+        activeUnsubscribersRef.current.workspaceMembers();
+        activeUnsubscribersRef.current.workspaceMembers = null;
+      }
       return;
     }
 
     const refs = activeUnsubscribersRef.current;
+    const userEmail = (user.email || '').toLowerCase().trim();
+    const userUid = user.uid;
 
-    // Strict Single-User Workspace Querying (Step 1 -> Step 2 -> Step 3)
-    if (!refs.workspaceMembers) {
-      const userEmail = (user.email || '').toLowerCase().trim();
-      const userUid = user.uid;
+    const wmQuery = query(
+      collection(db, 'workspace_members'),
+      or(
+        where('user_id', '==', userUid),
+        where('uid', '==', userUid),
+        where('email', '==', userEmail),
+        where('email', '==', user.email || '')
+      )
+    );
 
-      // Step 1: Subscribe ONLY to workspace_members for current user
-      const wmQuery = query(
-        collection(db, 'workspace_members'),
-        or(
-          where('user_id', '==', userUid),
-          where('uid', '==', userUid),
-          where('email', '==', userEmail),
-          where('email', '==', user.email || '')
-        )
-      );
+    refs.workspaceMembers = onSnapshot(
+      wmQuery,
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setWorkspaceMembers(list);
+        setLocalCache('omni_workspace_members', list);
 
-      refs.workspaceMembers = onSnapshot(
-        wmQuery,
-        (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setWorkspaceMembers(list);
-          setLocalCache('omni_workspace_members', list);
-
-          // Step 2: Extract array of workspace_id strings from user member docs
-          const allowedWsIds = new Set<string>();
-          list.forEach((m: any) => {
-            const wsId = m.workspace_id || m.workspaceId;
-            if (wsId && m.status !== 'inactive') {
-              allowedWsIds.add(wsId);
-            }
-          });
-
-          if (Array.isArray(user.workspaceIds)) {
-            user.workspaceIds.forEach((id) => { if (id) allowedWsIds.add(id); });
+        const allowedWsIds = new Set<string>();
+        list.forEach((m: any) => {
+          const wsId = m.workspace_id || m.workspaceId;
+          if (wsId && m.status !== 'inactive') {
+            allowedWsIds.add(wsId);
           }
-          if (user.defaultWorkspaceId) {
-            allowedWsIds.add(user.defaultWorkspaceId);
-          }
-          if (allowedWsIds.size === 0) {
-            allowedWsIds.add('ws_default');
-          }
+        });
 
-          const allowedWsArray = Array.from(allowedWsIds);
-
-          // Step 3: Fetch/filter workspaces ONLY where workspace.id is explicitly included
-          if (allowedWsArray.length > 0) {
-            if (refs.workspaces) {
-              refs.workspaces();
-              refs.workspaces = null;
-            }
-
-            const wsQuery = query(
-              collection(db, 'workspaces'),
-              where(documentId(), 'in', allowedWsArray.slice(0, 30))
-            );
-
-            refs.workspaces = onSnapshot(
-              wsQuery,
-              (wsSnap) => {
-                const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
-                if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
-                  fetchedList.unshift(DEFAULT_WORKSPACE);
-                }
-                const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
-                setWorkspaces(finalWorkspaces);
-                setLocalCache('omni_workspaces', finalWorkspaces);
-              },
-              (error) => {
-                console.warn("Workspaces listener error (Quota/Offline):", error);
-                setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
-              }
-            );
-          } else {
-            setWorkspaces([DEFAULT_WORKSPACE]);
-          }
-        },
-        (error) => {
-          console.warn("Workspace members listener error (Quota/Offline):", error);
-          setWorkspaceMembers(getLocalCache('omni_workspace_members', []));
-          setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+        if (Array.isArray(user.workspaceIds)) {
+          user.workspaceIds.forEach((id) => { if (id) allowedWsIds.add(id); });
         }
-      );
-    }
+        if (user.defaultWorkspaceId) {
+          allowedWsIds.add(user.defaultWorkspaceId);
+        }
+        if (allowedWsIds.size === 0) {
+          allowedWsIds.add('ws_default');
+        }
 
-    // Call Logs
-    if (!refs.callLogs) {
-      refs.callLogs = onSnapshot(collection(db, 'call_logs'), (snap) => {
-        const cachedComp = getLocalCache<Company[]>('omni_companies', []);
-        const list = snap.docs.map((d) => normalizeCallLog({ id: d.id, ...d.data() }, activeWorkspaceId, cachedComp));
-        setCallLogs((prev) => {
-          const clean = deduplicateList(list, prev);
-          setLocalCache('omni_call_logs', clean);
-          return clean;
-        });
-      }, (error) => {
-        console.warn("Call logs listener error (Quota/Offline):", error);
-        const cachedComp = getLocalCache<Company[]>('omni_companies', []);
-        setCallLogs(getLocalCache<CallLogEntry[]>('omni_call_logs', []).map((l) => normalizeCallLog(l, activeWorkspaceId, cachedComp)));
-      });
-    }
+        const allowedWsArray = Array.from(allowedWsIds);
 
-    // Companies
-    if (!refs.companies) {
-      refs.companies = onSnapshot(collection(db, 'companies'), (snap) => {
-        const list = snap.docs.map((d) => normalizeCompany({ id: d.id, ...d.data() }, activeWorkspaceId));
-        setCompanies((prev) => {
-          const clean = deduplicateList(list, prev);
-          setLocalCache('omni_companies', clean);
-          return clean;
-        });
-      }, (error) => {
-        console.warn("Companies snapshot listener error (Quota/Offline):", error);
-        setCompanies(getLocalCache<Company[]>('omni_companies', []).map((c) => normalizeCompany(c, activeWorkspaceId)));
-      });
-    }
+        if (allowedWsArray.length > 0) {
+          if (refs.workspaces) {
+            refs.workspaces();
+            refs.workspaces = null;
+          }
 
-    // Contacts
-    if (!refs.contacts) {
-      refs.contacts = onSnapshot(collection(db, 'contacts'), (snap) => {
-        const list = snap.docs.map((d) => normalizeContact({ id: d.id, ...d.data() }, activeWorkspaceId));
-        setContacts((prev) => {
-          const clean = deduplicateList(list, prev);
-          setLocalCache('omni_contacts', clean);
-          return clean;
-        });
-      }, (error) => {
-        console.warn("Contacts snapshot listener error (Quota/Offline):", error);
-        setContacts(getLocalCache<Contact[]>('omni_contacts', []).map((c) => normalizeContact(c, activeWorkspaceId)));
-      });
-    }
+          const wsQuery = query(
+            collection(db, 'workspaces'),
+            where(documentId(), 'in', allowedWsArray.slice(0, 30))
+          );
 
-    // Enquiries
-    if (!refs.enquiries) {
-      refs.enquiries = onSnapshot(query(collection(db, 'enquiries'), orderBy('sn', 'asc')), (snap) => {
-        const list = snap.docs.map((d) => normalizeEnquiry({ id: d.id, ...d.data() }, activeWorkspaceId));
-        setEnquiries((prev) => {
-          const clean = deduplicateList(list, prev);
-          setLocalCache('omni_enquiries', clean);
-          return clean;
-        });
-      }, (error) => {
-        console.warn("Enquiries snapshot listener error (Quota/Offline):", error);
-        setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, activeWorkspaceId)));
-      });
-    }
-
-    // Invites
-    if (!refs.invites) {
-      refs.invites = onSnapshot(collection(db, 'invites'), (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
-        setInvites(list);
-        setLocalCache('omni_invites', list);
-      }, (error) => {
-        console.warn("Invites snapshot listener error (Quota/Offline):", error);
-        setInvites(getLocalCache('omni_invites', []));
-      });
-    }
-
-    // Salespersons
-    if (!refs.salespersons) {
-      refs.salespersons = onSnapshot(collection(db, 'salespersons'), (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
-        setSalespersons(list);
-        setLocalCache('omni_salespersons', list);
-      }, (error) => {
-        console.warn("Salespersons snapshot listener error (Quota/Offline):", error);
-        setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
-      });
-    }
-
-    // Products
-    if (!refs.products) {
-      refs.products = onSnapshot(collection(db, 'products'), (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
-        setProducts(list);
-        setLocalCache('omni_products', list);
-      }, (error) => {
-        console.warn("Products snapshot listener error (Quota/Offline):", error);
-        setProducts(getLocalCache('omni_products', []));
-      });
-    }
-
-    // Enquiry Sources
-    if (!refs.enquirySources) {
-      refs.enquirySources = onSnapshot(collection(db, 'dropdown_enquiry_sources'), (snap) => {
-        const list = snap.empty
-          ? FALLBACK_SOURCES.map((s, i) => ({ id: 'src_' + i, name: s }))
-          : snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        setEnquirySources(list);
-        setLocalCache('omni_sources', list);
-      }, (error) => {
-        console.warn("Enquiry sources listener error (Quota/Offline):", error);
-        setEnquirySources(getLocalCache('omni_sources', FALLBACK_SOURCES.map((s, i) => ({ id: 'src_' + i, name: s }))));
-      });
-    }
-
-    // Product Categories
-    if (!refs.productCategories) {
-      refs.productCategories = onSnapshot(collection(db, 'dropdown_product_categories'), (snap) => {
-        const list = snap.empty
-          ? FALLBACK_CATEGORIES.map((c, i) => ({ id: 'cat_' + i, name: c }))
-          : snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        setProductCategories(list);
-        setLocalCache('omni_categories', list);
-      }, (error) => {
-        console.warn("Product categories listener error (Quota/Offline):", error);
-        setProductCategories(getLocalCache('omni_categories', FALLBACK_CATEGORIES.map((c, i) => ({ id: 'cat_' + i, name: c }))));
-      });
-    }
-
-    // Units
-    if (!refs.units) {
-      refs.units = onSnapshot(collection(db, 'dropdown_units'), (snap) => {
-        const list = snap.empty
-          ? FALLBACK_UNITS.map((u, i) => ({ id: 'u_' + i, name: u }))
-          : snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        setUnits(list);
-        setLocalCache('omni_units', list);
-      }, (error) => {
-        console.warn("Units listener error (Quota/Offline):", error);
-        setUnits(getLocalCache('omni_units', FALLBACK_UNITS.map((u, i) => ({ id: 'u_' + i, name: u }))));
-      });
-    }
-
-    // Call Statuses
-    if (!refs.callStatuses) {
-      refs.callStatuses = onSnapshot(collection(db, 'dropdown_call_statuses'), (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        const healed = healDropdownOptions(list, FALLBACK_CALL_STATUSES, 'cs');
-        setCallStatuses(healed.mergedList);
-        setLocalCache('omni_call_statuses', healed.mergedList);
-      }, (error) => {
-        console.warn("Call statuses listener error (Quota/Offline):", error);
-        const cached = getLocalCache<DropdownOption[]>('omni_call_statuses', []);
-        const healed = healDropdownOptions(cached, FALLBACK_CALL_STATUSES, 'cs');
-        setCallStatuses(healed.mergedList);
-      });
-    }
-
-    // Call Outcomes
-    if (!refs.callOutcomes) {
-      if (!refs.callPurposes) {
-        refs.callPurposes = onSnapshot(collection(db, 'dropdown_call_purposes'), (snap) => {
-          const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as DropdownOption[];
-          const healed = healDropdownOptions(list, FALLBACK_CALL_PURPOSES, 'purp');
-          setCallPurposes(healed.mergedList);
-          setLocalCache('omni_call_purposes', healed.mergedList);
-        }, (error) => {
-          console.warn("Call purposes listener error (Quota/Offline):", error);
-          const cached = getLocalCache<DropdownOption[]>('omni_call_purposes', []);
-          const healed = healDropdownOptions(cached, FALLBACK_CALL_PURPOSES, 'purp');
-          setCallPurposes(healed.mergedList);
-        });
+          refs.workspaces = onSnapshot(
+            wsQuery,
+            (wsSnap) => {
+              const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
+              if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
+                fetchedList.unshift(DEFAULT_WORKSPACE);
+              }
+              const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
+              setWorkspaces(finalWorkspaces);
+              setLocalCache('omni_workspaces', finalWorkspaces);
+            },
+            (error) => {
+              console.warn("Workspaces listener error (Quota/Offline):", error);
+              setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+            }
+          );
+        } else {
+          setWorkspaces([DEFAULT_WORKSPACE]);
+        }
+      },
+      (error) => {
+        console.warn("Workspace members listener error (Quota/Offline):", error);
+        setWorkspaceMembers(getLocalCache('omni_workspace_members', []));
+        setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
       }
-    refs.callOutcomes = onSnapshot(collection(db, 'dropdown_call_outcomes'), (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        const healed = healDropdownOptions(list, FALLBACK_CALL_OUTCOMES, 'co');
-        setCallOutcomes(healed.mergedList);
-        setLocalCache('omni_call_outcomes', healed.mergedList);
-      }, (error) => {
-        console.warn("Call outcomes listener error (Quota/Offline):", error);
-        const cached = getLocalCache<DropdownOption[]>('omni_call_outcomes', []);
-        const healed = healDropdownOptions(cached, FALLBACK_CALL_OUTCOMES, 'co');
-        setCallOutcomes(healed.mergedList);
-      });
-    }
+    );
 
     return () => {
-      // Normal React dependency change cleanup for collection listeners
       if (refs.workspaces) { refs.workspaces(); refs.workspaces = null; }
+      if (refs.workspaceMembers) { refs.workspaceMembers(); refs.workspaceMembers = null; }
+    };
+  }, [user?.uid, user?.email, user?.defaultWorkspaceId, Array.isArray(user?.workspaceIds) ? user.workspaceIds.join(',') : '', realtimeSyncEnabled]);
+
+  // 3. Operational Collections Listeners: strictly partitioned by activeWorkspaceId
+  // Dependencies are stable primitives: [user?.uid, activeWorkspaceId, realtimeSyncEnabled]
+  // This eliminates listener churn when user profile updates occur!
+  useEffect(() => {
+    const refs = activeUnsubscribersRef.current;
+
+    // Clean up operational listeners first on workspace switch or disable
+    if (refs.callLogs) { refs.callLogs(); refs.callLogs = null; }
+    if (refs.companies) { refs.companies(); refs.companies = null; }
+    if (refs.contacts) { refs.contacts(); refs.contacts = null; }
+    if (refs.enquiries) { refs.enquiries(); refs.enquiries = null; }
+    if (refs.invites) { refs.invites(); refs.invites = null; }
+    if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
+
+    if (!user?.uid || !realtimeSyncEnabled || !activeWorkspaceId) {
+      return;
+    }
+
+    const currentWsId = activeWorkspaceId;
+
+    // Call Logs - Partitioned by active workspace
+    const clQuery = query(collection(db, 'call_logs'), where('workspace_id', '==', currentWsId));
+    refs.callLogs = onSnapshot(clQuery, (snap) => {
+      const cachedComp = getLocalCache<Company[]>('omni_companies', []);
+      const list = snap.docs.map((d) => normalizeCallLog({ id: d.id, ...d.data() }, currentWsId, cachedComp));
+      setCallLogs((prev) => {
+        const clean = deduplicateList(list, prev);
+        setLocalCache('omni_call_logs', clean);
+        return clean;
+      });
+    }, (error) => {
+      console.warn("Call logs listener error (Quota/Offline):", error);
+      const cachedComp = getLocalCache<Company[]>('omni_companies', []);
+      setCallLogs(getLocalCache<CallLogEntry[]>('omni_call_logs', []).map((l) => normalizeCallLog(l, currentWsId, cachedComp)));
+    });
+
+    // Companies - Partitioned by active workspace
+    const compQuery = query(collection(db, 'companies'), where('workspace_id', '==', currentWsId));
+    refs.companies = onSnapshot(compQuery, (snap) => {
+      const list = snap.docs.map((d) => normalizeCompany({ id: d.id, ...d.data() }, currentWsId));
+      setCompanies((prev) => {
+        const clean = deduplicateList(list, prev);
+        setLocalCache('omni_companies', clean);
+        return clean;
+      });
+    }, (error) => {
+      console.warn("Companies snapshot listener error (Quota/Offline):", error);
+      setCompanies(getLocalCache<Company[]>('omni_companies', []).map((c) => normalizeCompany(c, currentWsId)));
+    });
+
+    // Contacts - Partitioned by active workspace
+    const ctQuery = query(collection(db, 'contacts'), where('workspace_id', '==', currentWsId));
+    refs.contacts = onSnapshot(ctQuery, (snap) => {
+      const list = snap.docs.map((d) => normalizeContact({ id: d.id, ...d.data() }, currentWsId));
+      setContacts((prev) => {
+        const clean = deduplicateList(list, prev);
+        setLocalCache('omni_contacts', clean);
+        return clean;
+      });
+    }, (error) => {
+      console.warn("Contacts snapshot listener error (Quota/Offline):", error);
+      setContacts(getLocalCache<Contact[]>('omni_contacts', []).map((c) => normalizeContact(c, currentWsId)));
+    });
+
+    // Enquiries - Partitioned by active workspace (sorted in-memory by sn to avoid composite indexes)
+    const enqQuery = query(collection(db, 'enquiries'), where('workspace_id', '==', currentWsId));
+    refs.enquiries = onSnapshot(enqQuery, (snap) => {
+      const list = snap.docs.map((d) => normalizeEnquiry({ id: d.id, ...d.data() }, currentWsId));
+      list.sort((a, b) => (a.sn || 0) - (b.sn || 0));
+      setEnquiries((prev) => {
+        const clean = deduplicateList(list, prev);
+        setLocalCache('omni_enquiries', clean);
+        return clean;
+      });
+    }, (error) => {
+      console.warn("Enquiries snapshot listener error (Quota/Offline):", error);
+      setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
+    });
+
+    // Invites
+    refs.invites = onSnapshot(collection(db, 'invites'), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
+      setInvites(list);
+      setLocalCache('omni_invites', list);
+    }, (error) => {
+      console.warn("Invites snapshot listener error (Quota/Offline):", error);
+      setInvites(getLocalCache('omni_invites', []));
+    });
+
+    // Salespersons
+    refs.salespersons = onSnapshot(collection(db, 'salespersons'), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
+      setSalespersons(list);
+      setLocalCache('omni_salespersons', list);
+    }, (error) => {
+      console.warn("Salespersons snapshot listener error (Quota/Offline):", error);
+      setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
+    });
+
+    return () => {
       if (refs.callLogs) { refs.callLogs(); refs.callLogs = null; }
       if (refs.companies) { refs.companies(); refs.companies = null; }
       if (refs.contacts) { refs.contacts(); refs.contacts = null; }
       if (refs.enquiries) { refs.enquiries(); refs.enquiries = null; }
       if (refs.invites) { refs.invites(); refs.invites = null; }
-      if (refs.auditLogs) { refs.auditLogs(); refs.auditLogs = null; }
       if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
-      if (refs.products) { refs.products(); refs.products = null; }
-      if (refs.enquirySources) { refs.enquirySources(); refs.enquirySources = null; }
-      if (refs.productCategories) { refs.productCategories(); refs.productCategories = null; }
-      if (refs.units) { refs.units(); refs.units = null; }
-      if (refs.callStatuses) { refs.callStatuses(); refs.callStatuses = null; }
-      if (refs.callOutcomes) { refs.callOutcomes(); refs.callOutcomes = null; }
     };
-  }, [user, realtimeSyncEnabled]);
+  }, [user?.uid, activeWorkspaceId, realtimeSyncEnabled]);
 
   if (authLoading) {
     return (

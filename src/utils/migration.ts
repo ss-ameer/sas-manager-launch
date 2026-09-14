@@ -7,15 +7,24 @@ let isSeedingRunning = false;
 let isMigrationRunning = false;
 let isBackfillRunning = false;
 
+export const WORKSPACE_BACKFILL_FLAG = 'omni_workspace_id_backfill_completed_v1';
+
 /**
  * Queries 'companies', 'contacts', 'enquiries', and 'call_logs' collections in Firestore.
  * For any document where workspace_id is missing, undefined, or empty, updates it to set workspace_id: 'ws_default'.
+ * Strictly guarded behind a localStorage flag so it NEVER runs automatically across page reloads.
  */
-export async function backfillMissingWorkspaceIds() {
-  if (isBackfillRunning) return;
+export async function backfillMissingWorkspaceIds(force = false): Promise<{ success: boolean; message: string }> {
+  if (isBackfillRunning) {
+    return { success: false, message: 'Backfill is already running.' };
+  }
+  if (!force && typeof window !== 'undefined' && localStorage.getItem(WORKSPACE_BACKFILL_FLAG) === 'true') {
+    return { success: true, message: 'Backfill already completed previously (flag set).' };
+  }
   isBackfillRunning = true;
 
   const collectionsToBackfill = ['companies', 'contacts', 'enquiries', 'call_logs'];
+  let updatedCount = 0;
 
   try {
     for (const colName of collectionsToBackfill) {
@@ -29,11 +38,17 @@ export async function backfillMissingWorkspaceIds() {
           await safeUpdateDoc(colName, docSnap.id, {
             workspace_id: 'ws_default'
           });
+          updatedCount++;
         }
       }
     }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(WORKSPACE_BACKFILL_FLAG, 'true');
+    }
+    return { success: true, message: `Backfill completed. ${updatedCount} records updated.` };
   } catch (err) {
     console.warn('Error backfilling missing workspace IDs:', err);
+    return { success: false, message: `Backfill failed: ${String(err)}` };
   } finally {
     isBackfillRunning = false;
   }

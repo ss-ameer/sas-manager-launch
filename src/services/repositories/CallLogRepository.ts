@@ -1,4 +1,4 @@
-import { writeBatch, doc, deleteField } from 'firebase/firestore';
+import { writeBatch, doc, deleteField, where } from 'firebase/firestore';
 import { db, cleanUndefined, safeGetDocs, safeSetDoc, safeUpdateDoc } from '../../firebase';
 import { ActivityLogEntry, Company, Contact } from '../../types';
 import { syncEngine } from '../SyncEngine';
@@ -186,17 +186,17 @@ export class ActivityLogRepository {
 
   public static async fetchWorkspaceCallLogsFromCloud(workspaceId: string): Promise<ActivityLogEntry[]> {
     try {
-      let snap = await safeGetDocs('activity_logs');
+      let snap = await safeGetDocs('activity_logs', where('workspace_id', '==', workspaceId));
       if (!snap || snap.empty) {
-        snap = await safeGetDocs('call_logs');
+        snap = await safeGetDocs('call_logs', where('workspace_id', '==', workspaceId));
+      }
+      if ((!snap || snap.empty) && workspaceId === 'ws_default') {
+        snap = await safeGetDocs('call_logs', where('workspaceId', '==', 'ws_default'));
       }
       if (!snap || snap.empty) return this.getAllLocal();
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ActivityLogEntry));
-      const filtered = docs.filter((log) =>
-        log.workspace_id === workspaceId || (!log.workspace_id && workspaceId === 'ws_default')
-      );
-      await this.saveLocalCache(filtered);
-      return filtered;
+      await this.saveLocalCache(docs);
+      return docs;
     } catch (e) {
       console.warn('[ActivityLogRepository] Cloud fetch failed, using local cache:', e);
       return this.getAllLocal();
