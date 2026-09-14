@@ -29,7 +29,7 @@ import SearchResultCounter from './common/SearchResultCounter';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
-import { isRecordOwner, canEditOrDeleteRecord } from '../utils/permissions';
+import { isRecordOwner, canEditOrDeleteRecord, canAccessEnquiry } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -277,18 +277,44 @@ export default function EnquiryList({
     }
   };
 
+  // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
+  const authorizedEnquiries = React.useMemo(() => {
+    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e));
+  }, [enquiries, user]);
+
+  // Restrict salesperson dropdown options for standard reps to prevent metadata leaks
+  const availableSalespersons = React.useMemo(() => {
+    const isGlobalAdmin =
+      user?.role === 'Admin' ||
+      user?.role === 'admin' ||
+      user?.role === 'Owner' ||
+      user?.role === 'owner' ||
+      user?.role === 'SuperAdmin' ||
+      user?.is_super_admin;
+    if (isGlobalAdmin) return salespersons;
+
+    const activeReps = new Set<string>();
+    authorizedEnquiries.forEach((e) => {
+      if (e.sales_person_id) activeReps.add(e.sales_person_id.toLowerCase().trim());
+      if (e.salesperson_id) activeReps.add(e.salesperson_id.toLowerCase().trim());
+      if (e.sales_person) activeReps.add(e.sales_person.toLowerCase().trim());
+      if (e.salesperson) activeReps.add(e.salesperson.toLowerCase().trim());
+    });
+
+    const filtered = salespersons.filter((s) => {
+      const idMatch = s.id && activeReps.has(s.id.toLowerCase().trim());
+      const initMatch = s.initials && activeReps.has(s.initials.toLowerCase().trim());
+      const nameMatch = s.full_name && activeReps.has(s.full_name.toLowerCase().trim());
+      return idMatch || initMatch || nameMatch;
+    });
+
+    return filtered.length > 0 ? filtered : salespersons;
+  }, [salespersons, authorizedEnquiries, user]);
+
   // Filter & Sort Logic
   const filteredEnquiries = React.useMemo(() => {
-    const isOwnDataOnly = user.role !== 'Admin' && user.dataVisibilityScope === 'OWN_DATA_ONLY';
-
-    return enquiries
+    return authorizedEnquiries
       .filter((e) => {
-        // -1. Ignore soft-deleted records in main view
-        if (e.is_deleted) return false;
-
-        // 0. Scope Check
-        if (isOwnDataOnly && !isRecordOwner(user, e)) return false;
-
         // 1. Search Query
         const q = (searchInput || searchQuery || '').toLowerCase().trim();
         const compName = (companyMap.get(e.company_id) || '').toLowerCase();
@@ -301,8 +327,14 @@ export default function EnquiryList({
         // 3. Salesperson
         const matchRep = salesPersonFilter === 'All' || (() => {
           const sp = salespersons.find(s => s.id === salesPersonFilter || s.initials === salesPersonFilter);
-          if (!sp) return e.sales_person === salesPersonFilter;
-          return e.sales_person === sp.id || e.sales_person === sp.initials;
+          if (!sp) return e.sales_person === salesPersonFilter || e.salesperson === salesPersonFilter;
+          return (
+            e.sales_person === sp.id ||
+            e.sales_person === sp.initials ||
+            e.salesperson === sp.id ||
+            e.salesperson === sp.initials ||
+            (sp.full_name && (e.salesperson === sp.full_name || e.sales_person === sp.full_name))
+          );
         })();
 
         // 4. Urgency (Overdue followups)
@@ -324,7 +356,7 @@ export default function EnquiryList({
         }
         return sortAsc ? comparison : -comparison;
       });
-  }, [enquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sortField, sortAsc, companyMap, user]);
+  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sortField, sortAsc, companyMap, salespersons]);
 
   const activeEnquiryFilterLabels = React.useMemo(() => {
     const labels: string[] = [];
@@ -505,7 +537,7 @@ export default function EnquiryList({
         title="Enquiries Registry"
         subtitle={`Maintain ${BRAND_CONFIG.shortName} sales proposals, track delivery lead times, and update customer status.`}
         icon={FileText}
-        badge={{ text: `${enquiries.length} Proposals`, variant: 'blue' }}
+        badge={{ text: `${authorizedEnquiries.length} Proposals`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={
@@ -596,7 +628,7 @@ export default function EnquiryList({
                 className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Reps</option>
-                {salespersons.map((s, idx) => (
+                {availableSalespersons.map((s, idx) => (
                   <option key={s.id || `${s.initials}-${s.full_name}-${idx}`} value={s.id || s.initials}>
                     {(s.initials || getInitials(s.full_name))} - {s.full_name}
                   </option>
@@ -629,13 +661,19 @@ export default function EnquiryList({
 
         {/* Standard Search Result Counter & Filter Status Banner */}
         <SearchResultCounter
-          totalCount={enquiries.filter(e => !e.is_deleted).length}
+          totalCount={authorizedEnquiries.length}
           filteredCount={filteredEnquiries.length}
           searchQuery={searchInput}
           entityLabel="Enquiries & Quotes"
           singularEntityLabel="Enquiry"
           onClear={handleClearEnquiryFilters}
           activeFilterLabels={activeEnquiryFilterLabels}
+          alwaysShow={true}
+          scopeLabel={
+            user?.role !== 'Admin' && user?.role !== 'admin' && user?.role !== 'Owner' && user?.role !== 'owner' && !user?.is_super_admin
+              ? 'Authorized Scope'
+              : undefined
+          }
         />
       </div>
 
@@ -1338,7 +1376,7 @@ export default function EnquiryList({
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         filteredEnquiries={filteredEnquiries}
-        allEnquiries={enquiries.filter((e) => !e.is_deleted)}
+        allEnquiries={authorizedEnquiries}
         companies={companies}
         contacts={contacts}
         salespersons={salespersons}

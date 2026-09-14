@@ -1,4 +1,4 @@
-import { UserProfile, UserRole } from '../types';
+import { UserProfile, UserRole, Enquiry } from '../types';
 
 export function getUserWorkspaceRole(
   user: UserProfile | undefined | null,
@@ -24,6 +24,8 @@ export function getUserWorkspaceRole(
   if (user.workspace_roles && user.workspace_roles[targetWsId]) {
     const raw = user.workspace_roles[targetWsId];
     if (raw === 'admin' || raw === 'Admin') return 'Admin';
+    if (raw === 'owner' || raw === 'Owner') return 'Owner';
+    if (raw === 'superadmin' || raw === 'SuperAdmin') return 'Admin';
     if (raw === 'sales_rep' || raw === 'member' || raw === 'Member') return 'Member';
     if (raw === 'viewer' || raw === 'Viewer') return 'Viewer';
     return raw as UserRole;
@@ -33,6 +35,8 @@ export function getUserWorkspaceRole(
   if (user.workspace_profiles && user.workspace_profiles[targetWsId]?.role) {
     const raw = user.workspace_profiles[targetWsId].role;
     if (raw === 'admin' || raw === 'Admin') return 'Admin';
+    if (raw === 'owner' || raw === 'Owner') return 'Owner';
+    if (raw === 'superadmin' || raw === 'SuperAdmin') return 'Admin';
     if (raw === 'sales_rep' || raw === 'member' || raw === 'Member') return 'Member';
     if (raw === 'viewer' || raw === 'Viewer') return 'Viewer';
     return raw as UserRole;
@@ -49,8 +53,10 @@ export function isAdmin(
   workspaceId?: string | null,
   activeWorkspace?: any | null
 ): boolean {
+  if (!user) return false;
+  if (isSuperAdmin(user)) return true;
   const role = getUserWorkspaceRole(user, workspaceId, activeWorkspace);
-  return role === 'Admin' || role === 'admin';
+  return role === 'Admin' || role === 'admin' || role === 'Owner' || role === 'owner';
 }
 
 export const isWorkspaceAdmin = (
@@ -193,6 +199,190 @@ export function canEditOrDeleteRecord(
   if (role === 'Viewer') return false;
   if (isAdmin(user, targetWsId, activeWorkspace)) return true;
   return isRecordOwner(user, record, targetWsId);
+}
+
+/**
+ * Canonical Permission Evaluator: Scoped Enquiry Access Control (RBAC).
+ * Enforces role-based visibility:
+ * - Owners, Admins, and SuperAdmins retain universal workspace access.
+ * - Standard sales reps only see enquiries they created, are assigned to as primary salesperson,
+ *   or collaborate on (tagged in additional_team / shared_with_uids / shared_with_names).
+ * - Edge-Case Fallback: If an enquiry has no assigned salesperson and no legacy creator metadata,
+ *   allow viewing by default to prevent historical records from disappearing.
+ */
+export function canAccessEnquiry(
+  currentUser: UserProfile | undefined | null,
+  enquiry: Enquiry | undefined | null
+): boolean {
+  if (!enquiry) return false;
+  if (!currentUser) return false;
+
+  // 1. SuperAdmin universal access
+  if (isSuperAdmin(currentUser)) return true;
+
+  // 2. Owner or Admin role check (workspace-level or global profile role)
+  const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId;
+  const wsRole = String(getUserWorkspaceRole(currentUser, targetWsId) || '').toLowerCase();
+  const globalRole = String(currentUser.role || '').toLowerCase();
+
+  if (
+    wsRole === 'admin' ||
+    wsRole === 'owner' ||
+    wsRole === 'superadmin' ||
+    globalRole === 'admin' ||
+    globalRole === 'owner' ||
+    globalRole === 'superadmin' ||
+    isAdmin(currentUser, targetWsId)
+  ) {
+    return true;
+  }
+
+  // 3. Current user normalized tokens
+  const uUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+  const uEmail = (currentUser.email || '').toLowerCase().trim();
+  const uUsername = (currentUser.username || '').toLowerCase().trim();
+  const uFullName = (currentUser.full_name || '').toLowerCase().trim();
+  const uInitials = (
+    currentUser.workspace_profiles?.[targetWsId || '']?.initials ||
+    currentUser.initials ||
+    (currentUser as any).salesperson_code ||
+    ''
+  ).toUpperCase().trim();
+
+  // 4. Creator Check:
+  // enquiry.created_by_uid === currentUser.uid OR enquiry.created_by === currentUser.email / username
+  const cByUid = (enquiry.created_by_uid || (enquiry as any).createdByUid || '').toLowerCase().trim();
+  const cBy = (enquiry.created_by || (enquiry as any).createdByUsername || '').toLowerCase().trim();
+  const cByName = ((enquiry as any).created_by_name || '').toLowerCase().trim();
+
+  if (uUid && cByUid && uUid === cByUid) return true;
+  if (cBy && (cBy === uEmail || cBy === uUsername || (uUid && cBy === uUid))) return true;
+  if (uFullName && cByName && uFullName === cByName) return true;
+
+  // 5. Primary Salesperson Check:
+  // enquiry.salesperson_id === currentUser.uid OR enquiry.salesperson === currentUser.full_name (or initials/code)
+  const spId = (enquiry.salesperson_id || enquiry.sales_person_id || '').toLowerCase().trim();
+  const sp = (enquiry.salesperson || enquiry.sales_person || '').trim();
+  const spLower = sp.toLowerCase();
+  const spUpper = sp.toUpperCase();
+
+  if (uUid && spId && uUid === spId) return true;
+  if (sp) {
+    if (uFullName && (spLower === uFullName || spLower.includes(uFullName))) return true;
+    if (uInitials && spUpper === uInitials) return true;
+    if (uUsername && spLower === uUsername) return true;
+    if (uEmail && spLower === uEmail) return true;
+    if (uUid && spLower === uUid) return true;
+  }
+
+  // 6. Collaborator / Sharing Check:
+  // Current user tagged in additional_team / shared_with_uids / shared_with_names (matching UID, name, or initials)
+  if (enquiry.shared_with_uids && Array.isArray(enquiry.shared_with_uids)) {
+    if (uUid && enquiry.shared_with_uids.some((id) => String(id).toLowerCase().trim() === uUid)) {
+      return true;
+    }
+  }
+
+  if (enquiry.shared_with_names && Array.isArray(enquiry.shared_with_names)) {
+    const isSharedByName = enquiry.shared_with_names.some((val) => {
+      if (!val) return false;
+      const v = String(val).trim();
+      const vLower = v.toLowerCase();
+      const vUpper = v.toUpperCase();
+      return (
+        (uUid && vLower === uUid) ||
+        (uEmail && vLower === uEmail) ||
+        (uUsername && vLower === uUsername) ||
+        (uFullName && (vLower === uFullName || vLower.includes(uFullName))) ||
+        (uInitials && vUpper === uInitials)
+      );
+    });
+    if (isSharedByName) return true;
+  }
+
+  const rawAdditional = enquiry.additional_team;
+  if (rawAdditional) {
+    const teamMembers: string[] = Array.isArray(rawAdditional)
+      ? rawAdditional.map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object') {
+            return (item as any).uid || (item as any).id || (item as any).name || (item as any).initials || (item as any).email || '';
+          }
+          return String(item || '');
+        })
+      : typeof rawAdditional === 'string'
+      ? rawAdditional.split(/[,;]+/).map((s) => s.trim())
+      : [];
+
+    const isTaggedInTeam = teamMembers.some((member) => {
+      if (!member) return false;
+      const m = String(member).trim();
+      const mLower = m.toLowerCase();
+      const mUpper = m.toUpperCase();
+      return (
+        (uUid && mLower === uUid) ||
+        (uEmail && mLower === uEmail) ||
+        (uUsername && mLower === uUsername) ||
+        (uFullName && (mLower === uFullName || mLower.includes(uFullName))) ||
+        (uInitials && mUpper === uInitials)
+      );
+    });
+    if (isTaggedInTeam) return true;
+  }
+
+  // Legacy concerned_persons field
+  const concernedList: string[] = Array.isArray(enquiry.concerned_persons)
+    ? enquiry.concerned_persons
+    : enquiry.concerned_person
+    ? [enquiry.concerned_person]
+    : [];
+
+  if (concernedList.length > 0) {
+    const isConcerned = concernedList.some((p) => {
+      if (!p) return false;
+      const pClean = String(p).trim();
+      const pLower = pClean.toLowerCase();
+      const pUpper = pClean.toUpperCase();
+      return (
+        (uUid && pLower === uUid) ||
+        (uEmail && pLower === uEmail) ||
+        (uUsername && pLower === uUsername) ||
+        (uFullName && (pLower === uFullName || pLower.includes(uFullName))) ||
+        (uInitials && pUpper === uInitials)
+      );
+    });
+    if (isConcerned) return true;
+  }
+
+  // Fallback to record owner evaluator
+  if (isRecordOwner(currentUser, enquiry, targetWsId)) {
+    return true;
+  }
+
+  // 7. Edge-Case Fallback:
+  // If an enquiry has no assigned salesperson or legacy creator metadata,
+  // allow viewing by default so historical records do not disappear.
+  const hasSalesperson = Boolean(
+    (enquiry.salesperson && enquiry.salesperson.trim() !== '') ||
+    (enquiry.sales_person && enquiry.sales_person.trim() !== '') ||
+    (enquiry.salesperson_id && enquiry.salesperson_id.trim() !== '') ||
+    (enquiry.sales_person_id && enquiry.sales_person_id.trim() !== '')
+  );
+
+  const hasCreator = Boolean(
+    (enquiry.created_by && enquiry.created_by.trim() !== '') ||
+    (enquiry.created_by_uid && enquiry.created_by_uid.trim() !== '') ||
+    ((enquiry as any).createdByUid && String((enquiry as any).createdByUid).trim() !== '') ||
+    ((enquiry as any).createdByUsername && String((enquiry as any).createdByUsername).trim() !== '') ||
+    ((enquiry as any).created_by_name && String((enquiry as any).created_by_name).trim() !== '')
+  );
+
+  if (!hasSalesperson && !hasCreator) {
+    return true;
+  }
+
+  // 8. Deny access otherwise for standard sales reps/members
+  return false;
 }
 
 export function getUserVisibilityTier(

@@ -1,4 +1,4 @@
-export type UserRole = 'Admin' | 'Member' | 'Viewer' | 'admin' | 'sales_rep' | 'viewer';
+export type UserRole = 'Admin' | 'Member' | 'Viewer' | 'admin' | 'sales_rep' | 'viewer' | 'Owner' | 'owner' | 'SuperAdmin';
 
 export interface WorkspaceProfile {
   initials: string;
@@ -335,6 +335,12 @@ export interface Enquiry extends SoftDeleteFields {
   raw_source_text?: string;
   sales_person_id?: string;
   sales_person?: string; // initials (e.g. PV, NS) or display name
+  salesperson_id?: string;
+  salesperson?: string;
+  additional_team?: string[] | string;
+  shared_with_uids?: string[];
+  shared_with_names?: string[];
+  created_by?: string;
   company_id: string;
   contact_id?: string;
   country: string;

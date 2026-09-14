@@ -13,6 +13,7 @@ export interface SearchResultCounterProps {
   className?: string;
   variant?: 'banner' | 'pill' | 'inline' | 'compact';
   alwaysShow?: boolean;
+  scopeLabel?: string;
 }
 
 /**
@@ -30,7 +31,8 @@ export const SearchResultCounter: React.FC<SearchResultCounterProps> = ({
   activeFilterLabels,
   className = '',
   variant = 'banner',
-  alwaysShow = false
+  alwaysShow = false,
+  scopeLabel
 }) => {
   const trimmedQuery = searchQuery.trim();
   const isQueryActive = trimmedQuery.length > 0;
@@ -55,6 +57,11 @@ export const SearchResultCounter: React.FC<SearchResultCounterProps> = ({
         >
           <span className="font-semibold text-slate-700 dark:text-slate-300 font-mono">{totalCount}</span>
           <span>{entityLabel}</span>
+          {scopeLabel && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100/70 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+              {scopeLabel}
+            </span>
+          )}
         </span>
       );
     }
@@ -65,9 +72,14 @@ export const SearchResultCounter: React.FC<SearchResultCounterProps> = ({
         className={`flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 py-1.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800/70 ${className}`}
       >
         <span className="flex items-center gap-1.5">
-          <span>Total catalog:</span>
+          <span>Showing:</span>
           <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">{totalCount}</span>
-          <span>{entityLabel}</span>
+          <span>of {totalCount} {entityLabel}</span>
+          {scopeLabel && (
+            <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100/70 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+              {scopeLabel}
+            </span>
+          )}
         </span>
       </div>
     );
@@ -148,6 +160,11 @@ export const SearchResultCounter: React.FC<SearchResultCounterProps> = ({
               <span>of</span>
               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{totalCount}</span>
               <span>{entityLabel}</span>
+              {scopeLabel && (
+                <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100/70 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                  {scopeLabel}
+                </span>
+              )}
               {filteredCount < totalCount && (
                 <span className="text-slate-500 dark:text-slate-400">
                   (filtered by active criteria)
