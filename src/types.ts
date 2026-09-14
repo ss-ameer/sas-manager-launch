@@ -1,4 +1,13 @@
-export type UserRole = 'Admin' | 'Member' | 'Viewer' | 'admin' | 'sales_rep' | 'viewer' | 'Owner' | 'owner' | 'SuperAdmin';
+/**
+ * Canonical 3-Tier Workspace Roles:
+ * - 'Admin': Workspace Owner/Admin (Full configuration, workspace management, exports, destructive actions)
+ * - 'Member': Sales Representative / Engineer (Standard operational access, create, edit attributed records & collaborations)
+ * - 'Viewer': Read-only Guest / Auditor (Auditing & inspection of assigned/accessible records only, no edits/creates)
+ */
+export type WorkspaceRole = 'Admin' | 'Member' | 'Viewer';
+export type CanonicalRole = WorkspaceRole;
+
+export type UserRole = WorkspaceRole | 'admin' | 'sales_rep' | 'viewer' | 'Owner' | 'owner' | 'SuperAdmin';
 
 export interface WorkspaceProfile {
   initials: string;
@@ -47,6 +56,8 @@ export interface Workspace {
   name: string;
   description?: string;
   created_by: string;
+  owner_uid?: string;
+  created_by_uid?: string;
   createdAt: string;
   modules: {
     enquiriesEnabled: boolean;
@@ -54,7 +65,7 @@ export interface Workspace {
   };
   is_default?: boolean;
   geography_options?: string[];
-  members?: WorkspaceMember[];
+  members?: WorkspaceMember[] | Record<string, WorkspaceMember | { role?: WorkspaceRole | UserRole | string; [key: string]: any }>;
   member_emails?: string[];
 }
 

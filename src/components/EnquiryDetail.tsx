@@ -4,7 +4,7 @@ import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
-import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing } from '../utils/permissions';
+import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -719,7 +719,7 @@ export default function EnquiryDetail({
               >
                 {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
-              {canEditOrDeleteRecord(user, enquiry) && (
+              {canEditEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -732,7 +732,7 @@ export default function EnquiryDetail({
                   <Edit2 className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               )}
-              {canEditOrDeleteRecord(user, enquiry) && (
+              {canDeleteEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
                   onClick={() => {

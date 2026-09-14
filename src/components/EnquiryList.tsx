@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -29,7 +29,17 @@ import SearchResultCounter from './common/SearchResultCounter';
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
-import { isRecordOwner, canEditOrDeleteRecord, canAccessEnquiry } from '../utils/permissions';
+import {
+  isRecordOwner,
+  canEditOrDeleteRecord,
+  canAccessEnquiry,
+  canCreateEnquiry,
+  canEditEnquiry,
+  canDeleteEnquiry,
+  canExportData,
+  isAdmin,
+  getUserWorkspaceRole
+} from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -48,6 +58,7 @@ interface EnquiryListProps {
   onDeleteEnquiry: (id: string) => void;
   onBulkDeleteEnquiries: (ids: string[]) => void;
   user: any;
+  activeWorkspace?: Workspace | any;
   onOpenMobileMenu?: () => void;
   onOpenCompany360?: (companyId: string) => void;
   onViewCompany360?: (company: Company) => void;
@@ -79,6 +90,7 @@ export default function EnquiryList({
   onDeleteEnquiry,
   onBulkDeleteEnquiries,
   user,
+  activeWorkspace,
   contacts = [],
   triggerToast,
   onOpenMobileMenu,
@@ -218,7 +230,7 @@ export default function EnquiryList({
   const [sortField, setSortField] = useState<'sn' | 'enquiry_date' | 'value_aed'>('sn');
   const [sortAsc, setSortAsc] = useState(false);
 
-  const isEditable = user.role !== 'Viewer';
+  const isEditable = canCreateEnquiry(user, activeWorkspace);
 
   const companyMap = React.useMemo(() => {
     return new Map(companies.map((c) => [c.id, c.display_name]));
@@ -392,6 +404,10 @@ export default function EnquiryList({
 
   // Export Enquiries (Audited Section with Scope Selection, RFC 4180 Sanitization & Feedback)
   const handleExportCSV = () => {
+    if (!canExportData(user, activeWorkspace)) {
+      alert('Access Denied: Only Admins can export workspace data.');
+      return;
+    }
     setShowExportModal(true);
   };
 
@@ -563,7 +579,7 @@ export default function EnquiryList({
               if (!next) setSelectedEnquiryIds([]);
             }
           },
-          ...(user.role === 'Admin'
+          ...(isAdmin(user, activeWorkspace)
             ? [
                 {
                   label: 'Import Legacy Log',
@@ -572,11 +588,15 @@ export default function EnquiryList({
                 }
               ]
             : []),
-          {
-            label: 'Export flattened CSV',
-            icon: Download,
-            onClick: handleExportCSV
-          }
+          ...(canExportData(user, activeWorkspace)
+            ? [
+                {
+                  label: 'Export flattened CSV',
+                  icon: Download,
+                  onClick: handleExportCSV
+                }
+              ]
+            : [])
         ]}
       />
 
@@ -907,7 +927,7 @@ export default function EnquiryList({
                           >
                             Details
                           </button>
-                          {isEditable && (
+                          {canEditEnquiry(user, activeWorkspace, e) && (
                             <button
                               type="button"
                               onClick={() => onEditEnquiry(e)}
@@ -917,7 +937,7 @@ export default function EnquiryList({
                               Edit
                             </button>
                           )}
-                          {isEditable && (
+                          {canDeleteEnquiry(user, activeWorkspace, e) && (
                             <button
                               type="button"
                               onClick={() => {

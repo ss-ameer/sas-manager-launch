@@ -1719,6 +1719,7 @@ export default function App() {
             onDeleteEnquiry={handleDeleteEnquiry}
             onBulkDeleteEnquiries={handleBulkDeleteEnquiries}
             user={user}
+            activeWorkspace={activeWorkspace}
             triggerToast={triggerToast}
             onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
             onOpenActivityDrawer={(context) => {
