@@ -1595,3 +1595,25 @@ export function isActivityAttributedToUser(
   return false;
 }
 
+/**
+ * Checks whether a user has permission to view an activity in Call Center and Activity logs.
+ * Super Admins and Admins ALWAYS bypass 'Attributed Entries Only' and see all team logs across the workspace.
+ * Non-admin roles (Members, Viewers) are filtered by attribution when scope is attributed or by role isolation.
+ */
+export function canUserViewActivity(
+  currentUser: UserProfile | undefined | null,
+  activity: CallLogEntry | any | undefined | null,
+  activeWorkspace?: Workspace | any | null,
+  salespersons: any[] = []
+): boolean {
+  if (!currentUser || !activity) return false;
+
+  // Super Admin & Admin ALWAYS bypass attribution filters and see all workspace logs
+  if (isSuperAdmin(currentUser) || isAdmin(currentUser, activeWorkspace?.id, activeWorkspace)) {
+    return true;
+  }
+
+  // Non-Admins: isolated to calls they logged, are assigned to, or are attributed to
+  return isActivityAttributedToUser(currentUser, activity, salespersons);
+}
+

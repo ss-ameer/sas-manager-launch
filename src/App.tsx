@@ -43,7 +43,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser, canUserViewActivity } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -670,17 +670,15 @@ export default function App() {
   }, [workspaceEnquiries, user, activeWorkspace, dataVisibilityScope]);
 
   const visibleCallLogs = useMemo(() => {
+    // Super Admins and Admins ALWAYS bypass attribution filters and see all workspace logs
     const isUserAdmin = Boolean(user && (isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace)));
-    const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
-    const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
-    const effectiveScope = wsScope || userScope;
-
-    if (isUserAdmin && effectiveScope !== 'OWN_DATA_ONLY' && effectiveScope !== 'ASSIGNED_ONLY' && effectiveScope !== 'Attributed Entries Only') {
+    if (isUserAdmin) {
       return workspaceCallLogs;
     }
 
+    // Non-Admin: strictly isolate to activities attributed to them
     return workspaceCallLogs.filter((l) => isActivityAttributedToUser(user, l, salespersons));
-  }, [workspaceCallLogs, user, activeWorkspace, dataVisibilityScope, salespersons]);
+  }, [workspaceCallLogs, user, activeWorkspace, salespersons]);
 
   useEffect(() => { setLocalCache('omni_workspaces', workspaces); }, [workspaces]);
   useEffect(() => { 
