@@ -30,7 +30,7 @@ export function getUserWorkspaceRole(
   activeWorkspace?: Workspace | any | null
 ): WorkspaceRole {
   if (!user) return 'Viewer';
-  if (isSuperAdmin(user)) return 'Admin';
+  if (isSuperAdmin(user) || user.role === 'Admin' || user.role === 'Super Admin' || user.role === 'ADMIN') return 'Admin';
 
   // Defensive resolution of Workspace object & Target Workspace ID
   let workspace: Workspace | null = null;

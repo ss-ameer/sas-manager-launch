@@ -143,6 +143,11 @@ export default function Sidebar({
                 {ws?.name || 'Workspace'}
               </option>
             ))}
+            {activeWorkspace?.id && !workspaces.some((w) => w?.id === activeWorkspace.id) && (
+              <option value={activeWorkspace.id}>
+                {activeWorkspace.name || 'Active Workspace'}
+              </option>
+            )}
             <option value="__manage__">+ Manage / New Workspace...</option>
           </select>
           <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />

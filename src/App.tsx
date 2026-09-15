@@ -37,6 +37,7 @@ import { EnquiryRepository } from './services/repositories/EnquiryRepository';
 import { CompanyRepository } from './services/repositories/CompanyRepository';
 import { CallLogRepository } from './services/repositories/CallLogRepository';
 import { MetadataRepository } from './services/repositories/MetadataRepository';
+import { WorkspaceRepository } from './services/repositories/WorkspaceRepository';
 import { ShieldCheck, HelpCircle, CheckCircle2, AlertCircle, Info, X, User, Clock, Menu } from 'lucide-react';
 import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
@@ -168,6 +169,12 @@ export default function App() {
     setActiveWorkspaceIdState(id);
     localStorage.setItem('last_active_workspace_id', id);
     setLocalCache('omni_active_workspace_id', id);
+
+    // Auto-heal workspace membership for Admin / Super Admin
+    if (user && id && WorkspaceRepository.isUserAdmin(user)) {
+      const targetWs = workspaces?.find((w) => w.id === id);
+      WorkspaceRepository.autoHealWorkspaceMembership(id, user, targetWs).catch(() => {});
+    }
   };
 
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
@@ -480,6 +487,14 @@ export default function App() {
   // Compute valid user-accessible workspaces, strictly ignoring orphaned records
   const userWorkspaces = useMemo(() => {
     if (!user) return [];
+
+    // 1. Admin Workspace Dropdown Visibility:
+    // If currentUser.role === 'Admin' or currentUser.role === 'Super Admin' or is_super_admin,
+    // display ALL active workspaces in the project. Do NOT restrict the query or array filter with members.includes(user.uid).
+    if (WorkspaceRepository.isUserAdmin(user)) {
+      return (workspaces || []).filter((w) => w && w.id);
+    }
+
     const userEmail = (user.email || '').toLowerCase().trim();
     const userUid = user.uid;
 
@@ -552,6 +567,14 @@ export default function App() {
       DEFAULT_WORKSPACE
     );
   }, [visibleWorkspaces, activeWorkspaceId]);
+
+  // Auto-heal workspace membership for Admin / Super Admin when activeWorkspace resolves
+  useEffect(() => {
+    if (user && activeWorkspaceId && WorkspaceRepository.isUserAdmin(user)) {
+      const targetWs = workspaces?.find((w) => w.id === activeWorkspaceId);
+      WorkspaceRepository.autoHealWorkspaceMembership(activeWorkspaceId, user, targetWs).catch(() => {});
+    }
+  }, [user?.uid, user?.role, user?.is_super_admin, activeWorkspaceId]);
 
   const isDefaultWorkspace = useMemo(() => {
     return (
@@ -1199,87 +1222,144 @@ export default function App() {
     const refs = activeUnsubscribersRef.current;
     const userEmail = (user.email || '').toLowerCase().trim();
     const userUid = user.uid;
+    const isGlobalAdmin = WorkspaceRepository.isUserAdmin(user);
 
-    const wmQuery = query(
-      collection(db, 'workspace_members'),
-      or(
-        where('user_id', '==', userUid),
-        where('uid', '==', userUid),
-        where('email', '==', userEmail),
-        where('email', '==', user.email || '')
-      )
-    );
-
-    refs.workspaceMembers = onSnapshot(
-      wmQuery,
-      (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setWorkspaceMembers(list);
-        setLocalCache('omni_workspace_members', list);
-
-        const allowedWsIds = new Set<string>();
-        list.forEach((m: any) => {
-          const wsId = m.workspace_id || m.workspaceId;
-          if (wsId && m.status !== 'inactive') {
-            allowedWsIds.add(wsId);
-          }
-        });
-
-        if (Array.isArray(user.workspaceIds)) {
-          user.workspaceIds.forEach((id) => { if (id) allowedWsIds.add(id); });
-        }
-        if (user.defaultWorkspaceId) {
-          allowedWsIds.add(user.defaultWorkspaceId);
-        }
-        if (allowedWsIds.size === 0) {
-          allowedWsIds.add('ws_default');
-        }
-
-        const allowedWsArray = Array.from(allowedWsIds);
-
-        if (allowedWsArray.length > 0) {
-          if (refs.workspaces) {
-            refs.workspaces();
-            refs.workspaces = null;
-          }
-
-          const wsQuery = query(
-            collection(db, 'workspaces'),
-            where(documentId(), 'in', allowedWsArray.slice(0, 30))
-          );
-
-          refs.workspaces = onSnapshot(
-            wsQuery,
-            (wsSnap) => {
-              const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
-              if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
-                fetchedList.unshift(DEFAULT_WORKSPACE);
-              }
-              const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
-              setWorkspaces(finalWorkspaces);
-              setLocalCache('omni_workspaces', finalWorkspaces);
-            },
-            (error) => {
-              console.warn("Workspaces listener error (Quota/Offline):", error);
-              setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
-            }
-          );
-        } else {
-          setWorkspaces([DEFAULT_WORKSPACE]);
-        }
-      },
-      (error) => {
-        console.warn("Workspace members listener error (Quota/Offline):", error);
-        setWorkspaceMembers(getLocalCache('omni_workspace_members', []));
-        setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+    if (isGlobalAdmin) {
+      // 1. Admin Workspace Dropdown Visibility:
+      // If currentUser.role === 'Admin' or currentUser.role === 'Super Admin' or is_super_admin,
+      // display ALL active workspaces in the project. Do NOT restrict the query or array filter with members.includes(user.uid).
+      if (refs.workspaces) {
+        refs.workspaces();
+        refs.workspaces = null;
       }
-    );
+
+      const allWsQuery = query(collection(db, 'workspaces'));
+      refs.workspaces = onSnapshot(
+        allWsQuery,
+        (wsSnap) => {
+          const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
+          if (!fetchedList.some((w) => w.id === 'ws_default')) {
+            fetchedList.unshift(DEFAULT_WORKSPACE);
+          }
+          const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
+          setWorkspaces(finalWorkspaces);
+          setLocalCache('omni_workspaces', finalWorkspaces);
+        },
+        (error) => {
+          console.warn("Workspaces listener error (Quota/Offline):", error);
+          setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+        }
+      );
+
+      // Still listen to workspace_members for the admin to keep workspaceMembers state synced
+      if (refs.workspaceMembers) {
+        refs.workspaceMembers();
+        refs.workspaceMembers = null;
+      }
+      const wmQuery = query(
+        collection(db, 'workspace_members'),
+        or(
+          where('user_id', '==', userUid),
+          where('uid', '==', userUid),
+          where('email', '==', userEmail),
+          where('email', '==', user.email || '')
+        )
+      );
+      refs.workspaceMembers = onSnapshot(
+        wmQuery,
+        (snap) => {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setWorkspaceMembers(list);
+          setLocalCache('omni_workspace_members', list);
+        },
+        (error) => {
+          console.warn("Workspace members listener error (Quota/Offline):", error);
+          setWorkspaceMembers(getLocalCache('omni_workspace_members', []));
+        }
+      );
+    } else {
+      // Standard 'Member' / 'Viewer' roles: query workspace_members to determine allowed workspaces
+      const wmQuery = query(
+        collection(db, 'workspace_members'),
+        or(
+          where('user_id', '==', userUid),
+          where('uid', '==', userUid),
+          where('email', '==', userEmail),
+          where('email', '==', user.email || '')
+        )
+      );
+
+      refs.workspaceMembers = onSnapshot(
+        wmQuery,
+        (snap) => {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setWorkspaceMembers(list);
+          setLocalCache('omni_workspace_members', list);
+
+          const allowedWsIds = new Set<string>();
+          list.forEach((m: any) => {
+            const wsId = m.workspace_id || m.workspaceId;
+            if (wsId && m.status !== 'inactive') {
+              allowedWsIds.add(wsId);
+            }
+          });
+
+          if (Array.isArray(user.workspaceIds)) {
+            user.workspaceIds.forEach((id) => { if (id) allowedWsIds.add(id); });
+          }
+          if (user.defaultWorkspaceId) {
+            allowedWsIds.add(user.defaultWorkspaceId);
+          }
+          if (allowedWsIds.size === 0) {
+            allowedWsIds.add('ws_default');
+          }
+
+          const allowedWsArray = Array.from(allowedWsIds);
+
+          if (allowedWsArray.length > 0) {
+            if (refs.workspaces) {
+              refs.workspaces();
+              refs.workspaces = null;
+            }
+
+            const wsQuery = query(
+              collection(db, 'workspaces'),
+              where(documentId(), 'in', allowedWsArray.slice(0, 30))
+            );
+
+            refs.workspaces = onSnapshot(
+              wsQuery,
+              (wsSnap) => {
+                const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
+                if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
+                  fetchedList.unshift(DEFAULT_WORKSPACE);
+                }
+                const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
+                setWorkspaces(finalWorkspaces);
+                setLocalCache('omni_workspaces', finalWorkspaces);
+              },
+              (error) => {
+                console.warn("Workspaces listener error (Quota/Offline):", error);
+                setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+              }
+            );
+          } else {
+            setWorkspaces([DEFAULT_WORKSPACE]);
+          }
+        },
+        (error) => {
+          console.warn("Workspace members listener error (Quota/Offline):", error);
+          setWorkspaceMembers(getLocalCache('omni_workspace_members', []));
+          setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+        }
+      );
+    }
 
     return () => {
       if (refs.workspaces) { refs.workspaces(); refs.workspaces = null; }
       if (refs.workspaceMembers) { refs.workspaceMembers(); refs.workspaceMembers = null; }
     };
-  }, [user?.uid, user?.email, user?.defaultWorkspaceId, Array.isArray(user?.workspaceIds) ? user.workspaceIds.join(',') : '', realtimeSyncEnabled]);
+  }, [user?.uid, user?.email, user?.role, user?.is_super_admin, user?.defaultWorkspaceId, Array.isArray(user?.workspaceIds) ? user.workspaceIds.join(',') : '', realtimeSyncEnabled]);
 
   // 3. Operational Collections Listeners: strictly partitioned by activeWorkspaceId
   // Dependencies are stable primitives: [user?.uid, activeWorkspaceId, realtimeSyncEnabled]

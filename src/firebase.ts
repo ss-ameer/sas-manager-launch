@@ -3,6 +3,8 @@ import { getAuth } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import {
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   getFirestore,
   collection,
   doc,
@@ -21,6 +23,9 @@ import { sanitizeFirestorePayload } from './services/attachmentStorage';
 
 const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  }),
   experimentalAutoDetectLongPolling: true
 }, firebaseConfig.firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
 export const auth = getAuth();
