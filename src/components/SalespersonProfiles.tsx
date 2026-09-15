@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
-import { isSuperAdmin, isAdmin, canAccessEnquiry } from '../utils/permissions';
+import { isSuperAdmin, isAdmin, canAccessEnquiry, getUserWorkspaceRole } from '../utils/permissions';
 
 interface SalespersonProfilesProps {
   salespersons: Salesperson[];
@@ -205,37 +205,64 @@ export default function SalespersonProfiles({
   const selectedSalesperson = salespersons.find((s) => s.id === selectedSalespersonId || s.initials === selectedSalespersonId);
   const metrics = selectedSalesperson ? getSalespersonMetrics(selectedSalesperson) : null;
 
-  const isSuperOrAdmin = isSuperAdmin(currentUser) || isAdmin(currentUser, activeWorkspace?.id) || currentUser?.role === 'Admin';
+  const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
+  const rawUserRole = (currentUser?.role || '').toString().toLowerCase().trim();
+  const rawWsRole = (activeWorkspaceRole || '').toString().toLowerCase().trim();
 
-  const canEditOrDeleteSp = (sp: Salesperson) => {
-    if (!currentUser) return false;
-    if (isSuperOrAdmin) return true;
-    return (
-      (currentUser.email && sp.email && currentUser.email.toLowerCase() === sp.email.toLowerCase()) ||
-      (currentUser.initials && sp.initials && currentUser.initials.toUpperCase() === sp.initials.toUpperCase()) ||
-      (currentUser.full_name && sp.full_name && currentUser.full_name.toLowerCase() === sp.full_name.toLowerCase())
-    );
-  };
+  const canManageTeam = Boolean(
+    currentUser && (
+      isSuperAdmin(currentUser) ||
+      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
+      rawUserRole === 'admin' ||
+      rawUserRole === 'superadmin' ||
+      rawUserRole === 'super_admin' ||
+      rawUserRole === 'super admin' ||
+      rawWsRole === 'admin' ||
+      rawWsRole === 'superadmin' ||
+      rawWsRole === 'super_admin' ||
+      rawWsRole === 'super admin'
+    )
+  );
 
   const isOwnProfile = (sp: Salesperson) => {
     if (!currentUser) return false;
-    return (
-      (currentUser.email && sp.email && currentUser.email.toLowerCase() === sp.email.toLowerCase()) ||
-      (currentUser.initials && sp.initials && currentUser.initials.toUpperCase() === sp.initials.toUpperCase()) ||
-      (currentUser.full_name && sp.full_name && currentUser.full_name.toLowerCase() === sp.full_name.toLowerCase())
-    );
+    const userEmail = (currentUser.email || '').toLowerCase().trim();
+    const spEmail = (sp.email || '').toLowerCase().trim();
+    if (userEmail && spEmail && userEmail === spEmail) return true;
+
+    const userInitials = (currentUser.initials || '').toUpperCase().trim();
+    const spInitials = (sp.initials || '').toUpperCase().trim();
+    if (userInitials && spInitials && userInitials === spInitials) return true;
+
+    const userName = (currentUser.full_name || currentUser.name || currentUser.displayName || '').toLowerCase().trim();
+    const spName = (sp.full_name || '').toLowerCase().trim();
+    if (userName && spName && userName === spName) return true;
+
+    return false;
+  };
+
+  // Only admins can delete team members; members can never delete
+  const canDeleteSp = (_sp: Salesperson) => {
+    return canManageTeam;
+  };
+
+  // Admins can edit any profile; members can ONLY edit their own personal profile
+  const canEditSp = (sp: Salesperson) => {
+    if (!currentUser) return false;
+    if (canManageTeam) return true;
+    return isOwnProfile(sp);
   };
 
   const canSeeSpFinancialMetrics = (sp: Salesperson) => {
     if (!currentUser) return false;
-    if (isSuperOrAdmin) return true;
+    if (canManageTeam) return true;
     return isOwnProfile(sp);
   };
 
   const canSeeSpAdvancedDetails = (sp: Salesperson) => {
     if (!currentUser) return false;
-    if (isSuperOrAdmin) return true;
-    if (canEditOrDeleteSp(sp)) return true;
+    if (canManageTeam) return true;
+    if (isOwnProfile(sp)) return true;
     return currentUser.dataVisibilityTier !== 'BASIC';
   };
 
@@ -629,7 +656,7 @@ export default function SalespersonProfiles({
         currentUser={currentUser}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={
-          isSuperOrAdmin
+          canManageTeam
             ? {
                 label: 'Add Team Member',
                 icon: Plus,
@@ -648,7 +675,7 @@ export default function SalespersonProfiles({
             <Users2 className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 font-sans">Team Roster</h2>
           </div>
-          {isSuperOrAdmin && (
+          {canManageTeam && (
             <button
               onClick={openAddModal}
               className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition cursor-pointer"
@@ -726,22 +753,26 @@ export default function SalespersonProfiles({
                     </span>
                   </div>
                   {/* Hover action edit/delete triggers for salesperson */}
-                  {canEditOrDeleteSp(s) && (
+                  {(canEditSp(s) || canDeleteSp(s)) && (
                     <div className="flex items-center space-x-1.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => openEditModal(s)}
-                        className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-700 transition cursor-pointer"
-                        title="Edit Profile"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSalesperson(s)}
-                        className="p-1 hover:bg-red-50 rounded-md text-slate-400 hover:text-red-600 transition cursor-pointer"
-                        title="Delete Representative"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {canEditSp(s) && (
+                        <button
+                          onClick={() => openEditModal(s)}
+                          className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-700 transition cursor-pointer"
+                          title="Edit Profile"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {canDeleteSp(s) && (
+                        <button
+                          onClick={() => handleDeleteSalesperson(s)}
+                          className="p-1 hover:bg-red-50 rounded-md text-slate-400 hover:text-red-600 transition cursor-pointer"
+                          title="Delete Representative"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -785,23 +816,23 @@ export default function SalespersonProfiles({
                         Basic View Tier
                       </span>
                     )}
-                    {canEditOrDeleteSp(selectedSalesperson) && (
-                      <>
-                        <button
-                          onClick={() => openEditModal(selectedSalesperson)}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                          <span>Edit Profile</span>
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSalesperson(selectedSalesperson)}
-                          className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center space-x-1 cursor-pointer ml-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Delete Rep</span>
-                        </button>
-                      </>
+                    {canEditSp(selectedSalesperson) && (
+                      <button
+                        onClick={() => openEditModal(selectedSalesperson)}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit Profile</span>
+                      </button>
+                    )}
+                    {canDeleteSp(selectedSalesperson) && (
+                      <button
+                        onClick={() => handleDeleteSalesperson(selectedSalesperson)}
+                        className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center space-x-1 cursor-pointer ml-1"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete Rep</span>
+                      </button>
                     )}
                   </div>
                 </div>
