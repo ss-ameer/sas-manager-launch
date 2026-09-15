@@ -999,7 +999,9 @@ export default function App() {
               const mergedUser: UserProfile = {
                 ...uData,
                 profileCompleted: hasCompleted,
-                full_name: uData.full_name || (parsedLocal?.uid === uData.uid ? parsedLocal?.full_name : undefined) || uData.username
+                full_name: uData.full_name || (parsedLocal?.uid === uData.uid ? parsedLocal?.full_name : undefined) || uData.username,
+                initials: uData.initials || (parsedLocal?.uid === uData.uid ? parsedLocal?.initials : undefined),
+                role: uData.role || (parsedLocal?.uid === uData.uid ? parsedLocal?.role : undefined) || 'Member'
               };
 
               // Auto-Promote Master Account in Firestore

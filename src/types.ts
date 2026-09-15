@@ -39,6 +39,9 @@ export interface UserProfile {
   is_super_admin?: boolean;
   photoURL?: string;
   avatarUrl?: string;
+  display_name?: string;
+  photo_url?: string;
+  updated_at?: string;
 }
 
 export type User = UserProfile;

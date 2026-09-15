@@ -11,6 +11,15 @@ interface LoginProps {
   onLoginSuccess: (profile: UserProfile) => void;
 }
 
+function deriveInitials(name?: string | null): string {
+  if (!name || !name.trim()) return 'TM';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function Login({ onLoginSuccess }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +52,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     };
   }, []);
 
-  // Checks and persists user profile in Firestore following successful Google OAuth
+  // Checks and defensively merges user profile in Firestore following successful Google OAuth
   const handleUserSession = async (firebaseUser: any) => {
     try {
       const uid = firebaseUser.uid;
@@ -51,90 +60,90 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       const displayName = firebaseUser.displayName || '';
       const photoURL = firebaseUser.photoURL || '';
 
-      // 1. Direct check by immutable UID
-      const userSnap = await safeGetDoc('users', uid);
-      if (userSnap && userSnap.exists()) {
-        const profile = userSnap.data() as UserProfile;
-        if (profile.blocked) {
-          setError('Your account has been deactivated by an Administrator.');
-          await signOut(auth);
-          setLoading(false);
-          return;
+      // 1. Fetch existing user document from Firestore (or local cache)
+      let existingData: any = null;
+      try {
+        const cached = localStorage.getItem(`omni_user_${uid}`) || localStorage.getItem('omni_local_user');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.uid === uid) {
+            existingData = parsed;
+          }
         }
-        // Update avatar / display name if present
-        const updatedProfile: UserProfile = {
-          ...profile,
-          email: email || profile.email,
-          full_name: profile.full_name || displayName,
-          displayName: profile.displayName || displayName,
-          photoURL: photoURL || profile.photoURL,
-          avatarUrl: photoURL || profile.avatarUrl
-        };
-        await safeSetDoc('users', uid, updatedProfile, { merge: true });
-        onLoginSuccess(updatedProfile);
-        return;
+      } catch (e) {
+        console.warn('Could not read local user cache:', e);
       }
 
-      // 2. Prevent Duplication: Check if an account already exists with the same verified email
-      let matchedProfile: UserProfile | null = null;
-      if (email) {
+      const userSnap = await safeGetDoc('users', uid);
+      if (userSnap && userSnap.exists()) {
+        existingData = { ...existingData, ...userSnap.data() };
+      }
+
+      // If not found by UID, check if an existing account exists with the same verified email
+      if (!existingData && email) {
         try {
           const usersSnap = await safeGetDocs('users', where('email', '==', email), limit(1));
           if (usersSnap && !usersSnap.empty) {
             const firstDoc = usersSnap.docs[0];
-            matchedProfile = { ...(firstDoc.data() as UserProfile), uid: firstDoc.id };
+            existingData = { ...(firstDoc.data() as any), uid: firstDoc.id };
           }
         } catch (e) {
           console.warn('Could not query user records by email:', e);
         }
       }
 
-      if (matchedProfile) {
-        if (matchedProfile.blocked) {
-          setError('Your account has been deactivated by an Administrator.');
-          await signOut(auth);
-          setLoading(false);
-          return;
-        }
-        const updatedProfile: UserProfile = {
-          ...matchedProfile,
-          uid: uid,
-          email: email || matchedProfile.email,
-          full_name: matchedProfile.full_name || displayName,
-          displayName: matchedProfile.displayName || displayName,
-          photoURL: photoURL || matchedProfile.photoURL,
-          avatarUrl: photoURL || matchedProfile.avatarUrl
-        };
-        await safeSetDoc('users', uid, updatedProfile);
-        onLoginSuccess(updatedProfile);
+      // Deactivation guard
+      if (existingData?.blocked) {
+        setError('Your account has been deactivated by an Administrator.');
+        await signOut(auth);
+        setLoading(false);
         return;
       }
 
-      // 3. New User Registration
+      // For new accounts without an existing record, check if this is the first user (assign Admin role)
       let isFirstUser = false;
-      try {
-        const anyUserSnap = await safeGetDocs('users', limit(1));
-        isFirstUser = !anyUserSnap || anyUserSnap.empty;
-      } catch (e) {
-        console.warn('Could not query user collection count:', e);
+      if (!existingData) {
+        try {
+          const anyUserSnap = await safeGetDocs('users', limit(1));
+          isFirstUser = !anyUserSnap || anyUserSnap.empty;
+        } catch (e) {
+          console.warn('Could not query user collection count:', e);
+        }
       }
 
-      const assignedName = displayName || (email ? email.split('@')[0] : 'Team Member');
-      const newProfile: UserProfile = {
+      // Defensive Profile Merging:
+      // PRESERVE existing custom name if present; only fallback to Google displayName for new users:
+      const fullName = existingData?.full_name || existingData?.name || displayName || 'Team Member';
+      const effectiveDisplayName = existingData?.display_name || existingData?.displayName || existingData?.full_name || displayName || 'Team Member';
+      const effectivePhoto = existingData?.photo_url || existingData?.photoURL || photoURL || '';
+      const initials = existingData?.initials || deriveInitials(existingData?.full_name || displayName);
+      const role = existingData?.role || (isFirstUser ? 'Admin' : 'Member');
+
+      const profileData: UserProfile = {
+        ...(existingData || {}),
         uid: uid,
-        email: email,
-        username: assignedName,
-        full_name: assignedName,
-        displayName: assignedName,
-        photoURL: photoURL,
-        avatarUrl: photoURL,
-        role: isFirstUser ? 'Admin' : 'Member',
-        workspaceIds: ['ws_default'],
-        defaultWorkspaceId: 'ws_default',
-        createdAt: new Date().toISOString()
+        email: email || existingData?.email || '',
+        username: existingData?.username || fullName,
+        // PRESERVE existing custom name if present; only fallback to Google displayName for new users:
+        full_name: fullName,
+        displayName: effectiveDisplayName,
+        display_name: effectiveDisplayName,
+        photo_url: effectivePhoto,
+        photoURL: effectivePhoto,
+        avatarUrl: existingData?.avatarUrl || effectivePhoto,
+        initials: initials,
+        role: role,
+        workspaceIds: existingData?.workspaceIds && existingData.workspaceIds.length > 0 ? existingData.workspaceIds : ['ws_default'],
+        defaultWorkspaceId: existingData?.defaultWorkspaceId || 'ws_default',
+        profileCompleted: existingData?.profileCompleted ?? Boolean(fullName),
+        createdAt: existingData?.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
-      await safeSetDoc('users', uid, newProfile);
-      onLoginSuccess(newProfile);
+
+      await safeSetDoc('users', uid, profileData, { merge: true });
+      localStorage.setItem(`omni_user_${uid}`, JSON.stringify(profileData));
+      localStorage.setItem('omni_local_user', JSON.stringify(profileData));
+      onLoginSuccess(profileData);
     } catch (err: any) {
       console.error('Session handling error:', err);
       setError('Session initialization failed: ' + (err.message || 'Unknown error'));
