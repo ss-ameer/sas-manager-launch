@@ -74,6 +74,8 @@ export interface Workspace {
   members?: WorkspaceMember[] | Record<string, WorkspaceMember | { role?: WorkspaceRole | UserRole | string; [key: string]: any }>;
   member_emails?: string[];
   join_code?: string;
+  data_visibility_scope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
+  dataVisibilityScope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
 }
 
 export type LegalSuffix = 'None / To Be Added Later' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other';
@@ -363,12 +365,14 @@ export interface Enquiry extends SoftDeleteFields {
   sales_representative?: string;
   salesRep?: string;
   additional_team?: (string | Record<string, any>)[] | string;
+  shared_with?: string[];
   shared_with_uids?: (string | Record<string, any>)[];
   shared_with_names?: (string | Record<string, any>)[];
   created_by?: string;
   created_by_uid?: string;
   creator_id?: string;
   created_by_name?: string;
+  assigned_to_id?: string;
   assigned_to?: string;
   company_id: string;
   contact_id?: string;

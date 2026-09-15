@@ -3,6 +3,7 @@ import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
+import { canAccessEnquiry, isAdmin, isSuperAdmin } from '../../utils/permissions';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -10,13 +11,15 @@ export class EnquiryRepository {
   /**
    * Explicit Deserialization Mapping:
    * Maps raw snapshot/local object into typed Enquiry, explicitly preserving
-   * shared_with_uids, additional_team, and shared_with_names so collaborator
+   * shared_with, shared_with_uids, additional_team, and shared_with_names so collaborator
    * state is never lost on refresh.
    */
   public static docToEnquiry(id: string, data: any): Enquiry {
     if (!data) return { id } as Enquiry;
 
-    const cleanUids: string[] = Array.isArray(data.shared_with_uids)
+    const cleanUids: string[] = Array.isArray(data.shared_with)
+      ? data.shared_with.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
+      : Array.isArray(data.shared_with_uids)
       ? data.shared_with_uids.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
       : [];
 
@@ -30,9 +33,15 @@ export class EnquiryRepository {
       ? data.shared_with_names.map((n: any) => (typeof n === 'string' ? n.trim() : String(n?.name || n?.full_name || '').trim())).filter(Boolean)
       : [];
 
+    const assignedToId = data.assigned_to_id || data.assignedToId || data.sales_person_id || data.salesperson_id || data.created_by_uid || data.createdByUid || undefined;
+    const assignedTo = data.assigned_to || data.assignedTo || data.sales_person || data.salesperson || undefined;
+
     return {
       ...data,
       id: id || data.id,
+      assigned_to_id: assignedToId,
+      assigned_to: assignedTo,
+      shared_with: cleanUids,
       shared_with_uids: cleanUids,
       additional_team: cleanTeam,
       shared_with_names: cleanNames,
@@ -264,6 +273,7 @@ export class EnquiryRepository {
       id: targetId,
       workspace_id: targetWsId,
       additional_team: cleanTeam,
+      shared_with: cleanUids,
       shared_with_uids: cleanUids,
       shared_with_names: cleanNames,
       updatedAt: new Date().toISOString()
@@ -284,6 +294,7 @@ export class EnquiryRepository {
               parsed[pIdx] = {
                 ...parsed[pIdx],
                 additional_team: cleanTeam,
+                shared_with: cleanUids,
                 shared_with_uids: cleanUids,
                 shared_with_names: cleanNames,
                 updatedAt: updatedEnquiry.updatedAt
@@ -300,6 +311,7 @@ export class EnquiryRepository {
     // 2. Direct atomic cloud update in Firestore
     const cloudPayload = {
       additional_team: cleanTeam,
+      shared_with: cleanUids,
       shared_with_uids: cleanUids,
       shared_with_names: cleanNames,
       updatedAt: updatedEnquiry.updatedAt
@@ -336,5 +348,23 @@ export class EnquiryRepository {
     }
 
     return updatedEnquiry;
+  }
+
+  /**
+   * Filter enquiries according to user access role & data isolation rules:
+   * - Admins and Super Admins retain full, unrestricted access to all workspace records.
+   * - Members and Viewers only see records where they are the assigned owner (currentUser.uid === enquiry.assigned_to_id)
+   *   OR listed in the shared array (enquiry.shared_with / shared_with_uids).
+   */
+  public static filterVisibleEnquiries(
+    enquiries: Enquiry[],
+    currentUser: any,
+    activeWorkspace?: any
+  ): Enquiry[] {
+    if (!currentUser) return [];
+    if (isSuperAdmin(currentUser) || isAdmin(currentUser, activeWorkspace?.id, activeWorkspace)) {
+      return enquiries;
+    }
+    return enquiries.filter((e) => canAccessEnquiry(currentUser, e, activeWorkspace));
   }
 }

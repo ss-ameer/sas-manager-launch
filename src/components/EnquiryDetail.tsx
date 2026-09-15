@@ -260,6 +260,7 @@ export default function EnquiryDetail({
     const updatedPayload: Enquiry = {
       ...currentEnquiry,
       additional_team: nextTeam,
+      shared_with: nextUids,
       shared_with_uids: nextUids,
       shared_with_names: nextNames,
       updatedAt: new Date().toISOString()

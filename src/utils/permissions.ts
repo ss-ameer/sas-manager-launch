@@ -626,7 +626,23 @@ export function isEnquiryCollaborator(
   if (!user || !enquiry) return false;
   const { uids: userUids, email: userEmail, names: userNames, initials: userInitials } = normalizeUserIdentifiers(user, targetWsId);
 
-  // 1. shared_with_uids
+  // 1. shared_with (unified array)
+  if (Array.isArray(enquiry.shared_with)) {
+    const sharedWith = enquiry.shared_with
+      .map((item: any) => {
+        if (!item) return '';
+        if (typeof item === 'string') return item.toLowerCase().trim();
+        if (typeof item === 'object') return String(item.uid || item.id || '').toLowerCase().trim();
+        return String(item).toLowerCase().trim();
+      })
+      .filter(Boolean);
+
+    if (userUids.some((u) => sharedWith.includes(u))) {
+      return true;
+    }
+  }
+
+  // 2. shared_with_uids
   if (Array.isArray(enquiry.shared_with_uids)) {
     const sharedUids = enquiry.shared_with_uids
       .map((item: any) => {
@@ -642,7 +658,7 @@ export function isEnquiryCollaborator(
     }
   }
 
-  // 2. additional_team
+  // 3. additional_team
   const rawAdditional = enquiry.additional_team;
   if (rawAdditional) {
     const teamItems: { uid?: string; name?: string; initials?: string }[] = [];
@@ -843,31 +859,58 @@ export function canAccessEnquiry(
   if (isSuperAdmin(currentUser)) return true;
 
   // 2. Owner or Admin role check via centralized Single Source of Truth
-  const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId;
+  const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId || activeWorkspace?.id;
   const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
 
   if (role === 'Admin') {
     return true;
   }
 
-  // 3. User normalized tokens
+  // 3. User normalized tokens & UID
+  const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
   const userIdentifiers = normalizeUserIdentifiers(currentUser, targetWsId);
 
-  // 4. Creator Match
+  // 4. Primary Owner Check:
+  // Direct assigned_to_id match (canonical rule: currentUser.uid === enquiry.assigned_to_id)
+  const assignedToId = (
+    enquiry.assigned_to_id ||
+    (enquiry as any).assignedToId ||
+    enquiry.salesperson_id ||
+    enquiry.sales_person_id ||
+    enquiry.sales_rep_id ||
+    ''
+  ).toLowerCase().trim();
+  const isDirectAssigned = Boolean(currentUid && assignedToId && assignedToId === currentUid);
+
+  // Creator & Salesperson match
   const isCreator = isEnquiryCreator(currentUser, enquiry, targetWsId);
-
-  // 5. Primary Salesperson Check
   const isSalesRep = isEnquirySalesperson(currentUser, enquiry, targetWsId);
-
-  // 6. Collaborator / Sharing Check
-  const isCollaborator = isEnquiryCollaborator(currentUser, enquiry, targetWsId);
-
-  // Fallback to record owner evaluator
   const isOwnerFallback = isRecordOwner(currentUser, enquiry, targetWsId);
 
-  // 7. Edge-Case Fallback:
-  // If an enquiry has no assigned salesperson and no legacy creator metadata,
-  // allow viewing by default so historical records do not disappear.
+  const isPrimaryOwner = isDirectAssigned || isCreator || isSalesRep || isOwnerFallback;
+
+  // 5. Shared Array Check:
+  // Checks if currentUser.uid is present in enquiry.shared_with (or shared_with_uids / collaborators)
+  const sharedWithList: string[] = Array.isArray(enquiry.shared_with)
+    ? enquiry.shared_with
+        .map((item: any) => (typeof item === 'string' ? item.toLowerCase().trim() : String(item?.uid || item?.id || '').toLowerCase().trim()))
+        .filter(Boolean)
+    : [];
+
+  const sharedWithUids: string[] = Array.isArray(enquiry.shared_with_uids)
+    ? enquiry.shared_with_uids
+        .map((item: any) => (typeof item === 'string' ? item.toLowerCase().trim() : String(item?.uid || item?.id || '').toLowerCase().trim()))
+        .filter(Boolean)
+    : [];
+
+  const isDirectShared = Boolean(
+    currentUid && (sharedWithList.includes(currentUid) || sharedWithUids.includes(currentUid))
+  );
+  const isCollaborator = isDirectShared || isEnquiryCollaborator(currentUser, enquiry, targetWsId);
+
+  // 6. Edge-Case Fallback:
+  // If an enquiry has no assigned salesperson, no assigned_to_id, and no creator metadata,
+  // allow viewing by default to prevent historical records from disappearing.
   const hasSalesperson = Boolean(
     (enquiry.salesperson && enquiry.salesperson.trim() !== '') ||
     (enquiry.sales_person && enquiry.sales_person.trim() !== '') ||
@@ -876,7 +919,8 @@ export function canAccessEnquiry(
     (enquiry.salesperson_id && enquiry.salesperson_id.trim() !== '') ||
     (enquiry.sales_person_id && enquiry.sales_person_id.trim() !== '') ||
     (enquiry.sales_rep_id && enquiry.sales_rep_id.trim() !== '') ||
-    ((enquiry as any).salesRepresentativeId && String((enquiry as any).salesRepresentativeId).trim() !== '')
+    ((enquiry as any).salesRepresentativeId && String((enquiry as any).salesRepresentativeId).trim() !== '') ||
+    (enquiry.assigned_to_id && enquiry.assigned_to_id.trim() !== '')
   );
 
   const hasCreator = Boolean(
@@ -891,10 +935,8 @@ export function canAccessEnquiry(
   const isEdgeCaseFallback = !hasSalesperson && !hasCreator;
 
   const result = Boolean(
-    isCreator ||
-    isSalesRep ||
+    isPrimaryOwner ||
     isCollaborator ||
-    isOwnerFallback ||
     isEdgeCaseFallback
   );
 

@@ -291,8 +291,8 @@ export default function EnquiryList({
 
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
-    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e));
-  }, [enquiries, user]);
+    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));
+  }, [enquiries, user, activeWorkspace]);
 
   // Restrict salesperson dropdown options for standard reps to prevent metadata leaks
   const availableSalespersons = React.useMemo(() => {

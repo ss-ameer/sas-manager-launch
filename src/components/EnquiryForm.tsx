@@ -2331,6 +2331,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       logged_date: loggedDate,
       sales_person_id: spId,
       sales_person: spInitialsOrName,
+      assigned_to_id: (selectedSp as any)?.linked_user_id || (selectedSp as any)?.uid || (selectedSp?.id && selectedSp.id.length > 10 ? selectedSp.id : undefined) || enquiryToEdit?.assigned_to_id || user?.uid || '',
+      assigned_to: spInitialsOrName || enquiryToEdit?.assigned_to || '',
+      shared_with: enquiryToEdit?.shared_with || (Array.isArray(enquiryToEdit?.shared_with_uids) ? (enquiryToEdit?.shared_with_uids as any) : []),
+      shared_with_uids: enquiryToEdit?.shared_with_uids || (enquiryToEdit?.shared_with as any) || [],
+      shared_with_names: enquiryToEdit?.shared_with_names || [],
+      additional_team: enquiryToEdit?.additional_team || [],
       concerned_persons: concernedPersons,
       company_id: companyId,
       contact_id: contactId || undefined,
@@ -3085,8 +3091,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </span>
               </div>
 
-              <div className="flex flex-col lg:flex-row gap-6 items-start">
-                <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="w-full">
+                <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">S/N</MarqueeLabel>
                     <input
@@ -3190,45 +3196,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <option value="USD">USD (Dollars)</option>
                     </select>
                   </div>
-                </div>
-
-                {/* Concerned Persons / Additional Team Members Selection */}
-                <div className="w-full lg:w-[35%] shrink-0 bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-2 shadow-2xs">
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">Additional Team</MarqueeLabel>
-                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-lg">
-                    {salespersons.map((s) => {
-                      const val = s.id || s.initials || s.full_name;
-                      const isSelected = concernedPersons.includes(val);
-                      const isPrimary = salesPerson === val;
-                      return (
-                        <button
-                          type="button"
-                          key={val}
-                          onClick={() => {
-                            if (isPrimary) return;
-                            setConcernedPersons((prev) =>
-                              prev.includes(val) ? prev.filter((p) => p !== val) : [...prev, val]
-                            );
-                          }}
-                          disabled={isPrimary}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center space-x-1 cursor-pointer ${
-                            isPrimary
-                              ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 opacity-85 cursor-not-allowed'
-                              : isSelected
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          <span>{s.full_name} {s.initials ? `(${s.initials})` : ''}</span>
-                          {isPrimary && <span className="text-[9px] font-bold uppercase tracking-wider">(Primary)</span>}
-                          {!isPrimary && isSelected && <Check className="w-3 h-3 ml-1" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
-                    Click team members to tag them as concerned persons. Tagged persons get full view & access permissions to this proposal.
-                  </p>
                 </div>
               </div>
             </div>

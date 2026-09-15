@@ -397,7 +397,9 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
   }
 
   // Ensure collaborator fields are explicitly mapped and preserved across reloads
-  const cleanUids = Array.isArray(raw?.shared_with_uids)
+  const cleanUids = Array.isArray(raw?.shared_with)
+    ? raw.shared_with.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
+    : Array.isArray(raw?.shared_with_uids)
     ? raw.shared_with_uids.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
     : [];
 
@@ -411,6 +413,9 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
     ? raw.shared_with_names.map((n: any) => (typeof n === 'string' ? n.trim() : String(n?.name || n?.full_name || '').trim())).filter(Boolean)
     : [];
 
+  const assigned_to_id = raw?.assigned_to_id || raw?.assignedToId || sales_person_id || raw?.created_by_uid || raw?.createdByUid || undefined;
+  const assigned_to = raw?.assigned_to || raw?.assignedTo || sales_person || undefined;
+
   return {
     ...raw,
     workspace_id: wsId,
@@ -423,8 +428,11 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
     salesperson: sales_person,
     sales_rep_id: sales_person_id,
     sales_representative: sales_person,
+    assigned_to_id,
+    assigned_to,
     created_by_uid: raw?.created_by_uid || raw?.createdByUid || '',
     createdByUid: raw?.createdByUid || raw?.created_by_uid || '',
+    shared_with: cleanUids,
     shared_with_uids: cleanUids,
     additional_team: cleanTeam,
     shared_with_names: cleanNames,

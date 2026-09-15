@@ -43,7 +43,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -654,43 +654,20 @@ export default function App() {
     return matched?.id || '';
   }, [user, salespersons]);
 
-  // Apply Role & Data Visibility Scope Filters (Admin sees everything; Non-Admin sees filtered if OWN_DATA_ONLY is active)
+  // Apply Role & Data Visibility Scope Filters (Admin & Super Admin see everything; Non-Admin sees filtered by owner or shared_with)
   const visibleEnquiries = useMemo(() => {
+    if (!user) return [];
+    const isUserAdmin = isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
+    const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
     const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
-    if (!user || isAdmin(user, activeWorkspace?.id, activeWorkspace) || userScope !== 'OWN_DATA_ONLY') {
+    const effectiveScope = wsScope || userScope;
+
+    if (isUserAdmin && effectiveScope !== 'OWN_DATA_ONLY' && effectiveScope !== 'ASSIGNED_ONLY') {
       return workspaceEnquiries;
     }
-    const userEmail = (user.email || '').toLowerCase().trim();
-    const userName = (user.full_name || user.username || '').toLowerCase().trim();
-    const currentUserInitials = (user.initials || '').toLowerCase().trim();
 
-    const matchedSalesperson = salespersons.find(
-      (s) =>
-        (s.linked_user_id && user.uid && s.linked_user_id === user.uid) ||
-        (s.email && userEmail && s.email.toLowerCase() === userEmail) ||
-        (s.full_name && userName && s.full_name.toLowerCase() === userName)
-    );
-    const currentSalespersonId = matchedSalesperson?.id;
-
-    return workspaceEnquiries.filter((e) => {
-      const spId = e.sales_person_id || (e as any).salesperson_id;
-      const sp = (e.sales_person || e.salesperson || '').toLowerCase().trim();
-      const cb = (e.createdBy || e.created_by || '').toLowerCase().trim();
-      const as = (e.assignedTo || '').toLowerCase().trim();
-
-      const matchesSpId = currentSalespersonId && spId && spId === currentSalespersonId;
-      const matchesSpInitials = currentUserInitials && sp === currentUserInitials;
-      const matchesSpNameOrEmail = sp && (sp === userName || sp === userEmail);
-
-      return (
-        matchesSpId ||
-        matchesSpInitials ||
-        matchesSpNameOrEmail ||
-        (cb && (cb === userEmail || cb === userName || (currentUserInitials && cb === currentUserInitials))) ||
-        (as && (as === userName || as === userEmail || (currentUserInitials && as === currentUserInitials)))
-      );
-    });
-  }, [workspaceEnquiries, user, dataVisibilityScope, salespersons]);
+    return workspaceEnquiries.filter((e) => canAccessEnquiry(user, e, activeWorkspace));
+  }, [workspaceEnquiries, user, activeWorkspace, dataVisibilityScope]);
 
   const visibleCallLogs = useMemo(() => {
     const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
