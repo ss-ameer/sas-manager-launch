@@ -982,6 +982,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 onSelectEnquiry={onSelectEnquiry}
                 onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
                 user={user}
+                activeWorkspace={activeWorkspace}
                 isBasicTier={isBasicTier}
                 showHeader={true}
                 setCallLogs={setCallLogs}

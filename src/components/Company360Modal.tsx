@@ -26,7 +26,8 @@ import {
   Globe,
   DollarSign,
   TrendingUp,
-  ArrowUpRight
+  ArrowUpRight,
+  Lock
 } from 'lucide-react';
 import { CompanyActivityTimeline, formatTimelineDate } from './common/CompanyActivityTimeline';
 import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
@@ -34,6 +35,7 @@ import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus } from '../utils/activityLogic';
+import { canAccessEnquiry, getSalespersonFullName } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
@@ -257,38 +259,59 @@ export default function Company360Modal({
   const compEmails = getCompanyEmails(company);
 
   // Executive Commercial KPIs
-  // 1. Total Pipeline Value
-  const totalPipelineValue = useMemo(() => {
-    return companyEnquiries.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
-  }, [companyEnquiries]);
+  // Partition enquiries into authorized vs restricted context-only
+  const { authorizedEnquiries, restrictedEnquiries, hasAuthorizedDeals } = useMemo(() => {
+    const authList: Enquiry[] = [];
+    const restList: Enquiry[] = [];
+    companyEnquiries.forEach((e) => {
+      if (canAccessEnquiry(user, e, activeWorkspace)) {
+        authList.push(e);
+      } else {
+        restList.push(e);
+      }
+    });
+    return {
+      authorizedEnquiries: authList,
+      restrictedEnquiries: restList,
+      hasAuthorizedDeals: authList.length > 0
+    };
+  }, [companyEnquiries, user, activeWorkspace]);
 
-  // 2. Won Business & Win Rate
+  // 1. Total Pipeline Value - calculated strictly from authorized deals
+  const totalPipelineValue = useMemo(() => {
+    return authorizedEnquiries.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+  }, [authorizedEnquiries]);
+
+  // 2. Won Business & Win Rate - calculated from authorized deals
   const { wonValue, wonCount, winRate } = useMemo(() => {
-    const wonList = companyEnquiries.filter((e) => {
+    const wonList = authorizedEnquiries.filter((e) => {
       const st = (e.status || '').toLowerCase();
       return st === 'order received' || st === 'won' || st.includes('closed won') || st.includes('closed-won');
     });
     const wonSum = wonList.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
-    const rate = companyEnquiries.length > 0 ? Math.round((wonList.length / companyEnquiries.length) * 100) : 0;
+    const rate = authorizedEnquiries.length > 0 ? Math.round((wonList.length / authorizedEnquiries.length) * 100) : 0;
     return {
       wonValue: wonSum,
       wonCount: wonList.length,
       winRate: rate
     };
-  }, [companyEnquiries]);
+  }, [authorizedEnquiries]);
 
   // 3. Active Enquiries / Proposals Count & Active Pipeline
+  // 'Active Proposals' count reflects total real deals for collision prevention
   const { activeEnquiriesCount, activePipelineValue } = useMemo(() => {
-    const activeList = companyEnquiries.filter((e) => {
+    const isDealActive = (e: Enquiry) => {
       const st = (e.status || '').toLowerCase();
       return !['order received', 'won', 'closed won', 'closed-won', 'lost', 'dead', 'cancelled'].includes(st);
-    });
-    const activeSum = activeList.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+    };
+    const totalActiveList = companyEnquiries.filter(isDealActive);
+    const authActiveList = authorizedEnquiries.filter(isDealActive);
+    const activeSum = authActiveList.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
     return {
-      activeEnquiriesCount: activeList.length,
+      activeEnquiriesCount: totalActiveList.length,
       activePipelineValue: activeSum
     };
-  }, [companyEnquiries]);
+  }, [companyEnquiries, authorizedEnquiries]);
 
   // 4. Last Contacted relative timestamp & channel
   const lastContactInfo = useMemo(() => {
@@ -478,11 +501,35 @@ export default function Company360Modal({
               <span>Pipeline Value</span>
               <DollarSign className="w-3.5 h-3.5 text-blue-500" />
             </div>
-            <div className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-white mt-1 tabular-nums truncate">
-              AED {totalPipelineValue.toLocaleString()}
+            <div className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-white mt-1 tabular-nums truncate flex items-center gap-1.5">
+              {companyEnquiries.length === 0 ? (
+                <span>AED 0</span>
+              ) : !hasAuthorizedDeals ? (
+                <>
+                  <span className="text-slate-500 dark:text-slate-400">AED ••••••</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 font-sans">
+                    Restricted
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>AED {totalPipelineValue.toLocaleString()}</span>
+                  {restrictedEnquiries.length > 0 && (
+                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-sans" title={`${restrictedEnquiries.length} restricted proposal(s) masked`}>
+                      *
+                    </span>
+                  )}
+                </>
+              )}
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
-              {companyEnquiries.length} {companyEnquiries.length === 1 ? 'quote linked' : 'quotes linked'}
+              {!hasAuthorizedDeals && companyEnquiries.length > 0 ? (
+                `${companyEnquiries.length} ${companyEnquiries.length === 1 ? 'quote linked' : 'quotes linked'} (Confidential)`
+              ) : restrictedEnquiries.length > 0 ? (
+                `${authorizedEnquiries.length} authorized (${companyEnquiries.length} total)`
+              ) : (
+                `${companyEnquiries.length} ${companyEnquiries.length === 1 ? 'quote linked' : 'quotes linked'}`
+              )}
             </div>
           </div>
 
@@ -495,7 +542,11 @@ export default function Company360Modal({
               </span>
             </div>
             <div className="text-sm sm:text-base font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums truncate">
-              AED {wonValue.toLocaleString()}
+              {!hasAuthorizedDeals && companyEnquiries.length > 0 ? (
+                <span className="text-slate-400 dark:text-slate-500 font-mono">AED ••••••</span>
+              ) : (
+                `AED ${wonValue.toLocaleString()}`
+              )}
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
               {wonCount} converted {wonCount === 1 ? 'order' : 'orders'}
@@ -512,7 +563,13 @@ export default function Company360Modal({
               {activeEnquiriesCount} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 font-sans">Active</span>
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
-              AED {activePipelineValue.toLocaleString()} in flight
+              {!hasAuthorizedDeals && companyEnquiries.length > 0 ? (
+                'AED •••••• in flight (Restricted)'
+              ) : restrictedEnquiries.length > 0 ? (
+                `AED ${activePipelineValue.toLocaleString()} in flight (${authorizedEnquiries.length} auth)`
+              ) : (
+                `AED ${activePipelineValue.toLocaleString()} in flight`
+              )}
             </div>
           </div>
 
@@ -889,52 +946,97 @@ export default function Company360Modal({
               ) : (
                 <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                   {companyEnquiries.map((enq) => {
+                    const isAuthorized = canAccessEnquiry(user, enq, activeWorkspace);
                     const isWon = (enq.status || '').toLowerCase() === 'order received' || (enq.status || '').toLowerCase() === 'won';
                     const isLost = (enq.status || '').toLowerCase() === 'lost' || (enq.status || '').toLowerCase() === 'dead';
+                    const spName = getSalespersonFullName(enq.sales_person || (enq as any).salesperson, salespersons);
+                    const repInitials = String((enq as any).rep || enq.sales_person || (enq as any).salesperson || '').toUpperCase().trim();
+                    const enqRawDate = enq.enquiry_date || (enq as any).created_at || enq.createdAt;
+                    const enqDate = enqRawDate ? (enq.enquiry_date || formatTimelineDate(enqRawDate).relative) : 'Recent';
 
+                    if (isAuthorized) {
+                      return (
+                        <div
+                          key={enq.id}
+                          onClick={() => {
+                            if (enq.id && onOpenEnquiry) {
+                              onClose();
+                              onOpenEnquiry(enq.id);
+                            }
+                          }}
+                          className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/80 dark:hover:bg-slate-800/90 transition cursor-pointer flex items-center justify-between gap-2 group"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                                {enq.quote_ref_no || `QTE-${enq.sn || '001'}`}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                  isWon
+                                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                                    : isLost
+                                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                                    : 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
+                                }`}
+                              >
+                                {enq.status || 'Active'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
+                              {enq.subject || 'Commercial Proposal'}
+                            </p>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                              {enqDate} • {spName}{repInitials && repInitials !== spName.toUpperCase() ? ` (${repInitials})` : ''}
+                            </p>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white block font-mono">
+                              {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
+                            </span>
+                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 group-hover:underline inline-flex items-center gap-0.5 mt-0.5">
+                              <span>View</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Restricted Context-Only View (for collision prevention)
                     return (
                       <div
                         key={enq.id}
-                        onClick={() => {
-                          if (enq.id && onOpenEnquiry) {
-                            onClose();
-                            onOpenEnquiry(enq.id);
-                          }
-                        }}
-                        className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/80 dark:hover:bg-slate-800/90 transition cursor-pointer flex items-center justify-between gap-2"
+                        className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-900/40 cursor-default flex items-center justify-between gap-2 select-none"
                       >
                         <div className="min-w-0">
                           <div className="flex items-center space-x-1.5 flex-wrap">
-                            <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                            <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
                               {enq.quote_ref_no || `QTE-${enq.sn || '001'}`}
                             </span>
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                                isWon
-                                  ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
-                                  : isLost
-                                  ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
-                                  : 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
-                              }`}
-                            >
-                              {enq.status}
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                              {enq.status || 'Active'}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
-                            {enq.subject || 'Commercial Proposal'}
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 italic truncate mt-0.5">
+                            Proposal details restricted
                           </p>
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
-                            {enq.enquiry_date || 'Recent'} • {enq.sales_person || 'Assigned Agent'}
+                            {enqDate} • Owner: <strong className="font-semibold text-slate-600 dark:text-slate-400">{spName}</strong>{repInitials ? ` (${repInitials})` : ''}
                           </p>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white block font-mono">
-                            {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
-                          </span>
-                          <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5 mt-0.5">
-                            <span>View</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
+                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                          <div className="flex items-center space-x-1 font-mono text-xs sm:text-sm font-semibold text-slate-400 dark:text-slate-500">
+                            <span>AED ••••••</span>
+                            <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 uppercase">
+                              Confidential
+                            </span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5 shrink-0" />
+                            <span>Restricted Access</span>
                           </span>
                         </div>
                       </div>
@@ -956,6 +1058,7 @@ export default function Company360Modal({
               companies={companies}
               salespersons={salespersons}
               user={user}
+              activeWorkspace={activeWorkspace}
               showHeader={true}
               setCallLogs={setCallLogs}
               setCompanies={setCompanies}

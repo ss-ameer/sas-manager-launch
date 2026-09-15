@@ -18,10 +18,11 @@ import {
   Zap,
   CalendarClock,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
-import { CallLogEntry, Contact, Company, Enquiry, Salesperson } from '../../types';
-import { canUserClickRecord, getSalespersonFullName } from '../../utils/permissions';
+import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace } from '../../types';
+import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry } from '../../utils/permissions';
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
@@ -45,6 +46,7 @@ export interface CompanyActivityTimelineProps {
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   user?: any;
+  activeWorkspace?: Workspace | any;
   isBasicTier?: boolean;
   className?: string;
   showHeader?: boolean;
@@ -282,6 +284,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   setCompanies,
   setContacts,
   user,
+  activeWorkspace,
   isBasicTier = false,
   className = '',
   showHeader = true
@@ -976,54 +979,109 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
             </div>
           ) : (
             filteredEnquiries.map((e) => {
-              const canClick = user && salespersons ? canUserClickRecord(user, e, salespersons) : true;
-              const spName = getSalespersonFullName(e.sales_person, salespersons);
+              const isAuthorized = canAccessEnquiry(user, e, activeWorkspace);
+              const spName = getSalespersonFullName(e.sales_person || (e as any).salesperson, salespersons);
+              const repInitials = String((e as any).rep || e.sales_person || (e as any).salesperson || '').toUpperCase().trim();
+              const dateLogged = e.enquiry_date || (e.created_at || (e as any).createdAt ? formatCleanDate(e.created_at || (e as any).createdAt) : 'Recent');
 
+              if (isAuthorized) {
+                return (
+                  <div
+                    key={e.id}
+                    onClick={() => {
+                      if (onSelectEnquiry && e.id) {
+                        onSelectEnquiry(e.id);
+                      }
+                    }}
+                    className="p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-sm transition space-y-2 text-xs cursor-pointer hover:border-purple-400 dark:hover:border-purple-500/80 group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <div className="w-6 h-6 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                          <FileText className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="font-bold text-slate-900 dark:text-white font-mono text-xs truncate">
+                          {e.quote_ref_no || `SN#${e.sn}`}
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                        {e.status || 'Active'}
+                      </span>
+                    </div>
+
+                    {e.subject && (
+                      <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-2">{e.subject}</p>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong>
+                        {repInitials && repInitials !== spName.toUpperCase() ? ` (${repInitials})` : ''}
+                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                          {dateLogged}
+                        </span>
+                        {!isBasicTier && e.value_aed ? (
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            AED {e.value_aed.toLocaleString()}
+                          </span>
+                        ) : null}
+                        <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 group-hover:underline inline-flex items-center gap-0.5">
+                          <span>View</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Restricted Context-Only View (collision prevention)
               return (
                 <div
                   key={e.id}
-                  onClick={() => {
-                    if (canClick && onSelectEnquiry && e.id) {
-                      onSelectEnquiry(e.id);
-                    }
-                  }}
-                  className={`p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-sm transition space-y-2 text-xs ${
-                    canClick && onSelectEnquiry ? 'cursor-pointer hover:border-purple-400 dark:hover:border-purple-500/80' : ''
-                  }`}
+                  className="p-3.5 rounded-xl bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2 text-xs cursor-default select-none"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center space-x-2 min-w-0">
-                      <div className="w-6 h-6 rounded-full bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                      <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0">
                         <FileText className="w-3.5 h-3.5" />
                       </div>
-                      <span className="font-bold text-slate-900 dark:text-white font-mono text-xs truncate">
+                      <span className="font-bold text-slate-700 dark:text-slate-300 font-mono text-xs truncate">
                         {e.quote_ref_no || `SN#${e.sn}`}
                       </span>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                      {e.status || 'Active'}
-                    </span>
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        {e.status || 'Active'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5 shrink-0" />
+                        <span>Restricted Access</span>
+                      </span>
+                    </div>
                   </div>
 
-                  {e.subject && (
-                    <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-2">{e.subject}</p>
-                  )}
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">
+                    Proposal details restricted
+                  </p>
 
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60 dark:border-slate-800">
                     <span className="text-slate-500 dark:text-slate-400">
                       Owner: <strong className="text-slate-700 dark:text-slate-300">{spName}</strong>
+                      {repInitials ? ` (${repInitials})` : ''}
                     </span>
                     <div className="flex items-center space-x-2">
-                      {(e.created_at || (e as any).createdAt) && (
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                          {formatCleanDate(e.created_at || (e as any).createdAt)}
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        {dateLogged}
+                      </span>
+                      <span className="font-mono text-xs font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                        <span>AED ••••••</span>
+                        <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400 uppercase">
+                          Confidential
                         </span>
-                      )}
-                      {!isBasicTier && e.value_aed ? (
-                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          AED {e.value_aed.toLocaleString()}
-                        </span>
-                      ) : null}
+                      </span>
                     </div>
                   </div>
                 </div>

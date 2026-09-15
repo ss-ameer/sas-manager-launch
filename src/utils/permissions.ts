@@ -1105,6 +1105,38 @@ export function canAccessEnquiry(
 }
 
 /**
+ * Checks whether an enquiry has restricted access for the current user.
+ * Restricted teammates can see reference numbers and statuses for collision prevention,
+ * but sensitive financials and deep inspection are locked.
+ */
+export function isEnquiryRestricted(
+  currentUser: UserProfile | undefined | null,
+  enquiry: Enquiry | undefined | null,
+  activeWorkspace?: Workspace | any | null
+): boolean {
+  return !canAccessEnquiry(currentUser, enquiry, activeWorkspace);
+}
+
+/**
+ * Formats enquiry value display respecting access permissions.
+ * Authorized: "AED 150,000"
+ * Restricted: "AED ••••••"
+ */
+export function formatEnquiryValueSecure(
+  currentUser: UserProfile | undefined | null,
+  enquiry: Enquiry | undefined | null,
+  activeWorkspace?: Workspace | any | null
+): { display: string; isRestricted: boolean } {
+  if (!enquiry) return { display: 'AED 0', isRestricted: false };
+  const hasAccess = canAccessEnquiry(currentUser, enquiry, activeWorkspace);
+  if (!hasAccess) {
+    return { display: 'AED ••••••', isRestricted: true };
+  }
+  const val = Number(enquiry.value_aed) || 0;
+  return { display: `${enquiry.currency || 'AED'} ${val.toLocaleString()}`, isRestricted: false };
+}
+
+/**
  * Evaluates whether the current user is authorized to manage enquiry sharing & collaborators.
  * Permitted roles:
  * - Deal Creator
