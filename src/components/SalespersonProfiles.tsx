@@ -23,10 +23,12 @@ import {
   Mail,
   Phone,
   UserPlus,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { isSuperAdmin, isAdmin, canAccessEnquiry } from '../utils/permissions';
 
 interface SalespersonProfilesProps {
   salespersons: Salesperson[];
@@ -203,9 +205,11 @@ export default function SalespersonProfiles({
   const selectedSalesperson = salespersons.find((s) => s.id === selectedSalespersonId || s.initials === selectedSalespersonId);
   const metrics = selectedSalesperson ? getSalespersonMetrics(selectedSalesperson) : null;
 
+  const isSuperOrAdmin = isSuperAdmin(currentUser) || isAdmin(currentUser, activeWorkspace?.id) || currentUser?.role === 'Admin';
+
   const canEditOrDeleteSp = (sp: Salesperson) => {
     if (!currentUser) return false;
-    if (currentUser.role === 'Admin') return true;
+    if (isSuperOrAdmin) return true;
     return (
       (currentUser.email && sp.email && currentUser.email.toLowerCase() === sp.email.toLowerCase()) ||
       (currentUser.initials && sp.initials && currentUser.initials.toUpperCase() === sp.initials.toUpperCase()) ||
@@ -213,9 +217,24 @@ export default function SalespersonProfiles({
     );
   };
 
+  const isOwnProfile = (sp: Salesperson) => {
+    if (!currentUser) return false;
+    return (
+      (currentUser.email && sp.email && currentUser.email.toLowerCase() === sp.email.toLowerCase()) ||
+      (currentUser.initials && sp.initials && currentUser.initials.toUpperCase() === sp.initials.toUpperCase()) ||
+      (currentUser.full_name && sp.full_name && currentUser.full_name.toLowerCase() === sp.full_name.toLowerCase())
+    );
+  };
+
+  const canSeeSpFinancialMetrics = (sp: Salesperson) => {
+    if (!currentUser) return false;
+    if (isSuperOrAdmin) return true;
+    return isOwnProfile(sp);
+  };
+
   const canSeeSpAdvancedDetails = (sp: Salesperson) => {
     if (!currentUser) return false;
-    if (currentUser.role === 'Admin') return true;
+    if (isSuperOrAdmin) return true;
     if (canEditOrDeleteSp(sp)) return true;
     return currentUser.dataVisibilityTier !== 'BASIC';
   };
@@ -609,11 +628,15 @@ export default function SalespersonProfiles({
         badge={{ text: `${deduplicatedSalespersons.length} Reps Active`, variant: 'blue' }}
         currentUser={currentUser}
         onOpenSidebar={onOpenMobileMenu}
-        primaryAction={{
-          label: 'Add Team Member',
-          icon: Plus,
-          onClick: openAddModal
-        }}
+        primaryAction={
+          isSuperOrAdmin
+            ? {
+                label: 'Add Team Member',
+                icon: Plus,
+                onClick: openAddModal
+              }
+            : undefined
+        }
       />
 
       <PageBody maxWidth="max-w-7xl">
@@ -625,13 +648,15 @@ export default function SalespersonProfiles({
             <Users2 className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 font-sans">Team Roster</h2>
           </div>
-          <button
-            onClick={openAddModal}
-            className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition cursor-pointer"
-            title="Add Team Member"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+          {isSuperOrAdmin && (
+            <button
+              onClick={openAddModal}
+              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition cursor-pointer"
+              title="Add Team Member"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Current User Roster Status Banner / Add Myself Trigger */}
@@ -791,22 +816,38 @@ export default function SalespersonProfiles({
             {/* Metrics cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-sans">
-                  <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>Active Value</span>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 font-sans">
+                    <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>Active Value</span>
+                  </div>
+                  {!canSeeSpFinancialMetrics(selectedSalesperson) && (
+                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Confidential</span>
+                    </span>
+                  )}
                 </div>
                 <div className="text-lg font-bold font-mono text-slate-800 dark:text-slate-200 mt-1">
-                  {canSeeSpAdvancedDetails(selectedSalesperson) ? formatCurrency(metrics.activeVal) : '•••••'}
+                  {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.activeVal) : 'AED ••••••'}
                 </div>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-sans">
-                  <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Closed Wins</span>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 font-sans">
+                    <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Closed Wins</span>
+                  </div>
+                  {!canSeeSpFinancialMetrics(selectedSalesperson) && (
+                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>Confidential</span>
+                    </span>
+                  )}
                 </div>
                 <div className="text-lg font-bold font-mono text-slate-800 dark:text-slate-200 mt-1">
-                  {canSeeSpAdvancedDetails(selectedSalesperson) ? formatCurrency(metrics.wonVal) : '•••••'}
+                  {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.wonVal) : 'AED ••••••'}
                 </div>
               </div>
 
@@ -872,43 +913,56 @@ export default function SalespersonProfiles({
               {paginatedEnquiries.length > 0 ? (
                 <div className="space-y-3">
                   <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 scrollbar-thin">
-                    {paginatedEnquiries.map((e) => (
-                      <div
-                        key={e.id}
-                        className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl hover:border-slate-300 transition duration-100 flex flex-col md:flex-row md:items-center justify-between gap-4 group"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xs font-mono text-slate-400">#{e.sn}</span>
-                            <span className="text-sm font-semibold text-slate-800 font-sans">
-                              {companyMap.get(e.company_id) || 'Unknown Company'}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-500 truncate max-w-[320px] font-sans">
-                            {e.quote_ref_no} — {e.remarks || 'No notes added'}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center space-x-6 justify-between md:justify-end shrink-0">
-                          <div className="text-right">
-                            <span className="text-xs font-mono font-semibold text-slate-800 block">
-                              {formatCurrency(e.value_aed)}
-                            </span>
-                            <span className="text-[10px] font-mono font-bold block mt-0.5 text-slate-400 uppercase">
-                              {e.status}
-                            </span>
+                    {paginatedEnquiries.map((e) => {
+                      const canAccess = canAccessEnquiry(currentUser, e, activeWorkspace);
+                      return (
+                        <div
+                          key={e.id}
+                          className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl hover:border-slate-300 transition duration-100 flex flex-col md:flex-row md:items-center justify-between gap-4 group"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-mono text-slate-400">#{e.sn}</span>
+                              <span className="text-sm font-semibold text-slate-800 font-sans">
+                                {companyMap.get(e.company_id) || 'Unknown Company'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 truncate max-w-[320px] font-sans">
+                              {e.quote_ref_no} — {e.remarks || 'No notes added'}
+                            </p>
                           </div>
 
-                          <button
-                            onClick={() => e.id && onSelectEnquiry(e.id)}
-                            className="p-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-slate-400 hover:text-slate-700 transition duration-150 flex items-center justify-center shadow-sm"
-                            title="Open Enquiry Details"
-                          >
-                            <ArrowUpRight className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center space-x-6 justify-between md:justify-end shrink-0">
+                            <div className="text-right">
+                              <span className="text-xs font-mono font-semibold text-slate-800 block">
+                                {canAccess ? formatCurrency(e.value_aed) : 'AED ••••••'}
+                              </span>
+                              <span className="text-[10px] font-mono font-bold block mt-0.5 text-slate-400 uppercase">
+                                {e.status}
+                              </span>
+                            </div>
+
+                            {canAccess ? (
+                              <button
+                                onClick={() => e.id && onSelectEnquiry(e.id)}
+                                className="p-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-slate-400 hover:text-slate-700 transition duration-150 flex items-center justify-center shadow-sm cursor-pointer"
+                                title="Open Enquiry Details"
+                              >
+                                <ArrowUpRight className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <div
+                                className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center space-x-1 cursor-not-allowed select-none"
+                                title="Restricted: You do not have permission to inspect this proposal"
+                              >
+                                <Lock className="w-3 h-3 text-slate-400" />
+                                <span>Restricted</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Pagination Footer */}
