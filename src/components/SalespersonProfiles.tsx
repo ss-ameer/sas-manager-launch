@@ -299,7 +299,18 @@ export default function SalespersonProfiles({
 
     setIsSubmitting(true);
 
-    const upperInitials = formInitials.trim() ? formInitials.trim().toUpperCase() : getInitials(formFullName);
+    // If non-admin is editing their own profile, keep original initials & email locked for security
+    const isLockedForNonAdmin = Boolean(editingSalesperson && !canManageTeam && isOwnProfile(editingSalesperson));
+
+    const finalInitials = isLockedForNonAdmin && editingSalesperson
+      ? editingSalesperson.initials
+      : formInitials.trim() ? formInitials.trim().toUpperCase() : getInitials(formFullName);
+
+    const finalEmail = isLockedForNonAdmin && editingSalesperson
+      ? (editingSalesperson.email || undefined)
+      : formEmail.trim() || undefined;
+
+    const upperInitials = finalInitials;
 
     // Check duplicate initials
     const duplicate = salespersons.find(s => 
@@ -322,7 +333,7 @@ export default function SalespersonProfiles({
       initials: upperInitials,
       full_name: formFullName.trim(),
       role: formRole.trim(),
-      email: formEmail.trim() || undefined,
+      email: finalEmail,
       phone: formPhone.trim() || undefined,
     };
 
@@ -719,26 +730,44 @@ export default function SalespersonProfiles({
           {deduplicatedSalespersons.map((s, idx) => {
             const m = getSalespersonMetrics(s);
             const isSelected = selectedSalespersonId === s.id || selectedSalespersonId === s.initials;
+            const isUserSelf = isOwnProfile(s);
             return (
               <div
                 key={s.id || `${s.initials}-${s.full_name}-${idx}`}
                 className={`w-full flex items-center justify-between p-4 rounded-xl border transition duration-150 group/item ${
                   isSelected
-                    ? 'bg-blue-50 border-blue-200 text-slate-950 shadow-sm'
+                    ? isUserSelf
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-slate-950 shadow-sm ring-1 ring-emerald-400/40'
+                      : 'bg-blue-50 border-blue-200 text-slate-950 shadow-sm'
+                    : isUserSelf
+                    ? 'bg-emerald-50/30 dark:bg-emerald-950/10 border-emerald-200/80 dark:border-emerald-800/50 hover:border-emerald-300 text-slate-700'
                     : 'bg-white border-slate-200 hover:border-slate-300 text-slate-600'
                 }`}
               >
                 <button
                   onClick={() => setSelectedSalespersonId(s.id || s.initials || null)}
-                  className="flex items-center space-x-3 flex-1 text-left focus:outline-none cursor-pointer"
+                  className="flex items-center space-x-3 flex-1 text-left focus:outline-none cursor-pointer min-w-0"
                 >
                   <div className={`w-9 h-9 rounded-lg font-mono font-bold flex items-center justify-center border text-xs shrink-0 ${
-                    isSelected ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-50 border-slate-200 text-slate-500'
+                    isSelected
+                      ? isUserSelf
+                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-xs'
+                        : 'bg-blue-600 border-blue-400 text-white'
+                      : isUserSelf
+                      ? 'bg-emerald-100 dark:bg-emerald-900/60 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-slate-50 border-slate-200 text-slate-500'
                   }`}>
                     {s.initials || getInitials(s.full_name)}
                   </div>
-                  <div className="overflow-hidden">
-                    <span className="text-sm font-semibold truncate block font-sans text-slate-900">{s.full_name}</span>
+                  <div className="overflow-hidden min-w-0">
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <span className="text-sm font-semibold truncate block font-sans text-slate-900">{s.full_name}</span>
+                      {isUserSelf && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50 shrink-0">
+                          You
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{s.role}</span>
                   </div>
                 </button>
@@ -793,7 +822,14 @@ export default function SalespersonProfiles({
                   {selectedSalesperson.initials || getInitials(selectedSalesperson.full_name)}
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-slate-900 font-sans">{selectedSalesperson.full_name}</h3>
+                  <div className="flex items-center space-x-2.5">
+                    <h3 className="text-2xl font-bold text-slate-900 font-sans">{selectedSalesperson.full_name}</h3>
+                    {isOwnProfile(selectedSalesperson) && (
+                      <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        Your Profile (You)
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-slate-500 font-sans">
                     <p className="font-medium text-slate-700">{selectedSalesperson.role}</p>
                     {canSeeSpAdvancedDetails(selectedSalesperson) ? (
@@ -1054,7 +1090,11 @@ export default function SalespersonProfiles({
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-lg font-bold text-slate-900 font-sans">
-                {editingSalesperson ? 'Edit Team Member Profile' : 'Add New Team Member'}
+                {editingSalesperson
+                  ? isOwnProfile(editingSalesperson) && !canManageTeam
+                    ? 'Edit Your Profile'
+                    : 'Edit Team Member Profile'
+                  : 'Add New Team Member'}
               </h3>
               <button
                 type="button"
@@ -1076,9 +1116,21 @@ export default function SalespersonProfiles({
                   placeholder="e.g. AM"
                   maxLength={4}
                   value={formInitials}
+                  disabled={Boolean(editingSalesperson && !canManageTeam)}
+                  readOnly={Boolean(editingSalesperson && !canManageTeam)}
                   onChange={(e) => setFormInitials(e.target.value.toUpperCase())}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 uppercase font-mono focus:outline-none focus:border-blue-500"
+                  className={`w-full rounded-xl py-2 px-3 text-sm uppercase font-mono focus:outline-none ${
+                    editingSalesperson && !canManageTeam
+                      ? 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed select-none'
+                      : 'bg-slate-50 border border-slate-200 text-slate-800 focus:border-blue-500'
+                  }`}
                 />
+                {editingSalesperson && !canManageTeam && (
+                  <p className="text-[11px] text-slate-500 mt-1 flex items-center space-x-1">
+                    <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Rep attribution code is locked by Admin.</span>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1117,9 +1169,21 @@ export default function SalespersonProfiles({
                   type="email"
                   placeholder="e.g. ameer@ourcompany.com"
                   value={formEmail}
+                  disabled={Boolean(editingSalesperson && !canManageTeam)}
+                  readOnly={Boolean(editingSalesperson && !canManageTeam)}
                   onChange={(e) => setFormEmail(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500"
+                  className={`w-full rounded-xl py-2 px-3 text-sm focus:outline-none ${
+                    editingSalesperson && !canManageTeam
+                      ? 'bg-slate-100 border border-slate-200 text-slate-500 cursor-not-allowed select-none'
+                      : 'bg-slate-50 border border-slate-200 text-slate-800 focus:border-blue-500'
+                  }`}
                 />
+                {editingSalesperson && !canManageTeam && (
+                  <p className="text-[11px] text-slate-500 mt-1 flex items-center space-x-1">
+                    <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Linked to login authentication.</span>
+                  </p>
+                )}
               </div>
 
               <div>
