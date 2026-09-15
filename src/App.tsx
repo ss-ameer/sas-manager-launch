@@ -43,7 +43,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin, getUserWorkspaceRole } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -488,10 +488,8 @@ export default function App() {
   const userWorkspaces = useMemo(() => {
     if (!user) return [];
 
-    // 1. Admin Workspace Dropdown Visibility:
-    // If currentUser.role === 'Admin' or currentUser.role === 'Super Admin' or is_super_admin,
-    // display ALL active workspaces in the project. Do NOT restrict the query or array filter with members.includes(user.uid).
-    if (WorkspaceRepository.isUserAdmin(user)) {
+    // For Super Admins, return ALL active workspaces so Sidebar can partition into My Workspaces and System Workspaces
+    if (isSuperAdmin(user)) {
       return (workspaces || []).filter((w) => w && w.id);
     }
 
@@ -500,6 +498,9 @@ export default function App() {
 
     return (workspaces || []).filter((w) => {
       if (!w || !w.id) return false;
+
+      // Check membership using the canonical isUserInWorkspace helper
+      if (isUserInWorkspace(user, w)) return true;
 
       // Check workspace_members collection first if available
       if (workspaceMembers && workspaceMembers.length > 0) {
@@ -519,25 +520,6 @@ export default function App() {
         });
 
         if (hasMemberDoc) return true;
-      }
-
-      // Fallback checks (for offline mode or freshly created local workspaces)
-      if (isAdmin(user, w.id, w)) return true;
-
-      if (Array.isArray(w.members)) {
-        const isMember = w.members.some(
-          (m: any) =>
-            (m.uid && m.uid === userUid) ||
-            (m.email && m.email.toLowerCase().trim() === userEmail)
-        );
-        if (isMember) return true;
-      }
-
-      if (Array.isArray(w.member_emails)) {
-        const isEmailMember = w.member_emails.some(
-          (e: string) => typeof e === 'string' && e.toLowerCase().trim() === userEmail
-        );
-        if (isEmailMember) return true;
       }
 
       return false;
@@ -1222,12 +1204,10 @@ export default function App() {
     const refs = activeUnsubscribersRef.current;
     const userEmail = (user.email || '').toLowerCase().trim();
     const userUid = user.uid;
-    const isGlobalAdmin = WorkspaceRepository.isUserAdmin(user);
+    const isGlobalSuperAdmin = isSuperAdmin(user);
 
-    if (isGlobalAdmin) {
-      // 1. Admin Workspace Dropdown Visibility:
-      // If currentUser.role === 'Admin' or currentUser.role === 'Super Admin' or is_super_admin,
-      // display ALL active workspaces in the project. Do NOT restrict the query or array filter with members.includes(user.uid).
+    if (isGlobalSuperAdmin) {
+      // Super Admin: query ALL active workspaces in the project so both My Workspaces and System Workspaces are available
       if (refs.workspaces) {
         refs.workspaces();
         refs.workspaces = null;

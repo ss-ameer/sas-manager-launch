@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { UserProfile, Workspace } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
-import { getUserWorkspaceRole } from '../utils/permissions';
+import { getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace } from '../utils/permissions';
 import {
   LayoutDashboard,
   FileText,
@@ -47,7 +47,45 @@ export default function Sidebar({
   onClose
 }: SidebarProps) {
   const userWsRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-  const isAdmin = userWsRole === 'Admin';
+  const isSuper = isSuperAdmin(user);
+  const isAdmin = isSuper || userWsRole === 'Admin';
+
+  // Partition workspaces into "My Workspaces" vs "System Workspaces (Super Admin)"
+  const { myWorkspaces, systemWorkspaces } = useMemo(() => {
+    const my: Workspace[] = [];
+    const system: Workspace[] = [];
+    const seenIds = new Set<string>();
+
+    (workspaces || []).forEach((ws) => {
+      if (!ws || !ws.id || seenIds.has(ws.id)) return;
+      seenIds.add(ws.id);
+
+      if (isUserInWorkspace(user, ws)) {
+        my.push(ws);
+      } else {
+        system.push(ws);
+      }
+    });
+
+    // Ensure activeWorkspace is represented in the list
+    if (activeWorkspace?.id && !seenIds.has(activeWorkspace.id)) {
+      if (isUserInWorkspace(user, activeWorkspace)) {
+        my.push(activeWorkspace);
+      } else {
+        if (isSuper) {
+          system.push(activeWorkspace);
+        } else {
+          my.push(activeWorkspace);
+        }
+      }
+    }
+
+    if (my.length === 0 && activeWorkspace) {
+      my.push(activeWorkspace);
+    }
+
+    return { myWorkspaces: my, systemWorkspaces: system };
+  }, [workspaces, user, activeWorkspace, isSuper]);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, role: 'Viewer' },
@@ -127,7 +165,7 @@ export default function Sidebar({
 
         <div className="relative">
           <select
-            value={activeWorkspace.id}
+            value={activeWorkspace?.id || 'ws_default'}
             onChange={(e) => {
               if (e.target.value === '__manage__') {
                 onOpenWorkspaceManager();
@@ -138,15 +176,33 @@ export default function Sidebar({
             }}
             className="w-full bg-slate-800 text-white font-bold text-xs px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none truncate pr-8"
           >
-            {workspaces.map((ws) => (
-              <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
-                {ws?.name || 'Workspace'}
-              </option>
-            ))}
-            {activeWorkspace?.id && !workspaces.some((w) => w?.id === activeWorkspace.id) && (
-              <option value={activeWorkspace.id}>
-                {activeWorkspace.name || 'Active Workspace'}
-              </option>
+            {isSuper ? (
+              <>
+                <optgroup label="My Workspaces">
+                  {myWorkspaces.map((ws) => (
+                    <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
+                      {ws?.name || 'Workspace'}
+                    </option>
+                  ))}
+                </optgroup>
+                {systemWorkspaces.length > 0 && (
+                  <optgroup label="System Workspaces (Super Admin)">
+                    {systemWorkspaces.map((ws) => (
+                      <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
+                        {ws?.name || 'Workspace'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            ) : (
+              <optgroup label="My Workspaces">
+                {myWorkspaces.map((ws) => (
+                  <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
+                    {ws?.name || 'Workspace'}
+                  </option>
+                ))}
+              </optgroup>
             )}
             <option value="__manage__">+ Manage / New Workspace...</option>
           </select>
@@ -167,7 +223,7 @@ export default function Sidebar({
             <div className="flex items-center space-x-1 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[9px] font-mono text-slate-600 capitalize bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
-                {userWsRole}
+                {isSuper ? 'Super Admin' : userWsRole}
               </span>
             </div>
           </div>
