@@ -4,7 +4,7 @@ import LeadConversionModal from './LeadConversionModal';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { getReferenceId } from '../utils/refId';
-import { canEditOrDeleteRecord } from '../utils/permissions';
+import { canEditOrDeleteRecord, canAccessActivityDetail } from '../utils/permissions';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
@@ -31,7 +31,8 @@ import {
   Copy,
   Users,
   Check,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 
 interface CallLogDetailModalProps {
@@ -82,6 +83,33 @@ export default function CallLogDetailModal({
   const { openEditCompany, openEditContact } = useEntityEdit();
 
   if (!entry) return null;
+
+  const hasAccess = canAccessActivityDetail(currentUser, entry, enquiries, activeWorkspace);
+
+  if (!hasAccess) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full border border-amber-200 dark:border-amber-800 shadow-xl text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Activity Details Restricted</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              You do not have authorization to view the detailed notes or actions for this activity log.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const canEditOrDelete = !currentUser || canEditOrDeleteRecord(currentUser, entry, activeWorkspace?.id, activeWorkspace);
 

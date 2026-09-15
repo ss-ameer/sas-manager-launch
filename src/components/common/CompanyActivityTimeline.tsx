@@ -22,7 +22,7 @@ import {
   Lock
 } from 'lucide-react';
 import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace } from '../../types';
-import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry } from '../../utils/permissions';
+import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry, canAccessActivityDetail } from '../../utils/permissions';
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
@@ -646,6 +646,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       task.purpose ||
                       'Follow-up scheduled';
                     const channelName = task.channel || task.interaction_type || (isEmailTask ? 'Email' : 'Call');
+                    const canAccessTask = canAccessActivityDetail(user, task, enquiries, activeWorkspace, salespersons);
 
                     return (
                       <div
@@ -673,17 +674,24 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                             </span>
                           </div>
 
-                          {/* 1-Click Action Launcher */}
-                          <button
-                            type="button"
-                            id={`execute-task-${task.id}`}
-                            onClick={() => handleExecuteTask(task)}
-                            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition cursor-pointer hover:shadow-sm shrink-0"
-                            title="Launch execution center for scheduled task"
-                          >
-                            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                            <span>Execute Task</span>
-                          </button>
+                          {/* 1-Click Action Launcher or Restricted Badge */}
+                          {canAccessTask ? (
+                            <button
+                              type="button"
+                              id={`execute-task-${task.id}`}
+                              onClick={() => handleExecuteTask(task)}
+                              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition cursor-pointer hover:shadow-sm shrink-0"
+                              title="Launch execution center for scheduled task"
+                            >
+                              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                              <span>Execute Task</span>
+                            </button>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1.5 shrink-0 select-none">
+                              <Lock className="w-3 h-3 shrink-0" />
+                              <span>Restricted</span>
+                            </span>
+                          )}
                         </div>
 
                         {/* Target Contact Person & Direct Phone or Email */}
@@ -729,13 +737,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                           )}
                         </div>
 
-                        {/* Interaction Intent / Follow-up Notes */}
-                        {intentText && (
-                          <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg border border-amber-200/50 dark:border-slate-700/60 leading-relaxed font-sans">
-                            <span className="font-bold text-slate-800 dark:text-slate-200 block text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-0.5">
-                              Follow-up Intent & Notes:
-                            </span>
-                            {intentText}
+                        {/* Interaction Intent / Follow-up Notes or Restricted Notes */}
+                        {canAccessTask ? (
+                          intentText && (
+                            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg border border-amber-200/50 dark:border-slate-700/60 leading-relaxed font-sans">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 block text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-0.5">
+                                Follow-up Intent & Notes:
+                              </span>
+                              {intentText}
+                            </div>
+                          )
+                        ) : (
+                          <div className="mt-2 text-xs italic text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40 flex items-center gap-1.5 font-sans select-none">
+                            <Lock className="w-3 h-3 shrink-0" />
+                            <span>[Activity notes restricted - Confidential]</span>
                           </div>
                         )}
                       </div>
@@ -799,13 +814,13 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const agentInitials = getAgentInitials(agentName);
 
               const displayNotes = log.requirement_notes || log.notes || log.followup_intent;
-              const canClick = user && salespersons ? canUserClickRecord(user, log, salespersons) : true;
+              const canAccess = canAccessActivityDetail(user, log, enquiries, activeWorkspace, salespersons);
 
               return (
                 <div
                   key={log.id}
                   onClick={() => {
-                    if (canClick) {
+                    if (canAccess) {
                       if (onSelectCallLog) {
                         onSelectCallLog(log);
                       } else {
@@ -813,10 +828,12 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       }
                     }
                   }}
-                  className={`group relative p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md transition-all duration-150 space-y-2.5 ${
-                    canClick ? 'cursor-pointer hover:border-blue-400 dark:hover:border-blue-500/80' : ''
+                  className={`group relative p-3.5 rounded-xl border transition-all duration-150 space-y-2.5 ${
+                    canAccess
+                      ? 'bg-white dark:bg-slate-800/90 border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500/80 cursor-pointer'
+                      : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 shadow-2xs cursor-default select-none'
                   }`}
-                  title="Click to view full interaction details and notes"
+                  title={canAccess ? "Click to view full interaction details and notes" : "Activity details restricted"}
                 >
                   {/* Top Bar: Relative Time, Formatted Date & Badges */}
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -828,10 +845,15 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono hidden sm:inline">
                         • {timeInfo.formatted}
                       </span>
-                      {canClick && (
+                      {canAccess ? (
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-0.5 ml-1">
                           <span>Details</span>
                           <ExternalLink className="w-2.5 h-2.5" />
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 ml-1 select-none">
+                          <Lock className="w-2.5 h-2.5 shrink-0" />
+                          <span>Restricted</span>
                         </span>
                       )}
                     </div>
@@ -918,13 +940,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     )}
                   </div>
 
-                  {/* Activity Notes Box */}
-                  {displayNotes ? (
-                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 text-xs leading-relaxed whitespace-pre-wrap">
-                      "{displayNotes}"
-                    </div>
+                  {/* Activity Notes Box or Masked Restricted Notes */}
+                  {canAccess ? (
+                    displayNotes ? (
+                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 text-xs leading-relaxed whitespace-pre-wrap font-sans">
+                        "{displayNotes}"
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">No notes recorded for this interaction.</p>
+                    )
                   ) : (
-                    <p className="text-[11px] text-slate-400 italic">No notes recorded for this interaction.</p>
+                    <div className="p-2.5 rounded-lg bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-amber-700 dark:text-amber-400 text-xs italic flex items-center gap-1.5 font-sans select-none">
+                      <Lock className="w-3 h-3 shrink-0" />
+                      <span>[Activity notes restricted - Confidential]</span>
+                    </div>
                   )}
 
                   {/* Footer: Agent Initials Avatar & Follow-up Details */}
@@ -942,17 +971,24 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     </div>
 
                     <div className="flex items-center space-x-2 shrink-0">
-                      {log.next_followup_date && (
+                      {canAccess && log.next_followup_date && (
                         <span className="inline-flex items-center space-x-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
                           <Calendar className="w-3 h-3 shrink-0" />
                           <span>Next: {formatCleanDate(log.next_followup_date)}</span>
                         </span>
                       )}
-                      {canClick && onSelectCallLog && (
-                        <div className="text-[11px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-0.5">
-                          <span>View</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </div>
+                      {canAccess ? (
+                        (onSelectCallLog || setSelectedDetailLog) && (
+                          <div className="text-[11px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-0.5">
+                            <span>View</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </div>
+                        )
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1 select-none">
+                          <Lock className="w-2.5 h-2.5 shrink-0" />
+                          <span>Restricted</span>
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1175,6 +1211,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
           contacts={contacts}
           enquiries={enquiries}
           callLogs={historyLogs}
+          activeWorkspace={activeWorkspace}
           onClose={() => setSelectedDetailLog(null)}
           onOpenCompany360={() => {
             setSelectedDetailLog(null);

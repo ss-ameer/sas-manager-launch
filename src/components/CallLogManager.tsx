@@ -5,7 +5,7 @@ import { useEntityEdit } from '../context/EntityEditContext';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { recordAuditLog } from '../utils/auditLogger';
 import { getReferenceId } from '../utils/refId';
-import { isRecordOwner, canEditOrDeleteRecord, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, getWorkspaceInitials } from '../utils/permissions';
+import { isRecordOwner, canEditOrDeleteRecord, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, getWorkspaceInitials, isAdmin, isSuperAdmin, isActivityAttributedToUser } from '../utils/permissions';
 import {
   Phone,
   PhoneCall,
@@ -855,16 +855,35 @@ export default function CallLogManager({
   }, [enquiries, activeWorkspace.id]);
 
   const workspaceCallLogs = useMemo(() => {
+    const isUserAdmin = Boolean(user && (isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace)));
+    const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
+    const userScope = user?.dataVisibilityScope || (user as any)?.data_visibility_scope;
+    const isAttributedScope =
+      wsScope === 'OWN_DATA_ONLY' ||
+      wsScope === 'ASSIGNED_ONLY' ||
+      wsScope === 'Attributed Entries Only' ||
+      userScope === 'OWN_DATA_ONLY' ||
+      userScope === 'ASSIGNED_ONLY' ||
+      userScope === 'Attributed Entries Only';
+
+    const shouldIsolate = Boolean(user && (!isUserAdmin || isAttributedScope));
+
     return (callLogs || [])
-      .filter(
-        (l) => !l.is_deleted && (l.workspace_id === activeWorkspace.id || (!l.workspace_id && activeWorkspace.id === 'ws_default'))
-      )
+      .filter((l) => {
+        if (l.is_deleted) return false;
+        const matchesWs = l.workspace_id === activeWorkspace.id || (!l.workspace_id && activeWorkspace.id === 'ws_default');
+        if (!matchesWs) return false;
+        if (shouldIsolate) {
+          return isActivityAttributedToUser(user, l, salespersons);
+        }
+        return true;
+      })
       .sort((a, b) => {
         const timeA = new Date(a.createdAt || a.date || 0).getTime();
         const timeB = new Date(b.createdAt || b.date || 0).getTime();
         return timeB - timeA;
       });
-  }, [callLogs, activeWorkspace.id]);
+  }, [callLogs, activeWorkspace, user, salespersons]);
 
   // Company and Contact Maps for DNC check
   const companyMap = useMemo(() => {

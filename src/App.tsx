@@ -43,7 +43,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -670,39 +670,17 @@ export default function App() {
   }, [workspaceEnquiries, user, activeWorkspace, dataVisibilityScope]);
 
   const visibleCallLogs = useMemo(() => {
+    const isUserAdmin = Boolean(user && (isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace)));
+    const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
     const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
-    if (!user || isAdmin(user, activeWorkspace?.id, activeWorkspace) || userScope !== 'OWN_DATA_ONLY') {
+    const effectiveScope = wsScope || userScope;
+
+    if (isUserAdmin && effectiveScope !== 'OWN_DATA_ONLY' && effectiveScope !== 'ASSIGNED_ONLY' && effectiveScope !== 'Attributed Entries Only') {
       return workspaceCallLogs;
     }
-    const userEmail = (user.email || '').toLowerCase().trim();
-    const userName = (user.full_name || user.username || '').toLowerCase().trim();
-    const currentUserInitials = (user.initials || '').toLowerCase().trim();
 
-    const matchedSalesperson = salespersons.find(
-      (s) =>
-        (s.linked_user_id && user.uid && s.linked_user_id === user.uid) ||
-        (s.email && userEmail && s.email.toLowerCase() === userEmail) ||
-        (s.full_name && userName && s.full_name.toLowerCase() === userName)
-    );
-    const currentSalespersonId = matchedSalesperson?.id;
-
-    return workspaceCallLogs.filter((l) => {
-      const spId = l.sales_person_id || l.handled_by_salesperson_id || (l as any).salesperson_id;
-      const sp = (l.sales_person || l.handled_by_team_member_name || l.salesperson || '').toLowerCase().trim();
-      const lb = (l.logged_by || l.createdBy || l.created_by || '').toLowerCase().trim();
-
-      const matchesSpId = currentSalespersonId && spId && spId === currentSalespersonId;
-      const matchesSpInitials = currentUserInitials && sp === currentUserInitials;
-      const matchesSpNameOrEmail = sp && (sp === userName || sp === userEmail);
-
-      return (
-        matchesSpId ||
-        matchesSpInitials ||
-        matchesSpNameOrEmail ||
-        (lb && (lb === userEmail || lb === userName || (currentUserInitials && lb === currentUserInitials)))
-      );
-    });
-  }, [workspaceCallLogs, user, dataVisibilityScope, salespersons]);
+    return workspaceCallLogs.filter((l) => isActivityAttributedToUser(user, l, salespersons));
+  }, [workspaceCallLogs, user, activeWorkspace, dataVisibilityScope, salespersons]);
 
   useEffect(() => { setLocalCache('omni_workspaces', workspaces); }, [workspaces]);
   useEffect(() => { 

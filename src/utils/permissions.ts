@@ -1,4 +1,4 @@
-import { UserProfile, UserRole, WorkspaceRole, Workspace, Enquiry } from '../types';
+import { UserProfile, UserRole, WorkspaceRole, Workspace, Enquiry, CallLogEntry, Salesperson } from '../types';
 
 /**
  * Normalizes an arbitrary role string to the canonical 3-tier WorkspaceRole:
@@ -1339,3 +1339,259 @@ export function isSuperAdmin(user: UserProfile | undefined | null): boolean {
   if (role === 'super admin' || role === 'superadmin' || role === 'super_admin') return true;
   return false;
 }
+
+/**
+ * Activity Authorization Helper (RBAC & Privacy Masking):
+ * Returns true if:
+ * 1. User is Admin or Super Admin
+ * 2. User logged the activity (currentUser.uid === activity.user_id or creator_id)
+ * 3. Activity rep matches user initials (activity.rep === currentUser.initials) or name
+ * 4. Activity is linked to an enquiry the user has full access to (canAccessEnquiry(currentUser, linkedEnquiry))
+ * Returns false otherwise.
+ */
+export function canAccessActivityDetail(
+  currentUser: UserProfile | undefined | null,
+  activity: CallLogEntry | any | undefined | null,
+  enquiries?: Enquiry[] | null,
+  activeWorkspace?: Workspace | any | null,
+  salespersons?: Salesperson[] | any[] | null
+): boolean {
+  if (!currentUser || !activity) return false;
+
+  // 1. SuperAdmin universal access
+  if (isSuperAdmin(currentUser)) return true;
+
+  // 2. Admin role check
+  const targetWsId = activity.workspace_id || currentUser.defaultWorkspaceId || activeWorkspace?.id;
+  const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
+  if (role === 'Admin' || isAdmin(currentUser, targetWsId, activeWorkspace)) {
+    return true;
+  }
+
+  // 3. User normalized tokens & UID
+  const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+  const currentInitials = (
+    currentUser.initials ||
+    (currentUser as any).workspace_profiles?.[targetWsId || '']?.initials ||
+    (currentUser as any).salesperson_code ||
+    ''
+  ).toUpperCase().trim();
+  const currentFullName = (currentUser.full_name || (currentUser as any).displayName || (currentUser as any).name || '').toLowerCase().trim();
+  const currentEmail = (currentUser.email || '').toLowerCase().trim();
+  const currentUsername = (currentUser.username || '').toLowerCase().trim();
+
+  // Find linked salesperson match
+  let spIds: string[] = [];
+  let spInitials: string[] = [];
+  let spNames: string[] = [];
+  if (salespersons && salespersons.length > 0) {
+    const matchedSp = salespersons.filter((s) => {
+      const sUid = String(s.linked_user_id || s.user_id || s.uid || '').toLowerCase().trim();
+      const sEmail = String(s.email || '').toLowerCase().trim();
+      const sFullName = String(s.full_name || s.name || '').toLowerCase().trim();
+      const sInitials = String(s.initials || '').toUpperCase().trim();
+      return (
+        (currentUid && sUid === currentUid) ||
+        (currentEmail && sEmail === currentEmail) ||
+        (currentFullName && sFullName === currentFullName) ||
+        (currentInitials && sInitials === currentInitials)
+      );
+    });
+    spIds = matchedSp.map((s) => String(s.id || '').toLowerCase().trim()).filter(Boolean);
+    spInitials = matchedSp.map((s) => String(s.initials || '').toUpperCase().trim()).filter(Boolean);
+    spNames = matchedSp.map((s) => String(s.full_name || s.name || '').toLowerCase().trim()).filter(Boolean);
+  }
+
+  // 4. User logged the activity (currentUser.uid === activity.user_id or creator_id)
+  const candidateUids = [
+    activity.user_id,
+    (activity as any).userId,
+    activity.creator_id,
+    (activity as any).creatorId,
+    activity.created_by_uid,
+    (activity as any).createdByUid,
+    activity.created_by_id,
+    (activity as any).createdById,
+    activity.logged_by_user_id,
+    (activity as any).loggedByUserId,
+    activity.sales_person_id,
+    activity.handled_by_salesperson_id,
+    activity.assigned_to_id,
+    (activity as any).assignedToId,
+    (activity as any).salesperson_id
+  ].map((s) => String(s || '').toLowerCase().trim()).filter(Boolean);
+
+  if (currentUid && candidateUids.includes(currentUid)) {
+    return true;
+  }
+  if (candidateUids.some((id) => spIds.includes(id))) {
+    return true;
+  }
+
+  // 5. Activity rep matches user initials (activity.rep === currentUser.initials)
+  const repTokens = [
+    activity.rep,
+    (activity as any).sales_rep,
+    (activity as any).rep_initials
+  ].map((s) => String(s || '').toUpperCase().trim()).filter(Boolean);
+
+  if (currentInitials && repTokens.some((r) => r === currentInitials)) {
+    return true;
+  }
+  if (repTokens.some((r) => spInitials.includes(r))) {
+    return true;
+  }
+
+  // 6. Activity matches user name or email
+  const nameTokens = [
+    activity.sales_person,
+    (activity as any).salesperson,
+    activity.logged_by,
+    (activity as any).createdBy,
+    (activity as any).created_by,
+    activity.handled_by_team_member_name
+  ].map((s) => String(s || '').trim()).filter(Boolean);
+
+  for (const token of nameTokens) {
+    const tokenLower = token.toLowerCase();
+    const tokenUpper = token.toUpperCase();
+    if (currentFullName && tokenLower === currentFullName) return true;
+    if (currentEmail && tokenLower === currentEmail) return true;
+    if (currentUsername && tokenLower === currentUsername) return true;
+    if (currentInitials && tokenUpper === currentInitials) return true;
+    if (spNames.includes(tokenLower)) return true;
+    if (spInitials.includes(tokenUpper)) return true;
+  }
+
+  // 7. Activity is linked to an enquiry the user has full access to (canAccessEnquiry(currentUser, linkedEnquiry))
+  const enqId = String(activity.enquiry_id || (activity as any).enquiryId || '').trim();
+  const quoteRef = String(activity.enquiry_quote_ref || (activity as any).quote_ref_no || '').trim().toLowerCase();
+
+  if ((enqId || quoteRef) && enquiries && enquiries.length > 0) {
+    const linkedEnquiry = enquiries.find((e) => {
+      if (enqId && (e.id === enqId || String((e as any).sn) === enqId)) return true;
+      if (quoteRef && (e.quote_ref_no || '').trim().toLowerCase() === quoteRef) return true;
+      return false;
+    });
+
+    if (linkedEnquiry && canAccessEnquiry(currentUser, linkedEnquiry, activeWorkspace)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Convenience helper to determine if an activity is restricted to the current user.
+ */
+export function isActivityRestricted(
+  currentUser: UserProfile | undefined | null,
+  activity: CallLogEntry | any | undefined | null,
+  enquiries?: Enquiry[] | null,
+  activeWorkspace?: Workspace | any | null,
+  salespersons?: Salesperson[] | any[] | null
+): boolean {
+  return !canAccessActivityDetail(currentUser, activity, enquiries, activeWorkspace, salespersons);
+}
+
+/**
+ * Checks whether an activity or scheduled task is attributed to (assigned to or logged by) the current user.
+ * Used for Call Center isolation between sales reps.
+ */
+export function isActivityAttributedToUser(
+  currentUser: UserProfile | undefined | null,
+  activity: CallLogEntry | any | undefined | null,
+  salespersons: any[] = []
+): boolean {
+  if (!currentUser || !activity) return false;
+
+  const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+  const targetWsId = activity.workspace_id || currentUser.defaultWorkspaceId;
+  const currentInitials = (
+    currentUser.initials ||
+    (currentUser as any).workspace_profiles?.[targetWsId || '']?.initials ||
+    (currentUser as any).salesperson_code ||
+    ''
+  ).toUpperCase().trim();
+  const currentFullName = (currentUser.full_name || (currentUser as any).displayName || (currentUser as any).name || '').toLowerCase().trim();
+  const currentEmail = (currentUser.email || '').toLowerCase().trim();
+  const currentUsername = (currentUser.username || '').toLowerCase().trim();
+
+  let spIds: string[] = [];
+  let spInitials: string[] = [];
+  let spNames: string[] = [];
+  if (salespersons && salespersons.length > 0) {
+    const matchedSp = salespersons.filter((s) => {
+      const sUid = String(s.linked_user_id || s.user_id || s.uid || '').toLowerCase().trim();
+      const sEmail = String(s.email || '').toLowerCase().trim();
+      const sFullName = String(s.full_name || s.name || '').toLowerCase().trim();
+      const sInitials = String(s.initials || '').toUpperCase().trim();
+      return (
+        (currentUid && sUid === currentUid) ||
+        (currentEmail && sEmail === currentEmail) ||
+        (currentFullName && sFullName === currentFullName) ||
+        (currentInitials && sInitials === currentInitials)
+      );
+    });
+    spIds = matchedSp.map((s) => String(s.id || '').toLowerCase().trim()).filter(Boolean);
+    spInitials = matchedSp.map((s) => String(s.initials || '').toUpperCase().trim()).filter(Boolean);
+    spNames = matchedSp.map((s) => String(s.full_name || s.name || '').toLowerCase().trim()).filter(Boolean);
+  }
+
+  // 1. UID match
+  const candidateUids = [
+    activity.user_id,
+    (activity as any).userId,
+    activity.creator_id,
+    (activity as any).creatorId,
+    activity.created_by_uid,
+    (activity as any).createdByUid,
+    activity.created_by_id,
+    (activity as any).createdById,
+    activity.logged_by_user_id,
+    (activity as any).loggedByUserId,
+    activity.sales_person_id,
+    activity.handled_by_salesperson_id,
+    activity.assigned_to_id,
+    (activity as any).assignedToId,
+    (activity as any).salesperson_id
+  ].map((s) => String(s || '').toLowerCase().trim()).filter(Boolean);
+
+  if (currentUid && candidateUids.includes(currentUid)) return true;
+  if (candidateUids.some((id) => spIds.includes(id))) return true;
+
+  // 2. Rep / Initials match
+  const candidateReps = [
+    activity.rep,
+    (activity as any).sales_rep,
+    (activity as any).rep_initials
+  ].map((s) => String(s || '').toUpperCase().trim()).filter(Boolean);
+
+  if (currentInitials && candidateReps.includes(currentInitials)) return true;
+  if (candidateReps.some((r) => spInitials.includes(r))) return true;
+
+  // 3. Name or logged_by match
+  const candidateNames = [
+    activity.sales_person,
+    (activity as any).salesperson,
+    activity.logged_by,
+    (activity as any).createdBy,
+    (activity as any).created_by,
+    activity.handled_by_team_member_name
+  ].map((s) => String(s || '').trim()).filter(Boolean);
+
+  for (const raw of candidateNames) {
+    const lower = raw.toLowerCase();
+    const upper = raw.toUpperCase();
+    if (currentFullName && lower === currentFullName) return true;
+    if (currentEmail && lower === currentEmail) return true;
+    if (currentUsername && lower === currentUsername) return true;
+    if (currentInitials && upper === currentInitials) return true;
+    if (spNames.includes(lower)) return true;
+    if (spInitials.includes(upper)) return true;
+  }
+
+  return false;
+}
+
