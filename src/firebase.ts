@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocFromServer,
   addDoc,
   setDoc,
   updateDoc,
@@ -26,10 +27,22 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   }),
-  experimentalAutoDetectLongPolling: true
+  experimentalForceLongPolling: true
 }, firebaseConfig.firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
 export const auth = getAuth();
 export const storage = getStorage(app);
+
+// Validate Connection to Firestore (Per Firebase Integration Skill)
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+testConnection();
 
 export enum OperationType {
   CREATE = 'create',
@@ -61,6 +74,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errMsg = error instanceof Error ? error.message : String(error);
   const isQuotaError = errMsg.includes('Quota limit exceeded') || errMsg.includes('quota') || errMsg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted';
   const isUnavailable = errMsg.includes('unavailable') || errMsg.includes('Could not reach Cloud Firestore backend') || errMsg.includes('Connection failed') || (error as any)?.code === 'unavailable';
+  const isPermissionError = errMsg.includes('insufficient permissions') || errMsg.includes('permission-denied') || (error as any)?.code === 'permission-denied';
 
   const errInfo: FirestoreErrorInfo = {
     error: errMsg,
@@ -79,7 +93,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
 
-  if (isQuotaError) {
+  if (isPermissionError) {
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  } else if (isQuotaError) {
     console.warn(`[Firestore Quota Exceeded - Operating in High-Speed Local Storage Mode] Operation: ${operationType}, Path: ${path}`);
   } else if (isUnavailable) {
     console.warn(`[Firestore Network Offline / Reconnecting - Operating in High-Speed Local Storage Mode] Operation: ${operationType}, Path: ${path}`);

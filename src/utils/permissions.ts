@@ -415,11 +415,11 @@ export function isRecordOwner(
   }
 
   if (sPerson) {
-    const sPersonLower = sPerson.toLowerCase();
+    const sPersonLower = sPerson.toLowerCase().trim();
     if (uInitials && sPerson === uInitials) return true;
     if (uSpCode && sPerson === uSpCode) return true;
     if (uUid && sPersonLower === uUid) return true;
-    if (uFullName && sPersonLower.includes(uFullName)) return true;
+    if (uFullName && sPersonLower === uFullName) return true;
     if (uUsername && sPersonLower === uUsername) return true;
   }
 
@@ -427,7 +427,7 @@ export function isRecordOwner(
     hBy &&
     ((uUid && hBy === uUid) ||
       (uEmail && hBy === uEmail) ||
-      (uFullName && hBy.includes(uFullName)) ||
+      (uFullName && hBy === uFullName) ||
       (uInitials && hBy === uInitials.toLowerCase()) ||
       (uUsername && hBy === uUsername))
   ) {
@@ -605,9 +605,9 @@ export function isEnquirySalesperson(
     .filter(Boolean);
 
   return salesRepNames.some((rep) => {
-    const repLower = rep.toLowerCase();
-    const repUpper = rep.toUpperCase();
-    if (userNames.some((n) => n === repLower || repLower.includes(n) || n.includes(repLower))) return true;
+    const repLower = rep.toLowerCase().trim();
+    const repUpper = rep.toUpperCase().trim();
+    if (userNames.some((n) => n === repLower)) return true;
     if (userInitials.some((init) => init === repUpper)) return true;
     if (userEmail && userEmail === repLower) return true;
     if (userUids.some((u) => u === repLower)) return true;
@@ -743,9 +743,9 @@ export function isEnquiryCollaborator(
 
 /**
  * Centralized Capability Evaluator: canEditEnquiry
- * - True for 'Admin'
- * - True for 'Member' if creator, assigned salesperson, or tagged collaborator
- * - False for 'Viewer'
+ * - True for 'Admin' or 'Super Admin'
+ * - True for 'Member' if primary rep, owner/creator, or authorized shared collaborator
+ * - False for 'Viewer' and unauthorized members
  */
 export function canEditEnquiry(
   user: UserProfile | undefined | null,
@@ -759,7 +759,14 @@ export function canEditEnquiry(
   let enquiry: Enquiry | any | null = null;
 
   if (workspaceOrEnquiry && typeof workspaceOrEnquiry === 'object') {
-    if ('sn' in workspaceOrEnquiry || 'enquiry_date' in workspaceOrEnquiry || 'company_id' in workspaceOrEnquiry) {
+    if (
+      'sn' in workspaceOrEnquiry ||
+      'enquiry_date' in workspaceOrEnquiry ||
+      'company_id' in workspaceOrEnquiry ||
+      'sales_person' in workspaceOrEnquiry ||
+      'salesperson' in workspaceOrEnquiry ||
+      'assigned_to_id' in workspaceOrEnquiry
+    ) {
       enquiry = workspaceOrEnquiry;
       workspace = enquiryOrWs && !('sn' in enquiryOrWs) ? (enquiryOrWs as Workspace) : null;
     } else {
@@ -767,29 +774,129 @@ export function canEditEnquiry(
       enquiry = enquiryOrWs;
     }
   } else if (typeof workspaceOrEnquiry === 'string') {
-    if (enquiryOrWs && typeof enquiryOrWs === 'object' && ('sn' in enquiryOrWs || 'enquiry_date' in enquiryOrWs)) {
+    if (enquiryOrWs && typeof enquiryOrWs === 'object' && ('sn' in enquiryOrWs || 'enquiry_date' in enquiryOrWs || 'company_id' in enquiryOrWs)) {
       enquiry = enquiryOrWs;
     }
   }
 
   const targetWsId = enquiry?.workspace_id || workspace?.id || user.defaultWorkspaceId;
-  const role = getUserWorkspaceRole(user, workspace || targetWsId);
+  const role = getUserWorkspaceRole(user, targetWsId, workspace);
 
   // False for 'Viewer'
   if (role === 'Viewer') return false;
 
-  // True for 'Admin'
-  if (role === 'Admin') return true;
+  // True for 'Admin' or 'Super Admin'
+  if (role === 'Admin' || isAdmin(user, targetWsId, workspace)) return true;
 
-  // 'Member' role: True if creator, assigned salesperson, or tagged collaborator
-  if (!enquiry) return true;
+  // 'Member' role: True ONLY if user is primary rep, owner/creator, or shared editor
+  if (!enquiry) return false;
 
-  return (
-    isEnquiryCreator(user, enquiry, targetWsId) ||
-    isEnquirySalesperson(user, enquiry, targetWsId) ||
-    isEnquiryCollaborator(user, enquiry, targetWsId) ||
-    isRecordOwner(user, enquiry, targetWsId)
-  );
+  const currentUid = (user.uid || (user as any).id || '').toLowerCase().trim();
+  const currentInitials = (user.initials || (user as any).workspace_profiles?.[targetWsId]?.initials || (user as any).salesperson_code || '').toUpperCase().trim();
+  const currentFullName = (user.full_name || (user as any).displayName || (user as any).name || '').toLowerCase().trim();
+  const currentEmail = (user.email || '').toLowerCase().trim();
+  const currentUsername = (user.username || '').toLowerCase().trim();
+
+  // a) currentUser.uid === enquiry.assigned_to_id OR currentUser.uid === enquiry.creator_id
+  const assignedToIds = [
+    enquiry.assigned_to_id,
+    (enquiry as any).assignedToId,
+    enquiry.salesperson_id,
+    enquiry.sales_person_id,
+    enquiry.sales_rep_id,
+    (enquiry as any).salesRepresentativeId
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  const creatorIds = [
+    enquiry.creator_id,
+    (enquiry as any).creatorId,
+    enquiry.created_by_uid,
+    (enquiry as any).createdByUid,
+    enquiry.created_by
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  if (currentUid && (assignedToIds.includes(currentUid) || creatorIds.includes(currentUid))) {
+    return true;
+  }
+
+  // b) enquiry.rep === currentUser.initials (exact match e.g. 'SN' vs 'SS')
+  const repTokens = [
+    (enquiry as any).rep,
+    enquiry.sales_person,
+    enquiry.salesperson,
+    (enquiry as any).salesRep,
+    enquiry.sales_representative
+  ]
+    .map((s) => String(s || '').toUpperCase().trim())
+    .filter(Boolean);
+
+  if (currentInitials && repTokens.some((r) => r === currentInitials)) {
+    return true;
+  }
+
+  // c) enquiry.salesperson === currentUser.full_name (exact match)
+  const salespersonNames = [
+    enquiry.salesperson,
+    enquiry.sales_person,
+    enquiry.sales_representative,
+    (enquiry as any).salesRep,
+    enquiry.assigned_to,
+    (enquiry as any).assignedTo
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  if (
+    (currentFullName && salespersonNames.some((n) => n === currentFullName)) ||
+    (currentEmail && salespersonNames.some((n) => n === currentEmail)) ||
+    (currentUsername && salespersonNames.some((n) => n === currentUsername))
+  ) {
+    return true;
+  }
+
+  // d) enquiry.shared_with?.includes(currentUser.uid)
+  const sharedUids = [
+    ...(Array.isArray(enquiry.shared_with) ? enquiry.shared_with : []),
+    ...(Array.isArray(enquiry.shared_with_uids) ? enquiry.shared_with_uids : [])
+  ]
+    .map((item: any) => {
+      if (!item) return '';
+      if (typeof item === 'string') return item.toLowerCase().trim();
+      return String(item?.uid || item?.id || '').toLowerCase().trim();
+    })
+    .filter(Boolean);
+
+  if (currentUid && sharedUids.includes(currentUid)) {
+    return true;
+  }
+
+  // Check additional_team for exact collaborator match
+  if (Array.isArray(enquiry.additional_team)) {
+    for (const item of enquiry.additional_team) {
+      if (!item) continue;
+      if (typeof item === 'string') {
+        const str = item.trim();
+        if (currentUid && str.toLowerCase() === currentUid) return true;
+        if (currentEmail && str.toLowerCase() === currentEmail) return true;
+        if (currentInitials && str.toUpperCase() === currentInitials) return true;
+      } else if (typeof item === 'object') {
+        const oUid = String(item.uid || item.id || '').toLowerCase().trim();
+        const oEmail = String(item.email || '').toLowerCase().trim();
+        const oName = String(item.name || item.full_name || '').toLowerCase().trim();
+        const oInit = String(item.initials || '').toUpperCase().trim();
+        if (currentUid && oUid === currentUid) return true;
+        if (currentEmail && (oEmail === currentEmail || oName === currentEmail)) return true;
+        if (currentFullName && oName === currentFullName) return true;
+        if (currentInitials && oInit === currentInitials) return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -842,10 +949,13 @@ export function canDeleteEnquiry(
  * Canonical Permission Evaluator: Scoped Enquiry Access Control (RBAC).
  * Enforces role-based visibility:
  * - Owners, Admins, and SuperAdmins retain universal workspace access.
- * - Standard sales reps only see enquiries they created, are assigned to as primary salesperson,
- *   or collaborate on (tagged in additional_team / shared_with_uids / shared_with_names).
- * - Edge-Case Fallback: If an enquiry has no assigned salesperson and no legacy creator metadata,
- *   allow viewing by default to prevent historical records from disappearing.
+ * - Non-Admins (Members and Viewers, or when workspace scope is 'Attributed Entries Only'):
+ *   A user has access ONLY IF:
+ *     a) currentUser.uid === enquiry.assigned_to_id OR currentUser.uid === enquiry.creator_id
+ *     b) enquiry.rep === currentUser.initials (exact match, e.g. 'SN' vs 'SS')
+ *     c) enquiry.salesperson === currentUser.full_name (exact match)
+ *     d) enquiry.shared_with?.includes(currentUser.uid)
+ *   Broad fallbacks that exposed records when IDs were missing have been removed.
  */
 export function canAccessEnquiry(
   currentUser: UserProfile | undefined | null,
@@ -862,93 +972,136 @@ export function canAccessEnquiry(
   const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId || activeWorkspace?.id;
   const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
 
-  if (role === 'Admin') {
+  // Check workspace data visibility scope setting
+  const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
+  const userScope = currentUser.dataVisibilityScope || (currentUser as any).data_visibility_scope;
+  const isAttributedScope =
+    wsScope === 'OWN_DATA_ONLY' ||
+    wsScope === 'ASSIGNED_ONLY' ||
+    wsScope === 'Attributed Entries Only' ||
+    userScope === 'OWN_DATA_ONLY' ||
+    userScope === 'ASSIGNED_ONLY';
+
+  // Admin access (when workspace is not explicitly configured for Attributed Entries Only for everyone)
+  if (role === 'Admin' && !isAttributedScope) {
     return true;
   }
 
   // 3. User normalized tokens & UID
   const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
-  const userIdentifiers = normalizeUserIdentifiers(currentUser, targetWsId);
+  const currentInitials = (currentUser.initials || (currentUser as any).workspace_profiles?.[targetWsId]?.initials || (currentUser as any).salesperson_code || '').toUpperCase().trim();
+  const currentFullName = (currentUser.full_name || (currentUser as any).displayName || (currentUser as any).name || '').toLowerCase().trim();
+  const currentEmail = (currentUser.email || '').toLowerCase().trim();
+  const currentUsername = (currentUser.username || '').toLowerCase().trim();
 
-  // 4. Primary Owner Check:
-  // Direct assigned_to_id match (canonical rule: currentUser.uid === enquiry.assigned_to_id)
-  const assignedToId = (
-    enquiry.assigned_to_id ||
-    (enquiry as any).assignedToId ||
-    enquiry.salesperson_id ||
-    enquiry.sales_person_id ||
-    enquiry.sales_rep_id ||
-    ''
-  ).toLowerCase().trim();
-  const isDirectAssigned = Boolean(currentUid && assignedToId && assignedToId === currentUid);
+  // Condition a: currentUser.uid === enquiry.assigned_to_id OR currentUser.uid === enquiry.creator_id
+  const assignedToIds = [
+    enquiry.assigned_to_id,
+    (enquiry as any).assignedToId,
+    enquiry.salesperson_id,
+    enquiry.sales_person_id,
+    enquiry.sales_rep_id,
+    (enquiry as any).salesRepresentativeId
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  // Creator & Salesperson match
-  const isCreator = isEnquiryCreator(currentUser, enquiry, targetWsId);
-  const isSalesRep = isEnquirySalesperson(currentUser, enquiry, targetWsId);
-  const isOwnerFallback = isRecordOwner(currentUser, enquiry, targetWsId);
+  const creatorIds = [
+    enquiry.creator_id,
+    (enquiry as any).creatorId,
+    enquiry.created_by_uid,
+    (enquiry as any).createdByUid,
+    enquiry.created_by
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  const isPrimaryOwner = isDirectAssigned || isCreator || isSalesRep || isOwnerFallback;
-
-  // 5. Shared Array Check:
-  // Checks if currentUser.uid is present in enquiry.shared_with (or shared_with_uids / collaborators)
-  const sharedWithList: string[] = Array.isArray(enquiry.shared_with)
-    ? enquiry.shared_with
-        .map((item: any) => (typeof item === 'string' ? item.toLowerCase().trim() : String(item?.uid || item?.id || '').toLowerCase().trim()))
-        .filter(Boolean)
-    : [];
-
-  const sharedWithUids: string[] = Array.isArray(enquiry.shared_with_uids)
-    ? enquiry.shared_with_uids
-        .map((item: any) => (typeof item === 'string' ? item.toLowerCase().trim() : String(item?.uid || item?.id || '').toLowerCase().trim()))
-        .filter(Boolean)
-    : [];
-
-  const isDirectShared = Boolean(
-    currentUid && (sharedWithList.includes(currentUid) || sharedWithUids.includes(currentUid))
-  );
-  const isCollaborator = isDirectShared || isEnquiryCollaborator(currentUser, enquiry, targetWsId);
-
-  // 6. Edge-Case Fallback:
-  // If an enquiry has no assigned salesperson, no assigned_to_id, and no creator metadata,
-  // allow viewing by default to prevent historical records from disappearing.
-  const hasSalesperson = Boolean(
-    (enquiry.salesperson && enquiry.salesperson.trim() !== '') ||
-    (enquiry.sales_person && enquiry.sales_person.trim() !== '') ||
-    (enquiry.sales_representative && enquiry.sales_representative.trim() !== '') ||
-    ((enquiry as any).salesRep && String((enquiry as any).salesRep).trim() !== '') ||
-    (enquiry.salesperson_id && enquiry.salesperson_id.trim() !== '') ||
-    (enquiry.sales_person_id && enquiry.sales_person_id.trim() !== '') ||
-    (enquiry.sales_rep_id && enquiry.sales_rep_id.trim() !== '') ||
-    ((enquiry as any).salesRepresentativeId && String((enquiry as any).salesRepresentativeId).trim() !== '') ||
-    (enquiry.assigned_to_id && enquiry.assigned_to_id.trim() !== '')
+  const isAssignedOrCreatorUidMatch = Boolean(
+    currentUid && (assignedToIds.includes(currentUid) || creatorIds.includes(currentUid))
   );
 
-  const hasCreator = Boolean(
-    (enquiry.created_by && enquiry.created_by.trim() !== '') ||
-    (enquiry.created_by_uid && enquiry.created_by_uid.trim() !== '') ||
-    ((enquiry as any).createdByUid && String((enquiry as any).createdByUid).trim() !== '') ||
-    ((enquiry as any).creator_id && String((enquiry as any).creator_id).trim() !== '') ||
-    ((enquiry as any).createdByUsername && String((enquiry as any).createdByUsername).trim() !== '') ||
-    ((enquiry as any).created_by_name && String((enquiry as any).created_by_name).trim() !== '')
+  // Condition b: enquiry.rep === currentUser.initials (e.g., 'SN' vs 'SS')
+  // Strictly exact, case-insensitive comparison
+  const repTokens = [
+    (enquiry as any).rep,
+    enquiry.sales_person,
+    enquiry.salesperson,
+    (enquiry as any).salesRep,
+    enquiry.sales_representative
+  ]
+    .map((s) => String(s || '').toUpperCase().trim())
+    .filter(Boolean);
+
+  const isRepInitialsMatch = Boolean(
+    currentInitials && repTokens.some((r) => r === currentInitials)
   );
 
-  const isEdgeCaseFallback = !hasSalesperson && !hasCreator;
+  // Condition c: enquiry.salesperson === currentUser.full_name (or email/username)
+  // Strictly exact, case-insensitive comparison
+  const salespersonNames = [
+    enquiry.salesperson,
+    enquiry.sales_person,
+    enquiry.sales_representative,
+    (enquiry as any).salesRep,
+    enquiry.assigned_to,
+    (enquiry as any).assignedTo
+  ]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
-  const result = Boolean(
-    isPrimaryOwner ||
-    isCollaborator ||
-    isEdgeCaseFallback
+  const isSalespersonNameMatch = Boolean(
+    (currentFullName && salespersonNames.some((n) => n === currentFullName)) ||
+    (currentEmail && salespersonNames.some((n) => n === currentEmail)) ||
+    (currentUsername && salespersonNames.some((n) => n === currentUsername))
   );
 
-  // Dev Diagnostic Log
-  if (
-    (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') ||
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV)
-  ) {
-    console.debug('[RBAC Check]', { enquiryId: enquiry.id, user: userIdentifiers, allowed: result });
+  // Condition d: enquiry.shared_with?.includes(currentUser.uid)
+  const sharedUids = [
+    ...(Array.isArray(enquiry.shared_with) ? enquiry.shared_with : []),
+    ...(Array.isArray(enquiry.shared_with_uids) ? enquiry.shared_with_uids : [])
+  ]
+    .map((item: any) => {
+      if (!item) return '';
+      if (typeof item === 'string') return item.toLowerCase().trim();
+      return String(item?.uid || item?.id || '').toLowerCase().trim();
+    })
+    .filter(Boolean);
+
+  // Also check additional_team for exact collaborator match
+  let isSharedInTeam = false;
+  if (Array.isArray(enquiry.additional_team)) {
+    for (const item of enquiry.additional_team) {
+      if (!item) continue;
+      if (typeof item === 'string') {
+        const str = item.trim();
+        if (currentUid && str.toLowerCase() === currentUid) isSharedInTeam = true;
+        if (currentEmail && str.toLowerCase() === currentEmail) isSharedInTeam = true;
+        if (currentInitials && str.toUpperCase() === currentInitials) isSharedInTeam = true;
+      } else if (typeof item === 'object') {
+        const oUid = String(item.uid || item.id || '').toLowerCase().trim();
+        const oEmail = String(item.email || '').toLowerCase().trim();
+        const oName = String(item.name || item.full_name || '').toLowerCase().trim();
+        const oInit = String(item.initials || '').toUpperCase().trim();
+        if (currentUid && oUid === currentUid) isSharedInTeam = true;
+        if (currentEmail && (oEmail === currentEmail || oName === currentEmail)) isSharedInTeam = true;
+        if (currentFullName && oName === currentFullName) isSharedInTeam = true;
+        if (currentInitials && oInit === currentInitials) isSharedInTeam = true;
+      }
+    }
   }
 
-  return result;
+  const isSharedMatch = Boolean(
+    (currentUid && sharedUids.includes(currentUid)) || isSharedInTeam
+  );
+
+  // Strict Evaluation: A user has access ONLY IF (a), (b), (c), or (d) matches
+  // Zero broad fallback to ensure non-owners never see records of other reps.
+  return Boolean(
+    isAssignedOrCreatorUidMatch ||
+    isRepInitialsMatch ||
+    isSalespersonNameMatch ||
+    isSharedMatch
+  );
 }
 
 /**

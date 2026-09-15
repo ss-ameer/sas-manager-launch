@@ -13,7 +13,7 @@ import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide } from '../utils/aiExtractionClient';
-import { getUserWorkspaceRole } from '../utils/permissions';
+import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import {
   FileText,
   Building,
@@ -23,6 +23,7 @@ import {
   Paperclip,
   Check,
   AlertTriangle,
+  Lock,
   HelpCircle,
   TrendingUp,
   X,
@@ -964,6 +965,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       return typeof e.sn === 'number' && e.sn >= sn;
     }).length;
   }, [enquiries, sn, enquiryToEdit, activeWorkspace]);
+
+  // Read-only state for users without edit permissions on this enquiry
+  const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+  const isReadOnly = React.useMemo(() => {
+    if (!isEditing || !enquiryToEdit) return false;
+    return !canEditEnquiry(user, activeWorkspace, enquiryToEdit);
+  }, [isEditing, enquiryToEdit, user, activeWorkspace]);
 
   // Load edit values
   useEffect(() => {
@@ -2277,6 +2285,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       return;
     }
 
+    // Zero-Trust Check: Ensure non-authorized users cannot mutate enquiries
+    if (isReadOnly) {
+      alert('Access Denied: You do not have permission to edit this enquiry.');
+      return;
+    }
+
     if (!activeWorkspace?.id) {
       alert('Critical Error: Active workspace context lost. Cannot save record.');
       throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
@@ -3080,8 +3094,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             )}
 
+            {/* Read-Only Warning Banner */}
+            {isReadOnly && (
+              <div className="bg-amber-50 dark:bg-amber-950/60 border-b border-amber-200 dark:border-amber-800 px-6 py-2.5 flex items-center justify-between text-xs text-amber-800 dark:text-amber-200 shrink-0 animate-in fade-in duration-150">
+                <div className="flex items-center space-x-2 font-medium">
+                  <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>Read-Only View: You do not have permission to modify this enquiry. All fields are locked.</span>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800 text-[10px] font-bold uppercase tracking-wider">
+                  Read Only
+                </span>
+              </div>
+            )}
+
             {/* Scrollable Form body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40">
+            <fieldset disabled={isReadOnly} className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
             
             {/* Section 1: Standard Metadata */}
             <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
@@ -4659,11 +4686,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
           )}
 
-            </div> {/* End of scrollable Form body */}
+            </fieldset> {/* End of scrollable Form body */}
 
             {/* Sticky Footer: Section 8 Save controls */}
             <div className="sticky bottom-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-4 shadow-lg flex items-center justify-between gap-3 shrink-0">
-              {enquiryToEdit ? (
+              {isReadOnly ? (
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center space-x-2 text-amber-700 dark:text-amber-400 text-xs font-semibold">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    <span>Read-Only View: Modifications cannot be saved.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : enquiryToEdit ? (
                 <>
                   <button
                     type="button"

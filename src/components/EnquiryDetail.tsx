@@ -685,16 +685,18 @@ export default function EnquiryDetail({
               <Phone className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Log Activity</span>
             </button>
-            <button
-              type="button"
-              onClick={handleCreateRevision}
-              className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
-              title="Create a new quote revision (clones line items, links, currency & value)"
-            >
-              <GitFork className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">📄 + Create Revision</span>
-              <span className="sm:hidden">Revision</span>
-            </button>
+            {canEditEnquiry(user, activeWorkspace, enquiry) && (
+              <button
+                type="button"
+                onClick={handleCreateRevision}
+                className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
+                title="Create a new quote revision (clones line items, links, currency & value)"
+              >
+                <GitFork className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">📄 + Create Revision</span>
+                <span className="sm:hidden">Revision</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setIsShareModalOpen(true)}
