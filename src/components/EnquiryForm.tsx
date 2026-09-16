@@ -8,6 +8,7 @@ import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductTy
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
+import { previewNextEnquirySequence, syncSequenceHighWaterMark } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
@@ -939,16 +940,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   // Contact list filtered by company
   const companyContacts = contacts.filter((c) => c.company_id === companyId);
 
-  // Auto-calculate suggested Quote Ref: {sn}-{DDMMYY} (only if not custom/extracted by AI)
+  // Auto-calculate suggested Quote Ref using workspace pattern or standard DDMMYY (only if not custom/extracted by AI)
   useEffect(() => {
     if (enquiryDate && sn && !enquiryToEdit && !isQuoteRefCustom) {
-      const parts = enquiryDate.split('-'); // [YYYY, MM, DD]
-      if (parts.length === 3) {
-        const formattedDate = `${parts[2]}${parts[1]}${parts[0].slice(2)}`; // DDMMYY
-        setQuoteRefNo(`${sn}-${formattedDate}`);
+      if (activeWorkspace?.id) {
+        const selectedSp = salespersons.find(
+          (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+        );
+        const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+        const parts = enquiryDate.split('-');
+        const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj)
+          .then((res) => {
+            if (res.quoteRef) {
+              setQuoteRefNo(res.quoteRef);
+            }
+          })
+          .catch(() => {
+            if (parts.length === 3) {
+              const formattedDate = `${parts[2]}${parts[1]}${parts[0].slice(2)}`;
+              setQuoteRefNo(`${sn}-${formattedDate}`);
+            }
+          });
+      } else {
+        const parts = enquiryDate.split('-'); // [YYYY, MM, DD]
+        if (parts.length === 3) {
+          const formattedDate = `${parts[2]}${parts[1]}${parts[0].slice(2)}`; // DDMMYY
+          setQuoteRefNo(`${sn}-${formattedDate}`);
+        }
       }
     }
-  }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom]);
+  }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons]);
 
   // Compute how many existing enquiries would need to shift if this S/N is submitted
   const collidingShiftCount = React.useMemo(() => {
@@ -2476,6 +2499,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
         };
 
+        if (activeWorkspace?.id && targetSn > 0) {
+          syncSequenceHighWaterMark(activeWorkspace.id, targetSn, user?.uid || 'system').catch(console.error);
+        }
+
         await logAudit(newId, 'enquiry', 'create', null, payload, []);
 
         // Instant local state update with shifted S/Ns
@@ -3797,7 +3824,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               <div id="field-quote_ref_no">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Quote Ref</MarqueeLabel>
+                <div className="flex items-center justify-between mb-1.5">
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">Quote Ref</MarqueeLabel>
+                  {!enquiryToEdit && activeWorkspace?.id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsQuoteRefCustom(false);
+                        const selectedSp = salespersons.find(
+                          (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+                        );
+                        const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+                        const parts = enquiryDate.split('-');
+                        const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+                        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj).then(res => {
+                          if (res.quoteRef) setQuoteRefNo(res.quoteRef);
+                        });
+                      }}
+                      className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1 transition"
+                      title="Generate based on workspace sequence configuration"
+                    >
+                      <Sparkles className="w-3 h-3" /> Auto Pattern
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   required

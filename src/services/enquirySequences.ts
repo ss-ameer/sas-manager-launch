@@ -182,6 +182,35 @@ export async function updateWorkspaceSequenceSettings(
 }
 
 /**
+ * Read-only preview of the next sequential enquiry S/N and Quote Ref No for a workspace.
+ * Does NOT increment or mutate Firestore counters.
+ */
+export async function previewNextEnquirySequence(
+  workspaceId: string,
+  repInitials: string = '',
+  date: Date = new Date()
+): Promise<ClaimedSequenceResult> {
+  const counters = await getWorkspaceSequenceCounters(workspaceId);
+  const periodKey = getSequencePeriodKey(counters.resetCadence, date);
+  const currentSeq = counters.sequences?.[periodKey] || 0;
+  const nextSeq = currentSeq + 1;
+  const nextSn = (counters.lastSnNumber || 0) + 1;
+
+  const quoteRef = formatPattern(counters.pattern, {
+    seq: nextSeq,
+    prefix: counters.prefix,
+    date,
+    rep: repInitials
+  });
+
+  return {
+    sn: nextSn,
+    quoteRef,
+    sequence: nextSeq
+  };
+}
+
+/**
  * Atomically claims the next sequential enquiry S/N and parsed Quote Ref No for a workspace.
  */
 export async function claimNextEnquirySequence(

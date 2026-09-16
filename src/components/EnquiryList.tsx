@@ -23,7 +23,8 @@ import {
   ChevronDown,
   Clock,
   RotateCcw,
-  CheckSquare
+  CheckSquare,
+  Hash
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { db } from '../firebase';
@@ -45,6 +46,7 @@ import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
+import { QuickClaimModal } from './QuickClaimModal';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
@@ -104,6 +106,7 @@ export default function EnquiryList({
   const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showQuickClaimModal, setShowQuickClaimModal] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -579,6 +582,15 @@ export default function EnquiryList({
               if (!next) setSelectedEnquiryIds([]);
             }
           },
+          ...(isEditable
+            ? [
+                {
+                  label: 'Claim Quote Ref',
+                  icon: Hash,
+                  onClick: () => setShowQuickClaimModal(true)
+                }
+              ]
+            : []),
           ...(isAdmin(user, activeWorkspace)
             ? [
                 {
@@ -1412,6 +1424,22 @@ export default function EnquiryList({
               `Successfully exported ${result.enquiriesCount} enquiries (${result.lineItemsCount} items) to CSV`,
               'success'
             );
+          }
+        }}
+      />
+
+      {/* Quick Claim Sequential Quote Reference Modal */}
+      <QuickClaimModal
+        isOpen={showQuickClaimModal}
+        onClose={() => setShowQuickClaimModal(false)}
+        activeWorkspace={activeWorkspace}
+        user={user}
+        salespersons={salespersons}
+        companies={companies}
+        triggerToast={triggerToast}
+        onSuccess={(claimedEnquiry) => {
+          if (onSelectEnquiry && claimedEnquiry.id) {
+            onSelectEnquiry(claimedEnquiry.id);
           }
         }}
       />

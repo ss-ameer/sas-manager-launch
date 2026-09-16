@@ -833,7 +833,36 @@ export default function SettingsHub({
 
                         {/* Format Pattern */}
                         <div className="space-y-1.5 sm:col-span-2">
-                          <label className="text-xs font-bold text-slate-700 font-sans">Format Pattern</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700 font-sans">Format Pattern</label>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400 font-sans">Presets:</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSeqPrefix('ANRW');
+                                  setSeqPattern('{PREFIX}/{MM}/{YYYY}/{SEQ}');
+                                  setSeqResetCadence('monthly');
+                                }}
+                                className="px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition"
+                                title="ANRW: {PREFIX}/{MM}/{YYYY}/{SEQ}"
+                              >
+                                ANRW Corporate
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSeqPrefix('');
+                                  setSeqPattern('{SEQ}-{DD}{MM}{YY}');
+                                  setSeqResetCadence('never');
+                                }}
+                                className="px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition"
+                                title="Aventura: {SEQ}-{DD}{MM}{YY}"
+                              >
+                                Aventura Standard
+                              </button>
+                            </div>
+                          </div>
                           <input
                             type="text"
                             value={seqPattern}
