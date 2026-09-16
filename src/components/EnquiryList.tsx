@@ -293,38 +293,43 @@ export default function EnquiryList({
     }
   };
 
-  // Determine administrative read rights defensively: Workspace Admin or Superadmin sees all workspace enquiries
+  // Determine administrative read rights: Workspace Admin or Superadmin sees all workspace enquiries
+  const currentUser = user;
   const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-  const role = (user?.role || '').trim().toLowerCase();
-  const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
-  const currentUserId = (user?.uid || (user as any)?.id || '').toLowerCase().trim();
-  const isWsOwner = Boolean(
-    (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.createdByUid && String(activeWorkspace.createdByUid).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.created_by_uid && String(activeWorkspace.created_by_uid).toLowerCase().trim() === currentUserId)
+  const currentUserId = (currentUser?.id || currentUser?.uid || '').trim();
+  const currentUserEmail = (currentUser?.email || '').trim().toLowerCase();
+
+  const isWsMemberAdmin = Boolean(
+    Array.isArray(activeWorkspace?.members) &&
+    activeWorkspace.members.some(
+      (m: any) =>
+        (m.userId === currentUser?.id ||
+          m.userId === currentUser?.uid ||
+          m.uid === currentUser?.uid ||
+          m.uid === currentUser?.id ||
+          m.id === currentUser?.id ||
+          (m.email && m.email.toLowerCase() === currentUserEmail)) &&
+        (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
+    )
   );
 
   const isWsAdmin =
-    role === 'admin' ||
-    role === 'superadmin' ||
-    wsRole === 'admin' ||
-    wsRole === 'owner' ||
-    isWsOwner ||
-    isSuperAdmin(user) ||
-    isAdmin(user, activeWorkspace?.id, activeWorkspace);
+    activeWorkspaceRole?.toLowerCase() === 'admin' ||
+    activeWorkspaceRole?.toLowerCase() === 'owner' ||
+    isWsMemberAdmin ||
+    currentUser?.role?.toLowerCase() === 'admin' ||
+    currentUser?.role?.toLowerCase() === 'superadmin' ||
+    isSuperAdmin(currentUser) ||
+    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
+    activeWorkspace?.ownerId === currentUserId ||
+    activeWorkspace?.owner_id === currentUserId;
 
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
     if (isWsAdmin) {
-      // Workspace Admins and SuperAdmins view ALL enquiries where workspaceId === activeWorkspace.id (not deleted)
-      // Do NOT filter by assignedSalesperson
-      return enquiries.filter((e) => {
-        if (e.is_deleted) return false;
-        if (!activeWorkspace?.id) return true;
-        const eWsId = e.workspace_id || (e as any).workspaceId;
-        return eWsId === activeWorkspace.id || (!eWsId && activeWorkspace.is_default);
-      });
+      // If isWsAdmin is TRUE (or if user is global admin/superadmin):
+      // Render ALL fetched enquiries in the list without filtering by assignedSalesperson
+      return enquiries.filter((e) => !e.is_deleted);
     }
     // Standard Member: strictly restrict to proposals assigned to the member or shared with their email/ID
     return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));

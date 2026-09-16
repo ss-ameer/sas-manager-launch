@@ -974,6 +974,21 @@ export function canAccessEnquiry(
   const activeWorkspaceRole = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace) || getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
   const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
   const currentUserId = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+  const currentUserEmail = (currentUser.email || '').toLowerCase().trim();
+
+  const isMemberAdmin = Boolean(
+    Array.isArray(activeWorkspace?.members) &&
+    activeWorkspace.members.some(
+      (m: any) =>
+        (m.userId === currentUser?.id ||
+          m.userId === currentUser?.uid ||
+          m.uid === currentUser?.uid ||
+          m.uid === currentUser?.id ||
+          m.id === currentUser?.id ||
+          (m.email && m.email.toLowerCase() === currentUserEmail)) &&
+        (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
+    )
+  );
 
   const isWsOwner = Boolean(
     (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
@@ -983,10 +998,13 @@ export function canAccessEnquiry(
   );
 
   const isWsAdmin =
-    role === 'admin' ||
-    role === 'superadmin' ||
+    activeWorkspaceRole?.toLowerCase() === 'admin' ||
+    activeWorkspaceRole?.toLowerCase() === 'owner' ||
     wsRole === 'admin' ||
     wsRole === 'owner' ||
+    isMemberAdmin ||
+    role === 'admin' ||
+    role === 'superadmin' ||
     isWsOwner ||
     isSuperAdmin(currentUser) ||
     isAdmin(currentUser, targetWsId, activeWorkspace) ||

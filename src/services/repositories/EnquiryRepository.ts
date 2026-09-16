@@ -95,9 +95,12 @@ export class EnquiryRepository {
 
   public static async fetchWorkspaceEnquiriesFromCloud(workspaceId: string): Promise<Enquiry[]> {
     try {
+      const activeWorkspaceId = workspaceId || 'ws_default';
+      // ALWAYS query strictly by workspace: where('workspaceId', '==', activeWorkspaceId) and where('workspace_id', '==', activeWorkspaceId)
+      // Strictly NO .where('assignedSalesperson', '==', ...) or .where('createdBy', '==', ...) clauses
       const [snap1, snap2] = await Promise.all([
-        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId)),
-        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId))
+        safeGetDocs('enquiries', where('workspace_id', '==', activeWorkspaceId)),
+        safeGetDocs('enquiries', where('workspaceId', '==', activeWorkspaceId))
       ]);
       const map = new Map<string, Enquiry>();
       if (snap1 && !snap1.empty) {
@@ -106,7 +109,7 @@ export class EnquiryRepository {
       if (snap2 && !snap2.empty) {
         snap2.docs.forEach((d) => map.set(d.id, this.docToEnquiry(d.id, d.data())));
       }
-      if (workspaceId === 'ws_default' && map.size === 0) {
+      if (activeWorkspaceId === 'ws_default' && map.size === 0) {
         const legacySnap = await safeGetDocs('enquiries', where('workspaceId', '==', 'ws_default'));
         if (legacySnap && !legacySnap.empty) {
           legacySnap.docs.forEach((d) => map.set(d.id, this.docToEnquiry(d.id, d.data())));
@@ -379,34 +382,38 @@ export class EnquiryRepository {
   ): Enquiry[] {
     if (!currentUser) return [];
     const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
-    const role = (currentUser?.role || '').trim().toLowerCase();
-    const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
-    const currentUserId = currentUser?.uid || currentUser?.id || '';
-    const isWsOwner = Boolean(
-      (activeWorkspace?.ownerId && activeWorkspace.ownerId === currentUserId) ||
-      (activeWorkspace?.owner_id && activeWorkspace.owner_id === currentUserId) ||
-      (activeWorkspace?.createdByUid && activeWorkspace.createdByUid === currentUserId) ||
-      (activeWorkspace?.created_by_uid && activeWorkspace.created_by_uid === currentUserId)
+    const currentUserId = (currentUser?.id || currentUser?.uid || '').trim();
+    const currentUserEmail = (currentUser?.email || '').trim().toLowerCase();
+
+    const isWsMemberAdmin = Boolean(
+      Array.isArray(activeWorkspace?.members) &&
+      activeWorkspace.members.some(
+        (m: any) =>
+          (m.userId === currentUser?.id ||
+            m.userId === currentUser?.uid ||
+            m.uid === currentUser?.uid ||
+            m.uid === currentUser?.id ||
+            m.id === currentUser?.id ||
+            (m.email && m.email.toLowerCase() === currentUserEmail)) &&
+          (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
+      )
     );
 
     const isWsAdmin =
-      role === 'admin' ||
-      role === 'superadmin' ||
-      wsRole === 'admin' ||
-      wsRole === 'owner' ||
-      isWsOwner ||
+      activeWorkspaceRole?.toLowerCase() === 'admin' ||
+      activeWorkspaceRole?.toLowerCase() === 'owner' ||
+      isWsMemberAdmin ||
+      currentUser?.role?.toLowerCase() === 'admin' ||
+      currentUser?.role?.toLowerCase() === 'superadmin' ||
       isSuperAdmin(currentUser) ||
-      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
+      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
+      activeWorkspace?.ownerId === currentUserId ||
+      activeWorkspace?.owner_id === currentUserId;
 
     if (isWsAdmin) {
-      // Fetch and display ALL enquiries where workspaceId === activeWorkspace.id (or default workspace)
+      // Fetch and display ALL enquiries in the active workspace
       // Do NOT filter by assignedSalesperson
-      return enquiries.filter((e) => {
-        if (e.is_deleted) return false;
-        if (!activeWorkspace?.id) return true;
-        const eWsId = e.workspace_id || (e as any).workspaceId;
-        return eWsId === activeWorkspace.id || (!eWsId && activeWorkspace.is_default);
-      });
+      return enquiries.filter((e) => !e.is_deleted);
     }
 
     // If isWsAdmin is false (standard restricted member): Filter strictly by assignedSalesperson === currentUser.id or shared enquiries

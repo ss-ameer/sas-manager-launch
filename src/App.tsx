@@ -661,6 +661,22 @@ export default function App() {
     const role = (user?.role || '').trim().toLowerCase();
     const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
     const currentUserId = (user?.uid || (user as any)?.id || '').toLowerCase().trim();
+    const currentUserEmail = (user?.email || '').toLowerCase().trim();
+
+    const isWsMemberAdmin = Boolean(
+      Array.isArray(activeWorkspace?.members) &&
+      activeWorkspace.members.some(
+        (m: any) =>
+          (m.userId === user?.id ||
+            m.userId === user?.uid ||
+            m.uid === user?.uid ||
+            m.uid === user?.id ||
+            m.id === user?.id ||
+            (m.email && m.email.toLowerCase() === currentUserEmail)) &&
+          (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
+      )
+    );
+
     const isWsOwner = Boolean(
       (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
       (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
@@ -669,10 +685,13 @@ export default function App() {
     );
 
     const isUserAdmin =
-      role === 'admin' ||
-      role === 'superadmin' ||
+      activeWorkspaceRole?.toLowerCase() === 'admin' ||
+      activeWorkspaceRole?.toLowerCase() === 'owner' ||
       wsRole === 'admin' ||
       wsRole === 'owner' ||
+      isWsMemberAdmin ||
+      role === 'admin' ||
+      role === 'superadmin' ||
       isWsOwner ||
       isSuperAdmin(user) ||
       isAdmin(user, activeWorkspace?.id, activeWorkspace);
