@@ -2531,7 +2531,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
         onClose();
       } else {
-        let finalQuoteRef = quoteRefNo.trim();
+        let finalQuoteRef = (quoteRefNo || '').trim();
         let finalSn = targetSn;
 
         if (activeWorkspace?.id) {
@@ -2550,7 +2550,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               formDate,
               {
                 targetSn: targetSn > 0 ? targetSn : undefined,
-                customQuoteRef: isQuoteRefCustom ? quoteRefNo.trim() : undefined
+                customQuoteRef: isQuoteRefCustom ? (quoteRefNo || '').trim() : undefined
               }
             );
 

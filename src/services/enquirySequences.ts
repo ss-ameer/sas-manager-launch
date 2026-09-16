@@ -164,8 +164,8 @@ export async function updateWorkspaceSequenceSettings(
       }
 
       const updatePayload: WorkspaceSequenceCounters = {
-        prefix: settings.prefix.trim(),
-        pattern: settings.pattern.trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+        prefix: (settings.prefix || '').trim(),
+        pattern: (settings.pattern || '').trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
         resetCadence: settings.resetCadence,
         lastSnNumber: updatedLastSn,
         sequences: updatedSequences,
@@ -329,7 +329,7 @@ export async function claimNextEnquirySequence(
       }
 
       let quoteRef: string;
-      if (options?.customQuoteRef && options.customQuoteRef.trim()) {
+      if (options?.customQuoteRef && typeof options.customQuoteRef === 'string' && options.customQuoteRef.trim()) {
         quoteRef = options.customQuoteRef.trim();
         const parsed = parseSequenceFromQuoteRef(quoteRef, counters.pattern);
         if (parsed && parsed >= nextSeq) {

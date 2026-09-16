@@ -136,10 +136,14 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         user?.uid || user?.id || 'system'
       );
 
-      // Find company ID if existing match
-      const matchedCompany = companies.find(
-        c => c.name.trim().toLowerCase() === companyName.trim().toLowerCase()
-      );
+      // Find company ID if existing match safely by display_name, canonical_name, or legacy name
+      const targetCompName = (companyName || '').trim().toLowerCase();
+      const matchedCompany = targetCompName
+        ? companies.find((c) => {
+            const name = (c.display_name || c.canonical_name || (c as any).name || '').trim().toLowerCase();
+            return name === targetCompName;
+          })
+        : undefined;
 
       const todayStr = new Date().toISOString().split('T')[0];
 
@@ -152,8 +156,8 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         sales_person: repInitials || selectedRep,
         sales_person_id: salespersons.find(s => ((s as any).name || s.full_name) === selectedRep)?.id || '',
         company_id: matchedCompany?.id || '',
-        company_name: companyName.trim() || 'Unassigned / TBD',
-        subject: subject.trim() || 'Quote Reference Reserved',
+        company_name: (companyName || '').trim() || matchedCompany?.display_name || matchedCompany?.canonical_name || 'Unassigned / TBD',
+        subject: (subject || '').trim() || 'Quote Reference Reserved',
         status: 'Active',
         country: 'UAE',
         project_location: '',
@@ -300,9 +304,10 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
               className="w-full px-3.5 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 dark:text-slate-100 transition"
             />
             <datalist id="quick-claim-companies">
-              {companies.map(c => (
-                <option key={c.id} value={c.name} />
-              ))}
+              {companies.map((c) => {
+                const name = c.display_name || c.canonical_name || (c as any).name || '';
+                return name ? <option key={c.id || name} value={name} /> : null;
+              })}
             </datalist>
           </div>
 
