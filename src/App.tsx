@@ -658,54 +658,37 @@ export default function App() {
   const visibleEnquiries = useMemo(() => {
     if (!user) return [];
     const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-    const role = (user?.role || '').trim().toLowerCase();
-    const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
-    const currentUserId = (user?.uid || (user as any)?.id || '').toLowerCase().trim();
-    const currentUserEmail = (user?.email || '').toLowerCase().trim();
+    const currentUserId = (user?.uid || (user as any)?.id || '').trim();
+    const currentUserEmail = (user?.email || '').trim().toLowerCase();
 
-    const isWsMemberAdmin = Boolean(
-      Array.isArray(activeWorkspace?.members) &&
-      activeWorkspace.members.some(
-        (m: any) =>
-          (m.userId === user?.id ||
-            m.userId === user?.uid ||
-            m.uid === user?.uid ||
-            m.uid === user?.id ||
-            m.id === user?.id ||
-            (m.email && m.email.toLowerCase() === currentUserEmail)) &&
-          (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
-      )
-    );
+    const roleString = (
+      activeWorkspaceRole || 
+      user?.role || 
+      (Array.isArray(activeWorkspace?.members)
+        ? activeWorkspace?.members?.find((m: any) => {
+            const mId = (m?.userId || m?.uid || m?.id || '').trim();
+            const mEmail = (m?.email || '').trim().toLowerCase();
+            return (mId && mId === currentUserId) || (mEmail && mEmail === currentUserEmail);
+          })?.role
+        : '') || 
+      ''
+    ).trim().toLowerCase();
 
-    const isWsOwner = Boolean(
-      (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
-      (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
-      (activeWorkspace?.createdByUid && String(activeWorkspace.createdByUid).toLowerCase().trim() === currentUserId) ||
-      (activeWorkspace?.created_by_uid && String(activeWorkspace.created_by_uid).toLowerCase().trim() === currentUserId)
-    );
-
-    const isUserAdmin =
-      activeWorkspaceRole?.toLowerCase() === 'admin' ||
-      activeWorkspaceRole?.toLowerCase() === 'owner' ||
-      wsRole === 'admin' ||
-      wsRole === 'owner' ||
-      isWsMemberAdmin ||
-      role === 'admin' ||
-      role === 'superadmin' ||
-      isWsOwner ||
+    const isUserAdmin = 
+      roleString === 'admin' || 
+      roleString === 'superadmin' || 
+      roleString === 'owner' || 
+      (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).trim() === currentUserId) || 
+      (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).trim() === currentUserId) ||
       isSuperAdmin(user) ||
       isAdmin(user, activeWorkspace?.id, activeWorkspace);
 
-    const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
-    const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
-    const effectiveScope = wsScope || userScope;
-
-    if (isUserAdmin && effectiveScope !== 'OWN_DATA_ONLY' && effectiveScope !== 'ASSIGNED_ONLY') {
+    if (isUserAdmin) {
       return workspaceEnquiries;
     }
 
     return workspaceEnquiries.filter((e) => canAccessEnquiry(user, e, activeWorkspace));
-  }, [workspaceEnquiries, user, activeWorkspace, dataVisibilityScope]);
+  }, [workspaceEnquiries, user, activeWorkspace]);
 
   const visibleCallLogs = useMemo(() => {
     if (!user) return [];

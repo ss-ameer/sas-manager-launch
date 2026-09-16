@@ -970,58 +970,35 @@ export function canAccessEnquiry(
 
   // 2. Owner or Admin role check via centralized Single Source of Truth
   const targetWsId = enquiry.workspace_id || (enquiry as any).workspaceId || currentUser.defaultWorkspaceId || activeWorkspace?.id;
-  const role = (currentUser?.role || '').trim().toLowerCase();
+  const currentUserId = (currentUser?.uid || (currentUser as any)?.id || '').trim();
+  const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
   const activeWorkspaceRole = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace) || getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
-  const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
-  const currentUserId = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
-  const currentUserEmail = (currentUser.email || '').toLowerCase().trim();
 
-  const isMemberAdmin = Boolean(
-    Array.isArray(activeWorkspace?.members) &&
-    activeWorkspace.members.some(
-      (m: any) =>
-        (m.userId === currentUser?.id ||
-          m.userId === currentUser?.uid ||
-          m.uid === currentUser?.uid ||
-          m.uid === currentUser?.id ||
-          m.id === currentUser?.id ||
-          (m.email && m.email.toLowerCase() === currentUserEmail)) &&
-        (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
-    )
-  );
+  const roleString = (
+    activeWorkspaceRole || 
+    currentUser?.role || 
+    (Array.isArray(activeWorkspace?.members)
+      ? activeWorkspace?.members?.find((m: any) => {
+          const mId = (m?.userId || m?.uid || m?.id || '').trim();
+          const mEmail = (m?.email || '').trim().toLowerCase();
+          return (mId && mId === currentUserId) || (mEmail && mEmail === currentUserEmail);
+        })?.role
+      : '') || 
+    ''
+  ).trim().toLowerCase();
 
-  const isWsOwner = Boolean(
-    (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.createdByUid && String(activeWorkspace.createdByUid).toLowerCase().trim() === currentUserId) ||
-    (activeWorkspace?.created_by_uid && String(activeWorkspace.created_by_uid).toLowerCase().trim() === currentUserId)
-  );
-
-  const isWsAdmin =
-    activeWorkspaceRole?.toLowerCase() === 'admin' ||
-    activeWorkspaceRole?.toLowerCase() === 'owner' ||
-    wsRole === 'admin' ||
-    wsRole === 'owner' ||
-    isMemberAdmin ||
-    role === 'admin' ||
-    role === 'superadmin' ||
-    isWsOwner ||
+  const isWsAdmin = 
+    roleString === 'admin' || 
+    roleString === 'superadmin' || 
+    roleString === 'owner' || 
+    (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).trim() === currentUserId) || 
+    (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).trim() === currentUserId) ||
     isSuperAdmin(currentUser) ||
     isAdmin(currentUser, targetWsId, activeWorkspace) ||
     isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
 
-  // Check workspace data visibility scope setting
-  const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
-  const userScope = currentUser.dataVisibilityScope || (currentUser as any).data_visibility_scope;
-  const isAttributedScope =
-    wsScope === 'OWN_DATA_ONLY' ||
-    wsScope === 'ASSIGNED_ONLY' ||
-    wsScope === 'Attributed Entries Only' ||
-    userScope === 'OWN_DATA_ONLY' ||
-    userScope === 'ASSIGNED_ONLY';
-
-  // Admin access (when workspace is not explicitly configured for Attributed Entries Only for everyone)
-  if (isWsAdmin && !isAttributedScope) {
+  // Admin access: Workspace Admins and SuperAdmins have full visibility to all workspace enquiries
+  if (isWsAdmin) {
     return true;
   }
 

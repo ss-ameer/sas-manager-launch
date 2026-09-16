@@ -168,8 +168,9 @@ export default function EnquiryList({
 
   // Format currency parts for high-hierarchy tabular display
   const getEnquiryCurrencyParts = (e: Enquiry) => {
-    const isUSD = e.currency === 'USD';
-    const val = isUSD ? (e.value_aed || 0) / 3.6725 : (e.value_aed || 0);
+    const isUSD = e?.currency === 'USD';
+    const numVal = typeof e?.value_aed === 'number' ? e.value_aed : parseFloat(String(e?.value_aed || 0)) || 0;
+    const val = isUSD ? numVal / 3.6725 : numVal;
     const prefix = isUSD ? '$' : 'AED';
     const formattedAmount = Math.round(val).toLocaleString('en-US');
     return { prefix, formattedAmount };
@@ -215,7 +216,7 @@ export default function EnquiryList({
   // Cycle lists and helpers
   const statuses = ['All', 'Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO'];
   const salespersonOptions = React.useMemo(() => {
-    return ['All', ...salespersons.map((s) => s.initials)];
+    return ['All', ...(salespersons || []).map((s) => s?.initials).filter(Boolean) as string[]];
   }, [salespersons]);
 
   const cycleStatus = () => {
@@ -237,26 +238,29 @@ export default function EnquiryList({
   const isEditable = canCreateEnquiry(user, activeWorkspace);
 
   const companyMap = React.useMemo(() => {
-    return new Map(companies.map((c) => [c.id, c.display_name]));
+    return new Map((companies || []).filter(Boolean).map((c) => [c.id, c.display_name || (c as any)?.name || '']));
   }, [companies]);
 
   const resolveCompanyForEnquiry = React.useCallback((enquiry: Enquiry): Company | undefined => {
+    if (!enquiry) return undefined;
     if (enquiry.company_id) {
-      const found = companies.find((c) => c.id === enquiry.company_id);
+      const found = (companies || []).find((c) => c && c.id === enquiry.company_id);
       if (found) return found;
     }
     const nameToMatch = (
-      companyMap.get(enquiry.company_id) ||
-      (enquiry as any).company_name ||
-      (enquiry as any).client_company ||
+      (enquiry.company_id ? companyMap.get(enquiry.company_id) : '') ||
+      (enquiry as any)?.company_name ||
+      (enquiry as any)?.client_company ||
       ''
     ).trim().toLowerCase();
 
     if (nameToMatch && nameToMatch !== 'unknown client' && nameToMatch !== 'unknown') {
-      return companies.find((c) =>
-        (c.display_name || '').trim().toLowerCase() === nameToMatch ||
-        (c.canonical_name || '').trim().toLowerCase() === nameToMatch ||
-        (c.aliases || []).some((a) => (a || '').trim().toLowerCase() === nameToMatch)
+      return (companies || []).find((c) =>
+        c && (
+          (c.display_name || '').trim().toLowerCase() === nameToMatch ||
+          (c.canonical_name || '').trim().toLowerCase() === nameToMatch ||
+          (c.aliases || []).some((a) => (a || '').trim().toLowerCase() === nameToMatch)
+        )
       );
     }
     return undefined;
@@ -296,51 +300,44 @@ export default function EnquiryList({
   // Determine administrative read rights: Workspace Admin or Superadmin sees all workspace enquiries
   const currentUser = user;
   const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-  const currentUserId = (currentUser?.id || currentUser?.uid || '').trim();
-  const currentUserEmail = (currentUser?.email || '').trim().toLowerCase();
+  const currentUserId = (currentUser?.uid || currentUser?.id || '').trim();
+  const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
 
-  const isWsMemberAdmin = Boolean(
-    Array.isArray(activeWorkspace?.members) &&
-    activeWorkspace.members.some(
-      (m: any) =>
-        (m.userId === currentUser?.id ||
-          m.userId === currentUser?.uid ||
-          m.uid === currentUser?.uid ||
-          m.uid === currentUser?.id ||
-          m.id === currentUser?.id ||
-          (m.email && m.email.toLowerCase() === currentUserEmail)) &&
-        (m.role?.toLowerCase() === 'admin' || m.role?.toLowerCase() === 'owner')
-    )
-  );
+  const roleString = (
+    activeWorkspaceRole || 
+    currentUser?.role || 
+    activeWorkspace?.members?.find(m => (m.userId === currentUserId || m.id === currentUserId || (m.email && m.email.toLowerCase() === currentUserEmail)))?.role || 
+    ''
+  ).trim().toLowerCase();
 
-  const isWsAdmin =
-    activeWorkspaceRole?.toLowerCase() === 'admin' ||
-    activeWorkspaceRole?.toLowerCase() === 'owner' ||
-    isWsMemberAdmin ||
-    currentUser?.role?.toLowerCase() === 'admin' ||
-    currentUser?.role?.toLowerCase() === 'superadmin' ||
-    isSuperAdmin(currentUser) ||
-    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
-    activeWorkspace?.ownerId === currentUserId ||
+  const isWsAdmin = 
+    roleString === 'admin' || 
+    roleString === 'superadmin' || 
+    roleString === 'owner' || 
+    activeWorkspace?.ownerId === currentUserId || 
     activeWorkspace?.owner_id === currentUserId;
+
+  console.log('[Visibility Check]', { currentUserId, roleString, isWsAdmin, totalEnquiries: enquiries?.length || 0 });
 
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
     if (isWsAdmin) {
-      // If isWsAdmin is TRUE (or if user is global admin/superadmin):
-      // Render ALL fetched enquiries in the list without filtering by assignedSalesperson
-      return enquiries.filter((e) => !e.is_deleted);
+      // Unfiltered List for Workspace Admins:
+      // Do NOT filter the enquiries list by assignedSalesperson or createdBy.
+      // The displayed list MUST include ALL proposals belonging to the active workspace (#9, #10, #11).
+      return (enquiries || []).filter((e) => e && !e.is_deleted);
     }
-    // Standard Member: strictly restrict to proposals assigned to the member or shared with their email/ID
-    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));
+    // Only apply the rep ownership filter if isWsAdmin is strictly FALSE:
+    return (enquiries || []).filter((e) => e && !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));
   }, [enquiries, user, activeWorkspace, isWsAdmin]);
 
   // Restrict salesperson dropdown options for standard reps to prevent metadata leaks
   const availableSalespersons = React.useMemo(() => {
-    if (isWsAdmin) return salespersons;
+    if (isWsAdmin) return salespersons || [];
 
     const activeReps = new Set<string>();
-    authorizedEnquiries.forEach((e) => {
+    (authorizedEnquiries || []).forEach((e) => {
+      if (!e) return;
       if (e.sales_person_id) activeReps.add(e.sales_person_id.toLowerCase().trim());
       if (e.salesperson_id) activeReps.add(e.salesperson_id.toLowerCase().trim());
       if (e.sales_rep_id) activeReps.add(e.sales_rep_id.toLowerCase().trim());
@@ -351,32 +348,36 @@ export default function EnquiryList({
       if ((e as any).salesRep) activeReps.add(String((e as any).salesRep).toLowerCase().trim());
     });
 
-    const filtered = salespersons.filter((s) => {
+    const filtered = (salespersons || []).filter((s) => {
+      if (!s) return false;
       const idMatch = s.id && activeReps.has(s.id.toLowerCase().trim());
       const initMatch = s.initials && activeReps.has(s.initials.toLowerCase().trim());
       const nameMatch = s.full_name && activeReps.has(s.full_name.toLowerCase().trim());
       return idMatch || initMatch || nameMatch;
     });
 
-    return filtered.length > 0 ? filtered : salespersons;
+    return filtered.length > 0 ? filtered : (salespersons || []);
   }, [salespersons, authorizedEnquiries, isWsAdmin]);
 
   // Filter & Sort Logic
   const filteredEnquiries = React.useMemo(() => {
-    return authorizedEnquiries
+    return (authorizedEnquiries || [])
       .filter((e) => {
+        if (!e) return false;
         // 1. Search Query
         const q = (searchInput || searchQuery || '').toLowerCase().trim();
-        const compName = (companyMap.get(e.company_id) || '').toLowerCase();
+        const compName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || '';
+        const compNameLower = String(compName).toLowerCase();
         const ref = (e.quote_ref_no || '').toLowerCase();
-        const matchText = compName.includes(q) || ref.includes(q) || (e.sn && e.sn.toString().includes(q));
+        const snStr = e.sn != null ? String(e.sn) : '';
+        const matchText = !q || compNameLower.includes(q) || ref.includes(q) || snStr.includes(q);
 
         // 2. Status
         const matchStatus = statusFilter === 'All' || e.status === statusFilter;
 
         // 3. Salesperson
         const matchRep = salesPersonFilter === 'All' || (() => {
-          const sp = salespersons.find(s => s.id === salesPersonFilter || s.initials === salesPersonFilter);
+          const sp = (salespersons || []).find(s => s && (s.id === salesPersonFilter || s.initials === salesPersonFilter));
           if (!sp) return e.sales_person === salesPersonFilter || e.salesperson === salesPersonFilter;
           return (
             e.sales_person === sp.id ||
@@ -398,11 +399,13 @@ export default function EnquiryList({
       .sort((a, b) => {
         let comparison = 0;
         if (sortField === 'sn') {
-          comparison = a.sn - b.sn;
+          comparison = (Number(a?.sn) || 0) - (Number(b?.sn) || 0);
         } else if (sortField === 'enquiry_date') {
-          comparison = a.enquiry_date.localeCompare(b.enquiry_date);
+          const dateA = a?.enquiry_date || '';
+          const dateB = b?.enquiry_date || '';
+          comparison = dateA.localeCompare(dateB);
         } else if (sortField === 'value_aed') {
-          comparison = a.value_aed - b.value_aed;
+          comparison = (Number(a?.value_aed) || 0) - (Number(b?.value_aed) || 0);
         }
         return sortAsc ? comparison : -comparison;
       });
@@ -412,7 +415,7 @@ export default function EnquiryList({
     const labels: string[] = [];
     if (statusFilter !== 'All') labels.push(`Status: ${statusFilter}`);
     if (salesPersonFilter !== 'All') {
-      const sp = salespersons.find(s => (s.id || s.initials) === salesPersonFilter);
+      const sp = (salespersons || []).find(s => s && ((s.id || s.initials) === salesPersonFilter));
       labels.push(`Rep: ${sp ? sp.full_name : salesPersonFilter}`);
     }
     if (urgencyFilter === 'Overdue') labels.push('Overdue Only');
@@ -429,12 +432,14 @@ export default function EnquiryList({
 
   // Calculate pagination details
   const totalItems = filteredEnquiries.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const pageSize = itemsPerPage === 'All' ? Math.max(totalItems, 1) : Number(itemsPerPage) || 50;
+  const totalPages = itemsPerPage === 'All' ? 1 : Math.ceil(totalItems / pageSize) || 1;
 
   const paginatedEnquiries = React.useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredEnquiries.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredEnquiries, currentPage, itemsPerPage]);
+    if (itemsPerPage === 'All') return filteredEnquiries || [];
+    const startIndex = (currentPage - 1) * pageSize;
+    return (filteredEnquiries || []).slice(startIndex, startIndex + pageSize);
+  }, [filteredEnquiries, currentPage, itemsPerPage, pageSize]);
 
   // Export Enquiries (Audited Section with Scope Selection, RFC 4180 Sanitization & Feedback)
   const handleExportCSV = () => {
@@ -695,9 +700,9 @@ export default function EnquiryList({
                 className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Reps</option>
-                {availableSalespersons.map((s, idx) => (
-                  <option key={s.id || `${s.initials}-${s.full_name}-${idx}`} value={s.id || s.initials}>
-                    {(s.initials || getInitials(s.full_name))} - {s.full_name}
+                {(availableSalespersons || []).filter(Boolean).map((s, idx) => (
+                  <option key={s.id || `${s.initials || ''}-${s.full_name || ''}-${idx}`} value={s.id || s.initials || ''}>
+                    {(s.initials || getInitials(s.full_name || ''))} - {s.full_name || 'Unnamed Rep'}
                   </option>
                 ))}
               </select>
@@ -844,8 +849,9 @@ export default function EnquiryList({
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
                 {paginatedEnquiries.map((e) => {
-                  const companyName = companyMap.get(e.company_id) || 'Unknown Client';
-                  const isChecked = selectedEnquiryIds.includes(e.id!);
+                  if (!e) return null;
+                  const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
+                  const isChecked = Boolean(e.id && selectedEnquiryIds.includes(e.id));
 
                   return (
                     <tr
@@ -897,7 +903,7 @@ export default function EnquiryList({
                                   <div className="shrink-0">
                                     <GoogleSearchButton
                                       companyName={companyName}
-                                      location={resolvedComp?.city || companies.find((c) => c.id === e.company_id)?.city}
+                                      location={resolvedComp?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
                                       size="xs"
                                     />
                                   </div>
@@ -910,7 +916,7 @@ export default function EnquiryList({
                                     temperature={resolvedComp.temperature}
                                     isDnc={resolvedComp.is_dnc}
                                     variant="compact"
-                                    companies={companies}
+                                    companies={companies || []}
                                     setCompanies={setCompanies}
                                   />
                                   <IndustryBadge company={resolvedComp} size="sm" />
@@ -927,12 +933,12 @@ export default function EnquiryList({
                       </td>
                       <td className="py-3.5 px-6 whitespace-nowrap">
                         {(() => {
-                          const sp = salespersons.find((s) => s.id === e.sales_person || s.initials === e.sales_person);
-                          const initials = sp ? (sp.initials || getInitials(sp.full_name)) : e.sales_person;
+                          const sp = (salespersons || []).find((s) => s && (s.id === e.sales_person || s.initials === e.sales_person));
+                          const initials = sp ? (sp.initials || getInitials(sp.full_name || '')) : (e.sales_person || '—');
                           return (
                             <span 
                               className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
-                              title={sp?.full_name || e.sales_person}
+                              title={sp?.full_name || e.sales_person || ''}
                             >
                               {initials}
                             </span>
