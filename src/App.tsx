@@ -658,17 +658,24 @@ export default function App() {
   const visibleEnquiries = useMemo(() => {
     if (!user) return [];
     const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-    const rawUserRole = String(user?.role || '').toLowerCase().trim();
-    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
+    const role = (user?.role || '').trim().toLowerCase();
+    const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
+    const currentUserId = (user?.uid || (user as any)?.id || '').toLowerCase().trim();
+    const isWsOwner = Boolean(
+      (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
+      (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
+      (activeWorkspace?.createdByUid && String(activeWorkspace.createdByUid).toLowerCase().trim() === currentUserId) ||
+      (activeWorkspace?.created_by_uid && String(activeWorkspace.created_by_uid).toLowerCase().trim() === currentUserId)
+    );
+
     const isUserAdmin =
+      role === 'admin' ||
+      role === 'superadmin' ||
+      wsRole === 'admin' ||
+      wsRole === 'owner' ||
+      isWsOwner ||
       isSuperAdmin(user) ||
-      isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
-      rawUserRole === 'admin' ||
-      rawUserRole === 'superadmin' ||
-      rawUserRole === 'owner' ||
-      rawWsRole === 'admin' ||
-      rawWsRole === 'superadmin' ||
-      rawWsRole === 'owner';
+      isAdmin(user, activeWorkspace?.id, activeWorkspace);
 
     const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
     const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';

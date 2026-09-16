@@ -969,23 +969,28 @@ export function canAccessEnquiry(
   if (isSuperAdmin(currentUser)) return true;
 
   // 2. Owner or Admin role check via centralized Single Source of Truth
-  const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId || activeWorkspace?.id;
-  const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
-  const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
-  const rawUserRole = String(currentUser?.role || '').toLowerCase().trim();
-  const rawWsRole = String(activeWorkspaceRole || role || '').toLowerCase().trim();
+  const targetWsId = enquiry.workspace_id || (enquiry as any).workspaceId || currentUser.defaultWorkspaceId || activeWorkspace?.id;
+  const role = (currentUser?.role || '').trim().toLowerCase();
+  const activeWorkspaceRole = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace) || getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
+  const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
+  const currentUserId = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
 
-  const canViewAll =
+  const isWsOwner = Boolean(
+    (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).toLowerCase().trim() === currentUserId) ||
+    (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).toLowerCase().trim() === currentUserId) ||
+    (activeWorkspace?.createdByUid && String(activeWorkspace.createdByUid).toLowerCase().trim() === currentUserId) ||
+    (activeWorkspace?.created_by_uid && String(activeWorkspace.created_by_uid).toLowerCase().trim() === currentUserId)
+  );
+
+  const isWsAdmin =
+    role === 'admin' ||
+    role === 'superadmin' ||
+    wsRole === 'admin' ||
+    wsRole === 'owner' ||
+    isWsOwner ||
     isSuperAdmin(currentUser) ||
     isAdmin(currentUser, targetWsId, activeWorkspace) ||
-    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
-    rawUserRole === 'admin' ||
-    rawUserRole === 'superadmin' ||
-    rawUserRole === 'owner' ||
-    rawWsRole === 'admin' ||
-    rawWsRole === 'superadmin' ||
-    rawWsRole === 'owner' ||
-    role === 'Admin';
+    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
 
   // Check workspace data visibility scope setting
   const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
@@ -998,7 +1003,7 @@ export function canAccessEnquiry(
     userScope === 'ASSIGNED_ONLY';
 
   // Admin access (when workspace is not explicitly configured for Attributed Entries Only for everyone)
-  if (canViewAll && !isAttributedScope) {
+  if (isWsAdmin && !isAttributedScope) {
     return true;
   }
 
@@ -1013,6 +1018,8 @@ export function canAccessEnquiry(
   const assignedToIds = [
     enquiry.assigned_to_id,
     (enquiry as any).assignedToId,
+    (enquiry as any).assignedSalesperson,
+    (enquiry as any).assigned_salesperson,
     enquiry.salesperson_id,
     enquiry.sales_person_id,
     enquiry.sales_rep_id,
@@ -1024,9 +1031,10 @@ export function canAccessEnquiry(
   const creatorIds = [
     enquiry.creator_id,
     (enquiry as any).creatorId,
+    enquiry.createdBy,
+    (enquiry as any).created_by,
     enquiry.created_by_uid,
-    (enquiry as any).createdByUid,
-    enquiry.created_by
+    (enquiry as any).createdByUid
   ]
     .map((s) => String(s || '').toLowerCase().trim())
     .filter(Boolean);
@@ -1039,6 +1047,8 @@ export function canAccessEnquiry(
   // Strictly exact, case-insensitive comparison
   const repTokens = [
     (enquiry as any).rep,
+    (enquiry as any).assignedSalesperson,
+    (enquiry as any).assigned_salesperson,
     enquiry.sales_person,
     enquiry.salesperson,
     (enquiry as any).salesRep,
@@ -1054,6 +1064,8 @@ export function canAccessEnquiry(
   // Condition c: enquiry.salesperson === currentUser.full_name (or email/username)
   // Strictly exact, case-insensitive comparison
   const salespersonNames = [
+    (enquiry as any).assignedSalesperson,
+    (enquiry as any).assigned_salesperson,
     enquiry.salesperson,
     enquiry.sales_person,
     enquiry.sales_representative,

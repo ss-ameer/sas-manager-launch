@@ -34,13 +34,20 @@ export class EnquiryRepository {
       : [];
 
     const assignedToId = data.assigned_to_id || data.assignedToId || data.sales_person_id || data.salesperson_id || data.created_by_uid || data.createdByUid || undefined;
-    const assignedTo = data.assigned_to || data.assignedTo || data.sales_person || data.salesperson || undefined;
+    const assignedTo = data.assigned_to || data.assignedTo || data.sales_person || data.salesperson || data.assignedSalesperson || undefined;
+    const assignedSalesperson = data.assignedSalesperson || data.sales_person || data.salesperson || data.sales_representative || undefined;
+    const workspaceId = data.workspace_id || data.workspaceId || 'ws_default';
 
     return {
       ...data,
       id: id || data.id,
+      workspace_id: workspaceId,
+      workspaceId: workspaceId,
       assigned_to_id: assignedToId,
       assigned_to: assignedTo,
+      assignedSalesperson: assignedSalesperson,
+      sales_person: data.sales_person || data.salesperson || assignedSalesperson,
+      salesperson: data.salesperson || data.sales_person || assignedSalesperson,
       shared_with: cleanUids,
       shared_with_uids: cleanUids,
       additional_team: cleanTeam,
@@ -88,16 +95,24 @@ export class EnquiryRepository {
 
   public static async fetchWorkspaceEnquiriesFromCloud(workspaceId: string): Promise<Enquiry[]> {
     try {
-      const snap = await safeGetDocs('enquiries', where('workspace_id', '==', workspaceId));
-      let docs: Enquiry[] = [];
-      if (snap && !snap.empty) {
-        docs = snap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
-      } else if (workspaceId === 'ws_default') {
+      const [snap1, snap2] = await Promise.all([
+        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId)),
+        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId))
+      ]);
+      const map = new Map<string, Enquiry>();
+      if (snap1 && !snap1.empty) {
+        snap1.docs.forEach((d) => map.set(d.id, this.docToEnquiry(d.id, d.data())));
+      }
+      if (snap2 && !snap2.empty) {
+        snap2.docs.forEach((d) => map.set(d.id, this.docToEnquiry(d.id, d.data())));
+      }
+      if (workspaceId === 'ws_default' && map.size === 0) {
         const legacySnap = await safeGetDocs('enquiries', where('workspaceId', '==', 'ws_default'));
         if (legacySnap && !legacySnap.empty) {
-          docs = legacySnap.docs.map((d) => this.docToEnquiry(d.id, d.data()));
+          legacySnap.docs.forEach((d) => map.set(d.id, this.docToEnquiry(d.id, d.data())));
         }
       }
+      const docs = Array.from(map.values());
       if (docs.length === 0) return this.getAllLocal();
       await this.saveLocalCache(docs);
       return docs;
@@ -109,8 +124,9 @@ export class EnquiryRepository {
 
   public static async save(enquiry: Enquiry, currentActiveWorkspaceId?: string): Promise<void> {
     if (currentActiveWorkspaceId) {
-      // Forcefully override and append workspace_id to mutation payload right before saving
+      // Forcefully override and append workspace_id & workspaceId to mutation payload right before saving
       enquiry.workspace_id = currentActiveWorkspaceId;
+      (enquiry as any).workspaceId = currentActiveWorkspaceId;
     }
     // 1. Optimistic write to local storage cache
     const current = await this.getAllLocal();
@@ -363,21 +379,37 @@ export class EnquiryRepository {
   ): Enquiry[] {
     if (!currentUser) return [];
     const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
-    const rawUserRole = String(currentUser?.role || '').toLowerCase().trim();
-    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
-    const canViewAll =
-      isSuperAdmin(currentUser) ||
-      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
-      rawUserRole === 'admin' ||
-      rawUserRole === 'superadmin' ||
-      rawUserRole === 'owner' ||
-      rawWsRole === 'admin' ||
-      rawWsRole === 'superadmin' ||
-      rawWsRole === 'owner';
+    const role = (currentUser?.role || '').trim().toLowerCase();
+    const wsRole = (activeWorkspaceRole || '').trim().toLowerCase();
+    const currentUserId = currentUser?.uid || currentUser?.id || '';
+    const isWsOwner = Boolean(
+      (activeWorkspace?.ownerId && activeWorkspace.ownerId === currentUserId) ||
+      (activeWorkspace?.owner_id && activeWorkspace.owner_id === currentUserId) ||
+      (activeWorkspace?.createdByUid && activeWorkspace.createdByUid === currentUserId) ||
+      (activeWorkspace?.created_by_uid && activeWorkspace.created_by_uid === currentUserId)
+    );
 
-    if (canViewAll) {
-      return enquiries;
+    const isWsAdmin =
+      role === 'admin' ||
+      role === 'superadmin' ||
+      wsRole === 'admin' ||
+      wsRole === 'owner' ||
+      isWsOwner ||
+      isSuperAdmin(currentUser) ||
+      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
+
+    if (isWsAdmin) {
+      // Fetch and display ALL enquiries where workspaceId === activeWorkspace.id (or default workspace)
+      // Do NOT filter by assignedSalesperson
+      return enquiries.filter((e) => {
+        if (e.is_deleted) return false;
+        if (!activeWorkspace?.id) return true;
+        const eWsId = e.workspace_id || (e as any).workspaceId;
+        return eWsId === activeWorkspace.id || (!eWsId && activeWorkspace.is_default);
+      });
     }
-    return enquiries.filter((e) => canAccessEnquiry(currentUser, e, activeWorkspace));
+
+    // If isWsAdmin is false (standard restricted member): Filter strictly by assignedSalesperson === currentUser.id or shared enquiries
+    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(currentUser, e, activeWorkspace));
   }
 }

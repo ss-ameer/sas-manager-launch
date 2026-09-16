@@ -352,6 +352,7 @@ export type EnquiryStatus =
 export interface Enquiry extends SoftDeleteFields {
   id?: string;
   workspace_id?: string | 'unassigned';
+  workspaceId?: string;
   sn: number;
   enquiry_date: string;
   logged_date?: string;
@@ -360,6 +361,7 @@ export interface Enquiry extends SoftDeleteFields {
   sales_person?: string; // initials (e.g. PV, NS) or display name
   salesperson_id?: string;
   salesperson?: string;
+  assignedSalesperson?: string;
   sales_rep_id?: string;
   salesRepresentativeId?: string;
   sales_representative?: string;
@@ -369,6 +371,7 @@ export interface Enquiry extends SoftDeleteFields {
   shared_with_uids?: (string | Record<string, any>)[];
   shared_with_names?: (string | Record<string, any>)[];
   created_by?: string;
+  createdBy?: string;
   created_by_uid?: string;
   creator_id?: string;
   created_by_name?: string;

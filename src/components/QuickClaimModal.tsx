@@ -148,13 +148,22 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       const todayStr = new Date().toISOString().split('T')[0];
 
       // 2. Insert minimal draft stub enquiry
+      const currentUserId = user?.uid || user?.id || 'system';
+      const repOrName = repInitials || selectedRep;
+      const spId = salespersons.find(s => ((s as any).name || s.full_name) === selectedRep)?.id || '';
+
       const stubPayload: any = {
         sn: claimed.sn,
         enquiry_date: todayStr,
         logged_date: todayStr,
         quote_ref_no: claimed.quoteRef,
-        sales_person: repInitials || selectedRep,
-        sales_person_id: salespersons.find(s => ((s as any).name || s.full_name) === selectedRep)?.id || '',
+        sales_person: repOrName,
+        salesperson: repOrName,
+        assignedSalesperson: repOrName,
+        sales_person_id: spId,
+        salesperson_id: spId,
+        assigned_to_id: spId || currentUserId,
+        assigned_to: repOrName,
         company_id: matchedCompany?.id || '',
         company_name: (companyName || '').trim() || matchedCompany?.display_name || matchedCompany?.canonical_name || 'Unassigned / TBD',
         subject: (subject || '').trim() || 'Quote Reference Reserved',
@@ -166,9 +175,13 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         currency: 'AED',
         line_items: [],
         workspace_id: activeWorkspace.id,
+        workspaceId: activeWorkspace.id,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        createdByUid: user?.uid || user?.id || 'system',
+        createdBy: currentUserId,
+        created_by: currentUserId,
+        createdByUid: currentUserId,
+        created_by_uid: currentUserId,
         createdByUsername: user?.name || user?.email || 'User'
       };
 
