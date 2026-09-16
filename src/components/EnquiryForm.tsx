@@ -8,7 +8,7 @@ import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductTy
 import { db } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
-import { previewNextEnquirySequence, syncSequenceHighWaterMark } from '../services/enquirySequences';
+import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
@@ -972,6 +972,46 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
     }
   }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons]);
+
+  // Live Next Sequence Resolution: On mount for new enquiries, fetch fresh counters from Firestore
+  useEffect(() => {
+    if (!enquiryToEdit && activeWorkspace?.id) {
+      let isMounted = true;
+      getWorkspaceSequenceCounters(activeWorkspace.id)
+        .then((counters) => {
+          if (!isMounted) return;
+          const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
+          const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+          const periodKey = getSequencePeriodKey(counters.resetCadence, dateObj);
+          const calculatedNextSn = (counters.lastSnNumber || 0) + 1;
+          const calculatedNextSeq = (counters.sequences?.[periodKey] || 0) + 1;
+
+          // If S/N is unset or default, update to live nextSn
+          setSn((prev) => (prev <= 1 || prev === nextSn ? calculatedNextSn : prev));
+
+          if (!isQuoteRefCustom) {
+            const selectedSp = salespersons.find(
+              (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+            );
+            const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+            const liveRef = formatPattern(counters.pattern, {
+              seq: calculatedNextSeq,
+              prefix: counters.prefix,
+              date: dateObj,
+              rep: repInitials
+            });
+            setQuoteRefNo(liveRef);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch live workspace sequence counters:', err);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [enquiryToEdit, activeWorkspace?.id]);
 
   // Compute how many existing enquiries would need to shift if this S/N is submitted
   const collidingShiftCount = React.useMemo(() => {
@@ -2491,19 +2531,62 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
         onClose();
       } else {
-        const res = await safeAddDoc('enquiries', payload);
+        let finalQuoteRef = quoteRefNo.trim();
+        let finalSn = targetSn;
+
+        if (activeWorkspace?.id) {
+          try {
+            const selectedSp = salespersons.find(
+              (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+            );
+            const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+            const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
+            const formDate = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+
+            const claimed = await claimNextEnquirySequence(
+              activeWorkspace.id,
+              repInitials,
+              user?.uid || 'system',
+              formDate,
+              {
+                targetSn: targetSn > 0 ? targetSn : undefined,
+                customQuoteRef: isQuoteRefCustom ? quoteRefNo.trim() : undefined
+              }
+            );
+
+            if (!isQuoteRefCustom && claimed.quoteRef) {
+              finalQuoteRef = claimed.quoteRef;
+            }
+            if (claimed.sn) {
+              finalSn = claimed.sn;
+            }
+          } catch (seqErr) {
+            console.warn('Atomic sequence claim failed, syncing high-water mark:', seqErr);
+            syncSequenceHighWaterMark(
+              activeWorkspace.id,
+              targetSn,
+              user?.uid || 'system',
+              finalQuoteRef,
+              enquiryDate ? new Date(enquiryDate) : new Date()
+            ).catch(console.error);
+          }
+        }
+
+        const finalPayload = {
+          ...payload,
+          sn: finalSn,
+          quote_ref_no: finalQuoteRef
+        };
+
+        const res = await safeAddDoc('enquiries', finalPayload);
         const newId = res?.id || ('enq_' + Date.now());
         const newDoc: Enquiry = { 
           id: newId, 
-          ...payload,
+          ...finalPayload,
           attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
         };
 
-        if (activeWorkspace?.id && targetSn > 0) {
-          syncSequenceHighWaterMark(activeWorkspace.id, targetSn, user?.uid || 'system').catch(console.error);
-        }
-
-        await logAudit(newId, 'enquiry', 'create', null, payload, []);
+        await logAudit(newId, 'enquiry', 'create', null, finalPayload, []);
 
         // Instant local state update with shifted S/Ns
         if (setEnquiries) {
@@ -2519,10 +2602,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
 
         if (triggerToast) {
-          triggerToast(`Enquiry #${targetSn} registered successfully${shiftNotice}.`, 'success');
+          triggerToast(`Enquiry #${finalSn} registered successfully${shiftNotice}.`, 'success');
         }
         if (submitModeRef.current === 'another') {
-          resetForm(Number(sn) + 1);
+          resetForm(Number(finalSn) + 1);
         } else {
           onClose();
         }

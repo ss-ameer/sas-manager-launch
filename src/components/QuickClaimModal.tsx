@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Hash, Sparkles, User, Building, FileText, CheckCircle2, Loader2 } from 'lucide-react';
 import { Company, Salesperson, Workspace, Enquiry } from '../types';
-import { previewNextEnquirySequence, claimNextEnquirySequence } from '../services/enquirySequences';
+import { previewNextEnquirySequence, claimNextEnquirySequence, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
 import { safeAddDoc } from '../firebase';
 
 interface QuickClaimModalProps {
@@ -59,24 +59,46 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
     }
   }, [isOpen, user, salespersons]);
 
-  // Update preview when rep or workspace changes
+  // Live Next Sequence Resolution: On mount, fetch fresh counters from Firestore
   useEffect(() => {
     if (!isOpen || !activeWorkspace?.id) return;
 
     let isMounted = true;
     setIsLoadingPreview(true);
 
-    previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date())
-      .then(res => {
-        if (isMounted) {
-          setPreviewRef(res.quoteRef);
-          setPreviewSn(res.sn);
-          setIsLoadingPreview(false);
-        }
+    getWorkspaceSequenceCounters(activeWorkspace.id)
+      .then((counters) => {
+        if (!isMounted) return;
+        const now = new Date();
+        const periodKey = getSequencePeriodKey(counters.resetCadence, now);
+        const nextSn = (counters.lastSnNumber || 0) + 1;
+        const nextSeq = (counters.sequences?.[periodKey] || 0) + 1;
+
+        const liveQuoteRef = formatPattern(counters.pattern, {
+          seq: nextSeq,
+          prefix: counters.prefix,
+          date: now,
+          rep: repInitials
+        });
+
+        setPreviewRef(liveQuoteRef);
+        setPreviewSn(nextSn);
+        setIsLoadingPreview(false);
       })
-      .catch(err => {
-        console.error('Error previewing next sequence:', err);
-        if (isMounted) setIsLoadingPreview(false);
+      .catch((err) => {
+        console.error('Error fetching live sequence counters:', err);
+        // Fallback to previewNextEnquirySequence
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date())
+          .then(res => {
+            if (isMounted) {
+              setPreviewRef(res.quoteRef);
+              setPreviewSn(res.sn);
+              setIsLoadingPreview(false);
+            }
+          })
+          .catch(() => {
+            if (isMounted) setIsLoadingPreview(false);
+          });
       });
 
     return () => {

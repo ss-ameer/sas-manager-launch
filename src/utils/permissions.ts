@@ -971,6 +971,21 @@ export function canAccessEnquiry(
   // 2. Owner or Admin role check via centralized Single Source of Truth
   const targetWsId = enquiry.workspace_id || currentUser.defaultWorkspaceId || activeWorkspace?.id;
   const role = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace);
+  const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
+  const rawUserRole = String(currentUser?.role || '').toLowerCase().trim();
+  const rawWsRole = String(activeWorkspaceRole || role || '').toLowerCase().trim();
+
+  const canViewAll =
+    isSuperAdmin(currentUser) ||
+    isAdmin(currentUser, targetWsId, activeWorkspace) ||
+    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
+    rawUserRole === 'admin' ||
+    rawUserRole === 'superadmin' ||
+    rawUserRole === 'owner' ||
+    rawWsRole === 'admin' ||
+    rawWsRole === 'superadmin' ||
+    rawWsRole === 'owner' ||
+    role === 'Admin';
 
   // Check workspace data visibility scope setting
   const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
@@ -983,7 +998,7 @@ export function canAccessEnquiry(
     userScope === 'ASSIGNED_ONLY';
 
   // Admin access (when workspace is not explicitly configured for Attributed Entries Only for everyone)
-  if (role === 'Admin' && !isAttributedScope) {
+  if (canViewAll && !isAttributedScope) {
     return true;
   }
 

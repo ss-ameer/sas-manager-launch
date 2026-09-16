@@ -39,6 +39,7 @@ import {
   canDeleteEnquiry,
   canExportData,
   isAdmin,
+  isSuperAdmin,
   getUserWorkspaceRole
 } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
@@ -292,21 +293,33 @@ export default function EnquiryList({
     }
   };
 
+  // Determine administrative read rights: Workspace Admin or Superadmin sees all workspace enquiries
+  const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+  const rawUserRole = String(user?.role || '').toLowerCase().trim();
+  const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
+  const canViewAll =
+    isSuperAdmin(user) ||
+    isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
+    rawUserRole === 'admin' ||
+    rawUserRole === 'superadmin' ||
+    rawUserRole === 'owner' ||
+    rawWsRole === 'admin' ||
+    rawWsRole === 'superadmin' ||
+    rawWsRole === 'owner';
+
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
+    if (canViewAll) {
+      // Workspace Admins and SuperAdmins view ALL enquiries belonging to the workspace (not deleted)
+      return enquiries.filter((e) => !e.is_deleted);
+    }
+    // Standard Member: strictly restrict to proposals assigned to the member or shared with their email/ID
     return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));
-  }, [enquiries, user, activeWorkspace]);
+  }, [enquiries, user, activeWorkspace, canViewAll]);
 
   // Restrict salesperson dropdown options for standard reps to prevent metadata leaks
   const availableSalespersons = React.useMemo(() => {
-    const isGlobalAdmin =
-      user?.role === 'Admin' ||
-      user?.role === 'admin' ||
-      user?.role === 'Owner' ||
-      user?.role === 'owner' ||
-      user?.role === 'SuperAdmin' ||
-      user?.is_super_admin;
-    if (isGlobalAdmin) return salespersons;
+    if (canViewAll) return salespersons;
 
     const activeReps = new Set<string>();
     authorizedEnquiries.forEach((e) => {
@@ -328,7 +341,7 @@ export default function EnquiryList({
     });
 
     return filtered.length > 0 ? filtered : salespersons;
-  }, [salespersons, authorizedEnquiries, user]);
+  }, [salespersons, authorizedEnquiries, canViewAll]);
 
   // Filter & Sort Logic
   const filteredEnquiries = React.useMemo(() => {

@@ -657,7 +657,19 @@ export default function App() {
   // Apply Role & Data Visibility Scope Filters (Admin & Super Admin see everything; Non-Admin sees filtered by owner or shared_with)
   const visibleEnquiries = useMemo(() => {
     if (!user) return [];
-    const isUserAdmin = isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
+    const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+    const rawUserRole = String(user?.role || '').toLowerCase().trim();
+    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
+    const isUserAdmin =
+      isSuperAdmin(user) ||
+      isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
+      rawUserRole === 'admin' ||
+      rawUserRole === 'superadmin' ||
+      rawUserRole === 'owner' ||
+      rawWsRole === 'admin' ||
+      rawWsRole === 'superadmin' ||
+      rawWsRole === 'owner';
+
     const wsScope = (activeWorkspace as any)?.data_visibility_scope || (activeWorkspace as any)?.dataVisibilityScope;
     const userScope = user?.dataVisibilityScope || dataVisibilityScope || 'ALL_DATA';
     const effectiveScope = wsScope || userScope;
@@ -670,8 +682,20 @@ export default function App() {
   }, [workspaceEnquiries, user, activeWorkspace, dataVisibilityScope]);
 
   const visibleCallLogs = useMemo(() => {
-    // Super Admins and Admins ALWAYS bypass attribution filters and see all workspace logs
-    const isUserAdmin = Boolean(user && (isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace)));
+    if (!user) return [];
+    const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+    const rawUserRole = String(user?.role || '').toLowerCase().trim();
+    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
+    const isUserAdmin =
+      isSuperAdmin(user) ||
+      isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
+      rawUserRole === 'admin' ||
+      rawUserRole === 'superadmin' ||
+      rawUserRole === 'owner' ||
+      rawWsRole === 'admin' ||
+      rawWsRole === 'superadmin' ||
+      rawWsRole === 'owner';
+
     if (isUserAdmin) {
       return workspaceCallLogs;
     }

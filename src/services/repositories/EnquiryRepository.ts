@@ -3,7 +3,7 @@ import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
-import { canAccessEnquiry, isAdmin, isSuperAdmin } from '../../utils/permissions';
+import { canAccessEnquiry, isAdmin, isSuperAdmin, getUserWorkspaceRole } from '../../utils/permissions';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -362,7 +362,20 @@ export class EnquiryRepository {
     activeWorkspace?: any
   ): Enquiry[] {
     if (!currentUser) return [];
-    if (isSuperAdmin(currentUser) || isAdmin(currentUser, activeWorkspace?.id, activeWorkspace)) {
+    const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
+    const rawUserRole = String(currentUser?.role || '').toLowerCase().trim();
+    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
+    const canViewAll =
+      isSuperAdmin(currentUser) ||
+      isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
+      rawUserRole === 'admin' ||
+      rawUserRole === 'superadmin' ||
+      rawUserRole === 'owner' ||
+      rawWsRole === 'admin' ||
+      rawWsRole === 'superadmin' ||
+      rawWsRole === 'owner';
+
+    if (canViewAll) {
       return enquiries;
     }
     return enquiries.filter((e) => canAccessEnquiry(currentUser, e, activeWorkspace));
