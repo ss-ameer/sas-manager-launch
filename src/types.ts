@@ -605,3 +605,35 @@ export const CATEGORY_SUGGESTED_ATTRIBUTES: Record<string, string[]> = {
   'Various': ['Brand / Make', 'Model/Specification'],
   'Other': ['Brand / Make', 'Specification']
 };
+
+/**
+ * Workspace Quote Numbering & Dynamic Sequence Types
+ * Document path: workspaces/{workspaceId}/system/counters
+ */
+export type SequenceResetCadence = 'never' | 'monthly' | 'yearly';
+
+export interface WorkspaceSequenceCounters {
+  prefix: string; // e.g. "ANRW" or ""
+  pattern: string; // e.g. "{PREFIX}/{MM}/{YYYY}/{SEQ}" or "{SEQ}-{DD}{MM}{YY}"
+  resetCadence: SequenceResetCadence; // 'never' | 'monthly' | 'yearly'
+  lastSnNumber: number; // Global sequential counter (S/N)
+  sequences: {
+    [periodKey: string]: number; // e.g. "2026-09": 1222 or "global": 142
+  };
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface SequenceFormatTokens {
+  seq: number;
+  prefix?: string;
+  date?: Date;
+  rep?: string;
+}
+
+export interface ClaimedSequenceResult {
+  sn: number;
+  quoteRef: string;
+  sequence: number;
+}
+

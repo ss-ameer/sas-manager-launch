@@ -32,7 +32,10 @@ import {
   FolderTree,
   Save,
   Info,
-  Check
+  Check,
+  Hash,
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
@@ -44,6 +47,12 @@ import { isWorkspaceAdmin, getUserRoleInWorkspace, getUserWorkspaceRole, canMana
 import { clearAllLocalStores } from '../services/db';
 import { backfillMissingWorkspaceIds } from '../utils/migration';
 import {
+  formatPattern,
+  getWorkspaceSequenceCounters,
+  updateWorkspaceSequenceSettings,
+  getSequencePeriodKey
+} from '../services/enquirySequences';
+import {
   UserProfile,
   Company,
   Contact,
@@ -54,7 +63,9 @@ import {
   Invite,
   CallLogEntry,
   Workspace,
-  AuditLog
+  AuditLog,
+  SequenceResetCadence,
+  WorkspaceSequenceCounters
 } from '../types';
 import DropdownSettingsManager from './DropdownSettingsManager';
 import InviteManager from './InviteManager';
@@ -191,6 +202,79 @@ export default function SettingsHub({
   const [wsEnquiriesEnabled, setWsEnquiriesEnabled] = useState(activeWorkspace?.modules?.enquiriesEnabled !== false);
   const [wsCallLogEnabled, setWsCallLogEnabled] = useState(activeWorkspace?.modules?.callLogEnabled !== false);
   const [savingWs, setSavingWs] = useState(false);
+
+  // Quote Numbering & Dynamic Sequence Settings State
+  const [seqPrefix, setSeqPrefix] = useState('');
+  const [seqPattern, setSeqPattern] = useState('{PREFIX}/{MM}/{YYYY}/{SEQ}');
+  const [seqResetCadence, setSeqResetCadence] = useState<SequenceResetCadence>('monthly');
+  const [seqNextSnBaseline, setSeqNextSnBaseline] = useState<string>('1');
+  const [seqNextSeqBaseline, setSeqNextSeqBaseline] = useState<string>('1');
+  const [loadingSeqCounters, setLoadingSeqCounters] = useState(false);
+  const [savingSeqCounters, setSavingSeqCounters] = useState(false);
+  const [currentPeriodKey, setCurrentPeriodKey] = useState('global');
+
+  useEffect(() => {
+    if (activeWorkspace?.id) {
+      setLoadingSeqCounters(true);
+      const periodKey = getSequencePeriodKey(seqResetCadence, new Date());
+      setCurrentPeriodKey(periodKey);
+
+      getWorkspaceSequenceCounters(activeWorkspace.id)
+        .then((counters) => {
+          setSeqPrefix(counters.prefix || '');
+          setSeqPattern(counters.pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}');
+          setSeqResetCadence(counters.resetCadence || 'monthly');
+          // Baseline inputs represent the NEXT number to be generated:
+          const nextSn = (counters.lastSnNumber || 0) + 1;
+          const pKey = getSequencePeriodKey(counters.resetCadence || 'monthly', new Date());
+          setCurrentPeriodKey(pKey);
+          const currentPeriodSeq = counters.sequences?.[pKey] || 0;
+          const nextSeq = currentPeriodSeq + 1;
+
+          setSeqNextSnBaseline(String(nextSn));
+          setSeqNextSeqBaseline(String(nextSeq));
+        })
+        .catch((err) => {
+          console.error('Failed to load workspace sequence counters:', err);
+        })
+        .finally(() => {
+          setLoadingSeqCounters(false);
+        });
+    }
+  }, [activeWorkspace?.id]);
+
+  // Update currentPeriodKey whenever cadence changes
+  useEffect(() => {
+    setCurrentPeriodKey(getSequencePeriodKey(seqResetCadence, new Date()));
+  }, [seqResetCadence]);
+
+  const handleSaveSequenceSettings = async () => {
+    if (!activeWorkspace?.id || !isAdmin) return;
+    setSavingSeqCounters(true);
+    try {
+      const parsedSnBaseline = parseInt(seqNextSnBaseline.trim(), 10);
+      const parsedSeqBaseline = parseInt(seqNextSeqBaseline.trim(), 10);
+
+      await updateWorkspaceSequenceSettings(
+        activeWorkspace.id,
+        {
+          prefix: seqPrefix.trim(),
+          pattern: seqPattern.trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+          resetCadence: seqResetCadence,
+          nextSnBaseline: isNaN(parsedSnBaseline) ? undefined : parsedSnBaseline,
+          nextSeqBaseline: isNaN(parsedSeqBaseline) ? undefined : parsedSeqBaseline
+        },
+        user?.uid || user?.email || 'admin'
+      );
+
+      if (triggerToast) triggerToast('Sequence format and counter baseline saved successfully!', 'success');
+    } catch (err: any) {
+      console.error('Failed to save sequence settings:', err);
+      if (triggerToast) triggerToast('Failed to save sequence settings: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setSavingSeqCounters(false);
+    }
+  };
 
   useEffect(() => {
     if (activeWorkspace) {
@@ -704,6 +788,146 @@ export default function SettingsHub({
                       </span>
                     ))}
                   </div>
+                </div>
+
+                {/* Quote Numbering & Sequence Format Section (Admin Only) */}
+                <div className="p-5 bg-gradient-to-br from-slate-50 to-blue-50/40 border border-blue-200/80 rounded-2xl space-y-5 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-100 pb-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-2">
+                        <Hash className="w-4 h-4 text-blue-600" />
+                        <span>Quote Numbering & Sequence Format</span>
+                      </h4>
+                      <p className="text-xs text-slate-500 font-sans mt-0.5">
+                        Configure workspace-specific reference formats, continuous or periodic resetting cadences, and baseline counters.
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-md text-[10px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-200 shrink-0 self-start sm:self-auto">
+                      Period: {currentPeriodKey}
+                    </span>
+                  </div>
+
+                  {loadingSeqCounters ? (
+                    <div className="py-6 flex items-center justify-center space-x-2 text-xs text-slate-500 font-sans">
+                      <RotateCcw className="w-4 h-4 animate-spin text-blue-600" />
+                      <span>Loading sequence configuration...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* Prefix */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-700 font-sans flex items-center justify-between">
+                            <span>Prefix</span>
+                            <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={seqPrefix}
+                            onChange={(e) => setSeqPrefix(e.target.value.toUpperCase())}
+                            placeholder="e.g. ANRW"
+                            className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                          />
+                          <p className="text-[11px] text-slate-400 font-sans">Leave blank if quotes do not use a corporate prefix.</p>
+                        </div>
+
+                        {/* Format Pattern */}
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <label className="text-xs font-bold text-slate-700 font-sans">Format Pattern</label>
+                          <input
+                            type="text"
+                            value={seqPattern}
+                            onChange={(e) => setSeqPattern(e.target.value)}
+                            placeholder="e.g. {PREFIX}/{MM}/{YYYY}/{SEQ}"
+                            className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-[11px] text-slate-400 font-sans">
+                            Tokens: <code className="font-mono text-blue-700 font-semibold">{'{PREFIX}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{SEQ}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{DD}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{MM}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YYYY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{REP}'}</code>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Live Format Preview */}
+                      {(() => {
+                        const previewSeq = parseInt(seqNextSeqBaseline.trim(), 10) || 1;
+                        const previewText = formatPattern(seqPattern, {
+                          seq: previewSeq,
+                          prefix: seqPrefix,
+                          date: new Date(),
+                          rep: 'AM'
+                        });
+                        return (
+                          <div className="p-3 bg-white border border-blue-200 rounded-xl flex items-center justify-between shadow-2xs">
+                            <div className="flex items-center space-x-2">
+                              <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                              <span className="text-xs font-bold text-slate-700 font-sans">Live Format Preview:</span>
+                            </div>
+                            <span className="font-mono text-xs font-extrabold text-blue-800 bg-blue-50 px-3 py-1 rounded-lg border border-blue-200">
+                              {previewText || 'No Pattern Defined'}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                        {/* Reset Cadence */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-700 font-sans">Sequence Reset Cadence</label>
+                          <select
+                            value={seqResetCadence}
+                            onChange={(e) => setSeqResetCadence(e.target.value as SequenceResetCadence)}
+                            className="w-full px-3.5 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-sans"
+                          >
+                            <option value="never">Never (Continuous)</option>
+                            <option value="monthly">Monthly Reset</option>
+                            <option value="yearly">Yearly Reset</option>
+                          </select>
+                          <p className="text-[11px] text-slate-400 font-sans">When the sequence counter resets to baseline.</p>
+                        </div>
+
+                        {/* Next S/N Baseline */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-700 font-sans">Next S/N Baseline</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={seqNextSnBaseline}
+                            onChange={(e) => setSeqNextSnBaseline(e.target.value)}
+                            placeholder="e.g. 1242"
+                            className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-[11px] text-slate-400 font-sans">Global serial integer assigned to the next quote.</p>
+                        </div>
+
+                        {/* Next Sequence Number */}
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-700 font-sans">Next Sequence Number</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={seqNextSeqBaseline}
+                            onChange={(e) => setSeqNextSeqBaseline(e.target.value)}
+                            placeholder="e.g. 142"
+                            className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-[11px] text-slate-400 font-sans">Current period sequence assigned to {'{SEQ}'}.</p>
+                        </div>
+                      </div>
+
+                      {/* Sequence Save Button */}
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveSequenceSettings}
+                          disabled={savingSeqCounters}
+                          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-2 cursor-pointer"
+                        >
+                          <Save className={`w-3.5 h-3.5 ${savingSeqCounters ? 'animate-spin' : ''}`} />
+                          <span>{savingSeqCounters ? 'Saving Settings...' : 'Save Sequence Settings'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Save Bar */}
