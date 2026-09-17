@@ -55,6 +55,7 @@ import {
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { isTaskPending, TaskService } from '../services/taskService';
 import { getReferenceId } from '../utils/refId';
 import {
   CHANNELS,
@@ -537,13 +538,37 @@ export default function LiveExecutionModal({
       let resolved: CallLogEntry[] = [];
 
       if (queueProp && queueProp.length > 0) {
-        resolved = [...queueProp];
+        resolved = queueProp.filter((entry) => {
+          if (entry.is_deleted) return false;
+          const s = (entry.status || '').toLowerCase().trim();
+          if (
+            s === 'superseded' ||
+            s === 'cancelled' ||
+            s === 'canceled' ||
+            s === 'completed' ||
+            s === 'completed log' ||
+            s.startsWith('completed')
+          ) {
+            return false;
+          }
+          return isTaskPending(entry);
+        });
       } else {
         // Fallback: derive strictly filtered queue (Overdue + Due Today only, upcoming strictly excluded)
         const eligible = (callLogs || []).filter((entry) => {
+          if (entry.is_deleted) return false;
           const s = (entry.status || '').toLowerCase().trim();
-          const isSched = s === 'scheduled' || s === 'scheduled / planned' || s === 'scheduled / draft' || s.startsWith('scheduled');
-          if (!isSched) return false;
+          if (
+            s === 'superseded' ||
+            s === 'cancelled' ||
+            s === 'canceled' ||
+            s === 'completed' ||
+            s === 'completed log' ||
+            s.startsWith('completed')
+          ) {
+            return false;
+          }
+          if (!isTaskPending(entry)) return false;
           const isDnc = Boolean((entry as any).is_dnc || (entry as any).dnc);
           if (isDnc) return false;
 
@@ -583,6 +608,19 @@ export default function LiveExecutionModal({
           resolved = [task, ...resolved];
         }
       }
+
+      // Enforce Single Active Pending Task invariant per company in activeQueue
+      const companyMapQueue = new Map<string, CallLogEntry>();
+      const unlinkedQueue: CallLogEntry[] = [];
+      for (const item of resolved) {
+        const cId = item.company_id?.trim();
+        if (!cId) {
+          unlinkedQueue.push(item);
+        } else if (!companyMapQueue.has(cId)) {
+          companyMapQueue.set(cId, item);
+        }
+      }
+      resolved = [...Array.from(companyMapQueue.values()), ...unlinkedQueue];
 
       let startIdx = 0;
       if (typeof initialIndex === 'number' && initialIndex >= 0 && initialIndex < resolved.length) {
@@ -1580,6 +1618,55 @@ export default function LiveExecutionModal({
         mode: 'execute'
       });
 
+      // Synchronize in-memory company state
+      if (setCompanies && currentTask.company_id) {
+        const nextDate = spawnedFollowUpTask
+          ? spawnedFollowUpTask.next_followup_date || spawnedFollowUpTask.date
+          : null;
+        const finalNext = nextDate && nextDate.trim() !== '' ? nextDate.trim() : null;
+
+        setCompanies((prev) =>
+          prev.map((c) =>
+            c.id === currentTask.company_id
+              ? {
+                  ...c,
+                  lastContactedAt: nowIso,
+                  lastContactedChannel: currentChannel as any,
+                  lastContactedBy: userName,
+                  nextFollowUpAt: finalNext,
+                  last_contacted_at: nowIso,
+                  next_followup_at: finalNext,
+                  updatedAt: nowIso
+                }
+              : c
+          )
+        );
+      }
+
+      // Synchronize in-memory call logs state (and mark superseded tasks)
+      if (setCallLogs) {
+        setCallLogs((prev) =>
+          prev.map((l) => {
+            if (l.id === updatedTaskRecord.id) return updatedTaskRecord;
+            if (
+              spawnedFollowUpTask &&
+              l.company_id === currentTask.company_id &&
+              l.id !== spawnedFollowUpTask.id &&
+              l.id !== updatedTaskRecord.id &&
+              isTaskPending(l)
+            ) {
+              return {
+                ...l,
+                status: 'superseded' as CallStatus,
+                outcome: 'Superseded by new follow-up',
+                updatedAt: nowIso
+              };
+            }
+            return l;
+          })
+        );
+      }
+
       // Step 3: Trigger onCompleteTask and onSuccess callbacks
       if (onCompleteTask) {
         onCompleteTask(updatedTaskRecord, advanceToNext);
@@ -1682,6 +1769,24 @@ export default function LiveExecutionModal({
       await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
       await CallLogRepository.save(updatedTaskRecord);
 
+      if (currentTask.company_id) {
+        const finalNext = finalRescheduleDate && finalRescheduleDate.trim() !== '' ? finalRescheduleDate.trim() : null;
+        await CompanyRepository.updateCompany(currentTask.company_id, {
+          nextFollowUpAt: finalNext,
+          next_followup_at: finalNext,
+          updatedAt: nowIso
+        });
+        if (setCompanies) {
+          setCompanies((prev) =>
+            prev.map((c) =>
+              c.id === currentTask.company_id
+                ? { ...c, nextFollowUpAt: finalNext, next_followup_at: finalNext, updatedAt: nowIso }
+                : c
+            )
+          );
+        }
+      }
+
       if (onRescheduleTask) {
         onRescheduleTask(updatedTaskRecord, finalRescheduleDate, rescheduleReason);
       }
@@ -1740,6 +1845,19 @@ export default function LiveExecutionModal({
       await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
       await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
       await CallLogRepository.save(updatedTaskRecord);
+
+      if (currentTask.company_id) {
+        await TaskService.clearCompanyNextFollowUp(currentTask.company_id);
+        if (setCompanies) {
+          setCompanies((prev) =>
+            prev.map((c) =>
+              c.id === currentTask.company_id
+                ? { ...c, nextFollowUpAt: null, next_followup_at: null, updatedAt: nowIso }
+                : c
+            )
+          );
+        }
+      }
 
       if (onCancelTask) {
         onCancelTask(updatedTaskRecord, reasonText);

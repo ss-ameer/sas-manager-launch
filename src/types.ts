@@ -159,6 +159,12 @@ export interface Company extends SoftDeleteFields {
   search_terms?: string[];
   isInternalCompany?: boolean;
   linkedWorkspaceId?: string;
+  lastContactedAt?: string | null;
+  lastContactedChannel?: string | null;
+  lastContactedBy?: string | null;
+  nextFollowUpAt?: string | null;
+  last_contacted_at?: string | null;
+  next_followup_at?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -71,6 +71,8 @@ import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { isSuccessStatus } from '../utils/activityLogic';
 import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
+import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { isTaskPending, TaskService } from '../services/taskService';
 
 export function getOffsetDateString(offsetDays: number): string {
   const d = new Date();
@@ -312,11 +314,64 @@ export default function CallLogManager({
         return updatedList;
       });
     }
+    if (savedLog.company_id && setCompanies) {
+      const nowIso = new Date().toISOString();
+      const nextDate = spawnedLog
+        ? spawnedLog.next_followup_date || spawnedLog.date
+        : isTaskPending(savedLog)
+        ? savedLog.next_followup_date || savedLog.date
+        : null;
+      const finalNext = nextDate && nextDate.trim() !== '' ? nextDate.trim() : null;
+
+      setCompanies((prev) =>
+        prev.map((c) =>
+          c.id === savedLog.company_id
+            ? {
+                ...c,
+                lastContactedAt: nowIso,
+                lastContactedChannel: savedLog.channel || 'Phone Call',
+                lastContactedBy: savedLog.sales_person || savedLog.logged_by || 'User',
+                nextFollowUpAt: finalNext,
+                last_contacted_at: nowIso,
+                next_followup_at: finalNext,
+                updatedAt: nowIso
+              }
+            : c
+        )
+      );
+    }
   };
 
   const handleCompleteTaskFromModal = async (completedTask: CallLogEntry, advanceToNext: boolean) => {
     try {
       await CallLogRepository.save(completedTask);
+      if (completedTask.company_id) {
+        await TaskService.syncCompanyMasterOnInteraction({
+          companyId: completedTask.company_id,
+          interactionChannel: completedTask.channel || 'Phone Call',
+          userIdOrInitials: completedTask.sales_person || completedTask.logged_by || 'User',
+          nextFollowUpDate: null
+        });
+        if (setCompanies) {
+          const nowIso = new Date().toISOString();
+          setCompanies((prev) =>
+            prev.map((c) =>
+              c.id === completedTask.company_id
+                ? {
+                    ...c,
+                    lastContactedAt: nowIso,
+                    lastContactedChannel: completedTask.channel || 'Phone Call',
+                    lastContactedBy: completedTask.sales_person || completedTask.logged_by || 'User',
+                    nextFollowUpAt: null,
+                    last_contacted_at: nowIso,
+                    next_followup_at: null,
+                    updatedAt: nowIso
+                  }
+                : c
+            )
+          );
+        }
+      }
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
       }
@@ -329,6 +384,29 @@ export default function CallLogManager({
   const handleRescheduleTaskFromModal = async (rescheduledTask: CallLogEntry, newDate: string, notes?: string) => {
     try {
       await CallLogRepository.save(rescheduledTask);
+      if (rescheduledTask.company_id) {
+        const nowIso = new Date().toISOString();
+        const finalNext = newDate && newDate.trim() !== '' ? newDate.trim() : null;
+        await CompanyRepository.updateCompany(rescheduledTask.company_id, {
+          nextFollowUpAt: finalNext,
+          next_followup_at: finalNext,
+          updatedAt: nowIso
+        });
+        if (setCompanies) {
+          setCompanies((prev) =>
+            prev.map((c) =>
+              c.id === rescheduledTask.company_id
+                ? {
+                    ...c,
+                    nextFollowUpAt: finalNext,
+                    next_followup_at: finalNext,
+                    updatedAt: nowIso
+                  }
+                : c
+            )
+          );
+        }
+      }
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
       }
@@ -341,6 +419,24 @@ export default function CallLogManager({
   const handleCancelTaskFromModal = async (cancelledTask: CallLogEntry, reason?: string) => {
     try {
       await CallLogRepository.save(cancelledTask);
+      if (cancelledTask.company_id) {
+        await TaskService.clearCompanyNextFollowUp(cancelledTask.company_id);
+        if (setCompanies) {
+          const nowIso = new Date().toISOString();
+          setCompanies((prev) =>
+            prev.map((c) =>
+              c.id === cancelledTask.company_id
+                ? {
+                    ...c,
+                    nextFollowUpAt: null,
+                    next_followup_at: null,
+                    updatedAt: nowIso
+                  }
+                : c
+            )
+          );
+        }
+      }
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
       }
@@ -988,28 +1084,66 @@ export default function CallLogManager({
   // Date helper
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // All Scheduled Queue Items (Scheduled status, NOT DNC suppressed)
+  // All Scheduled Queue Items (Active Pending tasks only, Single Pending Task per company invariant, NOT DNC suppressed)
   const allScheduledQueueItems = useMemo(() => {
-    return workspaceCallLogs
-      .filter((entry) => {
-        if (!['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(entry.status)) return false;
-        if (isEntrySuppressedByDNC(entry)) return false; // Hard DNC Suppression
-        return true;
-      })
-      .sort((a, b) => {
-        // Overdue first (isTaskOverdue)
-        const dateA = a.next_followup_date || a.date;
-        const dateB = b.next_followup_date || b.date;
-        const isAOverdue = isTaskOverdue(dateA);
-        const isBOverdue = isTaskOverdue(dateB);
-        if (isAOverdue && !isBOverdue) return -1;
-        if (!isAOverdue && isBOverdue) return 1;
+    // 1. Filter only active pending tasks (excluding superseded, cancelled, completed)
+    const pendingTasks = workspaceCallLogs.filter((entry) => {
+      if (entry.is_deleted) return false;
+      const s = (entry.status || '').toLowerCase().trim();
+      if (
+        s === 'superseded' ||
+        s === 'cancelled' ||
+        s === 'canceled' ||
+        s === 'completed' ||
+        s === 'completed log' ||
+        s.startsWith('completed')
+      ) {
+        return false;
+      }
+      if (!isTaskPending(entry)) return false;
+      if (isEntrySuppressedByDNC(entry)) return false; // Hard DNC Suppression
+      return true;
+    });
 
-        const timeA = parseTaskScheduledDate(dateA)?.getTime() || 0;
-        const timeB = parseTaskScheduledDate(dateB)?.getTime() || 0;
-        return timeA - timeB;
-      });
-  }, [workspaceCallLogs, companyMap, contactMap]);
+    // 2. Enforce Single Active Pending Task per company invariant in queue query
+    const companyPendingMap = new Map<string, CallLogEntry>();
+    const unlinkedTasks: CallLogEntry[] = [];
+
+    for (const task of pendingTasks) {
+      const companyId = task.company_id?.trim();
+      if (!companyId) {
+        unlinkedTasks.push(task);
+        continue;
+      }
+      const existing = companyPendingMap.get(companyId);
+      if (!existing) {
+        companyPendingMap.set(companyId, task);
+      } else {
+        // Deterministic deduplication: pick the primary pending task (earliest scheduled date)
+        const dateExisting = parseTaskScheduledDate(existing.next_followup_date || existing.date)?.getTime() || 0;
+        const dateNew = parseTaskScheduledDate(task.next_followup_date || task.date)?.getTime() || 0;
+        if (dateNew > 0 && (dateExisting === 0 || dateNew < dateExisting)) {
+          companyPendingMap.set(companyId, task);
+        }
+      }
+    }
+
+    const deduplicatedTasks = [...Array.from(companyPendingMap.values()), ...unlinkedTasks];
+
+    // 3. Sort: overdue first, then chronological
+    return deduplicatedTasks.sort((a, b) => {
+      const dateA = a.next_followup_date || a.date;
+      const dateB = b.next_followup_date || b.date;
+      const isAOverdue = isTaskOverdue(dateA);
+      const isBOverdue = isTaskOverdue(dateB);
+      if (isAOverdue && !isBOverdue) return -1;
+      if (!isAOverdue && isBOverdue) return 1;
+
+      const timeA = parseTaskScheduledDate(dateA)?.getTime() || 0;
+      const timeB = parseTaskScheduledDate(dateB)?.getTime() || 0;
+      return timeA - timeB;
+    });
+  }, [workspaceCallLogs, companyMap, contactMap, isEntrySuppressedByDNC]);
 
   // Filtered Queue Items by timeframe toggle & date sort
   const queueTimeframeItems = useMemo(() => {
@@ -1137,14 +1271,10 @@ export default function CallLogManager({
   const [fastContactPhone, setFastContactPhone] = useState<string>('');
 
   // Strict Queue Filtering: Overdue + Due Today Only, Upcoming tasks strictly excluded
+  // Inherits Single Active Pending Task deduplication and pending-status filtering from allScheduledQueueItems
   // Sorted deterministically: Overdue tasks first (oldest to newest), followed by Today's tasks chronologically
   const getStrictExecutionQueue = useCallback((): CallLogEntry[] => {
-    const eligible = workspaceCallLogs.filter((entry) => {
-      const s = (entry.status || '').toLowerCase().trim();
-      const isSched = s === 'scheduled' || s === 'scheduled / planned' || s === 'scheduled / draft' || s.startsWith('scheduled');
-      if (!isSched) return false;
-      if (isEntrySuppressedByDNC(entry)) return false;
-
+    const eligible = allScheduledQueueItems.filter((entry) => {
       const dateStr = entry.next_followup_date || entry.date;
       // Exclude all items where scheduled date is in the future
       if (isTaskUpcoming(dateStr)) return false;
@@ -1178,7 +1308,7 @@ export default function CallLogManager({
     });
 
     return [...overdueTasks, ...todayTasks];
-  }, [workspaceCallLogs, isEntrySuppressedByDNC]);
+  }, [allScheduledQueueItems]);
 
   const openFastQueueLogger = (entry: CallLogEntry) => {
     const strictQueue = getStrictExecutionQueue();

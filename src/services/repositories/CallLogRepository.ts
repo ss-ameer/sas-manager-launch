@@ -1,9 +1,10 @@
 import { writeBatch, doc, deleteField, where } from 'firebase/firestore';
 import { db, cleanUndefined, safeGetDocs, safeSetDoc, safeUpdateDoc } from '../../firebase';
-import { ActivityLogEntry, Company, Contact } from '../../types';
+import { ActivityLogEntry, CallStatus, Company, Contact } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { CompanyRepository } from './CompanyRepository';
+import { isTaskPending } from '../taskService';
 
 export interface ConvertLeadParams {
   entry: ActivityLogEntry;
@@ -85,12 +86,85 @@ export class ActivityLogRepository {
       throw new Error('[CallLogRepository] Missing interaction or interaction.id');
     }
 
+    const current = await this.getAllLocal();
+    const nowIso = new Date().toISOString();
+
+    const targetCompanyId = (followupTask && followupTask.company_id) || interaction.company_id;
+    const targetWorkspaceId =
+      (followupTask && (followupTask.workspace_id || (followupTask as any).workspaceId)) ||
+      interaction.workspace_id ||
+      (interaction as any).workspaceId ||
+      'ws_default';
+
+    // 1. Enforce "Single Active Pending Task" Invariant per company in workspace
+    const supersededTasks: ActivityLogEntry[] = [];
+    if (targetCompanyId) {
+      const isSchedulingNewFollowup = Boolean(followupTask && followupTask.id && isTaskPending(followupTask));
+      const isCreatingNewPendingTask = mode === 'create' && isTaskPending(interaction);
+
+      if (isSchedulingNewFollowup || isCreatingNewPendingTask) {
+        const activeTaskId = isSchedulingNewFollowup ? followupTask!.id : interaction.id;
+        const priorPending = (current || []).filter((item) => {
+          if (!item.id || item.id === interaction.id || (followupTask && item.id === followupTask.id)) {
+            return false;
+          }
+          if (item.company_id !== targetCompanyId) return false;
+          if (
+            targetWorkspaceId &&
+            item.workspace_id &&
+            item.workspace_id !== targetWorkspaceId &&
+            targetWorkspaceId !== 'ws_default'
+          ) {
+            return false;
+          }
+          return isTaskPending(item);
+        });
+
+        for (const pt of priorPending) {
+          const noteAppend = activeTaskId
+            ? `[Superseded by follow-up task ${activeTaskId}]`
+            : '[Superseded by newly scheduled task]';
+          const existingNotes = pt.requirement_notes || '';
+          supersededTasks.push({
+            ...pt,
+            status: 'superseded' as CallStatus,
+            outcome: 'Superseded by new follow-up',
+            requirement_notes: existingNotes.trim() ? `${existingNotes}\n${noteAppend}` : noteAppend,
+            updatedAt: nowIso
+          });
+        }
+      }
+    }
+
+    // 2. Compute Company Master document synchronization payload
+    let companyUpdates: Partial<Company> | null = null;
+    if (targetCompanyId) {
+      const nextDate =
+        followupTask && (followupTask.next_followup_date || followupTask.date)
+          ? followupTask.next_followup_date || followupTask.date
+          : isTaskPending(interaction)
+          ? interaction.next_followup_date || interaction.date
+          : null;
+
+      const finalNextFollowUpAt = nextDate && nextDate.trim() !== '' ? nextDate.trim() : null;
+
+      companyUpdates = {
+        lastContactedAt: nowIso,
+        lastContactedChannel: interaction.channel || interaction.interaction_type || 'Phone Call',
+        lastContactedBy: interaction.sales_person || interaction.logged_by || interaction.last_modified_by_name || 'User',
+        nextFollowUpAt: finalNextFollowUpAt,
+        last_contacted_at: nowIso,
+        next_followup_at: finalNextFollowUpAt,
+        updatedAt: nowIso
+      };
+    }
+
     // Atomic writeBatch to Firestore
     let batchCommitted = false;
     try {
       const batch = writeBatch(db);
 
-      // 1. Interaction Document
+      // A. Interaction Document
       const actRef = doc(db, 'activity_logs', interaction.id);
       const callRef = doc(db, 'call_logs', interaction.id);
       const cleanedInteraction = cleanUndefined(interaction);
@@ -103,7 +177,7 @@ export class ActivityLogRepository {
         batch.set(callRef, cleanedInteraction);
       }
 
-      // 2. Follow-Up Task Document (Atomic write in same batch - exactly ONE write execution)
+      // B. Follow-Up Task Document (Atomic write in same batch - exactly ONE write execution)
       if (followupTask && followupTask.id) {
         const fupActRef = doc(db, 'activity_logs', followupTask.id);
         const fupCallRef = doc(db, 'call_logs', followupTask.id);
@@ -111,6 +185,22 @@ export class ActivityLogRepository {
 
         batch.set(fupActRef, cleanedFollowup);
         batch.set(fupCallRef, cleanedFollowup);
+      }
+
+      // C. Prior Pending Tasks marked as superseded
+      for (const st of supersededTasks) {
+        if (!st.id) continue;
+        const supActRef = doc(db, 'activity_logs', st.id);
+        const supCallRef = doc(db, 'call_logs', st.id);
+        const cleanedSup = cleanUndefined(st);
+        batch.set(supActRef, cleanedSup, { merge: true });
+        batch.set(supCallRef, cleanedSup, { merge: true });
+      }
+
+      // D. Company Master Document Update
+      if (targetCompanyId && companyUpdates) {
+        const compRef = doc(db, 'companies', targetCompanyId);
+        batch.set(compRef, cleanUndefined(companyUpdates), { merge: true });
       }
 
       await batch.commit();
@@ -133,10 +223,23 @@ export class ActivityLogRepository {
         await safeSetDoc('activity_logs', followupTask.id, followupTask);
         await safeSetDoc('call_logs', followupTask.id, followupTask);
       }
+
+      for (const st of supersededTasks) {
+        if (!st.id) continue;
+        await safeSetDoc('activity_logs', st.id, st, { merge: true });
+        await safeSetDoc('call_logs', st.id, st, { merge: true });
+      }
+
+      if (targetCompanyId && companyUpdates) {
+        try {
+          await safeSetDoc('companies', targetCompanyId, companyUpdates, { merge: true });
+        } catch (e) {
+          console.warn('[CallLogRepository] safeSetDoc failed for company update:', e);
+        }
+      }
     }
 
     // Update Local Cache atomically
-    const current = await this.getAllLocal();
     let updated = [...current];
 
     // Upsert interaction
@@ -157,7 +260,25 @@ export class ActivityLogRepository {
       }
     }
 
+    // Update superseded tasks in local cache and enqueue in sync engine
+    if (supersededTasks.length > 0) {
+      const supMap = new Map(supersededTasks.map((s) => [s.id, s]));
+      updated = updated.map((item) => (supMap.has(item.id) ? supMap.get(item.id)! : item));
+
+      for (const st of supersededTasks) {
+        if (st.id) {
+          await syncEngine.enqueue('activity_logs', 'set', st.id, st);
+          await syncEngine.enqueue('call_logs', 'set', st.id, st);
+        }
+      }
+    }
+
     await this.saveLocalCache(updated);
+
+    // Synchronize local Company repository cache
+    if (targetCompanyId && companyUpdates) {
+      await CompanyRepository.updateCompany(targetCompanyId, companyUpdates);
+    }
 
     return { interaction, followupTask };
   }
