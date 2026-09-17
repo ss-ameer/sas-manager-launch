@@ -43,7 +43,7 @@ import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
 import { seedStandardProductsIfNeeded, migrateExistingData, backfillMissingWorkspaceIds } from './utils/migration';
 import { recordAuditLog } from './utils/auditLogger';
-import { isAdmin, getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser, canUserViewActivity } from './utils/permissions';
+import { isAdmin, getUserWorkspaceRole, getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser, canUserViewActivity } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 
@@ -654,34 +654,11 @@ export default function App() {
     return matched?.id || '';
   }, [user, salespersons]);
 
-  // Apply Role & Data Visibility Scope Filters (Admin & Super Admin see everything; Non-Admin sees filtered by owner or shared_with)
+  // Apply Role & Data Visibility Scope Filters (Admin sees everything; Member/Viewer sees filtered by ownership/attribution)
   const visibleEnquiries = useMemo(() => {
     if (!user) return [];
-    const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-    const currentUserId = (user?.uid || (user as any)?.id || '').trim();
-    const currentUserEmail = (user?.email || '').trim().toLowerCase();
-
-    const roleString = (
-      activeWorkspaceRole || 
-      user?.role || 
-      (Array.isArray(activeWorkspace?.members)
-        ? activeWorkspace?.members?.find((m: any) => {
-            const mId = (m?.userId || m?.uid || m?.id || '').trim();
-            const mEmail = (m?.email || '').trim().toLowerCase();
-            return (mId && mId === currentUserId) || (mEmail && mEmail === currentUserEmail);
-          })?.role
-        : '') || 
-      ''
-    ).trim().toLowerCase();
-
-    const isUserAdmin = 
-      roleString === 'admin' || 
-      roleString === 'superadmin' || 
-      roleString === 'owner' || 
-      (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).trim() === currentUserId) || 
-      (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).trim() === currentUserId) ||
-      isSuperAdmin(user) ||
-      isAdmin(user, activeWorkspace?.id, activeWorkspace);
+    const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
+    const isUserAdmin = effectiveRole === 'admin';
 
     if (isUserAdmin) {
       return workspaceEnquiries;
@@ -692,18 +669,8 @@ export default function App() {
 
   const visibleCallLogs = useMemo(() => {
     if (!user) return [];
-    const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-    const rawUserRole = String(user?.role || '').toLowerCase().trim();
-    const rawWsRole = String(activeWorkspaceRole || '').toLowerCase().trim();
-    const isUserAdmin =
-      isSuperAdmin(user) ||
-      isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
-      rawUserRole === 'admin' ||
-      rawUserRole === 'superadmin' ||
-      rawUserRole === 'owner' ||
-      rawWsRole === 'admin' ||
-      rawWsRole === 'superadmin' ||
-      rawWsRole === 'owner';
+    const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
+    const isUserAdmin = effectiveRole === 'admin';
 
     if (isUserAdmin) {
       return workspaceCallLogs;
@@ -720,17 +687,6 @@ export default function App() {
       localStorage.setItem('last_active_workspace_id', activeWorkspaceId);
     }
   }, [activeWorkspaceId]);
-
-  useEffect(() => {
-    if (user?.uid) {
-      const email = (user.email || '').toLowerCase().trim();
-      if (email === 'sibuma.syedameer@gmail.com' && user.is_super_admin !== true) {
-        updateDoc(doc(db, 'users', user.uid), { is_super_admin: true })
-          .catch((err) => console.warn('Auto-promote master account effect error:', err));
-        setUser((prev) => (prev ? { ...prev, is_super_admin: true } : prev));
-      }
-    }
-  }, [user?.uid, user?.email, user?.is_super_admin]);
   useEffect(() => {
     const savedWs = localStorage.getItem('last_active_workspace_id') || localStorage.getItem('omni_active_workspace_id');
     if (savedWs && savedWs !== activeWorkspaceId) {
@@ -995,16 +951,6 @@ export default function App() {
                 role: uData.role || (parsedLocal?.uid === uData.uid ? parsedLocal?.role : undefined) || 'Member'
               };
 
-              // Auto-Promote Master Account in Firestore
-              const userEmailClean = (mergedUser.email || firebaseUser.email || '').toLowerCase().trim();
-              if (userEmailClean === 'sibuma.syedameer@gmail.com') {
-                mergedUser.is_super_admin = true;
-                if (uData.is_super_admin !== true) {
-                  updateDoc(doc(db, 'users', firebaseUser.uid), { is_super_admin: true })
-                    .catch((err) => console.warn('Auto-promote master account error:', err));
-                }
-              }
-
               setUser(mergedUser);
               setLocalCache(`omni_user_${firebaseUser.uid}`, mergedUser);
               localStorage.setItem('omni_local_user', JSON.stringify(mergedUser));
@@ -1019,31 +965,19 @@ export default function App() {
               const validCache = cachedLocal || (parsedLocal && parsedLocal.uid === firebaseUser.uid ? parsedLocal : null);
 
               if (validCache) {
-                const emailClean = (validCache.email || firebaseUser.email || '').toLowerCase().trim();
-                if (emailClean === 'sibuma.syedameer@gmail.com') {
-                  validCache.is_super_admin = true;
-                  updateDoc(doc(db, 'users', firebaseUser.uid), { is_super_admin: true })
-                    .catch((err) => console.warn('Auto-promote master account error:', err));
-                }
                 setUser(validCache);
               } else {
                 const isEmailAdmin = firebaseUser.email?.toLowerCase().startsWith('admin@');
-                const isMasterAccount = (firebaseUser.email || '').toLowerCase().trim() === 'sibuma.syedameer@gmail.com';
                 const defaultProf: UserProfile = {
                   uid: firebaseUser.uid,
                   email: firebaseUser.email || 'user@omnisuite.com',
                   username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Member',
                   full_name: firebaseUser.displayName || undefined,
-                  role: isEmailAdmin || isMasterAccount ? 'Admin' : 'Member',
-                  is_super_admin: isMasterAccount ? true : undefined,
+                  role: isEmailAdmin ? 'Admin' : 'Member',
                   workspaceIds: ['ws_default'],
                   defaultWorkspaceId: 'ws_default',
                   createdAt: new Date().toISOString()
                 };
-                if (isMasterAccount) {
-                  updateDoc(doc(db, 'users', firebaseUser.uid), { is_super_admin: true })
-                    .catch((err) => console.warn('Auto-promote master account error:', err));
-                }
                 setUser(defaultProf);
                 setLocalCache(`omni_user_${firebaseUser.uid}`, defaultProf);
                 localStorage.setItem('omni_local_user', JSON.stringify(defaultProf));

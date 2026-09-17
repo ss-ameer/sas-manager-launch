@@ -99,15 +99,48 @@ export function isUserInWorkspace(
 }
 
 /**
- * Single Source of Truth for Active Workspace Role:
+ * Single Source of Truth for Roles:
+ * The user's role in the ACTIVE WORKSPACE is the absolute authority for all permissions,
+ * UI badges, and access controls within that workspace.
+ * The ONLY global role that overrides a workspace role is 'superadmin'.
+ */
+export function getEffectiveWorkspaceRole(
+  currentUser: any,
+  activeWorkspace: any
+): 'admin' | 'member' | 'viewer' {
+  if (!currentUser) return 'member';
+  // Only superadmin bypasses workspace assignment
+  if ((currentUser.role || '').toLowerCase() === 'superadmin') return 'admin';
+
+  const currentUserId = (currentUser.uid || currentUser.id || '').trim();
+  const currentUserEmail = (currentUser.email || '').toLowerCase().trim();
+
+  let member: any = null;
+  if (Array.isArray(activeWorkspace?.members)) {
+    member = activeWorkspace.members.find((m: any) => {
+      if (!m) return false;
+      const mUserId = String(m.userId || m.uid || m.id || '').trim();
+      const mEmail = String(m.email || '').toLowerCase().trim();
+      return (
+        (currentUserId && mUserId === currentUserId) ||
+        (currentUserEmail && mEmail === currentUserEmail)
+      );
+    });
+  } else if (activeWorkspace?.members && typeof activeWorkspace.members === 'object') {
+    member =
+      (currentUserId && activeWorkspace.members[currentUserId]) ||
+      (currentUserEmail && activeWorkspace.members[currentUserEmail]);
+  }
+
+  const rawRole = (typeof member === 'string' ? member : (member?.role || 'member')).toLowerCase().trim();
+  if (rawRole.includes('admin') || rawRole === 'owner') return 'admin';
+  if (rawRole.includes('viewer')) return 'viewer';
+  return 'member';
+}
+
+/**
  * Resolves the user's role in the active workspace strictly using the 3-tier model:
- * 'Admin' | 'Member' | 'Viewer'.
- *
- * Priority Resolution:
- * 1. Super Admin: full global Admin privileges across all workspaces.
- * 2. If user is workspace owner/creator -> 'Admin'.
- * 3. Derived strictly from the selected workspace's roster/member data (activeWorkspace.members[uid].role).
- * 4. Fallback: Default to 'Member' for legacy members, or 'Viewer' if unlisted.
+ * 'Admin' | 'Member' | 'Viewer' via getEffectiveWorkspaceRole as Single Source of Truth.
  */
 export function getUserWorkspaceRole(
   user: UserProfile | undefined | null,
@@ -115,166 +148,17 @@ export function getUserWorkspaceRole(
   activeWorkspace?: Workspace | any | null
 ): WorkspaceRole {
   if (!user) return 'Viewer';
-  // Super Admin: override all permission checks to granting full read/write/admin rights in every workspace
-  if (isSuperAdmin(user)) return 'Admin';
-
-  // Defensive resolution of Workspace object & Target Workspace ID
-  let workspace: Workspace | null = null;
+  let workspace: any = null;
   if (workspaceOrId && typeof workspaceOrId === 'object') {
-    workspace = workspaceOrId as Workspace;
+    workspace = workspaceOrId;
   } else if (activeWorkspace && typeof activeWorkspace === 'object') {
-    if (!workspaceOrId || typeof workspaceOrId !== 'string' || workspaceOrId === activeWorkspace.id) {
-      workspace = activeWorkspace as Workspace;
-    }
+    workspace = activeWorkspace;
   }
 
-  const targetWsId =
-    (typeof workspaceOrId === 'string' && workspaceOrId) ||
-    workspace?.id ||
-    user.defaultWorkspaceId ||
-    'ws_default';
-
-  const userUid = (user.uid || (user as any).id || '').trim();
-  const userEmail = (user.email || '').toLowerCase().trim();
-  const userUsername = (user.username || '').toLowerCase().trim();
-
-  // 1. If user is workspace owner_uid (or creator) -> 'Admin'
-  if (workspace) {
-    const ownerUid = (
-      (workspace as any).owner_id ||
-      workspace.owner_uid ||
-      (workspace as any).ownerUid ||
-      ''
-    ).trim();
-    if (ownerUid && userUid && ownerUid === userUid) {
-      return 'Admin';
-    }
-
-    const createdByUid = (
-      (workspace as any).created_by_uid ||
-      (workspace as any).createdByUid ||
-      (workspace as any).creator_id ||
-      ''
-    ).trim();
-    if (createdByUid && userUid && createdByUid === userUid) {
-      return 'Admin';
-    }
-
-    const createdBy = (workspace.created_by || '').trim();
-    if (
-      createdBy &&
-      ((userUid && createdBy === userUid) ||
-        (userEmail && createdBy.toLowerCase() === userEmail) ||
-        (userUsername && createdBy.toLowerCase() === userUsername))
-    ) {
-      return 'Admin';
-    }
-  }
-
-  // 2. Derive active user's role strictly from the selected workspace's roster/member data (activeWorkspace.members[uid].role)
-  if (workspace && workspace.members) {
-    // 2A. Key-value dictionary / record: workspace.members[user.uid]?.role
-    if (!Array.isArray(workspace.members) && typeof workspace.members === 'object') {
-      const membersMap = workspace.members as Record<string, any>;
-      const memberEntry =
-        (userUid && membersMap[userUid]) ||
-        (user.id && membersMap[user.id]) ||
-        (userEmail && membersMap[userEmail]);
-      if (memberEntry) {
-        const rawRole =
-          typeof memberEntry === 'string'
-            ? memberEntry
-            : memberEntry.role || memberEntry.workspace_roles?.[targetWsId];
-        const normalized = normalizeWorkspaceRole(rawRole);
-        if (normalized) return normalized;
-        return 'Member';
-      }
-    }
-
-    // 2B. Array roster: workspace.members.find(...)
-    if (Array.isArray(workspace.members)) {
-      const memberItem = workspace.members.find((m: any) => {
-        if (!m) return false;
-        if (typeof m === 'string') {
-          return userUid && m === userUid;
-        }
-        const mUid = (m.uid || m.id || m.userId || m.user_id || '').trim();
-        const mEmail = (m.email || '').toLowerCase().trim();
-        if (userUid && mUid && mUid === userUid) return true;
-        if (userEmail && mEmail && mEmail === userEmail) return true;
-        return false;
-      });
-
-      if (memberItem) {
-        if (typeof memberItem === 'string') {
-          return 'Member';
-        }
-        const rawRole = memberItem.role || memberItem.workspace_roles?.[targetWsId];
-        const normalized = normalizeWorkspaceRole(rawRole);
-        if (normalized) return normalized;
-        return 'Member';
-      }
-    }
-  }
-
-  // 2C. Explicit member_ids array check
-  if (workspace && Array.isArray((workspace as any).member_ids)) {
-    if (userUid && (workspace as any).member_ids.includes(userUid)) {
-      if (user.workspace_roles && user.workspace_roles[targetWsId]) {
-        const normalized = normalizeWorkspaceRole(user.workspace_roles[targetWsId]);
-        if (normalized) return normalized;
-      }
-      return 'Member';
-    }
-  }
-
-  // Check user profile's explicit workspace-specific mapping
-  if (user.workspace_roles && user.workspace_roles[targetWsId]) {
-    const normalized = normalizeWorkspaceRole(user.workspace_roles[targetWsId]);
-    if (normalized) return normalized;
-  }
-
-  if (user.workspace_profiles && user.workspace_profiles[targetWsId]?.role) {
-    const normalized = normalizeWorkspaceRole(user.workspace_profiles[targetWsId].role);
-    if (normalized) return normalized;
-  }
-
-  // 3. Fallback: Default to 'Member' for legacy members, or 'Viewer' if unlisted
-  if (workspace?.member_emails && Array.isArray(workspace.member_emails)) {
-    const hasEmail = workspace.member_emails.some(
-      (e) => typeof e === 'string' && userEmail && e.toLowerCase().trim() === userEmail
-    );
-    if (hasEmail) return 'Member';
-  }
-
-  if (user.workspaceIds && Array.isArray(user.workspaceIds)) {
-    if (user.workspaceIds.includes(targetWsId)) {
-      return 'Member';
-    }
-  }
-
-  if (user.defaultWorkspaceId && user.defaultWorkspaceId === targetWsId) {
-    if (user.role) {
-      const normalized = normalizeWorkspaceRole(user.role);
-      if (normalized) return normalized;
-    }
-    return 'Member';
-  }
-
-  if (targetWsId === 'ws_default') {
-    if (user.role) {
-      const normalized = normalizeWorkspaceRole(user.role);
-      if (normalized) return normalized;
-    }
-    return 'Member';
-  }
-
-  if (!workspace && user.role) {
-    const normalized = normalizeWorkspaceRole(user.role);
-    if (normalized) return normalized;
-  }
-
-  return 'Viewer';
+  const effective = getEffectiveWorkspaceRole(user, workspace || activeWorkspace);
+  if (effective === 'admin') return 'Admin';
+  if (effective === 'viewer') return 'Viewer';
+  return 'Member';
 }
 
 export const getUserRoleInWorkspace = getUserWorkspaceRole;
@@ -285,9 +169,7 @@ export function isAdmin(
   activeWorkspace?: any | null
 ): boolean {
   if (!user) return false;
-  if (isSuperAdmin(user)) return true;
-  const role = getUserWorkspaceRole(user, workspaceId, activeWorkspace);
-  return role === 'Admin';
+  return getUserWorkspaceRole(user, workspaceId, activeWorkspace) === 'Admin';
 }
 
 export const isWorkspaceAdmin = (
@@ -966,36 +848,11 @@ export function canAccessEnquiry(
   if (!currentUser) return false;
 
   // 1. SuperAdmin universal access
-  if (isSuperAdmin(currentUser)) return true;
+  if ((currentUser.role || '').toLowerCase() === 'superadmin') return true;
 
   // 2. Owner or Admin role check via centralized Single Source of Truth
-  const targetWsId = enquiry.workspace_id || (enquiry as any).workspaceId || currentUser.defaultWorkspaceId || activeWorkspace?.id;
-  const currentUserId = (currentUser?.uid || (currentUser as any)?.id || '').trim();
-  const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
-  const activeWorkspaceRole = getUserWorkspaceRole(currentUser, targetWsId, activeWorkspace) || getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
-
-  const roleString = (
-    activeWorkspaceRole || 
-    currentUser?.role || 
-    (Array.isArray(activeWorkspace?.members)
-      ? activeWorkspace?.members?.find((m: any) => {
-          const mId = (m?.userId || m?.uid || m?.id || '').trim();
-          const mEmail = (m?.email || '').trim().toLowerCase();
-          return (mId && mId === currentUserId) || (mEmail && mEmail === currentUserEmail);
-        })?.role
-      : '') || 
-    ''
-  ).trim().toLowerCase();
-
-  const isWsAdmin = 
-    roleString === 'admin' || 
-    roleString === 'superadmin' || 
-    roleString === 'owner' || 
-    (activeWorkspace?.ownerId && String(activeWorkspace.ownerId).trim() === currentUserId) || 
-    (activeWorkspace?.owner_id && String(activeWorkspace.owner_id).trim() === currentUserId) ||
-    isSuperAdmin(currentUser) ||
-    isAdmin(currentUser, targetWsId, activeWorkspace) ||
-    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
+  const effectiveRole = getEffectiveWorkspaceRole(currentUser, activeWorkspace);
+  const isWsAdmin = effectiveRole === 'admin';
 
   // Admin access: Workspace Admins and SuperAdmins have full visibility to all workspace enquiries
   if (isWsAdmin) {
@@ -1003,6 +860,7 @@ export function canAccessEnquiry(
   }
 
   // 3. User normalized tokens & UID
+  const targetWsId = enquiry.workspace_id || (enquiry as any).workspaceId || currentUser.defaultWorkspaceId || activeWorkspace?.id || '';
   const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
   const currentInitials = (currentUser.initials || (currentUser as any).workspace_profiles?.[targetWsId]?.initials || (currentUser as any).salesperson_code || '').toUpperCase().trim();
   const currentFullName = (currentUser.full_name || (currentUser as any).displayName || (currentUser as any).name || '').toLowerCase().trim();
@@ -1354,8 +1212,6 @@ export function getWorkspaceInitials(
 
 export function isSuperAdmin(user: UserProfile | undefined | null): boolean {
   if (!user) return false;
-  const email = (user.email || '').toLowerCase().trim();
-  if (email === 'sibuma.syedameer@gmail.com') return true;
   if (user.is_super_admin === true) return true;
   const role = (user.role || '').toString().toLowerCase().trim();
   if (role === 'super admin' || role === 'superadmin' || role === 'super_admin') return true;

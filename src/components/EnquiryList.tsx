@@ -40,7 +40,8 @@ import {
   canExportData,
   isAdmin,
   isSuperAdmin,
-  getUserWorkspaceRole
+  getUserWorkspaceRole,
+  getEffectiveWorkspaceRole
 } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
@@ -299,35 +300,21 @@ export default function EnquiryList({
 
   // Determine administrative read rights: Workspace Admin or Superadmin sees all workspace enquiries
   const currentUser = user;
-  const activeWorkspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+  const effectiveRole = getEffectiveWorkspaceRole(currentUser, activeWorkspace);
+  const isWsAdmin = effectiveRole === 'admin';
   const currentUserId = (currentUser?.uid || currentUser?.id || '').trim();
-  const currentUserEmail = (currentUser?.email || '').toLowerCase().trim();
 
-  const roleString = (
-    activeWorkspaceRole || 
-    currentUser?.role || 
-    activeWorkspace?.members?.find(m => (m.userId === currentUserId || m.id === currentUserId || (m.email && m.email.toLowerCase() === currentUserEmail)))?.role || 
-    ''
-  ).trim().toLowerCase();
-
-  const isWsAdmin = 
-    roleString === 'admin' || 
-    roleString === 'superadmin' || 
-    roleString === 'owner' || 
-    activeWorkspace?.ownerId === currentUserId || 
-    activeWorkspace?.owner_id === currentUserId;
-
-  console.log('[Visibility Check]', { currentUserId, roleString, isWsAdmin, totalEnquiries: enquiries?.length || 0 });
+  console.log('[Visibility Check]', { currentUserId, effectiveRole, isWsAdmin, totalEnquiries: enquiries?.length || 0 });
 
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
     if (isWsAdmin) {
-      // Unfiltered List for Workspace Admins:
-      // Do NOT filter the enquiries list by assignedSalesperson or createdBy.
-      // The displayed list MUST include ALL proposals belonging to the active workspace (#9, #10, #11).
+      // If effective role is 'admin':
+      // Display all workspace enquiries without filtering by rep or creator.
       return (enquiries || []).filter((e) => e && !e.is_deleted);
     }
-    // Only apply the rep ownership filter if isWsAdmin is strictly FALSE:
+    // If effective role is 'member' (or 'viewer'):
+    // Enforce member restriction: only display enquiries where assignedSalesperson === currentUser.initials (or shared with them), or mask data according to workspace non-admin settings.
     return (enquiries || []).filter((e) => e && !e.is_deleted && canAccessEnquiry(user, e, activeWorkspace));
   }, [enquiries, user, activeWorkspace, isWsAdmin]);
 

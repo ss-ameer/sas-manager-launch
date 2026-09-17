@@ -3,7 +3,7 @@ import { UserProfile, Workspace } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
-import { getUserWorkspaceRole, isSuperAdmin, isUserInWorkspace } from '../utils/permissions';
+import { getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace } from '../utils/permissions';
 import {
   LayoutDashboard,
   FileText,
@@ -46,9 +46,9 @@ export default function Sidebar({
   isOpen = false,
   onClose
 }: SidebarProps) {
-  const userWsRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
-  const isSuper = isSuperAdmin(user);
-  const isAdmin = isSuper || userWsRole === 'Admin';
+  const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
+  const isSuper = (user?.role || '').toLowerCase() === 'superadmin';
+  const isAdmin = isSuper || effectiveRole === 'admin';
 
   // Partition workspaces into "My Workspaces" vs "System Workspaces (Super Admin)"
   const { myWorkspaces, systemWorkspaces } = useMemo(() => {
@@ -221,9 +221,9 @@ export default function Sidebar({
               {user?.full_name || user?.username || user?.email || 'User'}
             </div>
             <div className="flex items-center space-x-1 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] font-mono text-slate-600 capitalize bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
-                {isSuper ? 'Super Admin' : userWsRole}
+              <span className={`w-1.5 h-1.5 rounded-full ${effectiveRole === 'admin' ? 'bg-indigo-500' : 'bg-emerald-500'} animate-pulse`} />
+              <span className="text-[9px] font-mono text-slate-600 capitalize bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 font-semibold">
+                {isSuper ? '• Super Admin' : effectiveRole === 'admin' ? '• Admin' : effectiveRole === 'viewer' ? '• Viewer' : '• Member'}
               </span>
             </div>
           </div>
@@ -235,8 +235,8 @@ export default function Sidebar({
         {menuItems.map((item) => {
           const Icon = item.icon;
           // Filter tabs based on role permissions
-          if (item.role === 'Admin' && userWsRole !== 'Admin') return null;
-          if (item.role === 'Member' && userWsRole === 'Viewer') return null;
+          if (item.role === 'Admin' && effectiveRole !== 'admin') return null;
+          if (item.role === 'Member' && effectiveRole === 'viewer') return null;
 
           // Check if module is disabled in active workspace
           if (
