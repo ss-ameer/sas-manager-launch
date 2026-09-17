@@ -138,6 +138,41 @@ export function getEffectiveWorkspaceRole(
   return 'member';
 }
 
+export type ProfileBadgeType = 'superadmin' | 'admin' | 'member' | 'viewer';
+
+export interface UserProfileBadgeInfo {
+  label: 'Super Admin' | 'Admin' | 'Member' | 'Viewer';
+  role: ProfileBadgeType;
+  isSuperAdmin: boolean;
+}
+
+/**
+ * Single Source of Truth for Profile Badges:
+ * 1. If currentUser.role === 'superadmin' (or isSuperAdmin), always locked to 'Super Admin'.
+ * 2. Otherwise, determined by getEffectiveWorkspaceRole(currentUser, activeWorkspace)
+ *    ('Admin', 'Member', or 'Viewer').
+ */
+export function getUserProfileBadge(
+  currentUser: UserProfile | undefined | null,
+  activeWorkspace?: Workspace | any | null
+): UserProfileBadgeInfo {
+  if (!currentUser) {
+    return { label: 'Viewer', role: 'viewer', isSuperAdmin: false };
+  }
+  const isSuper = (currentUser.role || '').toLowerCase() === 'superadmin' || isSuperAdmin(currentUser);
+  if (isSuper) {
+    return { label: 'Super Admin', role: 'superadmin', isSuperAdmin: true };
+  }
+  const effectiveRole = getEffectiveWorkspaceRole(currentUser, activeWorkspace);
+  if (effectiveRole === 'admin') {
+    return { label: 'Admin', role: 'admin', isSuperAdmin: false };
+  }
+  if (effectiveRole === 'viewer') {
+    return { label: 'Viewer', role: 'viewer', isSuperAdmin: false };
+  }
+  return { label: 'Member', role: 'member', isSuperAdmin: false };
+}
+
 /**
  * Resolves the user's role in the active workspace strictly using the 3-tier model:
  * 'Admin' | 'Member' | 'Viewer' via getEffectiveWorkspaceRole as Single Source of Truth.

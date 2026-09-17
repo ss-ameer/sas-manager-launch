@@ -3,7 +3,7 @@ import { UserProfile, Workspace } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
-import { getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace } from '../utils/permissions';
+import { getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace, getUserProfileBadge } from '../utils/permissions';
 import {
   LayoutDashboard,
   FileText,
@@ -46,46 +46,35 @@ export default function Sidebar({
   isOpen = false,
   onClose
 }: SidebarProps) {
-  const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
-  const isSuper = (user?.role || '').toLowerCase() === 'superadmin';
-  const isAdmin = isSuper || effectiveRole === 'admin';
+  const profileBadge = getUserProfileBadge(user, activeWorkspace);
+  const isSuper = profileBadge.isSuperAdmin;
+  const isAdmin = isSuper || profileBadge.role === 'admin';
 
-  // Partition workspaces into "My Workspaces" vs "System Workspaces (Super Admin)"
-  const { myWorkspaces, systemWorkspaces } = useMemo(() => {
-    const my: Workspace[] = [];
-    const system: Workspace[] = [];
+  // Scoped strictly to assigned workspaces to keep switcher minimal and uncluttered
+  const assignedWorkspaces = useMemo(() => {
+    const list: Workspace[] = [];
     const seenIds = new Set<string>();
 
     (workspaces || []).forEach((ws) => {
       if (!ws || !ws.id || seenIds.has(ws.id)) return;
-      seenIds.add(ws.id);
-
       if (isUserInWorkspace(user, ws)) {
-        my.push(ws);
-      } else {
-        system.push(ws);
+        seenIds.add(ws.id);
+        list.push(ws);
       }
     });
 
-    // Ensure activeWorkspace is represented in the list
+    // Ensure activeWorkspace is represented if user is in it or fallback
     if (activeWorkspace?.id && !seenIds.has(activeWorkspace.id)) {
-      if (isUserInWorkspace(user, activeWorkspace)) {
-        my.push(activeWorkspace);
-      } else {
-        if (isSuper) {
-          system.push(activeWorkspace);
-        } else {
-          my.push(activeWorkspace);
-        }
-      }
+      seenIds.add(activeWorkspace.id);
+      list.push(activeWorkspace);
     }
 
-    if (my.length === 0 && activeWorkspace) {
-      my.push(activeWorkspace);
+    if (list.length === 0 && activeWorkspace) {
+      list.push(activeWorkspace);
     }
 
-    return { myWorkspaces: my, systemWorkspaces: system };
-  }, [workspaces, user, activeWorkspace, isSuper]);
+    return list;
+  }, [workspaces, user, activeWorkspace]);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, role: 'Viewer' },
@@ -176,34 +165,11 @@ export default function Sidebar({
             }}
             className="w-full bg-slate-800 text-white font-bold text-xs px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none truncate pr-8"
           >
-            {isSuper ? (
-              <>
-                <optgroup label="My Workspaces">
-                  {myWorkspaces.map((ws) => (
-                    <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
-                      {ws?.name || 'Workspace'}
-                    </option>
-                  ))}
-                </optgroup>
-                {systemWorkspaces.length > 0 && (
-                  <optgroup label="System Workspaces (Super Admin)">
-                    {systemWorkspaces.map((ws) => (
-                      <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
-                        {ws?.name || 'Workspace'}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </>
-            ) : (
-              <optgroup label="My Workspaces">
-                {myWorkspaces.map((ws) => (
-                  <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
-                    {ws?.name || 'Workspace'}
-                  </option>
-                ))}
-              </optgroup>
-            )}
+            {assignedWorkspaces.map((ws) => (
+              <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
+                {ws?.name || 'Workspace'}
+              </option>
+            ))}
             <option value="__manage__">+ Manage / New Workspace...</option>
           </select>
           <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
@@ -213,18 +179,43 @@ export default function Sidebar({
       {/* User Information */}
       <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-slate-200 border border-slate-300 rounded-lg flex items-center justify-center text-slate-900 shrink-0 font-extrabold text-xs">
+          <div
+            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 font-extrabold text-xs transition-colors ${
+              profileBadge.isSuperAdmin
+                ? 'bg-purple-100 border border-purple-300 text-purple-900 shadow-2xs'
+                : profileBadge.role === 'admin'
+                ? 'bg-indigo-100 border border-indigo-200 text-indigo-900'
+                : 'bg-slate-200 border border-slate-300 text-slate-800'
+            }`}
+          >
             {(user?.username || user?.full_name || user?.email || 'U').charAt(0).toUpperCase()}
           </div>
-          <div className="overflow-hidden">
+          <div className="overflow-hidden min-w-0 flex-1">
             <div className="text-xs font-bold text-slate-900 truncate font-sans">
               {user?.full_name || user?.username || user?.email || 'User'}
             </div>
-            <div className="flex items-center space-x-1 mt-0.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${effectiveRole === 'admin' ? 'bg-indigo-500' : 'bg-emerald-500'} animate-pulse`} />
-              <span className="text-[9px] font-mono text-slate-600 capitalize bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 font-semibold">
-                {isSuper ? '• Super Admin' : effectiveRole === 'admin' ? '• Admin' : effectiveRole === 'viewer' ? '• Viewer' : '• Member'}
-              </span>
+            <div className="flex items-center space-x-1.5 mt-1">
+              {profileBadge.isSuperAdmin ? (
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 shadow-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
+                  <span>Super Admin</span>
+                </span>
+              ) : profileBadge.role === 'admin' ? (
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  <span>Admin</span>
+                </span>
+              ) : profileBadge.role === 'viewer' ? (
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <span>Viewer</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Member</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -235,8 +226,8 @@ export default function Sidebar({
         {menuItems.map((item) => {
           const Icon = item.icon;
           // Filter tabs based on role permissions
-          if (item.role === 'Admin' && effectiveRole !== 'admin') return null;
-          if (item.role === 'Member' && effectiveRole === 'viewer') return null;
+          if (item.role === 'Admin' && !isAdmin) return null;
+          if (item.role === 'Member' && profileBadge.role === 'viewer' && !isSuper) return null;
 
           // Check if module is disabled in active workspace
           if (
