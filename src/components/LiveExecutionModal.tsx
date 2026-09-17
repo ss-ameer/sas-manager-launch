@@ -32,9 +32,22 @@ import {
   Target,
   FileCheck,
   Tag,
-  ChevronDown
+  ChevronDown,
+  Copy
 } from 'lucide-react';
-import { CallLogEntry, CallStatus, ActivityChannel, Contact, Company, Enquiry, isSamePhoneNumber, getCompanyPhones } from '../types';
+import {
+  CallLogEntry,
+  CallStatus,
+  ActivityChannel,
+  Contact,
+  Company,
+  Enquiry,
+  isSamePhoneNumber,
+  getCompanyPhones,
+  getCompanyEmails,
+  getContactPhones,
+  getContactEmails
+} from '../types';
 import { safeSetDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -375,10 +388,12 @@ export default function LiveExecutionModal({
   // Complete Task Direct Action & Scratchpad Focus State
   const [isCompletionMode, setIsCompletionMode] = useState<boolean>(false);
 
-  // Dynamic Contact details override (for Add Contact binding)
+  // Dynamic Contact details override (for Add Contact binding & contact selector)
   const [activeContactId, setActiveContactId] = useState<string>('');
   const [activeContactName, setActiveContactName] = useState<string>('');
   const [activeContactPhone, setActiveContactPhone] = useState<string>('');
+  const [activeContactEmail, setActiveContactEmail] = useState<string>('');
+  const [copiedEmail, setCopiedEmail] = useState<boolean>(false);
 
   // Active Target Selection: 'contact' | 'mainline' (auto-detected from task payload, with user override capability)
   const [activeTargetOverride, setActiveTargetOverride] = useState<'contact' | 'mainline' | null>(null);
@@ -470,6 +485,14 @@ export default function LiveExecutionModal({
       setActiveContactId(currentTask.contact_id || '');
       setActiveContactName(currentTask.contact_name || '');
       setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
+      setActiveContactEmail(
+        (currentTask as any)?.contact_email ||
+        (currentTask as any)?.target_email ||
+        currentTask?.email_address ||
+        currentTask?.email ||
+        ''
+      );
+      setCopiedEmail(false);
       setActiveTargetOverride(null);
       setIsLinkedEnquiryExpanded(false);
 
@@ -605,6 +628,16 @@ export default function LiveExecutionModal({
     return linkedCompany.general_phone || linkedCompany.phone || currentTask?.company_phone || '';
   }, [linkedCompany, currentTask]);
 
+  // Company Mainline Email resolution
+  const companyMainEmail = useMemo(() => {
+    if (!linkedCompany) return currentTask?.company_email || currentTask?.email_address || '';
+    const emailList = getCompanyEmails(linkedCompany);
+    if (emailList && emailList.length > 0 && emailList[0].value) {
+      return emailList[0].value;
+    }
+    return linkedCompany.general_email || linkedCompany.email || currentTask?.company_email || '';
+  }, [linkedCompany, currentTask]);
+
   // Target Contact Person resolution
   const targetContact = useMemo(() => {
     const cId = activeContactId || currentTask?.contact_id;
@@ -635,6 +668,83 @@ export default function LiveExecutionModal({
     currentTask?.phone ||
     currentTask?.unlinked_contact_info ||
     '';
+
+  // Direct contact email resolution
+  const directEmail = useMemo(() => {
+    if (activeContactEmail) return activeContactEmail;
+    if (targetContact) {
+      const emailList = getContactEmails(targetContact);
+      if (emailList && emailList.length > 0 && emailList[0].value) {
+        return emailList[0].value;
+      }
+      if (targetContact.email) return targetContact.email;
+    }
+    return (
+      (currentTask as any)?.contact_email ||
+      (currentTask as any)?.target_email ||
+      currentTask?.email_address ||
+      currentTask?.email ||
+      ''
+    );
+  }, [activeContactEmail, targetContact, currentTask]);
+
+  // All contacts registered under the active company
+  const companyContacts = useMemo(() => {
+    if (!contacts || contacts.length === 0) return [];
+    const compId = currentTask?.company_id || linkedCompany?.id;
+    const compName = (currentTask?.company_name || linkedCompany?.display_name || '').trim().toLowerCase();
+
+    return contacts.filter((c) => {
+      if (c.is_deleted) return false;
+      if (compId && (c.company_id === compId || (c as any).companyId === compId)) return true;
+      if (compName && (c as any).company_name && (c as any).company_name.trim().toLowerCase() === compName) return true;
+      return false;
+    });
+  }, [currentTask, linkedCompany, contacts]);
+
+  // Selectable contacts list guaranteeing the active/target contact is included
+  const allSelectableContacts = useMemo(() => {
+    const list = [...companyContacts];
+    if (targetContact && !list.some((c) => c.id === targetContact.id)) {
+      list.unshift(targetContact);
+    }
+    return list;
+  }, [companyContacts, targetContact]);
+
+  // Handle contact selection from dropdown
+  const handleSelectContactOption = (selectedValue: string) => {
+    if (selectedValue === '__mainline__') {
+      setActiveTargetOverride('mainline');
+      return;
+    }
+
+    if (selectedValue === '__current__') {
+      setActiveTargetOverride('contact');
+      return;
+    }
+
+    const selected = allSelectableContacts.find((c) => c.id === selectedValue);
+    if (selected) {
+      setActiveTargetOverride('contact');
+      setActiveContactId(selected.id || '');
+      setActiveContactName(selected.full_name || '');
+      const phones = getContactPhones(selected);
+      const primaryPhone = phones[0]?.value || selected.mobile || selected.phone || selected.landline || '';
+      setActiveContactPhone(primaryPhone);
+      const emails = getContactEmails(selected);
+      const primaryEmail = emails[0]?.value || selected.email || '';
+      setActiveContactEmail(primaryEmail);
+    }
+  };
+
+  const handleCopyEmail = (emailToCopy: string) => {
+    if (!emailToCopy) return;
+    navigator.clipboard?.writeText(emailToCopy);
+    setCopiedEmail(true);
+    setTimeout(() => {
+      setCopiedEmail(false);
+    }, 2000);
+  };
 
   const companyName = currentTask?.company_name || currentTask?.unlinked_name || linkedCompany?.display_name || 'No Company Account';
   const displayContactName = activeContactName || currentTask?.contact_name || targetContact?.full_name || 'No Contact Person';
@@ -789,6 +899,8 @@ export default function LiveExecutionModal({
   if (!isOpen || !currentTask) return null;
 
   const activeChannel = currentChannel;
+  const isEmailChannel = (activeChannel || '').trim().toLowerCase().includes('email');
+  const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const isCompletedState = isSuccessStatus(callStatus);
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
 
@@ -1056,6 +1168,9 @@ export default function LiveExecutionModal({
       const resolvedTargetContactPhone = isTargetMainline
         ? (companyMainPhone || currentTask.company_phone || '')
         : (activeContactPhone || directPhone || currentTask.contact_phone || '');
+      const resolvedTargetContactEmail = isTargetMainline
+        ? (companyMainEmail || currentTask.company_email || currentTask.email_address || '')
+        : (activeContactEmail || directEmail || (currentTask as any)?.contact_email || currentTask?.email_address || '');
 
       // Step 1: Update the CURRENT task's database record
       const updatedTaskRecord: CallLogEntry = {
@@ -1064,6 +1179,7 @@ export default function LiveExecutionModal({
         contact_id: resolvedTargetContactId,
         contact_name: resolvedTargetContactName,
         contact_phone: resolvedTargetContactPhone,
+        ...((resolvedTargetContactEmail ? { contact_email: resolvedTargetContactEmail, target_email: resolvedTargetContactEmail } : {}) as any),
         status: updatedStatus as CallStatus,
         outcome: finalOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
@@ -1488,84 +1604,188 @@ export default function LiveExecutionModal({
                       </div>
                     </div>
 
+                    {/* Inline Contact Selector Dropdown */}
+                    <div className="mt-1.5 mb-2">
+                      <div className="relative">
+                        <select
+                          id="target-contact-selector-dropdown"
+                          value={
+                            activeTarget === 'mainline'
+                              ? '__mainline__'
+                              : (activeContactId || targetContact?.id || (displayContactName && displayContactName !== 'No Contact Person' ? '__current__' : ''))
+                          }
+                          onChange={(e) => handleSelectContactOption(e.target.value)}
+                          className="w-full text-xs font-semibold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-lg pl-2.5 pr-8 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer appearance-none truncate"
+                          title="Select Target Contact Person"
+                        >
+                          {/* If current contact is not in allSelectableContacts list */}
+                          {displayContactName &&
+                            displayContactName !== 'No Contact Person' &&
+                            activeTarget !== 'mainline' &&
+                            !allSelectableContacts.some((c) => c.id === (activeContactId || targetContact?.id)) && (
+                              <option value="__current__">
+                                {displayContactName} {contactDesignation ? `(${contactDesignation})` : ''}
+                              </option>
+                            )}
+
+                          {allSelectableContacts.map((c) => {
+                            const desig = c.designation || (c as any).role;
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {c.full_name}{desig ? ` (${desig})` : ''}
+                              </option>
+                            );
+                          })}
+
+                          {/* Fallback option for Company Mainline / Switchboard */}
+                          <option value="__mainline__">
+                            🏢 Company Mainline / Switchboard
+                          </option>
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                      </div>
+                    </div>
+
                     <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
-                      {displayContactName}
+                      {activeTarget === 'mainline' ? 'Company Mainline / Switchboard' : displayContactName}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">
-                      {contactDesignation}
+                      {activeTarget === 'mainline' ? 'General Reception / Switchboard' : contactDesignation}
                     </div>
-                    {activeTarget === 'contact' && (
+                    {activeTarget === 'contact' ? (
                       <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
                         <Check className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                         <span>Logs interaction against this individual profile</span>
                       </div>
+                    ) : (
+                      <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                        <Check className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>Logs interaction under company mainline switchboard</span>
+                      </div>
                     )}
                   </div>
 
-                  {/* Direct Number / Email & 1-Click Action Buttons */}
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                    <div className="truncate">
-                      <div className="text-[10px] uppercase font-semibold text-slate-400">
-                        {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
+                  {/* Dynamic Channel Details (Email vs. Phone/WhatsApp) */}
+                  {isEmailChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate min-w-0">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">
+                          {activeTarget === 'mainline' ? 'Company Email' : 'Direct Email'}
+                        </div>
+                        <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={effectiveContactEmail}>
+                          {effectiveContactEmail || <span className="text-slate-400 font-normal italic">No email listed</span>}
+                        </div>
                       </div>
-                      <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                        {directPhone || <span className="text-slate-400 font-normal italic">No direct number</span>}
-                      </div>
-                    </div>
 
-                    {directPhone ? (
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        {directPhone.includes('@') ? (
+                      {effectiveContactEmail ? (
+                        <div className="flex items-center space-x-1.5 shrink-0">
                           <a
-                            id="target-contact-email-button"
-                            href={`mailto:${directPhone}`}
-                            onClick={() => setActiveTargetOverride('contact')}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition cursor-pointer"
-                            title={`Send Email to ${displayContactName} (${directPhone})`}
+                            id="target-contact-send-email-btn"
+                            href={`mailto:${effectiveContactEmail}`}
+                            onClick={() => {
+                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                            }}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Send Email to ${effectiveContactEmail}`}
                           >
                             <Mail className="w-3.5 h-3.5" />
-                            <span>Email</span>
+                            <span>Send Email</span>
                           </a>
-                        ) : (
-                          <>
-                            <a
-                              id="target-contact-call-button"
-                              href={cleanTelUrl(directPhone)}
-                              onClick={() => setActiveTargetOverride('contact')}
-                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                              title={`Call ${displayContactName} (${directPhone})`}
-                            >
-                              <PhoneCall className="w-3.5 h-3.5" />
-                              <span>Call</span>
-                            </a>
-                            <a
-                              id="target-contact-whatsapp-button"
-                              href={cleanWhatsAppUrl(directPhone)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveTargetOverride('contact');
-                              }}
-                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
-                              title={`WhatsApp message to ${displayContactName}`}
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>WhatsApp</span>
-                            </a>
-                          </>
-                        )}
+                          <button
+                            type="button"
+                            id="target-contact-copy-email-btn"
+                            onClick={() => handleCopyEmail(effectiveContactEmail)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 transition cursor-pointer"
+                            title="Copy email to clipboard"
+                          >
+                            {copiedEmail ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsContactModalOpen(true)}
+                          className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        >
+                          Add Email
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate min-w-0">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">
+                          {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
+                        </div>
+                        <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {directPhone || <span className="text-slate-400 font-normal italic">No direct number</span>}
+                        </div>
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setIsContactModalOpen(true)}
-                        className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                      >
-                        Add Phone
-                      </button>
-                    )}
-                  </div>
+
+                      {directPhone ? (
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          {directPhone.includes('@') ? (
+                            <a
+                              id="target-contact-email-button"
+                              href={`mailto:${directPhone}`}
+                              onClick={() => setActiveTargetOverride('contact')}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition cursor-pointer"
+                              title={`Send Email to ${displayContactName} (${directPhone})`}
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Email</span>
+                            </a>
+                          ) : (
+                            <>
+                              <a
+                                id="target-contact-call-button"
+                                href={cleanTelUrl(directPhone)}
+                                onClick={() => setActiveTargetOverride('contact')}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                                title={`Call ${displayContactName} (${directPhone})`}
+                              >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                                <span>Call</span>
+                              </a>
+                              <a
+                                id="target-contact-whatsapp-button"
+                                href={cleanWhatsAppUrl(directPhone)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTargetOverride('contact');
+                                }}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
+                                title={`WhatsApp message to ${displayContactName}`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>WhatsApp</span>
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsContactModalOpen(true)}
+                          className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        >
+                          Add Phone
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* b) Company Mainline Card */}
@@ -1625,47 +1845,94 @@ export default function LiveExecutionModal({
                     )}
                   </div>
 
-                  {/* Mainline Number & 1-Click Call / WhatsApp Buttons */}
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                    <div className="truncate">
-                      <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
-                      <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                        {companyMainPhone || <span className="text-slate-400 font-normal italic">No switchboard listed</span>}
+                  {/* Mainline Number / Email & Action Buttons */}
+                  {isEmailChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate min-w-0">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard Email</div>
+                        <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={companyMainEmail}>
+                          {companyMainEmail || <span className="text-slate-400 font-normal italic">No email listed</span>}
+                        </div>
                       </div>
-                    </div>
 
-                    {companyMainPhone ? (
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        <a
-                          id="company-mainline-call-button"
-                          href={cleanTelUrl(companyMainPhone)}
-                          onClick={() => setActiveTargetOverride('mainline')}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
-                          title={`Call Switchboard (${companyMainPhone})`}
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          <span>Call</span>
-                        </a>
-                        <a
-                          id="company-mainline-whatsapp-button"
-                          href={cleanWhatsAppUrl(companyMainPhone)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveTargetOverride('mainline');
-                          }}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                          title={`WhatsApp Switchboard (${companyMainPhone})`}
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>WhatsApp</span>
-                        </a>
+                      {companyMainEmail ? (
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <a
+                            id="company-mainline-send-email-btn"
+                            href={`mailto:${companyMainEmail}`}
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Send Email to Switchboard (${companyMainEmail})`}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Send Email</span>
+                          </a>
+                          <button
+                            type="button"
+                            id="company-mainline-copy-email-btn"
+                            onClick={() => handleCopyEmail(companyMainEmail)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 transition cursor-pointer"
+                            title="Copy Switchboard Email"
+                          >
+                            {copiedEmail ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">Not registered</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
+                        <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {companyMainPhone || <span className="text-slate-400 font-normal italic">No switchboard listed</span>}
+                        </div>
                       </div>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">Not registered</span>
-                    )}
-                  </div>
+
+                      {companyMainPhone ? (
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <a
+                            id="company-mainline-call-button"
+                            href={cleanTelUrl(companyMainPhone)}
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                            title={`Call Switchboard (${companyMainPhone})`}
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>Call</span>
+                          </a>
+                          <a
+                            id="company-mainline-whatsapp-button"
+                            href={cleanWhatsAppUrl(companyMainPhone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveTargetOverride('mainline');
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`WhatsApp Switchboard (${companyMainPhone})`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">Not registered</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2635,13 +2902,18 @@ export default function LiveExecutionModal({
             if (savedContact) {
               setActiveContactId(savedContact.id || '');
               setActiveContactName(savedContact.full_name || '');
+              const phones = getContactPhones(savedContact);
               const primaryPhone =
+                phones[0]?.value ||
                 savedContact.phone ||
-                (savedContact.phones && savedContact.phones.length > 0
-                  ? (savedContact.phones[0] as any).number || (savedContact.phones[0] as any).value
-                  : '') ||
+                savedContact.mobile ||
+                savedContact.landline ||
                 '';
               setActiveContactPhone(primaryPhone);
+              const emails = getContactEmails(savedContact);
+              const primaryEmail = emails[0]?.value || savedContact.email || '';
+              setActiveContactEmail(primaryEmail);
+              setActiveTargetOverride('contact');
             }
             setIsContactModalOpen(false);
           }}
