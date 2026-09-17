@@ -63,6 +63,7 @@ import {
   POSITIVE_OUTCOMES,
   NEUTRAL_OUTCOMES,
   NEGATIVE_OUTCOMES,
+  MasterActivityChannel,
   getStatusesForChannel,
   getOutcomesForStatus,
   isSuccessStatus,
@@ -147,6 +148,17 @@ function isTaskDueToday(dateStr?: string): boolean {
     parsed.getMonth() === now.getMonth() &&
     parsed.getDate() === now.getDate()
   );
+}
+
+function normalizeModalFollowUpChannel(raw?: string): MasterActivityChannel {
+  if (!raw) return 'Phone Call';
+  const lower = raw.toLowerCase().trim();
+  if (lower.includes('phone') || lower.includes('call')) return 'Phone Call';
+  if (lower.includes('message') || lower.includes('whatsapp') || lower.includes('sms')) return 'Message (WhatsApp/SMS)';
+  if (lower.includes('email') || lower.includes('mail')) return 'Email';
+  if (lower.includes('meeting')) return 'Meeting (Virtual/In-Person)';
+  if (lower.includes('site') || lower.includes('visit')) return 'Site Visit';
+  return 'Phone Call';
 }
 
 function isTaskUpcoming(dateStr?: string): boolean {
@@ -679,6 +691,7 @@ export default function LiveExecutionModal({
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
+  const [followUpChannel, setFollowUpChannel] = useState<MasterActivityChannel>('Phone Call');
   const [activePreset, setActivePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom' | null>('tomorrow');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -780,6 +793,7 @@ export default function LiveExecutionModal({
       setIsDnc(Boolean(currentTask.is_dnc || currentTask.dnc));
       setNotes(currentTask.requirement_notes || currentTask.notes || '');
       setFollowUpIntent(currentTask.followup_intent || '');
+      setFollowUpChannel(normalizeModalFollowUpChannel(taskChan));
 
       // Default next follow-up date to tomorrow at 10:00 AM (if not already set)
       if (currentTask.next_followup_date) {
@@ -1270,6 +1284,7 @@ export default function LiveExecutionModal({
   const isMeetingChannel = chNorm.includes('meeting');
   const isSiteVisitChannel = chNorm.includes('visit') || chNorm.includes('site');
   const isInternalChannel = chNorm.includes('internal') || chNorm.includes('task') || chNorm.includes('admin');
+  const isPhoneChannel = chNorm.includes('call') || chNorm.includes('phone');
   const isPhoneOrWhatsApp = !isEmailChannel && !isMeetingChannel && !isSiteVisitChannel && !isInternalChannel;
   const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const isCompletedState = isSuccessStatus(callStatus);
@@ -1287,6 +1302,7 @@ export default function LiveExecutionModal({
 
   const handleChannelChange = (newChan: string) => {
     setCurrentChannel(newChan);
+    setFollowUpChannel(normalizeModalFollowUpChannel(newChan));
     const isCall = newChan === 'Call' || newChan === 'Phone Call';
     const newStatuses = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(newChan);
     if (!newStatuses.includes(callStatus)) {
@@ -1337,6 +1353,17 @@ export default function LiveExecutionModal({
     setActiveDispositionId(disp.id);
     setCallStatus(disp.status);
     setCallOutcome(disp.defaultOutcome);
+
+    // Auto-select follow-up channel if disposition indicates info requested or channel-specific follow-up
+    const dispText = `${disp.id} ${disp.label} ${disp.defaultOutcome} ${disp.defaultIntent || ''}`.toLowerCase();
+    if (dispText.includes('whatsapp') || dispText.includes('wa')) {
+      setFollowUpChannel('Message (WhatsApp/SMS)');
+    } else if (dispText.includes('email')) {
+      setFollowUpChannel('Email');
+    } else if (dispText.includes('quote') || dispText.includes('proposal') || dispText.includes('info')) {
+      // Default to WhatsApp if active target has phone, or WhatsApp/SMS channel
+      setFollowUpChannel('Message (WhatsApp/SMS)');
+    }
 
     if (disp.defaultPreset === 'clear') {
       setNextFollowUpDate('');
@@ -1443,8 +1470,18 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Dedicated Post-Interaction Completion Handler (Save & Close, Save & Next Lead, or Explicit Complete Task)
-  const executeSubmission = async (advanceToNext: boolean, forceCompleted: boolean = false) => {
+  // Immediate "Log Call & Message via WhatsApp" Pivot Handler
+  const handlePivotToWhatsApp = async () => {
+    if (isSubmitting || !currentTask) return;
+    await executeSubmission(false, true, true);
+  };
+
+  // Dedicated Post-Interaction Completion Handler (Save & Close, Save & Next Lead, Explicit Complete Task, or WhatsApp Pivot)
+  const executeSubmission = async (
+    advanceToNext: boolean,
+    forceCompleted: boolean = false,
+    pivotToWhatsApp: boolean = false
+  ) => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
 
     // Explicitly guarantee no lingering drawer or reschedule state leaks into completion payload
@@ -1593,7 +1630,7 @@ export default function LiveExecutionModal({
           contact_id: resolvedTargetContactId,
           contact_name: resolvedTargetContactName,
           contact_phone: resolvedTargetContactPhone,
-          channel: (currentChannel as ActivityChannel) || 'Phone Call',
+          channel: followUpChannel || currentChannel || 'Phone Call',
           date: nextFollowUpDate,
           status: 'Scheduled / Planned' as CallStatus,
           outcome: 'Follow-Up Scheduled',
@@ -1675,8 +1712,20 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord, spawnedFollowUpTask);
       }
 
-      // Step 4: Advance to next lead strictly or close
-      if (advanceToNext) {
+      // Step 4: Advance to next lead, close modal, or pivot in-place to WhatsApp
+      if (pivotToWhatsApp) {
+        // Immediate Pivot to WhatsApp:
+        // Transition modal to Message (WhatsApp), reset call-specific scratchpad notes, keep same lead active
+        setCurrentChannel('Message (WhatsApp/SMS)');
+        setFollowUpChannel('Message (WhatsApp/SMS)');
+        setNotes('');
+        setCallStatus('Completed / Sent');
+        setCallOutcome('WhatsApp Sent / Message Delivered');
+        const waDisps = getDispositionsForChannel('Message (WhatsApp/SMS)');
+        if (waDisps.length > 0) {
+          setActiveDispositionId(waDisps[0].id);
+        }
+      } else if (advanceToNext) {
         advanceToNextTask();
       } else {
         if (onSwitchTask) {
@@ -3033,6 +3082,47 @@ export default function LiveExecutionModal({
                   )}
                 </div>
 
+                {/* Follow-Up Channel Selector Picker */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                      Follow-up via:
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Designate target interaction channel
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {(
+                      [
+                        { channel: 'Phone Call' as MasterActivityChannel, label: 'Phone Call', icon: PhoneCall },
+                        { channel: 'Message (WhatsApp/SMS)' as MasterActivityChannel, label: 'WhatsApp', icon: MessageSquare },
+                        { channel: 'Email' as MasterActivityChannel, label: 'Email', icon: Mail },
+                        { channel: 'Meeting (Virtual/In-Person)' as MasterActivityChannel, label: 'Meeting', icon: Users }
+                      ] as const
+                    ).map((item) => {
+                      const isSelected = followUpChannel === item.channel;
+                      const IconComp = item.icon;
+                      return (
+                        <button
+                          key={item.channel}
+                          type="button"
+                          id={`followup-channel-btn-${item.label.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                          onClick={() => setFollowUpChannel(item.channel)}
+                          className={`flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-1 ring-blue-400/40'
+                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <IconComp className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Quick Presets Row */}
                 <div className="flex flex-wrap gap-1.5">
                   <button
@@ -3404,6 +3494,21 @@ export default function LiveExecutionModal({
                     <span>📅 Reschedule</span>
                   </button>
 
+                  {/* 💬 Immediate Pivot: Log Call & Open WhatsApp */}
+                  {isPhoneChannel && (
+                    <button
+                      type="button"
+                      id="lifecycle-pivot-whatsapp-btn"
+                      disabled={isSubmitting}
+                      onClick={handlePivotToWhatsApp}
+                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800/60 shadow-2xs"
+                      title="Log this call attempt and immediately switch to WhatsApp outreach for this contact without advancing the queue"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Log & Open WhatsApp</span>
+                    </button>
+                  )}
+
                   {/* ✓ Complete Task */}
                   <button
                     type="button"
@@ -3456,8 +3561,22 @@ export default function LiveExecutionModal({
                 Skip / Pass {pendingLeads.length > 0 ? `(${pendingLeads.length} left)` : ''}
               </button>
 
-              {/* Right: Save & Close (Secondary) and Complete & Next / Save & Next (Primary) */}
+              {/* Right: Pivot WhatsApp, Save & Close (Secondary) and Complete & Next / Save & Next (Primary) */}
               <div className="flex items-center space-x-2.5">
+                {isPhoneChannel && !isExecutingTask && (
+                  <button
+                    type="button"
+                    id="save-and-pivot-whatsapp-button"
+                    disabled={isSubmitting}
+                    onClick={handlePivotToWhatsApp}
+                    className="px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800/60 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer shadow-2xs flex items-center space-x-1.5 disabled:opacity-50"
+                    title="Log this call and open WhatsApp message view without advancing to the next lead"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Log & WhatsApp</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   id="save-and-close-button"
