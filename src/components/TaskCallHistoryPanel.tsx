@@ -81,6 +81,36 @@ export function formatRelativeActivityTime(dateStr?: string): { relative: string
   }
 }
 
+export function formatFollowupDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const baseDate = d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    // Check if timestamp contains non-zero time information
+    const isMidnight =
+      (d.getHours() === 0 && d.getMinutes() === 0) ||
+      dateStr.endsWith('T00:00:00.000Z') ||
+      dateStr.endsWith('T00:00:00Z') ||
+      /^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim());
+
+    if (!isMidnight) {
+      let hours = d.getHours();
+      const minutes = d.getMinutes().toString().padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      return `${baseDate}, ${hours}:${minutes} ${ampm}`;
+    }
+    return baseDate;
+  } catch {
+    return dateStr;
+  }
+}
+
 export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
   companyName = 'Account',
   companyId,
@@ -423,7 +453,7 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
                     {log.next_followup_date && (
                       <span className="inline-flex items-center space-x-1 text-amber-600 dark:text-amber-400 font-medium">
                         <Calendar className="w-2.5 h-2.5" />
-                        <span>Next: {log.next_followup_date}</span>
+                        <span>Next: {formatFollowupDate(log.next_followup_date)}</span>
                       </span>
                     )}
                   </div>

@@ -33,7 +33,11 @@ import {
   FileCheck,
   Tag,
   ChevronDown,
-  Copy
+  Copy,
+  Video,
+  Navigation,
+  CalendarX,
+  AlertTriangle
 } from 'lucide-react';
 import {
   CallLogEntry,
@@ -153,7 +157,7 @@ function isTaskUpcoming(dateStr?: string): boolean {
   return parsed.getTime() > endOfToday.getTime();
 }
 
-type DispositionId = 'connected' | 'followup' | 'no_answer' | 'gatekeeper_busy' | 'invalid_number';
+type DispositionId = string;
 
 interface DispositionConfig {
   id: DispositionId;
@@ -168,7 +172,7 @@ interface DispositionConfig {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const DISPOSITIONS: DispositionConfig[] = [
+export const CALL_DISPOSITIONS: DispositionConfig[] = [
   {
     id: 'connected',
     label: 'Connected / Completed',
@@ -230,6 +234,271 @@ const DISPOSITIONS: DispositionConfig[] = [
     icon: Ban
   }
 ];
+
+export const MEETING_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'meeting_completed',
+    label: 'Meeting Completed',
+    sublabel: 'Session conducted',
+    status: 'Completed',
+    defaultOutcome: 'Meeting Booked',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Send meeting recap & agreed action items',
+    activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
+    icon: CheckCircle2
+  },
+  {
+    id: 'meeting_followup',
+    label: 'Follow-up Required',
+    sublabel: 'Action items pending',
+    status: 'Completed',
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: '3days',
+    defaultIntent: 'Follow-up on meeting action items',
+    activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
+    icon: CalendarClock
+  },
+  {
+    id: 'meeting_noshow',
+    label: 'Client No-Show',
+    sublabel: 'Client missed session',
+    status: 'Cancelled',
+    defaultOutcome: 'No Response / Ghosted',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Reach out to reschedule missed meeting',
+    activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
+    inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
+    icon: CalendarX
+  },
+  {
+    id: 'meeting_rescheduled',
+    label: 'Rescheduled / Postponed',
+    sublabel: 'Moved to future date',
+    status: 'Rescheduled',
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: '3days',
+    defaultIntent: 'Confirm rescheduled meeting timing',
+    activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: Clock
+  }
+];
+
+export const SITE_VISIT_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'site_completed',
+    label: 'Site Inspected / Completed',
+    sublabel: 'On-site review complete',
+    status: 'Completed',
+    defaultOutcome: 'Information Gathered',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Compile site audit report & proposal',
+    activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
+    icon: CheckCircle2
+  },
+  {
+    id: 'site_followup',
+    label: 'Follow-up Required',
+    sublabel: 'Action items pending',
+    status: 'Completed',
+    defaultOutcome: 'Quote / Proposal Requested',
+    defaultPreset: '3days',
+    defaultIntent: 'Submit quote based on site inspection',
+    activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
+    icon: CalendarClock
+  },
+  {
+    id: 'site_denied',
+    label: 'Client Not Available / Denied',
+    sublabel: 'No entry or access denied',
+    status: 'Cancelled',
+    defaultOutcome: 'Gatekeeper Blocked',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Contact client to obtain site access / reschedule',
+    activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
+    inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
+    icon: Ban
+  },
+  {
+    id: 'site_rescheduled',
+    label: 'Rescheduled',
+    sublabel: 'Moved to new date',
+    status: 'Rescheduled',
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: '3days',
+    defaultIntent: 'Confirm revised site visit schedule',
+    activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: Clock
+  }
+];
+
+export const INTERNAL_TASK_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'task_completed',
+    label: 'Task Completed',
+    sublabel: 'Deliverable finalized',
+    status: 'Completed',
+    defaultOutcome: 'Information Gathered',
+    defaultPreset: 'clear',
+    defaultIntent: '',
+    activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
+    icon: CheckCircle2
+  },
+  {
+    id: 'task_inprogress',
+    label: 'In Progress / Working',
+    sublabel: 'Active task ongoing',
+    status: 'In Progress',
+    defaultOutcome: 'Active Negotiation',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Continue internal task execution',
+    activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
+    icon: Clock
+  },
+  {
+    id: 'task_blocked',
+    label: 'Blocked / Awaiting Info',
+    sublabel: 'Dependency blocker',
+    status: 'In Progress',
+    defaultOutcome: 'No Response / Ghosted',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Unblock task - request required inputs',
+    activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: AlertTriangle
+  }
+];
+
+export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'email_sent',
+    label: 'Email Sent / Delivered',
+    sublabel: 'Dispatched to contact',
+    status: 'Sent / Completed',
+    defaultOutcome: 'Quote / Info Sent',
+    defaultPreset: '3days',
+    defaultIntent: 'Check for reply / follow up on email',
+    activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
+    icon: CheckCircle2
+  },
+  {
+    id: 'email_followup',
+    label: 'Follow-up Scheduled',
+    sublabel: 'Planned email cadence',
+    status: 'Sent / Completed',
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Send follow-up email',
+    activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
+    icon: CalendarClock
+  },
+  {
+    id: 'email_awaiting',
+    label: 'Awaiting Reply',
+    sublabel: 'Pending client response',
+    status: 'Sent / Completed',
+    defaultOutcome: 'Message Sent / Awaiting Reply',
+    defaultPreset: '3days',
+    defaultIntent: 'Follow-up on unanswered email',
+    activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: Clock
+  },
+  {
+    id: 'email_bounced',
+    label: 'Bounced / Invalid Email',
+    sublabel: 'Delivery failed',
+    status: 'Failed / Bounced',
+    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultPreset: 'clear',
+    defaultIntent: '',
+    activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
+    inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
+    icon: Ban
+  }
+];
+
+export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'wa_sent',
+    label: 'Message Delivered',
+    sublabel: 'Chat sent via WhatsApp',
+    status: 'Sent / Completed',
+    defaultOutcome: 'Message Sent / Awaiting Reply',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Check for WhatsApp reply',
+    activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
+    icon: CheckCircle2
+  },
+  {
+    id: 'wa_followup',
+    label: 'Follow-up Required',
+    sublabel: 'Planned message cadence',
+    status: 'Sent / Completed',
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Follow-up on WhatsApp chat',
+    activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
+    icon: CalendarClock
+  },
+  {
+    id: 'wa_noresponse',
+    label: 'No Response / Read',
+    sublabel: 'No reply received',
+    status: 'Sent / Completed',
+    defaultOutcome: 'No Response / Ghosted',
+    defaultPreset: '3days',
+    defaultIntent: 'Follow-up on unreplied WhatsApp message',
+    activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: Clock
+  },
+  {
+    id: 'wa_invalid',
+    label: 'Not on WhatsApp / Invalid',
+    sublabel: 'Failed to reach number',
+    status: 'Failed / Bounced',
+    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultPreset: 'clear',
+    defaultIntent: '',
+    activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
+    inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
+    icon: Ban
+  }
+];
+
+export function getDispositionsForChannel(channelName: string): DispositionConfig[] {
+  const norm = (channelName || '').trim().toLowerCase();
+  if (norm.includes('meeting')) {
+    return MEETING_DISPOSITIONS;
+  }
+  if (norm.includes('visit') || norm.includes('site')) {
+    return SITE_VISIT_DISPOSITIONS;
+  }
+  if (norm.includes('task') || norm.includes('internal') || norm.includes('admin')) {
+    return INTERNAL_TASK_DISPOSITIONS;
+  }
+  if (norm.includes('email')) {
+    return EMAIL_DISPOSITIONS;
+  }
+  if (norm.includes('whatsapp') || norm.includes('message') || norm.includes('sms')) {
+    return WHATSAPP_DISPOSITIONS;
+  }
+  return CALL_DISPOSITIONS;
+}
+
+export const DISPOSITIONS: DispositionConfig[] = CALL_DISPOSITIONS;
 
 export default function LiveExecutionModal({
   isOpen,
@@ -376,13 +645,12 @@ export default function LiveExecutionModal({
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Dedicated Task Lifecycle Action States
-  const [isRescheduleOpen, setIsRescheduleOpen] = useState<boolean>(false);
+  // Dedicated Task Lifecycle Action States (Mutually Exclusive Drawer)
+  const [activeDrawer, setActiveDrawer] = useState<'none' | 'cancel' | 'reschedule'>('none');
   const [reschedulePreset, setReschedulePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom'>('tomorrow');
   const [rescheduleDate, setRescheduleDate] = useState<string>('');
   const [rescheduleReason, setRescheduleReason] = useState<string>('');
 
-  const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false);
   const [cancelReason, setCancelReason] = useState<string>('');
 
   // Complete Task Direct Action & Scratchpad Focus State
@@ -438,29 +706,37 @@ export default function LiveExecutionModal({
         : (rawPurpose || availablePurposes[0] || 'Discovery / Qualification');
       setPurpose(normalizedPurpose);
 
-      // Initialize disposition based on existing task state
-      if (currentTask.status === 'Invalid Number') {
+      // Initialize disposition based on existing task state and channel
+      const chanDisps = getDispositionsForChannel(taskChan);
+      const matchedDisp = chanDisps.find((d) => {
+        if (currentTask.status === d.status) return true;
+        if (currentTask.outcome && d.defaultOutcome === currentTask.outcome) return true;
+        return false;
+      }) || chanDisps[0];
+
+      if (currentTask.status === 'Invalid Number' && chanDisps.some(d => d.id === 'invalid_number')) {
         setActiveDispositionId('invalid_number');
         setCallStatus('Invalid Number');
         setCallOutcome('Wrong Person / Unqualified');
         setNextFollowUpDate('');
         setActivePreset(null);
-      } else if (currentTask.status === 'No Answer') {
+      } else if (currentTask.status === 'No Answer' && chanDisps.some(d => d.id === 'no_answer')) {
         setActiveDispositionId('no_answer');
         setCallStatus('No Answer');
         setCallOutcome(currentTask.outcome || 'No Response / Ghosted');
-      } else if (currentTask.status === 'Busy') {
+      } else if (currentTask.status === 'Busy' && chanDisps.some(d => d.id === 'gatekeeper_busy')) {
         setActiveDispositionId('gatekeeper_busy');
         setCallStatus('Busy');
         setCallOutcome(currentTask.outcome || 'Gatekeeper Blocked');
       } else if (currentTask.outcome === 'Follow-up Scheduled' || currentTask.followup_intent) {
-        setActiveDispositionId('followup');
+        const followupDisp = chanDisps.find(d => d.id.includes('followup')) || matchedDisp;
+        setActiveDispositionId(followupDisp.id);
         setCallStatus(defaultStatus);
         setCallOutcome('Follow-up Scheduled');
       } else {
-        setActiveDispositionId('connected');
-        setCallStatus(defaultStatus);
-        setCallOutcome(currentTask.outcome || 'Information Gathered');
+        setActiveDispositionId(matchedDisp.id);
+        setCallStatus(matchedDisp.status || defaultStatus);
+        setCallOutcome(currentTask.outcome || matchedDisp.defaultOutcome);
       }
 
       setIsDnc(Boolean(currentTask.is_dnc || currentTask.dnc));
@@ -497,9 +773,8 @@ export default function LiveExecutionModal({
       setIsLinkedEnquiryExpanded(false);
 
       // Reset Task Lifecycle Action panels and inputs
-      setIsRescheduleOpen(false);
+      setActiveDrawer('none');
       setRescheduleReason('');
-      setIsCancelOpen(false);
       setCancelReason('');
 
       // Initialize default reschedule date to tomorrow 10:00 AM
@@ -895,11 +1170,58 @@ export default function LiveExecutionModal({
 
   const hasLinkedRecord = Boolean(canonicalEnquiryRef || resolvedLinkedEnquiry);
 
+  // Company address resolution for site visits and geographic context
+  const companyAddress = useMemo(() => {
+    const parts: string[] = [];
+    if ((linkedCompany as any)?.address) parts.push((linkedCompany as any).address);
+    if (linkedCompany?.city) parts.push(linkedCompany.city);
+    if (linkedCompany?.country) parts.push(linkedCompany.country);
+    if (parts.length > 0) return parts.join(', ');
+    if (currentTask?.location_or_link && !currentTask.location_or_link.startsWith('http')) {
+      return currentTask.location_or_link;
+    }
+    if ((currentTask as any)?.geography) return (currentTask as any).geography;
+    return '';
+  }, [linkedCompany, currentTask]);
+
+  // Meeting URL / Link resolution for virtual meetings
+  const meetingLink = useMemo(() => {
+    const raw =
+      (currentTask as any)?.meeting_url ||
+      (currentTask as any)?.video_link ||
+      (currentTask as any)?.meeting_link ||
+      (currentTask as any)?.zoom_link ||
+      (currentTask as any)?.teams_link ||
+      (currentTask as any)?.google_meet_link ||
+      currentTask?.location_or_link ||
+      '';
+    if (!raw) return '';
+    const trimmed = String(raw).trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+    if (
+      trimmed.includes('meet.google') ||
+      trimmed.includes('zoom.us') ||
+      trimmed.includes('teams.microsoft') ||
+      trimmed.includes('webex.com')
+    ) {
+      return `https://${trimmed}`;
+    }
+    return '';
+  }, [currentTask]);
+
+  // Contextual dispositions based on active interaction channel
+  const activeDispositions = useMemo(() => getDispositionsForChannel(currentChannel), [currentChannel]);
+
   // Safe Guard Return (Must be after all hooks!)
   if (!isOpen || !currentTask) return null;
 
   const activeChannel = currentChannel;
-  const isEmailChannel = (activeChannel || '').trim().toLowerCase().includes('email');
+  const chNorm = (activeChannel || '').trim().toLowerCase();
+  const isEmailChannel = chNorm.includes('email');
+  const isMeetingChannel = chNorm.includes('meeting');
+  const isSiteVisitChannel = chNorm.includes('visit') || chNorm.includes('site');
+  const isInternalChannel = chNorm.includes('internal') || chNorm.includes('task') || chNorm.includes('admin');
+  const isPhoneOrWhatsApp = !isEmailChannel && !isMeetingChannel && !isSiteVisitChannel && !isInternalChannel;
   const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const isCompletedState = isSuccessStatus(callStatus);
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
@@ -922,6 +1244,12 @@ export default function LiveExecutionModal({
       const defaultSt = newStatuses.find((s) => isSuccessStatus(s)) || newStatuses[0] || 'Completed / Connected';
       setCallStatus(defaultSt);
       setCallOutcome('');
+    }
+    const nextDisps = getDispositionsForChannel(newChan);
+    if (!nextDisps.some(d => d.id === activeDispositionId)) {
+      if (nextDisps.length > 0) {
+        handleSelectDisposition(nextDisps[0]);
+      }
     }
   };
 
@@ -1041,11 +1369,13 @@ export default function LiveExecutionModal({
     if (!isCompletionMode) {
       setIsCompletionMode(true);
 
-      // Automatically set the call disposition to "Connected / Completed" (or retain if already connected/followup)
-      if (activeDispositionId !== 'connected' && activeDispositionId !== 'followup') {
-        const connectedDisp = DISPOSITIONS.find((d) => d.id === 'connected') || DISPOSITIONS[0];
-        if (connectedDisp) {
-          handleSelectDisposition(connectedDisp);
+      // Automatically set the disposition to completed/connected state for active channel
+      const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
+      const isAlreadyCompleted = activeDispObj && isSuccessStatus(activeDispObj.status);
+      if (!isAlreadyCompleted) {
+        const completedDisp = activeDispositions[0];
+        if (completedDisp) {
+          handleSelectDisposition(completedDisp);
         }
       }
 
@@ -1068,10 +1398,11 @@ export default function LiveExecutionModal({
   const executeSubmission = async (advanceToNext: boolean, forceCompleted: boolean = false) => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
 
-    // Default outcome safeguard for completed calls
+    // Default outcome safeguard for completed tasks across channels
     let finalOutcome = callOutcome;
-    if (!finalOutcome && (activeDispositionId === 'connected' || activeDispositionId === 'followup')) {
-      finalOutcome = activeDispositionId === 'followup' ? 'Follow-up Scheduled' : 'Information Gathered';
+    if (!finalOutcome && activeDispositionId) {
+      const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
+      finalOutcome = activeDispObj?.defaultOutcome || 'Information Gathered';
     }
 
     setIsSubmitting(true);
@@ -1342,7 +1673,7 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord);
       }
 
-      setIsRescheduleOpen(false);
+      setActiveDrawer('none');
       // Advance to next lead in queue strictly or close
       advanceToNextTask();
     } catch (err) {
@@ -1398,7 +1729,7 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord);
       }
 
-      setIsCancelOpen(false);
+      setActiveDrawer('none');
       // Advance to next lead in queue strictly or close
       advanceToNextTask();
     } catch (err) {
@@ -1665,8 +1996,143 @@ export default function LiveExecutionModal({
                     )}
                   </div>
 
-                  {/* Dynamic Channel Details (Email vs. Phone/WhatsApp) */}
-                  {isEmailChannel ? (
+                  {/* Dynamic Channel Details across all interaction channels */}
+                  {isMeetingChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs truncate">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-mono text-slate-800 dark:text-slate-200 truncate" title={effectiveContactEmail}>
+                              {effectiveContactEmail || <span className="text-slate-400 font-normal italic">No email listed</span>}
+                            </span>
+                          </div>
+                          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-mono text-slate-800 dark:text-slate-200 truncate" title={directPhone}>
+                              {directPhone || <span className="text-slate-400 font-normal italic">No direct phone</span>}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {effectiveContactEmail ? (
+                          <a
+                            id="target-contact-meeting-invite-btn"
+                            href={`mailto:${effectiveContactEmail}?subject=${encodeURIComponent(`Meeting Invitation: ${displayContactName} / ${companyName}`)}`}
+                            onClick={() => {
+                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Send Meeting Invite or Email to ${effectiveContactEmail}`}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Send Invite / Email</span>
+                          </a>
+                        ) : null}
+
+                        {directPhone ? (
+                          <a
+                            id="target-contact-meeting-call-btn"
+                            href={cleanTelUrl(directPhone)}
+                            onClick={() => {
+                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Call Direct: ${directPhone}`}
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                            <span>Call Direct</span>
+                          </a>
+                        ) : null}
+
+                        {meetingLink ? (
+                          <a
+                            id="target-contact-launch-meeting-btn"
+                            href={meetingLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Launch Meeting Link: ${meetingLink}`}
+                          >
+                            <Video className="w-3.5 h-3.5" />
+                            <span>Launch Meeting Link</span>
+                            <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+                          </a>
+                        ) : null}
+
+                        {!effectiveContactEmail && !directPhone && !meetingLink && (
+                          <button
+                            type="button"
+                            onClick={() => setIsContactModalOpen(true)}
+                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                          >
+                            + Add Contact Phone / Email
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : isSiteVisitChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate min-w-0">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">Site Location / Address</div>
+                        <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={companyAddress || companyName}>
+                          {companyAddress || <span className="text-slate-400 font-normal italic">Address unlisted ({companyName})</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <a
+                          id="target-contact-site-maps-btn"
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(companyAddress || companyName)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition cursor-pointer"
+                          title={`Open Google Maps for ${companyAddress || companyName}`}
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Open Google Maps</span>
+                          <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+                        </a>
+
+                        {directPhone ? (
+                          <a
+                            id="target-contact-site-call-btn"
+                            href={cleanTelUrl(directPhone)}
+                            onClick={() => {
+                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Call Contact: ${directPhone}`}
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                            <span>Call Contact</span>
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : isInternalChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2 truncate">
+                        <Briefcase className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                        <div className="truncate">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400">Workflow Scope</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                            Internal Task Execution
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        id="internal-work-badge"
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0"
+                      >
+                        <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        <span>Internal Work / Non-Client Outreach</span>
+                      </span>
+                    </div>
+                  ) : isEmailChannel ? (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                       <div className="truncate min-w-0">
                         <div className="text-[10px] uppercase font-semibold text-slate-400">
@@ -1845,8 +2311,112 @@ export default function LiveExecutionModal({
                     )}
                   </div>
 
-                  {/* Mainline Number / Email & Action Buttons */}
-                  {isEmailChannel ? (
+                  {/* Mainline Number / Email & Action Buttons across channels */}
+                  {isMeetingChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs truncate">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-mono text-slate-800 dark:text-slate-200 truncate" title={companyMainEmail}>
+                              {companyMainEmail || <span className="text-slate-400 font-normal italic">No switchboard email</span>}
+                            </span>
+                          </div>
+                          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-mono text-slate-800 dark:text-slate-200 truncate" title={companyMainPhone}>
+                              {companyMainPhone || <span className="text-slate-400 font-normal italic">No switchboard phone</span>}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {companyMainEmail ? (
+                          <a
+                            id="company-mainline-meeting-email-btn"
+                            href={`mailto:${companyMainEmail}?subject=${encodeURIComponent(`Meeting Inquiry: ${companyName}`)}`}
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer"
+                            title={`Send Email to Switchboard (${companyMainEmail})`}
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Send Email</span>
+                          </a>
+                        ) : null}
+
+                        {companyMainPhone ? (
+                          <a
+                            id="company-mainline-meeting-call-btn"
+                            href={cleanTelUrl(companyMainPhone)}
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                            title={`Call Switchboard (${companyMainPhone})`}
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>Call Switchboard</span>
+                          </a>
+                        ) : null}
+
+                        {!companyMainEmail && !companyMainPhone && (
+                          <span className="text-[11px] text-slate-400">No contact info registered</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : isSiteVisitChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="truncate min-w-0">
+                        <div className="text-[10px] uppercase font-semibold text-slate-400">Headquarters / Location</div>
+                        <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={companyAddress || companyName}>
+                          {companyAddress || <span className="text-slate-400 font-normal italic">Address unlisted ({companyName})</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <a
+                          id="company-mainline-site-maps-btn"
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(companyAddress || companyName)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer"
+                          title={`Open Maps for ${companyAddress || companyName}`}
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Open Maps</span>
+                          <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+                        </a>
+
+                        {companyMainPhone ? (
+                          <a
+                            id="company-mainline-site-call-btn"
+                            href={cleanTelUrl(companyMainPhone)}
+                            onClick={() => setActiveTargetOverride('mainline')}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                            title={`Call Switchboard (${companyMainPhone})`}
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>Call</span>
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : isInternalChannel ? (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2 truncate">
+                        <Building2 className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <div className="truncate">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400">Account Target</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {companyName}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 shrink-0">
+                        <span>Internal Reference Account</span>
+                      </span>
+                    </div>
+                  ) : isEmailChannel ? (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                       <div className="truncate min-w-0">
                         <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard Email</div>
@@ -2113,7 +2683,7 @@ export default function LiveExecutionModal({
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
                     <Activity className="w-3.5 h-3.5 text-blue-500" />
-                    <span>1-Click Call Disposition</span>
+                    <span>1-Click Disposition ({activeChannel})</span>
                   </label>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                     Pre-selects standard next-step defaults
@@ -2121,7 +2691,7 @@ export default function LiveExecutionModal({
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  {DISPOSITIONS.map((disp) => {
+                  {activeDispositions.map((disp) => {
                     const isActive = activeDispositionId === disp.id;
                     const IconComp = disp.icon;
                     return (
@@ -2248,11 +2818,6 @@ export default function LiveExecutionModal({
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
                     <FileText className="w-3.5 h-3.5 text-blue-500" />
                     <span>Live Notes Scratchpad</span>
-                    {isCompletionMode && (
-                      <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 animate-pulse">
-                        Ready to Complete
-                      </span>
-                    )}
                   </label>
                   <button
                     type="button"
@@ -2266,35 +2831,6 @@ export default function LiveExecutionModal({
                   </button>
                 </div>
 
-                {/* Completion Mode Subtle Visual Indicator & Notes Guard */}
-                {isCompletionMode && (
-                  <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-300 text-xs transition-all animate-in fade-in slide-in-from-top-1 duration-200 shadow-2xs">
-                    <div className="flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="font-medium">
-                        Add final interaction notes (optional) and save.
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => executeSubmission(true, true)}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs cursor-pointer flex items-center space-x-1"
-                      >
-                        <span>Confirm & Next</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsCompletionMode(false)}
-                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition cursor-pointer"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <textarea
                   id="execution-notes-textarea"
                   ref={notesTextareaRef}
@@ -2304,12 +2840,12 @@ export default function LiveExecutionModal({
                   onKeyDown={(e) => {
                     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                       e.preventDefault();
-                      executeSubmission(true, true);
+                      executeSubmission(true, isCompletionMode || isExecutingTask);
                     }
                   }}
                   placeholder={
                     isCompletionMode
-                      ? "Add final interaction notes (optional) and hit 'Confirm & Complete' (or Ctrl+Enter)..."
+                      ? "Add final interaction notes (optional) and click 'Complete & Next' below (or Ctrl+Enter)..."
                       : "Type live call notes, objection notes, decision-maker feedback, or requirements gathered..."
                   }
                   className={`w-full px-3.5 py-2.5 text-xs rounded-xl border transition placeholder:text-slate-400 resize-none font-sans leading-relaxed ${
@@ -2446,7 +2982,7 @@ export default function LiveExecutionModal({
             </div>
 
             {/* Reschedule Active Task Sub-Panel */}
-            {isRescheduleOpen && (
+            {activeDrawer === 'reschedule' && (
               <div className="p-3.5 bg-amber-50/95 dark:bg-amber-950/40 border-t border-amber-200 dark:border-amber-800/70 space-y-2.5 shrink-0 transition-all">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -2460,7 +2996,7 @@ export default function LiveExecutionModal({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsRescheduleOpen(false)}
+                    onClick={() => setActiveDrawer('none')}
                     className="p-1 rounded-md text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -2567,7 +3103,7 @@ export default function LiveExecutionModal({
                 <div className="flex items-center justify-end space-x-2 pt-1 border-t border-amber-200/60 dark:border-amber-800/40">
                   <button
                     type="button"
-                    onClick={() => setIsRescheduleOpen(false)}
+                    onClick={() => setActiveDrawer('none')}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                   >
                     Cancel
@@ -2596,7 +3132,7 @@ export default function LiveExecutionModal({
             )}
 
             {/* Cancel Scheduled Task Sub-Panel */}
-            {isCancelOpen && (
+            {activeDrawer === 'cancel' && (
               <div className="p-3.5 bg-rose-50/95 dark:bg-rose-950/40 border-t border-rose-200 dark:border-rose-800/70 space-y-2.5 shrink-0 transition-all">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -2610,7 +3146,7 @@ export default function LiveExecutionModal({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsCancelOpen(false)}
+                    onClick={() => setActiveDrawer('none')}
                     className="p-1 rounded-md text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -2650,7 +3186,7 @@ export default function LiveExecutionModal({
                 <div className="flex items-center justify-end space-x-2 pt-1 border-t border-rose-200/60 dark:border-rose-800/40">
                   <button
                     type="button"
-                    onClick={() => setIsCancelOpen(false)}
+                    onClick={() => setActiveDrawer('none')}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                   >
                     Keep Task
@@ -2702,12 +3238,9 @@ export default function LiveExecutionModal({
                     type="button"
                     id="lifecycle-cancel-task-btn"
                     disabled={isSubmitting}
-                    onClick={() => {
-                      setIsCancelOpen(true);
-                      setIsRescheduleOpen(false);
-                    }}
+                    onClick={() => setActiveDrawer((prev) => (prev === 'cancel' ? 'none' : 'cancel'))}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs ${
-                      isCancelOpen
+                      activeDrawer === 'cancel'
                         ? 'bg-rose-600 text-white border-rose-600'
                         : 'text-rose-700 dark:text-rose-400 hover:text-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border-rose-200 dark:border-rose-900/60'
                     }`}
@@ -2722,12 +3255,9 @@ export default function LiveExecutionModal({
                     type="button"
                     id="lifecycle-reschedule-task-btn"
                     disabled={isSubmitting}
-                    onClick={() => {
-                      setIsRescheduleOpen(true);
-                      setIsCancelOpen(false);
-                    }}
+                    onClick={() => setActiveDrawer((prev) => (prev === 'reschedule' ? 'none' : 'reschedule'))}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs ${
-                      isRescheduleOpen
+                      activeDrawer === 'reschedule'
                         ? 'bg-amber-600 text-white border-amber-600'
                         : 'text-amber-700 dark:text-amber-300 hover:text-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border-amber-200 dark:border-amber-800/60'
                     }`}
@@ -2789,13 +3319,13 @@ export default function LiveExecutionModal({
                 Skip / Pass {pendingLeads.length > 0 ? `(${pendingLeads.length} left)` : ''}
               </button>
 
-              {/* Right: Save & Close (Secondary) and Save & Next Lead (Primary) */}
+              {/* Right: Save & Close (Secondary) and Complete & Next / Save & Next (Primary) */}
               <div className="flex items-center space-x-2.5">
                 <button
                   type="button"
                   id="save-and-close-button"
                   disabled={isSubmitting}
-                  onClick={() => executeSubmission(false)}
+                  onClick={() => executeSubmission(false, isCompletionMode || isExecutingTask)}
                   className="px-4 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-2xs disabled:opacity-50"
                 >
                   {isSubmitting ? (
@@ -2812,9 +3342,9 @@ export default function LiveExecutionModal({
                   type="button"
                   id="save-and-next-lead-button"
                   disabled={isSubmitting}
-                  onClick={() => executeSubmission(true, isCompletionMode)}
+                  onClick={() => executeSubmission(true, isCompletionMode || isExecutingTask)}
                   className={`px-4.5 py-2 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-xs ${
-                    isCompletionMode
+                    isCompletionMode || isExecutingTask
                       ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/50'
                       : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
                   }`}
@@ -2824,14 +3354,22 @@ export default function LiveExecutionModal({
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>Saving Lead...</span>
                     </>
-                  ) : isCompletionMode ? (
+                  ) : isCompletionMode || isExecutingTask ? (
                     <>
-                      <span>{pendingLeads.length > 0 ? `Complete & Next (${pendingLeads.length} left)` : 'Complete & Finish'}</span>
+                      <span>
+                        {pendingLeads.length > 0
+                          ? `Complete & Next (${pendingLeads.length} remaining)`
+                          : 'Complete & Finish'}
+                      </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </>
                   ) : (
                     <>
-                      <span>{pendingLeads.length > 0 ? `Save & Next (${pendingLeads.length} left)` : 'Save & Finish'}</span>
+                      <span>
+                        {pendingLeads.length > 0
+                          ? `Save & Next (${pendingLeads.length} remaining)`
+                          : 'Save & Finish'}
+                      </span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </>
                   )}
