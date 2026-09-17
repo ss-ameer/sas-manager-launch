@@ -864,10 +864,21 @@ export default function LiveExecutionModal({
     return activeQueue.slice(currentIndex + 1);
   }, [activeQueue, currentIndex]);
 
-  // Strict linear advancement function: advances strictly to (currentIndex + 1)
+  // Linear advancement helper: cleanly resets state and advances strictly to (currentIndex + 1)
   // Never decrements, never loops backward, cleanly exits if queue reaches the end
   const advanceToNextTask = () => {
+    // Reset active drawer and temporary action drawer states
+    setActiveDrawer('none');
+    setRescheduleReason('');
+    setCancelReason('');
     setIsCompletionMode(false);
+
+    // Reset interaction scratchpad and follow-up states so new task has clean defaults
+    setNotes('');
+    setFollowUpIntent('');
+    setNextFollowUpDate('');
+    setActivePreset(null);
+
     const nextIndex = currentIndex + 1;
     if (nextIndex < activeQueue.length) {
       setCurrentIndex(nextIndex);
@@ -1394,9 +1405,14 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Primary Execution Submission (Save & Close, Save & Next Lead, or Explicit Complete Task)
+  // Dedicated Post-Interaction Completion Handler (Save & Close, Save & Next Lead, or Explicit Complete Task)
   const executeSubmission = async (advanceToNext: boolean, forceCompleted: boolean = false) => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
+
+    // Explicitly guarantee no lingering drawer or reschedule state leaks into completion payload
+    setActiveDrawer('none');
+    setRescheduleReason('');
+    setCancelReason('');
 
     // Default outcome safeguard for completed tasks across channels
     let finalOutcome = callOutcome;
@@ -1617,6 +1633,7 @@ export default function LiveExecutionModal({
     setRescheduleDate(localIso);
   };
 
+  // Dedicated Reschedule Deferral Handler: strictly updates schedule date & reason without completing or mixing scratchpad notes
   const executeRescheduleTask = async () => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
 
@@ -1634,17 +1651,16 @@ export default function LiveExecutionModal({
         return new Date(d.getTime() - offset).toISOString().slice(0, 16);
       })();
 
-      const rescheduleNoteText = rescheduleReason.trim()
-        ? `[Rescheduled to ${finalRescheduleDate}]: ${rescheduleReason.trim()}`
+      const reasonClean = rescheduleReason.trim();
+      const rescheduleNoteText = reasonClean
+        ? `[Rescheduled to ${finalRescheduleDate}]: ${reasonClean}`
         : `[Rescheduled to ${finalRescheduleDate}]`;
 
-      const combinedNotes = notes.trim()
-        ? currentTask.requirement_notes
-          ? `${currentTask.requirement_notes}\n${rescheduleNoteText}\n[Notes]: ${notes.trim()}`
-          : `${rescheduleNoteText}\n[Notes]: ${notes.trim()}`
-        : currentTask.requirement_notes
-          ? `${currentTask.requirement_notes}\n${rescheduleNoteText}`
-          : rescheduleNoteText;
+      // Keep original task notes intact, purely appending deferral reason without consuming scratchpad notes
+      const existingNotes = currentTask.requirement_notes || '';
+      const updatedNotes = existingNotes.trim()
+        ? `${existingNotes}\n${rescheduleNoteText}`
+        : rescheduleNoteText;
 
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
@@ -1653,7 +1669,7 @@ export default function LiveExecutionModal({
         next_followup_date: finalRescheduleDate,
         scheduled_for: finalRescheduleDate,
         status: 'Scheduled / Planned' as CallStatus,
-        requirement_notes: combinedNotes,
+        requirement_notes: updatedNotes,
         updatedAt: nowIso,
         rescheduled_at: nowIso,
         rescheduled_by_uid: userUid,
@@ -1673,7 +1689,10 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord);
       }
 
+      // Reset drawer & reason before advancing
       setActiveDrawer('none');
+      setRescheduleReason('');
+
       // Advance to next lead in queue strictly or close
       advanceToNextTask();
     } catch (err) {
