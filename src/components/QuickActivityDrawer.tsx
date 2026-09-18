@@ -11,6 +11,7 @@ import {
   User,
   MapPin,
   Calendar,
+  CalendarClock,
   Send,
   Check,
   Sparkles,
@@ -63,6 +64,7 @@ import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '..
 import { normalizeActivityChannel } from '../context/ActivityLauncherContext';
 import {
   CHANNELS,
+  MasterActivityChannel,
   PURPOSES,
   OUTCOMES,
   POSITIVE_OUTCOMES,
@@ -372,9 +374,56 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [notes, setNotes] = useState<string>('');
   const [activityDate, setActivityDate] = useState<string>(() => getLocalDateTimeString());
   const [followupDate, setFollowupDate] = useState<string>('');
+  const [followUpChannel, setFollowUpChannel] = useState<MasterActivityChannel>('Phone Call');
+  const [activeFollowUpPreset, setActiveFollowUpPreset] = useState<'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | null>(null);
   const [emailSubject, setEmailSubject] = useState<string>('');
   const [locationOrLink, setLocationOrLink] = useState<string>('');
   const [followupIntent, setFollowupIntent] = useState<string>('');
+
+  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom', customIntent?: string) => {
+    setActiveFollowUpPreset(preset);
+    if (customIntent !== undefined) {
+      setFollowupIntent(customIntent);
+    }
+
+    if (preset === 'custom') {
+      const input = document.getElementById('drawer-next-followup-datetime') as HTMLInputElement;
+      if (input) {
+        input.focus();
+        if (typeof (input as any).showPicker === 'function') {
+          try { (input as any).showPicker(); } catch {}
+        }
+      }
+      return;
+    }
+
+    let targetDate = new Date();
+    if (preset === 'laterToday') {
+      targetDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    } else if (preset === 'thisAfternoon') {
+      const current = new Date();
+      targetDate = new Date();
+      targetDate.setHours(16, 0, 0, 0);
+      if (current.getTime() >= targetDate.getTime()) {
+        // If current time is already past 16:00, snap to tomorrow at 10:00 AM
+        targetDate.setDate(targetDate.getDate() + 1);
+        targetDate.setHours(10, 0, 0, 0);
+      }
+    } else if (preset === 'tomorrow') {
+      targetDate.setDate(targetDate.getDate() + 1);
+      targetDate.setHours(10, 0, 0, 0);
+    } else if (preset === '3days') {
+      targetDate.setDate(targetDate.getDate() + 3);
+      targetDate.setHours(10, 0, 0, 0);
+    } else if (preset === '1week') {
+      targetDate.setDate(targetDate.getDate() + 7);
+      targetDate.setHours(10, 0, 0, 0);
+    }
+
+    const offset = targetDate.getTimezoneOffset() * 60000;
+    const localIso = new Date(targetDate.getTime() - offset).toISOString().slice(0, 16);
+    setFollowupDate(localIso);
+  };
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [activeChipId, setActiveChipId] = useState<string | null>(null);
@@ -650,6 +699,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             ? formatToDatetimeLocal(activeLog.next_followup_date)
             : ''
         );
+        setFollowUpChannel('Phone Call');
+        setActiveFollowUpPreset(null);
         setIsDnc(Boolean((activeLog as any).dnc || activeLog.is_dnc || (activeLog as any).opt_out));
         setActiveChipId(null);
         setAiError(null);
@@ -685,6 +736,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setNotes('');
         setActivityDate(getLocalDateTimeString());
         setFollowupDate('');
+        setFollowUpChannel('Phone Call');
+        setActiveFollowUpPreset(null);
         setEmailSubject('');
         setLocationOrLink('');
         setFollowupIntent('');
@@ -2324,12 +2377,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             date: followupIsoDate,
             status: 'Scheduled / Planned',
             outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
-            channel: channel,
-            category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
+            channel: followUpChannel || 'Phone Call',
+            category: followUpChannel || 'Phone Call',
             department: isInternalTask ? 'Administration' : undefined,
-            interaction_purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
-            interaction_type: interactionTypeMap[channel] || 'call',
-            purpose: isInternalTask ? (purpose || 'Administration') : (purpose || 'Follow-up / Check-in'),
+            interaction_purpose: isInternalTask ? (purpose || 'Administration') : (followupIntent.trim() || 'Follow-up / Check-in'),
+            interaction_type: interactionTypeMap[followUpChannel || 'Phone Call'] || 'call',
+            purpose: isInternalTask ? (purpose || 'Administration') : (followupIntent.trim() || 'Follow-up / Check-in'),
             requirement_notes: followupIntent.trim() || '',
             followup_intent: followupIntent.trim() || undefined,
             company_id: resolvedCompanyId || activeLog.company_id,
@@ -2482,10 +2535,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               date: followupIsoDate,
               status: 'Scheduled / Planned' as CallStatus,
               outcome: isInternalTask ? undefined : 'Follow-Up Scheduled',
-              purpose: isInternalTask ? (purpose || 'Administration') : payload.purpose,
-              category: isInternalTask ? 'Internal Task / Admin' : payload.category,
+              channel: followUpChannel || 'Phone Call',
+              category: followUpChannel || 'Phone Call',
               department: isInternalTask ? 'Administration' : payload.department,
-              interaction_purpose: isInternalTask ? (purpose || 'Administration') : payload.interaction_purpose,
+              interaction_purpose: isInternalTask ? (purpose || 'Administration') : (followupIntent.trim() || 'Follow-up / Check-in'),
+              interaction_type: interactionTypeMap[followUpChannel || 'Phone Call'] || 'call',
+              purpose: isInternalTask ? (purpose || 'Administration') : (followupIntent.trim() || 'Follow-up / Check-in'),
               requirement_notes: followupIntent.trim() || '',
               followup_intent: followupIntent.trim() || undefined,
               next_followup_date: undefined,
@@ -4185,131 +4240,239 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               />
             </div>
 
-            {/* Date & Follow-Up Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-              <div className="flex flex-col justify-end h-full">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Activity Date & Time
-                </label>
-                <input
-                  type="datetime-local"
-                  value={activityDate}
-                  onChange={(e) => setActivityDate(e.target.value)}
-                  max={getLocalDateTimeString()}
-                  style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden font-mono"
-                />
-              </div>
+            {/* Activity Date & Time */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                Activity Date & Time
+              </label>
+              <input
+                type="datetime-local"
+                value={activityDate}
+                onChange={(e) => setActivityDate(e.target.value)}
+                max={getLocalDateTimeString()}
+                style={{ colorScheme: 'dark' }}
+                className="[color-scheme:dark] w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden font-mono"
+              />
+            </div>
 
-              {(() => {
-                const isCurScheduled = status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft';
-                const isFollowupEncouraged =
-                  isCurScheduled ||
-                  status === 'No Answer' ||
-                  status === 'Busy' ||
-                  outcome === 'Call Back Later' ||
-                  outcome === 'Line Busy' ||
-                  outcome === 'No Answer' ||
-                  outcome === 'Follow-Up Scheduled';
-                const isFollowupMissing = isFollowupEncouraged && !followupDate;
+            {/* Rich Follow-Up Scheduling Widget */}
+            {(() => {
+              const isCurScheduled = status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft';
+              const isFollowupEncouraged =
+                isCurScheduled ||
+                status === 'No Answer' ||
+                status === 'Busy' ||
+                outcome === 'Call Back Later' ||
+                outcome === 'Line Busy' ||
+                outcome === 'No Answer' ||
+                outcome === 'Follow-Up Scheduled';
+              const isFollowupMissing = isFollowupEncouraged && !followupDate;
 
-                return (
-                  <div className="flex flex-col justify-end h-full">
-                    <div className="flex flex-col mb-2 gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          {isCurScheduled ? 'Scheduled Date & Time *' : 'Next Follow-up Date'}
-                        </label>
-                        {followupDate && (
-                          <button
-                            type="button"
-                            onClick={() => setFollowupDate('')}
-                            className="text-[10px] text-slate-400 hover:text-rose-300 font-semibold cursor-pointer"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      {isFollowupMissing && (
-                        <div className="w-full">
-                          <span className="text-[10px] font-bold text-amber-400 inline-flex items-center gap-1.5 bg-amber-950/80 px-2 py-1 rounded border border-amber-500/50 animate-pulse">
-                            <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
-                            <span>Required for {isCurScheduled ? 'Scheduled tasks' : status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type="datetime-local"
-                      value={followupDate}
-                      onChange={(e) => setFollowupDate(e.target.value)}
-                      style={{ colorScheme: 'dark' }}
-                      className={`[color-scheme:dark] w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-mono transition-all focus:outline-hidden ${
-                        isFollowupMissing
-                          ? 'border-2 border-amber-500/80 ring-2 ring-amber-500/30 bg-amber-950/20 text-amber-100'
-                          : followupDate
-                          ? 'border-2 border-blue-500/80 bg-blue-950/20 text-blue-100 font-bold'
-                          : 'border border-slate-800 text-slate-100 focus:border-blue-500'
-                      }`}
-                    />
-
-                    {/* Quick Set Buttons when follow-up missing */}
-                    {isFollowupMissing && (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] text-slate-400 font-medium">Quick Set:</span>
-                        {[
-                          { label: '+1 Day', days: 1 },
-                          { label: '+2 Days', days: 2 },
-                          { label: '+3 Days', days: 3 },
-                          { label: '+1 Week', days: 7 }
-                        ].map((btn) => (
-                          <button
-                            key={btn.label}
-                            type="button"
-                            onClick={() => {
-                              const d = new Date();
-                              d.setDate(d.getDate() + btn.days);
-                              d.setHours(9, 0, 0, 0);
-                              setFollowupDate(getLocalDateTimeString(d));
-                            }}
-                            className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-bold transition cursor-pointer"
-                          >
-                            {btn.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Persistent Selected Date Display Badge */}
+              return (
+                <div className="p-3.5 bg-slate-950/90 border border-slate-800 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <CalendarClock className="w-4 h-4 text-blue-400" />
+                      <span>{isCurScheduled ? 'Scheduled Date & Time *' : 'Next Follow-Up Scheduling'}</span>
+                    </label>
                     {followupDate && (
-                      <div className="mt-2 flex items-center justify-between px-3 py-1.5 rounded-lg bg-blue-950/80 border border-blue-500/60 text-blue-200 text-xs font-mono font-bold shadow-xs">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                          <span>Scheduled: {new Date(followupDate).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      </div>
-                    )}
-
-                    {/* Follow-Up Intent / Reason Input Field */}
-                    {followupDate && (
-                      <div className="mt-2.5">
-                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                          Follow-up Intent / Agenda
-                        </label>
-                        <input
-                          type="text"
-                          value={followupIntent}
-                          onChange={(e) => setFollowupIntent(e.target.value)}
-                          placeholder="e.g. Check on PO approval, Send revised quote..."
-                          className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium"
-                        />
-                      </div>
+                      <button
+                        type="button"
+                        id="drawer-clear-followup-button"
+                        onClick={() => {
+                          setFollowupDate('');
+                          setActiveFollowUpPreset(null);
+                        }}
+                        className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 cursor-pointer"
+                      >
+                        Clear Schedule
+                      </button>
                     )}
                   </div>
-                );
-              })()}
-            </div>
+
+                  {isFollowupMissing && (
+                    <div className="w-full">
+                      <span className="text-[10px] font-bold text-amber-400 inline-flex items-center gap-1.5 bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-500/50 animate-pulse">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Required for {isCurScheduled ? 'Scheduled tasks' : status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Target Channel Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-slate-300">
+                        Follow-up via:
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        Target interaction channel
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {(
+                        [
+                          { channel: 'Phone Call' as MasterActivityChannel, label: 'Phone Call', icon: PhoneCall },
+                          { channel: 'Message (WhatsApp/SMS)' as MasterActivityChannel, label: 'WhatsApp', icon: MessageSquare },
+                          { channel: 'Email' as MasterActivityChannel, label: 'Email', icon: Mail },
+                          { channel: 'Meeting (Virtual/In-Person)' as MasterActivityChannel, label: 'Meeting', icon: Users }
+                        ] as const
+                      ).map((item) => {
+                        const isSelected = followUpChannel === item.channel;
+                        const IconComp = item.icon;
+                        return (
+                          <button
+                            key={item.channel}
+                            type="button"
+                            id={`drawer-followup-channel-btn-${item.label.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                            onClick={() => setFollowUpChannel(item.channel)}
+                            className={`flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-500 shadow-xs ring-1 ring-blue-400/40'
+                                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <IconComp className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Preset Buttons Row */}
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-300 mb-1.5">
+                      Quick Date Presets:
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        id="drawer-preset-later-today-button"
+                        onClick={() => applyFollowUpPreset('laterToday')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === 'laterToday'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        Later Today (+2h)
+                      </button>
+                      <button
+                        type="button"
+                        id="drawer-preset-this-afternoon-button"
+                        onClick={() => applyFollowUpPreset('thisAfternoon')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === 'thisAfternoon'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        This Afternoon (4:00 PM)
+                      </button>
+                      <button
+                        type="button"
+                        id="drawer-preset-tomorrow-button"
+                        onClick={() => applyFollowUpPreset('tomorrow')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === 'tomorrow'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        +1 Day
+                      </button>
+                      <button
+                        type="button"
+                        id="drawer-preset-3days-button"
+                        onClick={() => applyFollowUpPreset('3days')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === '3days'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        +3 Days
+                      </button>
+                      <button
+                        type="button"
+                        id="drawer-preset-1week-button"
+                        onClick={() => applyFollowUpPreset('1week')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === '1week'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        +1 Week
+                      </button>
+                      <button
+                        type="button"
+                        id="drawer-preset-custom-button"
+                        onClick={() => applyFollowUpPreset('custom')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          activeFollowUpPreset === 'custom'
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        Custom
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scheduled Date & Time picker + Follow-Up Intent Input */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Scheduled Date & Time
+                      </label>
+                      <input
+                        type="datetime-local"
+                        id="drawer-next-followup-datetime"
+                        value={followupDate}
+                        onChange={(e) => {
+                          setFollowupDate(e.target.value);
+                          setActiveFollowUpPreset('custom');
+                        }}
+                        style={{ colorScheme: 'dark' }}
+                        className={`[color-scheme:dark] w-full px-3 py-2 text-xs rounded-lg bg-slate-950 font-mono transition-all focus:outline-hidden ${
+                          isFollowupMissing
+                            ? 'border-2 border-amber-500/80 ring-2 ring-amber-500/30 text-amber-100'
+                            : followupDate
+                            ? 'border-2 border-blue-500/80 text-blue-100 font-bold'
+                            : 'border border-slate-800 text-slate-100 focus:border-blue-500'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Follow-Up Intent / Next Step
+                      </label>
+                      <input
+                        type="text"
+                        id="drawer-next-followup-intent"
+                        value={followupIntent}
+                        onChange={(e) => setFollowupIntent(e.target.value)}
+                        placeholder="e.g. Call back regarding quote revisions..."
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-800 bg-slate-950 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium transition"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Persistent Selected Date & Channel Confirmation Badge */}
+                  {followupDate && (
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-blue-950/80 border border-blue-500/60 text-blue-200 text-xs font-mono font-bold shadow-xs">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <span>Scheduled: {new Date(followupDate).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })} via {followUpChannel}</span>
+                      </div>
+                      <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* DNC Opt-Out Checkbox */}
             <div className="pt-1">

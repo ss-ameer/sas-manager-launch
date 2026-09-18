@@ -1106,8 +1106,10 @@ export function canUserClickRecord(
   workspaceId?: string | null
 ): boolean {
   if (!user || !record) return false;
+  if (isSuperAdmin(user)) return true;
   const targetWsId = workspaceId || record?.workspaceId || record?.workspace_id;
   if (isAdmin(user, targetWsId)) return true;
+  if ((user.role || '').toLowerCase() === 'admin' || (user.role || '').toLowerCase() === 'superadmin') return true;
 
   let isAttributed = isRecordOwner(user, record, targetWsId);
 

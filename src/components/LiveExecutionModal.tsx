@@ -37,7 +37,9 @@ import {
   Video,
   Navigation,
   CalendarX,
-  AlertTriangle
+  AlertTriangle,
+  ShieldAlert,
+  PhoneOff
 } from 'lucide-react';
 import {
   CallLogEntry,
@@ -178,7 +180,7 @@ interface DispositionConfig {
   sublabel: string;
   status: string;
   defaultOutcome: string;
-  defaultPreset: 'tomorrow' | '3days' | '1week' | 'clear';
+  defaultPreset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'clear';
   defaultIntent: string;
   activeClass: string;
   inactiveClass: string;
@@ -692,7 +694,7 @@ export default function LiveExecutionModal({
   const [notes, setNotes] = useState<string>('');
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
   const [followUpChannel, setFollowUpChannel] = useState<MasterActivityChannel>('Phone Call');
-  const [activePreset, setActivePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom' | null>('tomorrow');
+  const [activePreset, setActivePreset] = useState<'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | null>('tomorrow');
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -1348,6 +1350,49 @@ export default function LiveExecutionModal({
     return getWhatsAppUrl(phoneStr);
   };
 
+  // Helper to evaluate line safety restriction (DNC or Invalid) for specific contact or company lines
+  const getLineRestriction = (rawPhoneOrEmail?: string, isMainline: boolean = false): 'DNC' | 'Invalid' | null => {
+    if (!rawPhoneOrEmail) return null;
+    const cleanDigits = rawPhoneOrEmail.replace(/\D/g, '');
+    const cleanTrimmed = rawPhoneOrEmail.trim().toLowerCase();
+
+    // 1. Check target contact restricted lines and DNC flags
+    if (!isMainline && targetContact) {
+      if (targetContact.is_dnc || targetContact.dnc) return 'DNC';
+      if (targetContact.restricted_lines) {
+        for (const [key, val] of Object.entries(targetContact.restricted_lines)) {
+          const keyDigits = key.replace(/\D/g, '');
+          const keyTrimmed = key.trim().toLowerCase();
+          if (
+            (cleanDigits && keyDigits && (cleanDigits === keyDigits || cleanDigits.endsWith(keyDigits) || keyDigits.endsWith(cleanDigits))) ||
+            (cleanTrimmed && keyTrimmed && cleanTrimmed === keyTrimmed)
+          ) {
+            return (val as 'DNC' | 'Invalid') || 'DNC';
+          }
+        }
+      }
+    }
+
+    // 2. Check linked company restricted lines and DNC flags
+    if (linkedCompany) {
+      if (isMainline && (linkedCompany.is_dnc || linkedCompany.dnc)) return 'DNC';
+      if (linkedCompany.restricted_lines) {
+        for (const [key, val] of Object.entries(linkedCompany.restricted_lines)) {
+          const keyDigits = key.replace(/\D/g, '');
+          const keyTrimmed = key.trim().toLowerCase();
+          if (
+            (cleanDigits && keyDigits && (cleanDigits === keyDigits || cleanDigits.endsWith(keyDigits) || keyDigits.endsWith(cleanDigits))) ||
+            (cleanTrimmed && keyTrimmed && cleanTrimmed === keyTrimmed)
+          ) {
+            return (val as 'DNC' | 'Invalid') || 'DNC';
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
   // 1-Click Disposition Matrix Selection
   const handleSelectDisposition = (disp: DispositionConfig) => {
     setActiveDispositionId(disp.id);
@@ -1375,7 +1420,7 @@ export default function LiveExecutionModal({
   };
 
   // Quick Follow-Up Preset Calculation
-  const applyFollowUpPreset = (preset: 'tomorrow' | '3days' | '1week' | 'custom', customIntent?: string) => {
+  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom', customIntent?: string) => {
     setActivePreset(preset);
     if (customIntent !== undefined) {
       setFollowUpIntent(customIntent);
@@ -1392,16 +1437,29 @@ export default function LiveExecutionModal({
       return;
     }
 
-    const targetDate = new Date();
-    if (preset === 'tomorrow') {
+    let targetDate = new Date();
+    if (preset === 'laterToday') {
+      targetDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    } else if (preset === 'thisAfternoon') {
+      const current = new Date();
+      targetDate = new Date();
+      targetDate.setHours(16, 0, 0, 0);
+      if (current.getTime() >= targetDate.getTime()) {
+        // If current time is already past 16:00, snap to tomorrow at 10:00 AM
+        targetDate.setDate(targetDate.getDate() + 1);
+        targetDate.setHours(10, 0, 0, 0);
+      }
+    } else if (preset === 'tomorrow') {
       targetDate.setDate(targetDate.getDate() + 1);
+      targetDate.setHours(10, 0, 0, 0);
     } else if (preset === '3days') {
       targetDate.setDate(targetDate.getDate() + 3);
+      targetDate.setHours(10, 0, 0, 0);
     } else if (preset === '1week') {
       targetDate.setDate(targetDate.getDate() + 7);
+      targetDate.setHours(10, 0, 0, 0);
     }
 
-    targetDate.setHours(10, 0, 0, 0);
     const offset = targetDate.getTimezoneOffset() * 60000;
     const localIso = new Date(targetDate.getTime() - offset).toISOString().slice(0, 16);
     setNextFollowUpDate(localIso);
@@ -2219,20 +2277,39 @@ export default function LiveExecutionModal({
                           </a>
                         ) : null}
 
-                        {directPhone ? (
-                          <a
-                            id="target-contact-meeting-call-btn"
-                            href={cleanTelUrl(directPhone)}
-                            onClick={() => {
-                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
-                            }}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                            title={`Call Direct: ${directPhone}`}
-                          >
-                            <PhoneCall className="w-3.5 h-3.5" />
-                            <span>Call Direct</span>
-                          </a>
-                        ) : null}
+                        {directPhone ? (() => {
+                          const restriction = getLineRestriction(directPhone, false);
+                          if (restriction === 'DNC') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="DNC Restricted Line">
+                                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                <span>DNC</span>
+                              </span>
+                            );
+                          }
+                          if (restriction === 'Invalid') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Phone Line">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>Invalid</span>
+                              </span>
+                            );
+                          }
+                          return (
+                            <a
+                              id="target-contact-meeting-call-btn"
+                              href={cleanTelUrl(directPhone)}
+                              onClick={() => {
+                                if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                              }}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                              title={`Call Direct: ${directPhone}`}
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              <span>Call Direct</span>
+                            </a>
+                          );
+                        })() : null}
 
                         {meetingLink ? (
                           <a
@@ -2283,20 +2360,39 @@ export default function LiveExecutionModal({
                           <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
                         </a>
 
-                        {directPhone ? (
-                          <a
-                            id="target-contact-site-call-btn"
-                            href={cleanTelUrl(directPhone)}
-                            onClick={() => {
-                              if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
-                            }}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                            title={`Call Contact: ${directPhone}`}
-                          >
-                            <PhoneCall className="w-3.5 h-3.5" />
-                            <span>Call Contact</span>
-                          </a>
-                        ) : null}
+                        {directPhone ? (() => {
+                          const restriction = getLineRestriction(directPhone, false);
+                          if (restriction === 'DNC') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="DNC Restricted Line">
+                                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                <span>DNC</span>
+                              </span>
+                            );
+                          }
+                          if (restriction === 'Invalid') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Phone Line">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>Invalid</span>
+                              </span>
+                            );
+                          }
+                          return (
+                            <a
+                              id="target-contact-site-call-btn"
+                              href={cleanTelUrl(directPhone)}
+                              onClick={() => {
+                                if (activeTarget !== 'mainline') setActiveTargetOverride('contact');
+                              }}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                              title={`Call Contact: ${directPhone}`}
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              <span>Call Contact</span>
+                            </a>
+                          );
+                        })() : null}
                       </div>
                     </div>
                   ) : isInternalChannel ? (
@@ -2384,50 +2480,92 @@ export default function LiveExecutionModal({
                         </div>
                       </div>
 
-                      {directPhone ? (
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          {directPhone.includes('@') ? (
-                            <a
-                              id="target-contact-email-button"
-                              href={`mailto:${directPhone}`}
-                              onClick={() => setActiveTargetOverride('contact')}
-                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition cursor-pointer"
-                              title={`Send Email to ${displayContactName} (${directPhone})`}
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                              <span>Email</span>
-                            </a>
-                          ) : (
-                            <>
+                      {directPhone ? (() => {
+                        const restriction = getLineRestriction(directPhone, false);
+                        const isDNC = restriction === 'DNC';
+                        const isInvalid = restriction === 'Invalid';
+
+                        return (
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {directPhone.includes('@') ? (
                               <a
-                                id="target-contact-call-button"
-                                href={cleanTelUrl(directPhone)}
+                                id="target-contact-email-button"
+                                href={`mailto:${directPhone}`}
                                 onClick={() => setActiveTargetOverride('contact')}
-                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                                title={`Call ${displayContactName} (${directPhone})`}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition cursor-pointer"
+                                title={`Send Email to ${displayContactName} (${directPhone})`}
                               >
-                                <PhoneCall className="w-3.5 h-3.5" />
-                                <span>Call</span>
+                                <Mail className="w-3.5 h-3.5" />
+                                <span>Email</span>
                               </a>
-                              <a
-                                id="target-contact-whatsapp-button"
-                                href={cleanWhatsAppUrl(directPhone)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveTargetOverride('contact');
-                                }}
-                                className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
-                                title={`WhatsApp message to ${displayContactName}`}
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                                <span>WhatsApp</span>
-                              </a>
-                            </>
-                          )}
-                        </div>
-                      ) : (
+                            ) : (
+                              <>
+                                {isDNC ? (
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="Do Not Call: Line is registered under DNC restriction">
+                                      <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                      <span>DNC Restricted</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60"
+                                      title="Dialing disabled due to DNC restriction"
+                                    >
+                                      <PhoneOff className="w-3.5 h-3.5" />
+                                      <span>Call</span>
+                                    </button>
+                                  </div>
+                                ) : isInvalid ? (
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Phone Line">
+                                      <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                      <span>Invalid Number</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60"
+                                      title="Dialing disabled for invalid number"
+                                    >
+                                      <PhoneOff className="w-3.5 h-3.5" />
+                                      <span>Call</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <a
+                                      id="target-contact-call-button"
+                                      href={cleanTelUrl(directPhone)}
+                                      onClick={() => setActiveTargetOverride('contact')}
+                                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                                      title={`Call ${displayContactName} (${directPhone})`}
+                                    >
+                                      <PhoneCall className="w-3.5 h-3.5" />
+                                      <span>Call</span>
+                                    </a>
+                                    <a
+                                      id="target-contact-whatsapp-button"
+                                      href={cleanWhatsAppUrl(directPhone)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveTargetOverride('contact');
+                                      }}
+                                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-2xs transition cursor-pointer"
+                                      title={`WhatsApp message to ${displayContactName}`}
+                                    >
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                      <span>WhatsApp</span>
+                                    </a>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })() : (
                         <button
                           type="button"
                           onClick={() => setIsContactModalOpen(true)}
@@ -2532,18 +2670,37 @@ export default function LiveExecutionModal({
                           </a>
                         ) : null}
 
-                        {companyMainPhone ? (
-                          <a
-                            id="company-mainline-meeting-call-btn"
-                            href={cleanTelUrl(companyMainPhone)}
-                            onClick={() => setActiveTargetOverride('mainline')}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
-                            title={`Call Switchboard (${companyMainPhone})`}
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>Call Switchboard</span>
-                          </a>
-                        ) : null}
+                        {companyMainPhone ? (() => {
+                          const restriction = getLineRestriction(companyMainPhone, true);
+                          if (restriction === 'DNC') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="DNC Restricted Line">
+                                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                <span>DNC</span>
+                              </span>
+                            );
+                          }
+                          if (restriction === 'Invalid') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Switchboard Line">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>Invalid</span>
+                              </span>
+                            );
+                          }
+                          return (
+                            <a
+                              id="company-mainline-meeting-call-btn"
+                              href={cleanTelUrl(companyMainPhone)}
+                              onClick={() => setActiveTargetOverride('mainline')}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                              title={`Call Switchboard (${companyMainPhone})`}
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>Call Switchboard</span>
+                            </a>
+                          );
+                        })() : null}
 
                         {!companyMainEmail && !companyMainPhone && (
                           <span className="text-[11px] text-slate-400">No contact info registered</span>
@@ -2573,18 +2730,37 @@ export default function LiveExecutionModal({
                           <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
                         </a>
 
-                        {companyMainPhone ? (
-                          <a
-                            id="company-mainline-site-call-btn"
-                            href={cleanTelUrl(companyMainPhone)}
-                            onClick={() => setActiveTargetOverride('mainline')}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
-                            title={`Call Switchboard (${companyMainPhone})`}
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>Call</span>
-                          </a>
-                        ) : null}
+                        {companyMainPhone ? (() => {
+                          const restriction = getLineRestriction(companyMainPhone, true);
+                          if (restriction === 'DNC') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="DNC Restricted Line">
+                                <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                <span>DNC</span>
+                              </span>
+                            );
+                          }
+                          if (restriction === 'Invalid') {
+                            return (
+                              <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Switchboard Line">
+                                <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>Invalid</span>
+                              </span>
+                            );
+                          }
+                          return (
+                            <a
+                              id="company-mainline-site-call-btn"
+                              href={cleanTelUrl(companyMainPhone)}
+                              onClick={() => setActiveTargetOverride('mainline')}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                              title={`Call Switchboard (${companyMainPhone})`}
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>Call</span>
+                            </a>
+                          );
+                        })() : null}
                       </div>
                     </div>
                   ) : isInternalChannel ? (
@@ -2656,35 +2832,77 @@ export default function LiveExecutionModal({
                         </div>
                       </div>
 
-                      {companyMainPhone ? (
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          <a
-                            id="company-mainline-call-button"
-                            href={cleanTelUrl(companyMainPhone)}
-                            onClick={() => setActiveTargetOverride('mainline')}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
-                            title={`Call Switchboard (${companyMainPhone})`}
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>Call</span>
-                          </a>
-                          <a
-                            id="company-mainline-whatsapp-button"
-                            href={cleanWhatsAppUrl(companyMainPhone)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveTargetOverride('mainline');
-                            }}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
-                            title={`WhatsApp Switchboard (${companyMainPhone})`}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
-                          </a>
-                        </div>
-                      ) : (
+                      {companyMainPhone ? (() => {
+                        const restriction = getLineRestriction(companyMainPhone, true);
+                        const isDNC = restriction === 'DNC';
+                        const isInvalid = restriction === 'Invalid';
+
+                        return (
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {isDNC ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-300 dark:border-rose-800" title="Do Not Call: Switchboard is registered under DNC restriction">
+                                  <ShieldAlert className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                                  <span>DNC Restricted</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60"
+                                  title="Dialing disabled due to DNC restriction"
+                                >
+                                  <PhoneOff className="w-3.5 h-3.5" />
+                                  <span>Call</span>
+                                </button>
+                              </div>
+                            ) : isInvalid ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="inline-flex items-center space-x-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-800" title="Invalid Switchboard Number">
+                                  <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                  <span>Invalid Line</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60"
+                                  title="Dialing disabled for invalid number"
+                                >
+                                  <PhoneOff className="w-3.5 h-3.5" />
+                                  <span>Call</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <a
+                                  id="company-mainline-call-button"
+                                  href={cleanTelUrl(companyMainPhone)}
+                                  onClick={() => setActiveTargetOverride('mainline')}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-2xs transition cursor-pointer"
+                                  title={`Call Switchboard (${companyMainPhone})`}
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span>Call</span>
+                                </a>
+                                <a
+                                  id="company-mainline-whatsapp-button"
+                                  href={cleanWhatsAppUrl(companyMainPhone)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveTargetOverride('mainline');
+                                  }}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition cursor-pointer"
+                                  title={`WhatsApp Switchboard (${companyMainPhone})`}
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })() : (
                         <span className="text-[11px] text-slate-400">Not registered</span>
                       )}
                     </div>
@@ -3125,6 +3343,30 @@ export default function LiveExecutionModal({
 
                 {/* Quick Presets Row */}
                 <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    id="preset-later-today-button"
+                    onClick={() => applyFollowUpPreset('laterToday')}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      activePreset === 'laterToday'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Later Today (+2h)
+                  </button>
+                  <button
+                    type="button"
+                    id="preset-this-afternoon-button"
+                    onClick={() => applyFollowUpPreset('thisAfternoon')}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                      activePreset === 'thisAfternoon'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    This Afternoon (4:00 PM)
+                  </button>
                   <button
                     type="button"
                     id="preset-tomorrow-button"

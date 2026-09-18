@@ -2397,32 +2397,93 @@ export default function CallLogManager({
 
                   {/* Fast Action Buttons */}
                   <div className="flex items-center gap-1.5 shrink-0 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100 dark:border-slate-800">
-                    {canUserClickRecord(user, item, salespersons) ? (
+                    {canUserClickRecord(user, item, salespersons, activeWorkspace?.id) ? (
                       <>
-                        {item.contact_phone && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              handleInitiate({
-                                companyId: item.company_id,
-                                companyName: item.company_name,
-                                contactId: item.contact_id,
-                                contactName: item.contact_name,
-                                contactPhone: item.contact_phone,
-                                enquiryId: item.enquiry_id,
-                                channel: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp' ? 'WhatsApp' : 'Call',
-                                externalUrl: item.channel === 'Message (WhatsApp/SMS)' || item.channel === 'WhatsApp'
-                                  ? getWhatsAppUrl(item.contact_phone)
-                                  : `tel:${item.contact_phone}`,
-                                e
-                              });
-                            }}
-                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition flex items-center justify-center cursor-pointer shadow-2xs"
-                            title="Execute Activity (Tap to Open Activity Drawer)"
-                          >
-                            <PhoneCall className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        {(() => {
+                          const chan = (item.channel || '').toLowerCase();
+                          const isEmail = chan.includes('email') || chan === 'mail';
+                          const isWhatsApp = chan.includes('whatsapp') || chan.includes('message') || chan.includes('sms');
+                          const emailTarget = item.email_address || (item.contact_phone && item.contact_phone.includes('@') ? item.contact_phone : '');
+                          const phoneTarget = item.contact_phone && !item.contact_phone.includes('@') ? item.contact_phone : '';
+
+                          if (isEmail && emailTarget) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  handleInitiate({
+                                    companyId: item.company_id,
+                                    companyName: item.company_name,
+                                    contactId: item.contact_id,
+                                    contactName: item.contact_name,
+                                    contactEmail: emailTarget,
+                                    enquiryId: item.enquiry_id,
+                                    channel: 'Email',
+                                    externalUrl: `mailto:${emailTarget}`,
+                                    e
+                                  });
+                                }}
+                                className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition flex items-center justify-center cursor-pointer shadow-2xs"
+                                title={`Send Email (${emailTarget})`}
+                              >
+                                <Mail className="w-3.5 h-3.5 text-white" />
+                              </button>
+                            );
+                          }
+
+                          if (isWhatsApp && (phoneTarget || item.contact_phone)) {
+                            const waPhone = phoneTarget || item.contact_phone;
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  handleInitiate({
+                                    companyId: item.company_id,
+                                    companyName: item.company_name,
+                                    contactId: item.contact_id,
+                                    contactName: item.contact_name,
+                                    contactPhone: waPhone,
+                                    enquiryId: item.enquiry_id,
+                                    channel: 'WhatsApp',
+                                    externalUrl: getWhatsAppUrl(waPhone),
+                                    e
+                                  });
+                                }}
+                                className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition flex items-center justify-center cursor-pointer shadow-2xs"
+                                title={`Send WhatsApp (${waPhone})`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-white" />
+                              </button>
+                            );
+                          }
+
+                          if (item.contact_phone) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  handleInitiate({
+                                    companyId: item.company_id,
+                                    companyName: item.company_name,
+                                    contactId: item.contact_id,
+                                    contactName: item.contact_name,
+                                    contactPhone: item.contact_phone,
+                                    enquiryId: item.enquiry_id,
+                                    channel: 'Call',
+                                    externalUrl: `tel:${item.contact_phone}`,
+                                    e
+                                  });
+                                }}
+                                className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition flex items-center justify-center cursor-pointer shadow-2xs"
+                                title="Execute Activity (Tap to Open Activity Drawer)"
+                              >
+                                <PhoneCall className="w-3.5 h-3.5 text-white" />
+                              </button>
+                            );
+                          }
+
+                          return null;
+                        })()}
 
                         <button
                           type="button"
@@ -2800,25 +2861,29 @@ export default function CallLogManager({
 
                 let ChannelIcon = Phone;
                 let channelColorClass = 'text-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400';
-                if (type === 'email') {
+                if (type.includes('email') || type.includes('mail') || (log.contact_phone && log.contact_phone.includes('@'))) {
                   ChannelIcon = Mail;
                   channelColorClass = 'text-purple-500 bg-purple-50 dark:bg-purple-900/30 dark:text-purple-400';
                 }
-                else if (type === 'message' || type === 'whatsapp' || type === 'sms') {
+                else if (type.includes('whatsapp') || type.includes('message') || type.includes('sms')) {
                   ChannelIcon = MessageSquare;
                   channelColorClass = 'text-green-500 bg-green-50 dark:bg-green-900/30 dark:text-green-400';
                 }
-                else if (type === 'meeting' || type.includes('meet')) {
+                else if (type.includes('meeting') || type.includes('meet') || type.includes('video') || type.includes('zoom')) {
                   ChannelIcon = Users;
                   channelColorClass = 'text-orange-500 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-400';
                 }
-                else if (type === 'site visit' || type.includes('site')) {
+                else if (type.includes('site') || type.includes('visit') || type.includes('location')) {
                   ChannelIcon = MapPin;
                   channelColorClass = 'text-teal-500 bg-teal-50 dark:bg-teal-900/30 dark:text-teal-400';
                 }
-                else if (type === 'internal task' || type === 'admin' || type.includes('task')) {
+                else if (type.includes('task') || type.includes('admin') || type.includes('internal')) {
                   ChannelIcon = FileText;
                   channelColorClass = 'text-gray-500 bg-gray-50 dark:bg-gray-900/30 dark:text-gray-400';
+                }
+                else if (type.includes('call') || type.includes('phone') || type.includes('voice')) {
+                  ChannelIcon = Phone;
+                  channelColorClass = 'text-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400';
                 }
 
                 return (
@@ -4309,7 +4374,7 @@ export default function CallLogManager({
                             </span>
                             <div className="space-y-2">
                               {pastLogs.map((pl) => {
-                                const canClick = canUserClickRecord(user, pl, salespersons);
+                                const canClick = canUserClickRecord(user, pl, salespersons, activeWorkspace?.id);
                                 return (
                                   <div
                                     key={pl.id}
@@ -4353,7 +4418,7 @@ export default function CallLogManager({
                             </span>
                             <div className="space-y-2">
                               {pastEnqs.map((pe) => {
-                                const canClick = canUserClickRecord(user, pe, salespersons);
+                                const canClick = canUserClickRecord(user, pe, salespersons, activeWorkspace?.id);
                                 const spName = getSalespersonFullName(pe.sales_person, salespersons);
                                 return (
                                   <div
