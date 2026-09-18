@@ -353,7 +353,20 @@ export type EnquiryStatus =
   | 'Dead'
   | 'Hold'
   | 'Delayed'
-  | 'Cancelled PO';
+  | 'Cancelled PO'
+  | 'Draft'
+  | 'Sent / Pending Client'
+  | 'Revision Requested'
+  | 'Won / Approved'
+  | 'Lost / Cancelled'
+  | string;
+
+export interface EnquiryStatusHistoryEntry {
+  from: string;
+  to: string;
+  timestamp: string;
+  updatedBy?: string;
+}
 
 export interface Enquiry extends SoftDeleteFields {
   id?: string;
@@ -414,6 +427,12 @@ export interface Enquiry extends SoftDeleteFields {
   updatedByUsername?: string;
   parent_id?: string | null; // Real link to original enquiry for revision tracking
   revision_number?: number; // Revision number: 0 for original, 1 for Rev-1, 2 for Rev-2, etc.
+  statusUpdatedAt?: string;
+  statusUpdatedBy?: string;
+  sentAt?: string;
+  wonAt?: string;
+  lostAt?: string;
+  statusHistory?: EnquiryStatusHistoryEntry[];
 }
 
 export interface DropdownOption {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -27,7 +27,8 @@ import {
   Hash
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
-import { db } from '../firebase';
+import { db, safeSetDoc } from '../firebase';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import {
@@ -52,6 +53,7 @@ import { QuickClaimModal } from './QuickClaimModal';
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
+  setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   companies: Company[];
   salespersons: Salesperson[];
   contacts?: Contact[];
@@ -85,6 +87,7 @@ interface EnquiryListProps {
 
 export default function EnquiryList({
   enquiries,
+  setEnquiries,
   companies,
   salespersons,
   setCompanies,
@@ -145,7 +148,7 @@ export default function EnquiryList({
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(50);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(25);
 
   // Reset page to 1 when filters change to prevent empty states
   React.useEffect(() => {
@@ -419,7 +422,7 @@ export default function EnquiryList({
 
   // Calculate pagination details
   const totalItems = filteredEnquiries.length;
-  const pageSize = itemsPerPage === 'All' ? Math.max(totalItems, 1) : Number(itemsPerPage) || 50;
+  const pageSize = itemsPerPage === 'All' ? Math.max(totalItems, 1) : Number(itemsPerPage) || 25;
   const totalPages = itemsPerPage === 'All' ? 1 : Math.ceil(totalItems / pageSize) || 1;
 
   const paginatedEnquiries = React.useMemo(() => {
@@ -551,29 +554,126 @@ export default function EnquiryList({
     }
   };
 
+  const PROPOSAL_STATUS_OPTIONS = [
+    { value: 'Draft', label: 'Draft' },
+    { value: 'Active', label: 'Active' },
+    { value: 'Sent / Pending Client', label: 'Sent / Pending Client' },
+    { value: 'Revision Requested', label: 'Revision Requested' },
+    { value: 'Won / Approved', label: 'Won / Approved' },
+    { value: 'Lost / Cancelled', label: 'Lost / Cancelled' },
+    { value: 'Hold', label: 'Hold' },
+    { value: 'Delayed', label: 'Delayed' },
+    { value: 'Dead', label: 'Dead' }
+  ];
+
+  const formatRelativeTime = (isoString?: string): string => {
+    if (!isoString) return '';
+    try {
+      const date = new Date(isoString);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      if (isNaN(date.getTime()) || diffMs < 0) return 'just now';
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHours = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffSec < 60) return 'just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays === 1) return 'yesterday';
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch {
+      return '';
+    }
+  };
+
+  const handleStatusChange = async (enquiry: Enquiry, newStatus: string) => {
+    if (!enquiry.id || enquiry.status === newStatus) return;
+    const prevStatus = enquiry.status || 'Active';
+    const now = new Date().toISOString();
+    const userName = user?.displayName || user?.name || user?.email || user?.id || 'User';
+
+    const newHistoryEntry: EnquiryStatusHistoryEntry = {
+      from: prevStatus,
+      to: newStatus,
+      timestamp: now,
+      updatedBy: userName
+    };
+
+    const updatedHistory: EnquiryStatusHistoryEntry[] = [
+      ...(enquiry.statusHistory || []),
+      newHistoryEntry
+    ];
+
+    const sLower = newStatus.toLowerCase();
+    const isSent = sLower.includes('sent');
+    const isWon = sLower.includes('won') || sLower.includes('order received') || sLower.includes('approved');
+    const isLost = sLower.includes('lost') || sLower.includes('cancelled') || sLower.includes('dead');
+
+    const updatedEnquiry: Enquiry = {
+      ...enquiry,
+      status: newStatus,
+      statusUpdatedAt: now,
+      statusUpdatedBy: userName,
+      sentAt: (isSent && !enquiry.sentAt) ? now : enquiry.sentAt,
+      wonAt: (isWon && !enquiry.wonAt) ? now : enquiry.wonAt,
+      lostAt: (isLost && !enquiry.lostAt) ? now : enquiry.lostAt,
+      statusHistory: updatedHistory,
+      updatedAt: now
+    };
+
+    // Optimistic local state update
+    if (setEnquiries) {
+      setEnquiries((prev) => prev.map((e) => (e.id === enquiry.id ? updatedEnquiry : e)));
+    }
+
+    // Persist to repository and cloud
+    try {
+      await EnquiryRepository.save(updatedEnquiry);
+      await safeSetDoc('enquiries', enquiry.id, updatedEnquiry);
+      if (triggerToast) {
+        triggerToast(`Status updated to "${newStatus}"`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to update enquiry status:', err);
+      if (triggerToast) {
+        triggerToast('Failed to save status change to cloud', 'error');
+      }
+    }
+  };
+
   const getStatusBadgeClass = (status: string) => {
     const s = (status || '').trim().toLowerCase();
+    if (s.includes('draft')) {
+      return 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700';
+    }
+    if (s.includes('sent')) {
+      return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 font-semibold';
+    }
+    if (s.includes('revision')) {
+      return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-semibold';
+    }
+    if (s.includes('won') || s.includes('order received') || s.includes('approved')) {
+      return 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-semibold';
+    }
+    if (s.includes('lost') || s.includes('cancelled')) {
+      return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60';
+    }
     switch (s) {
       case 'active':
-        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60';
-      case 'order received':
-      case 'won':
-        return 'bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-semibold';
+        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-semibold';
       case 'pending':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
-      case 'lost':
-        return 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60';
+        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
       case 'dead':
         return 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60';
       case 'hold':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
+        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
       case 'delayed':
-        return 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60';
-      case 'cancelled po':
-      case 'cancelled':
-        return 'bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 border border-pink-200 dark:border-pink-800/60';
+        return 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60';
       default:
-        return 'bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60';
+        return 'bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60';
     }
   };
 
@@ -937,10 +1037,65 @@ export default function EnquiryList({
                           {formatEnquiryDate(e.enquiry_date)}
                         </span>
                       </td>
-                      <td className="py-3.5 px-6 whitespace-nowrap">
-                        <span className={`inline-flex items-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${getStatusBadgeClass(e.status)}`}>
-                          {e.status}
-                        </span>
+                      <td className="py-3.5 px-6 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+                        {(() => {
+                          const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
+                          const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
+                          const tooltipTitle = e.statusUpdatedAt
+                            ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${lastUpdater ? ` by ${lastUpdater}` : ''}`
+                            : `Status: ${e.status} • Click to update`;
+
+                          return (
+                            <div className="flex flex-col items-start gap-1">
+                              <div className="relative inline-flex items-center">
+                                <select
+                                  value={e.status}
+                                  onClick={(evt) => evt.stopPropagation()}
+                                  onChange={(evt) => {
+                                    evt.stopPropagation();
+                                    handleStatusChange(e, evt.target.value);
+                                  }}
+                                  title={tooltipTitle}
+                                  className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
+                                >
+                                  {PROPOSAL_STATUS_OPTIONS.map((opt) => (
+                                    <option
+                                      key={opt.value}
+                                      value={opt.value}
+                                      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
+                                    >
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                  {!PROPOSAL_STATUS_OPTIONS.some((opt) => opt.value === e.status) && (
+                                    <option
+                                      value={e.status}
+                                      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
+                                    >
+                                      {e.status}
+                                    </option>
+                                  )}
+                                </select>
+                                <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
+                              </div>
+
+                              {relTime && (
+                                <span
+                                  className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight"
+                                  title={tooltipTitle}
+                                >
+                                  <Clock className="w-2.5 h-2.5 opacity-70" />
+                                  <span>{relTime}</span>
+                                  {lastUpdater && (
+                                    <span className="text-slate-400 font-sans font-medium" title={`By ${lastUpdater}`}>
+                                      • {lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3.5 px-6 text-right whitespace-nowrap">
                         {(() => {

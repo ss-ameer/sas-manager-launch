@@ -1699,6 +1699,7 @@ export default function App() {
         {currentTab === 'enquiries' && (
           <EnquiryList
             enquiries={visibleEnquiries}
+            setEnquiries={setEnquiries}
             companies={workspaceCompanies}
             setCompanies={setCompanies}
             contacts={workspaceContacts}

@@ -61,6 +61,7 @@ import {
   List,
   Table,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   History,
   ChevronUp,
@@ -223,6 +224,80 @@ function formatHistoryDate(dateStr?: string): string {
 
 export { sanitizeWhatsAppNumber, getWhatsAppUrl };
 
+interface DirectoryPaginationProps {
+  currentPage: number;
+  pageSize: number;
+  totalItems: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}
+
+const DirectoryPaginationBar: React.FC<DirectoryPaginationProps> = ({
+  currentPage,
+  pageSize,
+  totalItems,
+  itemLabel,
+  onPageChange,
+  onPageSizeChange
+}) => {
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl mt-4 gap-4">
+      <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
+        Showing <span className="font-bold text-slate-950 dark:text-slate-100">{startItem}</span> to{' '}
+        <span className="font-bold text-slate-950 dark:text-slate-100">{endItem}</span> of{' '}
+        <span className="font-bold text-slate-950 dark:text-slate-100">{totalItems}</span> {itemLabel}
+      </div>
+
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Show:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              onPageSizeChange(Number(e.target.value));
+              onPageChange(1);
+            }}
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+
+        <div className="flex items-center space-x-1">
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
+            disabled={currentPage <= 1}
+            className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            title="Previous Page"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-mono px-2 text-slate-700 dark:text-slate-200">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
+            disabled={currentPage >= totalPages}
+            className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            title="Next Page"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function CompanyModal({
   companies,
   contacts,
@@ -326,6 +401,14 @@ export default function CompanyModal({
   const [companyViewStyle, setCompanyViewStyle] = useState<'cards' | 'table'>('table');
   const [contactViewStyle, setContactViewStyle] = useState<'table' | 'cards'>('table');
 
+  // Directory Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, industryFilter, relationshipFilter, temperatureFilter, viewMode]);
+
   // Multi-select Contact State & Bulk Reassign State (Marking is optional)
   const [isContactMarkingMode, setIsContactMarkingMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
@@ -376,6 +459,11 @@ export default function CompanyModal({
         (ct.email && ct.email.toLowerCase().includes(q))
     );
   }, [allContactsWithCompany, searchQuery]);
+
+  const paginatedContacts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredContacts.slice(start, start + pageSize);
+  }, [filteredContacts, currentPage, pageSize]);
 
   // Computed Phones List for Tel Directory
   const allPhoneEntries = useMemo(() => {
@@ -459,6 +547,11 @@ export default function CompanyModal({
         (p.location && p.location.toLowerCase().includes(q))
     );
   }, [allPhoneEntries, searchQuery]);
+
+  const paginatedPhones = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredPhones.slice(start, start + pageSize);
+  }, [filteredPhones, currentPage, pageSize]);
 
   // Export functions
   const handleExportDirectoryCSV = () => {
@@ -1715,6 +1808,11 @@ export default function CompanyModal({
     });
   }, [companies, searchEvaluationMap, searchQuery, industryFilter, relationshipFilter, temperatureFilter, contacts]);
 
+  const paginatedCompanies = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredCompanies.slice(start, start + pageSize);
+  }, [filteredCompanies, currentPage, pageSize]);
+
   const totalActiveCompanies = useMemo(() => {
     return (companies || []).filter((c) => !c.is_deleted).length;
   }, [companies]);
@@ -2060,7 +2158,8 @@ export default function CompanyModal({
               </div>
 
               {filteredCompanies.length > 0 ? (
-                companyViewStyle === 'table' ? (
+                <>
+                  {companyViewStyle === 'table' ? (
                   <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
                     <table className="w-full text-left text-xs border-collapse font-sans">
                       <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
@@ -2075,7 +2174,7 @@ export default function CompanyModal({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                        {filteredCompanies.map((c) => {
+                        {paginatedCompanies.map((c) => {
                           const isSelected = selectedCompanyId === c.id;
                           const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
                           const relVal = c.relationship || 'Prospect';
@@ -2193,7 +2292,7 @@ export default function CompanyModal({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredCompanies.map((c) => {
+                    {paginatedCompanies.map((c) => {
                       const isSelected = selectedCompanyId === c.id;
                       const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
                       const relVal = c.relationship || 'Prospect';
@@ -2215,8 +2314,20 @@ export default function CompanyModal({
                       );
                     })}
                   </div>
-                )
-              ) : (
+                )}
+
+                {filteredCompanies.length > 0 && (
+                  <DirectoryPaginationBar
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={filteredCompanies.length}
+                    itemLabel="companies"
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={setPageSize}
+                  />
+                )}
+              </>
+            ) : (
                 <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm">
                   <p className="italic">No matching companies found in your database.</p>
                   {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL') && (
@@ -2416,7 +2527,7 @@ export default function CompanyModal({
 
           {contactViewStyle === 'cards' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredContacts.map((ct) => (
+              {paginatedContacts.map((ct) => (
                 <div
                   key={ct.id}
                   onClick={() => setSelectedContactDetail(ct)}
@@ -2559,7 +2670,7 @@ export default function CompanyModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                {filteredContacts.map((ct) => (
+                {paginatedContacts.map((ct) => (
                   <tr
                     key={ct.id}
                     onClick={() => setSelectedContactDetail(ct)}
@@ -2709,6 +2820,17 @@ export default function CompanyModal({
             </table>
           </div>
           )}
+
+          {filteredContacts.length > 0 && (
+            <DirectoryPaginationBar
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={filteredContacts.length}
+              itemLabel="contacts"
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
+          )}
         </div>
       )}
 
@@ -2760,7 +2882,7 @@ export default function CompanyModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                {filteredPhones.map((p) => {
+                {paginatedPhones.map((p) => {
                   const isRestricted = Boolean(p.restriction);
                   const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
 
@@ -2842,6 +2964,17 @@ export default function CompanyModal({
               </tbody>
             </table>
           </div>
+
+          {filteredPhones.length > 0 && (
+            <DirectoryPaginationBar
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={filteredPhones.length}
+              itemLabel="phone numbers"
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
+          )}
         </div>
       )}
 

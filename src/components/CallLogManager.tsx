@@ -294,7 +294,7 @@ export default function CallLogManager({
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(50);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(25);
 
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
@@ -1975,6 +1975,64 @@ export default function CallLogManager({
     return filteredHistoryLogs.slice(start, start + itemsPerPage);
   }, [filteredHistoryLogs, currentPage, itemsPerPage]);
 
+  // Visual Date Grouping Helpers
+  const getDateKey = (dateStr?: string): string => {
+    if (!dateStr) return 'unknown';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr).slice(0, 10);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    } catch {
+      return 'unknown';
+    }
+  };
+
+  const formatDateDivider = (dateStr?: string): string => {
+    if (!dateStr) return 'Unknown Date';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const today = new Date();
+      const isToday =
+        d.getFullYear() === today.getFullYear() &&
+        d.getMonth() === today.getMonth() &&
+        d.getDate() === today.getDate();
+
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const isYesterday =
+        d.getFullYear() === yesterday.getFullYear() &&
+        d.getMonth() === yesterday.getMonth() &&
+        d.getDate() === yesterday.getDate();
+
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const month = months[d.getMonth()];
+      const day = d.getDate();
+      const year = d.getFullYear();
+      const dayOfWeek = days[d.getDay()];
+
+      if (isToday) {
+        return `Today • ${month} ${day}, ${year}`;
+      }
+      if (isYesterday) {
+        return `Yesterday • ${month} ${day}, ${year}`;
+      }
+      return `${dayOfWeek}, ${month} ${day}, ${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const dayCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const l of paginatedLogs) {
+      const k = getDateKey(l.date || l.createdAt);
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return counts;
+  }, [paginatedLogs]);
+
   return (
     <>
       <PageHeader
@@ -2836,7 +2894,13 @@ export default function CallLogManager({
             </div>
             
             {viewMode === 'card' ? (
-              paginatedLogs.map((log) => {
+              paginatedLogs.map((log, index) => {
+                const prevLog = index > 0 ? paginatedLogs[index - 1] : null;
+                const prevDateKey = prevLog ? getDateKey(prevLog.date || prevLog.createdAt) : null;
+                const currentDateKey = getDateKey(log.date || log.createdAt);
+                const isFirstInGroup = prevDateKey !== currentDateKey;
+                const count = dayCounts[currentDateKey] || 1;
+
                 const isSuppressed = isEntrySuppressedByDNC(log);
                 const handledBy = getWorkspaceInitials(
                   log.handled_by_team_member_name || log.logged_by || log.sales_person,
@@ -2887,8 +2951,22 @@ export default function CallLogManager({
                 }
 
                 return (
-                  <div
-                    key={log.id}
+                  <React.Fragment key={log.id || `log-card-${index}`}>
+                    {isFirstInGroup && (
+                      <div className="flex items-center gap-3 py-2.5 my-1.5 select-none" key={`divider-${currentDateKey}-${index}`}>
+                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1" />
+                        <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-2xs border border-slate-200/80 dark:border-slate-700/80">
+                          <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <span>{formatDateDivider(log.date || log.createdAt)}</span>
+                          <span className="text-[11px] text-slate-400 font-normal font-mono">
+                            ({count} {count === 1 ? 'Log' : 'Logs'})
+                          </span>
+                        </div>
+                        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1" />
+                      </div>
+                    )}
+                    <div
+                      key={log.id}
                     className={`group p-3.5 sm:p-4 rounded-xl border transition-all ${
                       isSelected && isMarkingMode
                         ? 'bg-blue-50/50 border-blue-300 dark:bg-blue-950/20 dark:border-blue-800 shadow-2xs'
@@ -3114,7 +3192,8 @@ export default function CallLogManager({
                       )}
                     </div>
                   </div>
-                );
+                </React.Fragment>
+              );
               })
             ) : (
               <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
@@ -3132,13 +3211,33 @@ export default function CallLogManager({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {paginatedLogs.map((log) => {
+                    {paginatedLogs.map((log, index) => {
+                      const prevLog = index > 0 ? paginatedLogs[index - 1] : null;
+                      const prevDateKey = prevLog ? getDateKey(prevLog.date || prevLog.createdAt) : null;
+                      const currentDateKey = getDateKey(log.date || log.createdAt);
+                      const isFirstInGroup = prevDateKey !== currentDateKey;
+                      const count = dayCounts[currentDateKey] || 1;
+
                       const isSelected = !!(log.id && selectedLogIds.includes(log.id));
                       const handledBy = getWorkspaceInitials(log.handled_by_team_member_name || log.logged_by || log.sales_person, salespersons, user, activeWorkspace);
                       const company = companies?.find(c => c.id === log.company_id);
                       
                       return (
-                        <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected && isMarkingMode ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                        <React.Fragment key={log.id || `tr-log-${index}`}>
+                          {isFirstInGroup && (
+                            <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
+                              <td colSpan={isMarkingMode ? 8 : 7} className="px-4 py-2">
+                                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
+                                  <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                  <span>{formatDateDivider(log.date || log.createdAt)}</span>
+                                  <span className="text-[11px] text-slate-400 font-normal font-mono">
+                                    ({count} {count === 1 ? 'Log' : 'Logs'})
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected && isMarkingMode ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                           {isMarkingMode && (
                             <td className="px-4 py-3">
                               <input
@@ -3287,6 +3386,7 @@ export default function CallLogManager({
                             )}
                           </td>
                         </tr>
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
