@@ -32,7 +32,8 @@ import {
   Users,
   Check,
   Loader2,
-  Lock
+  Lock,
+  Briefcase
 } from 'lucide-react';
 
 interface CallLogDetailModalProps {
@@ -156,7 +157,23 @@ export default function CallLogDetailModal({
     : null;
 
   const getChannelBadge = (ch?: string) => {
+    if (entry.isInternalOps) {
+      return (
+        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 shrink-0">
+          <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Internal Ops</span>
+        </span>
+      );
+    }
     const channel = (ch || entry.channel || 'Call').toLowerCase();
+    if (channel.includes('internal') || channel.includes('ops')) {
+      return (
+        <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 shrink-0">
+          <Briefcase className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Internal Ops</span>
+        </span>
+      );
+    }
     if (channel.includes('whatsapp') || channel === 'message') {
       return (
         <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 shrink-0">
@@ -289,11 +306,13 @@ export default function CallLogDetailModal({
         <div className="p-6 bg-slate-950 text-white border-b border-slate-800/80 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3.5">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md shrink-0 ${
+              entry.isInternalOps ? 'bg-indigo-600' :
               (entry.interaction_type || '').toLowerCase().includes('email') ? 'bg-purple-600' :
               (entry.interaction_type || '').toLowerCase().includes('message') ? 'bg-emerald-600' :
               (entry.interaction_type || '').toLowerCase().includes('meeting') ? 'bg-amber-600' : 'bg-blue-600'
             }`}>
               {(() => {
+                if (entry.isInternalOps) return <Briefcase className="w-5 h-5 text-white" />;
                 const t = (entry.interaction_type || (entry.email_address ? 'email' : 'call')).toLowerCase();
                 if (t.includes('email') || t.includes('mail')) return <Mail className="w-5 h-5 text-white" />;
                 if (t.includes('message') || t.includes('whatsapp') || t.includes('sms')) return <MessageSquare className="w-5 h-5 text-white" />;
@@ -304,11 +323,11 @@ export default function CallLogDetailModal({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-bold tracking-tight text-white">
-                  Activity Log Profile
+                  {entry.isInternalOps ? (entry.title || 'Internal Ops Task') : 'Activity Log Profile'}
                 </h2>
                 <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-800 text-blue-300 border border-slate-700 flex items-center space-x-1 shrink-0">
                   <Tag className="w-2.5 h-2.5 text-blue-400" />
-                  <span>REF: {getReferenceId('CL', entry, callLogs)}</span>
+                  <span>REF: {getReferenceId(entry.isInternalOps ? 'OPS' : 'CL', entry, callLogs)}</span>
                 </span>
                 {getChannelBadge()}
                 {getStatusBadge(entry.status)}
@@ -368,6 +387,77 @@ export default function CallLogDetailModal({
           )}
 
           {/* Company & Contact Details Grid */}
+          {entry.isInternalOps ? (
+            /* Internal Ops Details Card */
+            <div className="p-5 rounded-xl border border-indigo-900/60 bg-indigo-950/20 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Briefcase className="w-4 h-4 text-indigo-400" />
+                  <span>Internal Operational Details</span>
+                </span>
+                {entry.internalCategory && (
+                  <span className="px-2.5 py-0.5 rounded text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    {entry.internalCategory}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Task Title / Objective
+                  </span>
+                  <div className="text-sm font-bold text-slate-100">
+                    {entry.title || 'Untitled Internal Task'}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Requester / Stakeholder
+                  </span>
+                  <div className="text-sm font-semibold text-slate-200 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>{entry.requester || 'Unspecified Requester'}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Effort / Duration
+                  </span>
+                  <div className="text-sm font-semibold text-slate-200 flex items-center gap-1.5 font-mono">
+                    <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>
+                      {typeof entry.durationMinutes === 'number' && entry.durationMinutes > 0
+                        ? `${entry.durationMinutes >= 60 ? `${Math.floor(entry.durationMinutes / 60)}h ${entry.durationMinutes % 60 ? `${entry.durationMinutes % 60}m` : ''}` : `${entry.durationMinutes}m`}`
+                        : 'Not logged'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Deliverable / Work Asset
+                  </span>
+                  {entry.deliverableUrl ? (
+                    <a
+                      href={entry.deliverableUrl.startsWith('http') ? entry.deliverableUrl : `https://${entry.deliverableUrl}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 truncate"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{entry.deliverableUrl}</span>
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-500 italic">No deliverable linked</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Company Box */}
             <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/80 hover:border-slate-700 transition shadow-xs group">
@@ -648,15 +738,17 @@ export default function CallLogDetailModal({
               )}
             </div>
           </div>
+            </>
+          )}
 
           {/* Requirement Notes & Discussion Transcript */}
           <div className="space-y-2">
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
               <FileText className="w-4 h-4 text-blue-400" />
-              <span>Requirement Notes &amp; Activity Log</span>
+              <span>{entry.isInternalOps ? 'Task Notes & Activity Log' : 'Requirement Notes & Activity Log'}</span>
             </label>
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-sans whitespace-pre-wrap leading-relaxed min-h-[90px]">
-              {entry.requirement_notes || (
+              {entry.requirement_notes || (entry as any).notes || (
                 <span className="text-slate-500 italic">No detailed notes logged for this interaction.</span>
               )}
             </div>
@@ -750,7 +842,7 @@ export default function CallLogDetailModal({
         {/* Modal Footer Controls */}
         <div className="p-4 bg-slate-950 border-t border-slate-800/90 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-2">
-            {!entry.company_id && (
+            {!entry.isInternalOps && !entry.company_id && (
               <button
                 type="button"
                 onClick={() => setShowConvertModal(true)}
@@ -761,7 +853,7 @@ export default function CallLogDetailModal({
               </button>
             )}
 
-            {onCreateEnquiryFromCall && (
+            {!entry.isInternalOps && onCreateEnquiryFromCall && (
               <button
                 type="button"
                 onClick={() => {
@@ -775,21 +867,23 @@ export default function CallLogDetailModal({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={onScheduleFollowUp ? onScheduleFollowUp : () => {
-                onClose();
-                if (onLogFollowup) {
-                  onLogFollowup(entry);
-                } else if (onEdit) {
-                  onEdit(entry);
-                }
-              }}
-              className="px-3.5 py-2 bg-blue-950/80 hover:bg-blue-900 text-blue-200 border border-blue-800/80 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
-            >
-              <Clock className="w-4 h-4 text-blue-400" />
-              <span>Schedule Follow-Up</span>
-            </button>
+            {!entry.isInternalOps && (
+              <button
+                type="button"
+                onClick={onScheduleFollowUp ? onScheduleFollowUp : () => {
+                  onClose();
+                  if (onLogFollowup) {
+                    onLogFollowup(entry);
+                  } else if (onEdit) {
+                    onEdit(entry);
+                  }
+                }}
+                className="px-3.5 py-2 bg-blue-950/80 hover:bg-blue-900 text-blue-200 border border-blue-800/80 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
+              >
+                <Clock className="w-4 h-4 text-blue-400" />
+                <span>Schedule Follow-Up</span>
+              </button>
+            )}
           </div>
 
           {canEditOrDelete && (
@@ -803,7 +897,7 @@ export default function CallLogDetailModal({
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
               >
                 <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-                <span>Edit Log</span>
+                <span>{entry.isInternalOps ? 'Edit Task' : 'Edit Log'}</span>
               </button>
 
               {entry.id && (

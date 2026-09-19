@@ -27,7 +27,7 @@ export function extractRefNumber(type: string, code?: string | null): number | n
  * and generates the next +1 reference ID (e.g. CL-0005).
  */
 export function generateNextRefId(
-  type: 'CL' | 'CMP' | 'CT' | 'EQ',
+  type: 'CL' | 'CMP' | 'CT' | 'EQ' | 'OPS',
   allItems: any[] = []
 ): string {
   let maxNum = 0;
@@ -48,7 +48,7 @@ export function generateNextRefId(
 }
 
 export function getReferenceId(
-  type: 'CL' | 'CMP' | 'CT' | 'EQ',
+  type: 'CL' | 'CMP' | 'CT' | 'EQ' | 'OPS',
   item: {
     id?: string;
     ref_id?: string;

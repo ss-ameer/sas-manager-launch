@@ -2056,6 +2056,7 @@ export default function App() {
         initialStatus={activityDrawerContext.initialStatus}
         defaultOutcome={activityDrawerContext.defaultOutcome}
         messageType={activityDrawerContext.messageType}
+        initialIsInternalOps={activityDrawerContext.initialIsInternalOps}
         hasActiveParentModal={Boolean(activityDrawerContext.companyId || selected360CompanyId)}
         activeWorkspaceId={activeWorkspace.id}
         currentSalespersonId={currentSalespersonId}

@@ -56,6 +56,7 @@ export interface InitiateActivityOptions {
   drawerMode?: 'create' | 'edit' | 'execute';
   initialStatus?: CallStatus;
   defaultOutcome?: string;
+  initialIsInternalOps?: boolean;
   e?: React.SyntheticEvent;
 }
 
@@ -75,6 +76,7 @@ export interface ActivityDrawerContextState {
   existingLog?: CallLogEntry | null;
   logToEdit?: CallLogEntry | null;
   drawerMode?: 'create' | 'edit' | 'execute';
+  initialIsInternalOps?: boolean;
 }
 
 export interface ActivityLauncherContextType {
@@ -191,7 +193,8 @@ export const ActivityLauncherProvider: React.FC<ActivityLauncherProviderProps> =
         messageType: options.messageType,
         existingLog: options.existingLog || null,
         logToEdit: options.logToEdit || null,
-        drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create')
+        drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create'),
+        initialIsInternalOps: options.initialIsInternalOps ?? Boolean(options.existingLog?.isInternalOps || options.logToEdit?.isInternalOps)
       };
 
       setActivityDrawerContext(nextContext);

@@ -242,6 +242,7 @@ interface CallLogManagerProps {
     existingLog?: any;
     logToEdit?: any;
     drawerMode?: 'create' | 'edit' | 'execute';
+    initialIsInternalOps?: boolean;
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onEditCompany?: (company: Company) => void;
@@ -288,6 +289,7 @@ export default function CallLogManager({
   const [executionModalInitialIndex, setExecutionModalInitialIndex] = useState<number>(0);
   const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [subTab, setSubTab] = useState<'queue' | 'log'>(initialSubTab);
+  const [historyActivityType, setHistoryActivityType] = useState<'sales' | 'internal'>('sales');
   
   // Table vs Card View
   const [viewMode, setViewMode] = useState<'card' | 'table'>(() => (localStorage.getItem('callLogViewMode') as 'card' | 'table') || 'card');
@@ -1904,17 +1906,52 @@ export default function CallLogManager({
     }
   };
 
+  // Helper for Internal Ops Category badge styles
+  const getCategoryBadgeStyle = (category?: string) => {
+    switch (category) {
+      case 'Development':
+        return 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+      case 'Design / Document Prep':
+        return 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+      case 'Social Media / Marketing':
+        return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+      case 'Executive / Ad-hoc Request':
+        return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+      case 'Operations / Coordination':
+      default:
+        return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+    }
+  };
+
+  // Base list of completed/historical interaction logs (excluding scheduled tasks)
+  const nonScheduledHistoryLogs = useMemo(() => {
+    return workspaceCallLogs.filter((l) => {
+      const normLogStatus = (l.status || '').toLowerCase().trim();
+      return !(normLogStatus === 'scheduled' || normLogStatus === 'scheduled / planned' || normLogStatus.includes('scheduled'));
+    });
+  }, [workspaceCallLogs]);
+
+  const salesHistoryCount = useMemo(() => {
+    return nonScheduledHistoryLogs.filter((l) => !l.isInternalOps).length;
+  }, [nonScheduledHistoryLogs]);
+
+  const opsHistoryCount = useMemo(() => {
+    return nonScheduledHistoryLogs.filter((l) => Boolean(l.isInternalOps)).length;
+  }, [nonScheduledHistoryLogs]);
+
   // Filtered History List
   const filteredHistoryLogs = useMemo(() => {
-    const list = workspaceCallLogs.filter((l) => {
-      // Exclude Scheduled / Planned calls from Full Call History tab
-      const normLogStatus = (l.status || '').toLowerCase().trim();
-      if (normLogStatus === 'scheduled' || normLogStatus === 'scheduled / planned' || normLogStatus.includes('scheduled')) {
-        return false;
+    const list = nonScheduledHistoryLogs.filter((l) => {
+      // Filter by Top-Level Scope View (Sales Outreach vs Internal Ops)
+      if (historyActivityType === 'sales') {
+        if (l.isInternalOps) return false;
+      } else {
+        if (!l.isInternalOps) return false;
       }
 
       if (statusFilter !== 'all') {
         const normFilter = statusFilter.toLowerCase().trim();
+        const normLogStatus = (l.status || '').toLowerCase().trim();
         if (normLogStatus !== normFilter) return false;
       }
       if (outcomeFilter !== 'all' && l.outcome !== outcomeFilter) return false;
@@ -1943,6 +1980,11 @@ export default function CallLogManager({
           contRefId.includes(q) ||
           enqRefId.includes(q) ||
           (l.id || '').toLowerCase().includes(q) ||
+          (l.title || '').toLowerCase().includes(q) ||
+          (l.internalCategory || '').toLowerCase().includes(q) ||
+          (l.requester || '').toLowerCase().includes(q) ||
+          (l.deliverableUrl || '').toLowerCase().includes(q) ||
+          (l.notes || '').toLowerCase().includes(q) ||
           getResolvedCompanyName(l).toLowerCase().includes(q) ||
           indRaw.includes(q) ||
           indParent.includes(q) ||
@@ -1965,7 +2007,7 @@ export default function CallLogManager({
         return dateA.localeCompare(dateB);
       }
     });
-  }, [workspaceCallLogs, statusFilter, outcomeFilter, geographyFilter, industryFilter, searchTerm, historySortOrder, companies, callLogs, contacts, enquiries]);
+  }, [nonScheduledHistoryLogs, historyActivityType, statusFilter, outcomeFilter, geographyFilter, industryFilter, searchTerm, historySortOrder, companies, callLogs, contacts, enquiries]);
 
   // Pagination Logic
   const totalItems = filteredHistoryLogs.length;
@@ -2648,6 +2690,79 @@ export default function CallLogManager({
       {/* VIEW 2: FULL CALL LOG HISTORY & SEARCH */}
       {subTab === 'log' && (
         <div className="space-y-4">
+          {/* Top-Level Scope View Toggle: Sales Outreach vs Internal Ops */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-2xl shadow-2xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryActivityType('sales');
+                  setCurrentPage(1);
+                }}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  historyActivityType === 'sales'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <PhoneCall className="w-3.5 h-3.5" />
+                <span>📞 Sales Outreach ({salesHistoryCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryActivityType('internal');
+                  setCurrentPage(1);
+                }}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  historyActivityType === 'internal'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>⚙️ Internal Ops ({opsHistoryCount})</span>
+              </button>
+            </div>
+
+            {/* Quick Action Button for current scope */}
+            <div className="flex items-center justify-end px-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerMode('create');
+                  setEditingLog(null);
+                  if (onOpenActivityDrawer) {
+                    onOpenActivityDrawer({
+                      channel: historyActivityType === 'internal' ? 'Internal Ops' : 'Call',
+                      drawerMode: 'create',
+                      initialIsInternalOps: historyActivityType === 'internal'
+                    });
+                  } else {
+                    setIsActivityDrawerOpen(true);
+                  }
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                  historyActivityType === 'internal'
+                    ? 'bg-indigo-600 hover:bg-indigo-500'
+                    : 'bg-blue-600 hover:bg-blue-500'
+                }`}
+              >
+                {historyActivityType === 'internal' ? (
+                  <>
+                    <Briefcase className="w-3.5 h-3.5" />
+                    <span>+ Log Internal Task</span>
+                  </>
+                ) : (
+                  <>
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    <span>+ Log Call / Outreach</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* Faceted Search & Filters */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
@@ -2759,11 +2874,11 @@ export default function CallLogManager({
 
             {/* Standard Search Result Counter & Filter Status Banner */}
             <SearchResultCounter
-              totalCount={workspaceCallLogs.length}
+              totalCount={historyActivityType === 'internal' ? opsHistoryCount : salesHistoryCount}
               filteredCount={filteredHistoryLogs.length}
               searchQuery={searchTerm}
-              entityLabel="Activity Logs"
-              singularEntityLabel="Activity Log"
+              entityLabel={historyActivityType === 'internal' ? 'Internal Ops Tasks' : 'Outreach Logs'}
+              singularEntityLabel={historyActivityType === 'internal' ? 'Internal Task' : 'Outreach Log'}
               onClear={() => {
                 setSearchTerm('');
                 setIndustryFilter('all');
@@ -2965,6 +3080,175 @@ export default function CallLogManager({
                         <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1" />
                       </div>
                     )}
+                    {log.isInternalOps ? (
+                      /* INTERNAL OPS CARD */
+                      <div
+                        key={log.id}
+                        className={`group p-3.5 sm:p-4 rounded-xl border transition-all ${
+                          isSelected && isMarkingMode
+                            ? 'bg-indigo-50/50 border-indigo-300 dark:bg-indigo-950/20 dark:border-indigo-800 shadow-2xs'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-xs'
+                        }`}
+                      >
+                        {/* Primary Header Row (Single-Line Scan) */}
+                        <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                          {/* Left: Checkbox, Ops Icon, Task Title, Category Badge, Requester Pill */}
+                          <div className="flex items-center space-x-2.5 min-w-0 flex-wrap sm:flex-nowrap">
+                            {isMarkingMode && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(chk) => {
+                                  if (!log.id) return;
+                                  if (chk.target.checked) {
+                                    setSelectedLogIds((prev) => [...prev, log.id!]);
+                                  } else {
+                                    setSelectedLogIds((prev) => prev.filter((id) => id !== log.id));
+                                  }
+                                }}
+                                className="rounded border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                              />
+                            )}
+
+                            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                              <Briefcase className="w-3.5 h-3.5" />
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+                                {log.title || 'Untitled Internal Task'}
+                              </span>
+
+                              {/* Category badge */}
+                              {log.internalCategory && (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getCategoryBadgeStyle(log.internalCategory)}`}>
+                                  {log.internalCategory}
+                                </span>
+                              )}
+
+                              {/* Requester pill */}
+                              {log.requester && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  <User className="w-2.5 h-2.5 text-slate-400" />
+                                  <span>Req: {log.requester}</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Right: Duration, Timestamp, Rep Badge, Action buttons */}
+                          <div className="flex items-center space-x-2 shrink-0 ml-auto">
+                            {/* Duration / Effort display */}
+                            {typeof log.durationMinutes === 'number' && log.durationMinutes > 0 && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 text-[11px] font-mono font-medium">
+                                <Clock className="w-3 h-3 text-indigo-500" />
+                                <span>
+                                  {log.durationMinutes >= 60
+                                    ? `${Math.floor(log.durationMinutes / 60)}h ${log.durationMinutes % 60 ? `${log.durationMinutes % 60}m` : ''}`
+                                    : `${log.durationMinutes} mins`}
+                                </span>
+                              </div>
+                            )}
+
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                              {formatActivityDate(log.date || log.createdAt)}
+                            </span>
+
+                            {/* Rep badge */}
+                            <div
+                              className="w-6 h-6 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center shrink-0"
+                              title={`Handled by ${handledBy}`}
+                            >
+                              {handledBy}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center space-x-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDetailEntry(log);
+                                }}
+                                title="View Details"
+                                className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingLog(log);
+                                  setDrawerMode('edit');
+                                  if (onOpenActivityDrawer) {
+                                    onOpenActivityDrawer({ 
+                                      channel: 'Internal Ops', 
+                                      drawerMode: 'edit',
+                                      existingLog: log,
+                                      logToEdit: log,
+                                      initialIsInternalOps: true
+                                    });
+                                  } else {
+                                    setIsActivityDrawerOpen(true);
+                                  }
+                                }}
+                                title="Edit Internal Task"
+                                className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const confirmDelete = await askConfirm('Delete Internal Task', 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
+                                    if (confirmDelete) {
+                                      try {
+                                        await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
+                                        if (setCallLogs) {
+                                          setCallLogs(prev => prev.filter(l => l.id !== log.id));
+                                        }
+                                        triggerToast('Internal task deleted successfully', 'success');
+                                      } catch (err) {
+                                        triggerToast('Failed to delete task', 'error');
+                                      }
+                                    }
+                                  }}
+                                  title="Delete"
+                                  className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Secondary Row: Deliverable Link & Notes */}
+                        <div className="mt-2 pl-9 space-y-1.5">
+                          {log.deliverableUrl && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Deliverable:</span>
+                              <a
+                                href={log.deliverableUrl.startsWith('http') ? log.deliverableUrl : `https://${log.deliverableUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline max-w-md truncate"
+                                title={log.deliverableUrl}
+                              >
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{log.deliverableUrl}</span>
+                              </a>
+                            </div>
+                          )}
+
+                          {(log.requirement_notes || log.notes) && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-line leading-relaxed bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/60">
+                              {log.requirement_notes || log.notes}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
                     <div
                       key={log.id}
                     className={`group p-3.5 sm:p-4 rounded-xl border transition-all ${
@@ -3192,6 +3476,7 @@ export default function CallLogManager({
                       )}
                     </div>
                   </div>
+                )}
                 </React.Fragment>
               );
               })
@@ -3199,16 +3484,30 @@ export default function CallLogManager({
               <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
                   <thead className="bg-slate-50 dark:bg-slate-950/50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      {isMarkingMode && <th className="px-4 py-3 w-10"></th>}
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3">Client</th>
-                      <th className="px-4 py-3 text-center">Temp</th>
-                      <th className="px-4 py-3">Contact</th>
-                      <th className="px-4 py-3">Status / Outcome</th>
-                      <th className="px-4 py-3">Agent</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
-                    </tr>
+                    {historyActivityType === 'internal' ? (
+                      <tr>
+                        {isMarkingMode && <th className="px-4 py-3 w-10"></th>}
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Task Title & Notes</th>
+                        <th className="px-4 py-3">Category</th>
+                        <th className="px-4 py-3">Requester</th>
+                        <th className="px-4 py-3">Effort</th>
+                        <th className="px-4 py-3">Deliverable</th>
+                        <th className="px-4 py-3">Agent</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    ) : (
+                      <tr>
+                        {isMarkingMode && <th className="px-4 py-3 w-10"></th>}
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Client</th>
+                        <th className="px-4 py-3 text-center">Temp</th>
+                        <th className="px-4 py-3">Contact</th>
+                        <th className="px-4 py-3">Status / Outcome</th>
+                        <th className="px-4 py-3">Agent</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    )}
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {paginatedLogs.map((log, index) => {
@@ -3226,7 +3525,7 @@ export default function CallLogManager({
                         <React.Fragment key={log.id || `tr-log-${index}`}>
                           {isFirstInGroup && (
                             <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
-                              <td colSpan={isMarkingMode ? 8 : 7} className="px-4 py-2">
+                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 8 : 7)} className="px-4 py-2">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
                                   <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   <span>{formatDateDivider(log.date || log.createdAt)}</span>
@@ -3237,7 +3536,145 @@ export default function CallLogManager({
                               </td>
                             </tr>
                           )}
-                          <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected && isMarkingMode ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                          <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected && isMarkingMode ? (log.isInternalOps ? 'bg-indigo-50 dark:bg-indigo-900/20' : 'bg-blue-50 dark:bg-blue-900/20') : ''}`}>
+                          {log.isInternalOps ? (
+                            <>
+                              {isMarkingMode && (
+                                <td className="px-4 py-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(chk) => {
+                                      if (!log.id) return;
+                                      if (chk.target.checked) setSelectedLogIds(prev => [...prev, log.id!]);
+                                      else setSelectedLogIds(prev => prev.filter(id => id !== log.id));
+                                    }}
+                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  />
+                                </td>
+                              )}
+                              <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
+                                {formatActivityDate(log.date || log.createdAt)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-col gap-0.5 max-w-sm">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100 truncate text-xs sm:text-sm">
+                                    {log.title || 'Untitled Internal Task'}
+                                  </span>
+                                  {(log.requirement_notes || log.notes) && (
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                      {log.requirement_notes || log.notes}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {log.internalCategory ? (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getCategoryBadgeStyle(log.internalCategory)}`}>
+                                    {log.internalCategory}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {log.requester ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                    <User className="w-2.5 h-2.5 text-slate-400" />
+                                    <span>{log.requester}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {typeof log.durationMinutes === 'number' && log.durationMinutes > 0 ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-slate-700 dark:text-slate-300">
+                                    <Clock className="w-3 h-3 text-indigo-500" />
+                                    <span>{log.durationMinutes >= 60 ? `${Math.floor(log.durationMinutes / 60)}h ${log.durationMinutes % 60 ? `${log.durationMinutes % 60}m` : ''}` : `${log.durationMinutes}m`}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 max-w-[180px]">
+                                {log.deliverableUrl ? (
+                                  <a
+                                    href={log.deliverableUrl.startsWith('http') ? log.deliverableUrl : `https://${log.deliverableUrl}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
+                                    title={log.deliverableUrl}
+                                  >
+                                    <ExternalLink className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{log.deliverableUrl.replace(/^https?:\/\//, '')}</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                  {handledBy}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end space-x-1">
+                                  <button
+                                    onClick={() => setSelectedDetailEntry(log)}
+                                    title="View Details"
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 rounded-lg cursor-pointer"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingLog(log);
+                                      setDrawerMode('edit');
+                                      if (onOpenActivityDrawer) {
+                                        onOpenActivityDrawer({
+                                          channel: 'Internal Ops',
+                                          drawerMode: 'edit',
+                                          existingLog: log,
+                                          logToEdit: log,
+                                          initialIsInternalOps: true
+                                        });
+                                      } else {
+                                        setIsActivityDrawerOpen(true);
+                                      }
+                                    }}
+                                    title="Edit Internal Task"
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 rounded-lg cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
+                                    <button
+                                      onClick={async () => {
+                                        const confirmDelete = await askConfirm('Delete Internal Task', 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
+                                        if (confirmDelete) {
+                                          try {
+                                            await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
+                                            if (setCallLogs) {
+                                              setCallLogs(prev => prev.filter(l => l.id !== log.id));
+                                            }
+                                            triggerToast('Internal task deleted successfully', 'success');
+                                          } catch (err) {
+                                            triggerToast('Failed to delete task', 'error');
+                                          }
+                                        }
+                                      }}
+                                      title="Delete"
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </>
+                          ) : (
+                            <>
                           {isMarkingMode && (
                             <td className="px-4 py-3">
                               <input
@@ -3385,6 +3822,8 @@ export default function CallLogManager({
                               <span className="text-[10px] text-slate-400 font-semibold">Restricted</span>
                             )}
                           </td>
+                            </>
+                          )}
                         </tr>
                         </React.Fragment>
                       );
@@ -3396,8 +3835,12 @@ export default function CallLogManager({
             
             {paginatedLogs.length === 0 && (
               <div className="p-8 text-center text-slate-400 italic bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <p>No call log entries match the search or filters.</p>
-                {(searchTerm || industryFilter !== 'all' || statusFilter !== 'all' || outcomeFilter !== 'all' || geographyFilter !== 'all') && (
+                <p>
+                  {historyActivityType === 'internal'
+                    ? 'No internal ops tasks match the search or filters.'
+                    : 'No outreach call logs match the search or filters.'}
+                </p>
+                {(searchTerm || industryFilter !== 'all' || statusFilter !== 'all' || outcomeFilter !== 'all' || geographyFilter !== 'all') ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -3412,7 +3855,28 @@ export default function CallLogManager({
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Clear search & reset filters</span>
                   </button>
-                )}
+                ) : historyActivityType === 'internal' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDrawerMode('create');
+                      setEditingLog(null);
+                      if (onOpenActivityDrawer) {
+                        onOpenActivityDrawer({
+                          channel: 'Internal Ops',
+                          drawerMode: 'create',
+                          initialIsInternalOps: true
+                        });
+                      } else {
+                        setIsActivityDrawerOpen(true);
+                      }
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer font-sans not-italic shadow-xs"
+                  >
+                    <Briefcase className="w-3.5 h-3.5" />
+                    <span>+ Log First Internal Task</span>
+                  </button>
+                ) : null}
               </div>
             )}
             
@@ -4626,7 +5090,13 @@ export default function CallLogManager({
           setDrawerMode('edit');
           setEditingLog(entry);
           if (onOpenActivityDrawer) {
-            onOpenActivityDrawer({ existingLog: entry, logToEdit: entry, drawerMode: 'edit' });
+            onOpenActivityDrawer({
+              existingLog: entry,
+              logToEdit: entry,
+              drawerMode: 'edit',
+              initialIsInternalOps: Boolean(entry.isInternalOps),
+              channel: entry.channel || (entry.isInternalOps ? 'Internal Ops' : undefined)
+            });
           } else {
             setIsActivityDrawerOpen(true);
           }
@@ -4756,7 +5226,8 @@ export default function CallLogManager({
         contactName={editingLog?.contact_name}
         contactPhone={editingLog?.contact_phone}
         enquiryId={editingLog?.enquiry_id}
-        initialChannel={editingLog?.channel}
+        initialChannel={editingLog?.channel || (historyActivityType === 'internal' ? 'Internal Ops' : undefined)}
+        initialIsInternalOps={Boolean(editingLog?.isInternalOps || historyActivityType === 'internal')}
         initialStatus={editingLog?.status}
         activeWorkspaceId={activeWorkspace.id}
         currentSalespersonId={user?.uid || user?.username || ''}

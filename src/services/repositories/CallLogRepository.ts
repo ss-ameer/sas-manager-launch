@@ -89,7 +89,9 @@ export class ActivityLogRepository {
     const current = await this.getAllLocal();
     const nowIso = new Date().toISOString();
 
-    const targetCompanyId = (followupTask && followupTask.company_id) || interaction.company_id;
+    const targetCompanyId = !interaction.isInternalOps
+      ? ((followupTask && followupTask.company_id) || interaction.company_id)
+      : undefined;
     const targetWorkspaceId =
       (followupTask && (followupTask.workspace_id || (followupTask as any).workspaceId)) ||
       interaction.workspace_id ||
@@ -303,6 +305,20 @@ export class ActivityLogRepository {
 
   public static async logActivity(activity: ActivityLogEntry): Promise<ActivityLogEntry> {
     return this.logInteraction(activity);
+  }
+
+  public static async logInternalOps(entry: ActivityLogEntry): Promise<ActivityLogEntry> {
+    const sanitized: ActivityLogEntry = {
+      ...entry,
+      isInternalOps: true,
+      channel: entry.channel || 'Internal Ops',
+      company_id: undefined,
+      company_name: undefined,
+      contact_id: undefined,
+      contact_name: undefined,
+      contact_phone: undefined
+    };
+    return this.logInteraction(sanitized);
   }
 
   public static async fetchWorkspaceCallLogsFromCloud(workspaceId: string): Promise<ActivityLogEntry[]> {

@@ -563,6 +563,18 @@ export type CallOutcome =
   | 'General Inquiry / Support'
   | string;
 
+export type InternalOpsCategory =
+  | 'Development'
+  | 'Design / Document Prep'
+  | 'Social Media / Marketing'
+  | 'Executive / Ad-hoc Request'
+  | 'Operations / Coordination';
+
+export type InternalOpsRequester =
+  | 'Management / Boss'
+  | 'Team Member'
+  | 'Self-Directed';
+
 export interface ActivityLogEntry extends SoftDeleteFields {
   id?: string;
   workspace_id?: string | 'unassigned';
@@ -571,6 +583,7 @@ export interface ActivityLogEntry extends SoftDeleteFields {
   outcome?: CallOutcome | string;
   channel?: string;
   requirement_notes?: string;
+  notes?: string;
   ai_summary?: string;
   whatsapp_draft?: string;
   next_followup_date?: string;
@@ -601,6 +614,13 @@ export interface ActivityLogEntry extends SoftDeleteFields {
   followup_intent?: string;
   concerned_persons?: string[];
   concerned_person?: string;
+  // Internal Ops fields
+  isInternalOps?: boolean;
+  internalCategory?: InternalOpsCategory;
+  requester?: InternalOpsRequester;
+  durationMinutes?: number;
+  deliverableUrl?: string;
+  title?: string;
   createdAt?: string;
   updatedAt?: string;
 }

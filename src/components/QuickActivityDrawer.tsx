@@ -44,6 +44,8 @@ import {
   CallLogEntry,
   CallStatus,
   ActivityChannel,
+  InternalOpsCategory,
+  InternalOpsRequester,
   getContactPhones,
   getCompanyPhones,
   getContactEmails,
@@ -140,6 +142,7 @@ export interface QuickActivityDrawerProps {
   onOpen360?: (companyId: string) => void;
   onInspectCompany?: (companyId: string) => void;
   onOpenCompanyModal?: (companyId: string) => void;
+  initialIsInternalOps?: boolean;
 }
 
 export type { ActivityChannel };
@@ -298,10 +301,29 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   onUpdate,
   onOpen360,
   onInspectCompany,
-  onOpenCompanyModal
+  onOpenCompanyModal,
+  initialIsInternalOps
 }) => {
   const { openEditCompany, openEditContact } = useEntityEdit();
   const notesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Internal Ops State Hooks
+  const [isInternalOps, setIsInternalOps] = useState<boolean>(
+    Boolean(initialIsInternalOps || existingLog?.isInternalOps || logToEdit?.isInternalOps)
+  );
+  const [internalTitle, setInternalTitle] = useState<string>(existingLog?.title || logToEdit?.title || '');
+  const [internalCategory, setInternalCategory] = useState<InternalOpsCategory>(
+    existingLog?.internalCategory || logToEdit?.internalCategory || 'Development'
+  );
+  const [internalRequester, setInternalRequester] = useState<InternalOpsRequester>(
+    existingLog?.requester || logToEdit?.requester || 'Management / Boss'
+  );
+  const [internalDurationMinutes, setInternalDurationMinutes] = useState<number>(
+    existingLog?.durationMinutes ?? logToEdit?.durationMinutes ?? 30
+  );
+  const [internalDeliverableUrl, setInternalDeliverableUrl] = useState<string>(
+    existingLog?.deliverableUrl || logToEdit?.deliverableUrl || ''
+  );
   const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
   const interactionChannel = channel;
   const isInternalTask = isInternalTaskChannel(interactionChannel);
@@ -504,8 +526,25 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   useEffect(() => {
     if (!isOpen) {
       setIsHistoryDrawerOpen(false);
+    } else {
+      const activeLog = existingLog || logToEdit;
+      if (activeLog) {
+        setIsInternalOps(Boolean(activeLog.isInternalOps));
+        setInternalTitle(activeLog.title || '');
+        if (activeLog.internalCategory) setInternalCategory(activeLog.internalCategory);
+        if (activeLog.requester) setInternalRequester(activeLog.requester);
+        if (activeLog.durationMinutes !== undefined) setInternalDurationMinutes(activeLog.durationMinutes);
+        if (activeLog.deliverableUrl) setInternalDeliverableUrl(activeLog.deliverableUrl);
+      } else {
+        setIsInternalOps(Boolean(initialIsInternalOps));
+        setInternalTitle('');
+        setInternalCategory('Development');
+        setInternalRequester('Management / Boss');
+        setInternalDurationMinutes(30);
+        setInternalDeliverableUrl('');
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, existingLog, logToEdit, initialIsInternalOps]);
 
   const [localCompanyLogs, setLocalCompanyLogs] = useState<CallLogEntry[]>([]);
 
@@ -1506,6 +1545,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setNewContactDesignation('');
     setNewPhoneTag('Mobile');
     setNewContactPhoneTag('Mobile');
+    setInternalTitle('');
+    setInternalCategory('Development');
+    setInternalRequester('Management / Boss');
+    setInternalDurationMinutes(30);
+    setInternalDeliverableUrl('');
 
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
@@ -1516,6 +1560,73 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+
+    // Direct Bypass & Save for Internal Ops Mode
+    if (isInternalOps) {
+      if (!internalTitle.trim()) {
+        setValidationError('Task Summary / Title is required for internal operations.');
+        return;
+      }
+      setValidationError(null);
+      setIsSubmitting(true);
+      try {
+        const nowIso = new Date().toISOString();
+        const activityIsoDate = activityDate ? new Date(activityDate).toISOString() : nowIso;
+        const userUid = currentUserUid || user?.uid || '';
+        const userName = currentUserName || user?.full_name || user?.username || user?.email || currentUserInitials || 'System';
+        const logEntryId = (existingLog && existingLog.id) || (logToEdit && logToEdit.id) || `ops_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+        const opsEntry: CallLogEntry = {
+          id: logEntryId,
+          workspace_id: activeWorkspaceId,
+          date: activityIsoDate,
+          status: 'Completed',
+          channel: 'Internal Ops',
+          isInternalOps: true,
+          title: internalTitle.trim(),
+          internalCategory,
+          requester: internalRequester,
+          durationMinutes: Number(internalDurationMinutes) || 0,
+          deliverableUrl: internalDeliverableUrl.trim() || undefined,
+          requirement_notes: (notes || '').trim() || undefined,
+          notes: (notes || '').trim() || undefined,
+          logged_by: userName,
+          sales_person: userName,
+          sales_person_id: currentSalespersonId || userUid || undefined,
+          handled_by_team_member_name: userName,
+          handled_by_salesperson_id: currentSalespersonId || userUid || undefined,
+          interaction_type: 'call',
+          createdAt: existingLog?.createdAt || logToEdit?.createdAt || nowIso,
+          updatedAt: nowIso
+        };
+
+        await CallLogRepository.logInternalOps(opsEntry);
+
+        if (setCallLogs) {
+          setCallLogs((prev) => {
+            const idx = prev.findIndex((l) => l.id === opsEntry.id);
+            if (idx >= 0) {
+              const cp = [...prev];
+              cp[idx] = opsEntry;
+              return cp;
+            }
+            return [opsEntry, ...prev];
+          });
+        }
+
+        if (onSave) onSave(opsEntry);
+        if (onUpdate && (existingLog || logToEdit)) onUpdate(opsEntry);
+        onSaveSuccess();
+        handleReset();
+        onClose();
+      } catch (err: any) {
+        console.error('Failed to save internal ops task:', err);
+        setValidationError(err?.message || 'Failed to save internal operations task.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
 
     if (linkMode === 'crm') {
       if (!selectedCompanyId) {
@@ -2658,20 +2769,28 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           {/* Header */}
           <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-400">
-                <PhoneCall className="h-5 w-5" />
+              <div className={`p-2 rounded-lg border ${
+                isInternalOps
+                  ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400'
+                  : 'bg-blue-600/20 border-blue-500/30 text-blue-400'
+              }`}>
+                {isInternalOps ? <Briefcase className="h-5 w-5" /> : <PhoneCall className="h-5 w-5" />}
               </div>
               <div>
                 <h2 className="text-base font-bold text-slate-100">
-                  {existingLog || logToEdit ? 'Edit Activity Log' : 'Activity Logger'}
+                  {isInternalOps
+                    ? (existingLog || logToEdit ? 'Edit Internal Ops Task' : 'Internal Ops Task Logger')
+                    : (existingLog || logToEdit ? 'Edit Activity Log' : 'Activity Logger')}
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Record calls, emails, or visits with instant CRM auto-registration
+                  {isInternalOps
+                    ? 'Log administrative, development, design, and internal tasks'
+                    : 'Record calls, emails, or visits with instant CRM auto-registration'}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {selectedCompanyId && (
+              {!isInternalOps && selectedCompanyId && (
                 <button
                   type="button"
                   onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
@@ -2718,6 +2837,211 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
             )}
 
+            {/* Primary Mode Toggle: Sales & CRM Activity vs Internal Ops Task */}
+            <div className="bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsInternalOps(false);
+                    setValidationError(null);
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    !isInternalOps
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  <span>Sales & CRM Activity</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsInternalOps(true);
+                    setValidationError(null);
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isInternalOps
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <Briefcase className="w-3.5 h-3.5" />
+                  <span>Internal Ops Task</span>
+                </button>
+              </div>
+            </div>
+
+            {isInternalOps ? (
+              <div className="space-y-4 pt-1">
+                {/* Task Summary / Title (Required) */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Task Summary / Title <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={internalTitle}
+                    onChange={(e) => {
+                      setInternalTitle(e.target.value);
+                      if (validationError) setValidationError(null);
+                    }}
+                    placeholder="e.g. Design Proposal Deck, Fix CRM Pagination Bug, Prepare Social Post..."
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-semibold text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Category & Requester */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Category dropdown */}
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Category <span className="text-rose-400">*</span>
+                    </label>
+                    <select
+                      value={internalCategory}
+                      onChange={(e) => setInternalCategory(e.target.value as InternalOpsCategory)}
+                      className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="Development">💻 Development</option>
+                      <option value="Design / Document Prep">🎨 Design / Document Prep</option>
+                      <option value="Social Media / Marketing">📣 Social Media / Marketing</option>
+                      <option value="Executive / Ad-hoc Request">⚡ Executive / Ad-hoc Request</option>
+                      <option value="Operations / Coordination">⚙️ Operations / Coordination</option>
+                    </select>
+                  </div>
+
+                  {/* Requester Selector Pills */}
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Requester <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(['Management / Boss', 'Team Member', 'Self-Directed'] as InternalOpsRequester[]).map((req) => (
+                        <button
+                          key={req}
+                          type="button"
+                          onClick={() => setInternalRequester(req)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                            internalRequester === req
+                              ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
+                              : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          {req}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Time Spent / Effort Duration */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Time Spent / Effort
+                  </label>
+                  <div className="flex items-center gap-2 flex-wrap bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                    <input
+                      type="number"
+                      min="1"
+                      step="5"
+                      value={internalDurationMinutes}
+                      onChange={(e) => setInternalDurationMinutes(Math.max(1, parseInt(e.target.value) || 0))}
+                      className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-sm font-semibold text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center"
+                    />
+                    <span className="text-xs text-slate-400 font-medium">Minutes</span>
+                    <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                      {[15, 30, 45, 60, 90, 120].map((mins) => (
+                        <button
+                          key={mins}
+                          type="button"
+                          onClick={() => setInternalDurationMinutes(mins)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                            internalDurationMinutes === mins
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                          }`}
+                        >
+                          {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Deliverable / Reference Link */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Deliverable / Reference Link <span className="text-slate-500 font-normal lowercase">(optional)</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="url"
+                      value={internalDeliverableUrl}
+                      onChange={(e) => setInternalDeliverableUrl(e.target.value)}
+                      placeholder="https://github.com/... or Figma, Canva, Drive link"
+                      className="w-full pl-3.5 pr-20 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {internalDeliverableUrl && (
+                      <a
+                        href={internalDeliverableUrl.startsWith('http') ? internalDeliverableUrl : `https://${internalDeliverableUrl}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute right-2 px-2 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 text-[10px] font-bold flex items-center gap-1 border border-indigo-800 transition cursor-pointer"
+                      >
+                        <span>Open</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Detailed Notes / Description */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Detailed Notes / Task Findings
+                    </label>
+                    <button
+                      type="button"
+                      onClick={toggleListening}
+                      className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                        isListening
+                          ? 'bg-rose-950 text-rose-300 border-rose-800 animate-pulse'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      {isListening ? <MicOff className="w-3 h-3 text-rose-400" /> : <Mic className="w-3 h-3 text-blue-400" />}
+                      <span>{isListening ? 'Stop' : 'Voice'}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    ref={notesTextareaRef}
+                    rows={4}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Provide details, blockers, technical context, or deliverables accomplished..."
+                    className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                  />
+                </div>
+
+                {/* Task Execution Date & Time */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Task Date & Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={activityDate}
+                    onChange={(e) => setActivityDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
             {/* Target Link Mode Toggle */}
             {!companyId && (
               <div className="bg-slate-950 p-1 rounded-xl border border-slate-800">
@@ -4560,6 +4884,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </button>
               </div>
             )}
+            </>
+            )}
           </form>
 
           {/* Retractable Activity History Timeline (side-by-side on sm+, slide-over on mobile) */}
@@ -4607,17 +4933,25 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                className={`px-5 py-2 rounded-xl text-white text-xs font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer ${
+                  isInternalOps
+                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
+                    : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+                }`}
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin text-white" />
-                    <span>Saving Activity...</span>
+                    <span>{isInternalOps ? 'Saving Task...' : 'Saving Activity...'}</span>
                   </>
                 ) : (
                   <>
-                    <Check className="h-4 w-4 text-white" />
-                    <span>{existingLog || logToEdit ? 'Update Log' : 'Save Activity Log'}</span>
+                    {isInternalOps ? <Briefcase className="h-4 w-4 text-white" /> : <Check className="h-4 w-4 text-white" />}
+                    <span>
+                      {isInternalOps
+                        ? (existingLog || logToEdit ? 'Update Internal Task' : 'Save Internal Task')
+                        : (existingLog || logToEdit ? 'Update Log' : 'Save Activity Log')}
+                    </span>
                   </>
                 )}
               </button>
