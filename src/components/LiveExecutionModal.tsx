@@ -671,10 +671,21 @@ export default function LiveExecutionModal({
   }, [currentChannel]);
 
   const availablePurposes = useMemo(() => {
+    let list: string[] = [];
     if (callPurposes && callPurposes.length > 0) {
-      return Array.from(new Set([...SYSTEM_CALL_PURPOSES, ...callPurposes.map(p => p.name)]));
+      list = Array.from(new Set([
+        ...SYSTEM_CALL_PURPOSES,
+        ...callPurposes.map(p => p.name === 'Inbound Enquiry' ? 'Inbound' : p.name)
+      ]));
+    } else {
+      list = [...SYSTEM_CALL_PURPOSES];
     }
-    return [...SYSTEM_CALL_PURPOSES];
+    // Always place fallback 'General / Other' at the bottom of the list
+    if (list.includes('General / Other')) {
+      list = list.filter(p => p !== 'General / Other');
+      list.push('General / Other');
+    }
+    return list;
   }, [callPurposes]);
 
   // Default completed status
@@ -756,7 +767,7 @@ export default function LiveExecutionModal({
       const rawPurpose = currentTask.purpose;
       const normalizedPurpose = rawPurpose === 'Discovery / Validation'
         ? 'Discovery / Qualification'
-        : (rawPurpose || availablePurposes[0] || 'Discovery / Qualification');
+        : (rawPurpose === 'Inbound Enquiry' ? 'Inbound' : (rawPurpose || availablePurposes[0] || 'Discovery / Qualification'));
       setPurpose(normalizedPurpose);
 
       // Initialize disposition based on existing task state and channel

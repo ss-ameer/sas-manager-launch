@@ -9,12 +9,14 @@ interface CustomLabelSelectProps {
 }
 
 export const PHONE_LABEL_DEFAULT_OPTIONS = [
-  'Main',
-  'Direct Line',
   'Mobile',
+  'Work',
+  'Main',
+  'Direct',
+  'WhatsApp',
+  'Direct Line',
   'Reception',
   'Landline',
-  'WhatsApp',
   'Support',
   'Billing',
   'Sales Desk',
@@ -23,15 +25,15 @@ export const PHONE_LABEL_DEFAULT_OPTIONS = [
 ];
 
 export const EMAIL_LABEL_DEFAULT_OPTIONS = [
-  'Main',
-  'Direct',
   'Work',
   'Personal',
+  'Billing / Accounts',
+  'Inquiries',
+  'Main',
+  'Direct',
   'Info',
   'Sales',
-  'Support',
-  'Billing',
-  'Inquiries'
+  'Support'
 ];
 
 export function CustomLabelSelect({

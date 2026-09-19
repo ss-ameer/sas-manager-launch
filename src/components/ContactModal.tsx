@@ -49,8 +49,11 @@ interface ContactModalProps {
   onSaved?: (savedContact: Contact) => void;
 }
 
-const PHONE_LABEL_OPTIONS = ['Landline', 'Mobile', 'WhatsApp', 'Direct Line', 'Support', 'Fax', 'Other'];
-const EMAIL_LABEL_OPTIONS = ['Work', 'Personal', 'Info', 'Billing', 'Support', 'Other'];
+const PHONE_PRESETS = ['Mobile', 'Work', 'Main', 'Direct', 'WhatsApp'] as const;
+const EMAIL_PRESETS = ['Work', 'Personal', 'Billing / Accounts', 'Inquiries'] as const;
+
+const PHONE_LABEL_OPTIONS = ['Mobile', 'Work', 'Main', 'Direct', 'WhatsApp'];
+const EMAIL_LABEL_OPTIONS = ['Work', 'Personal', 'Billing / Accounts', 'Inquiries'];
 
 const generateCtId = () => `ct_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -78,6 +81,8 @@ export default function ContactModal({
 
   const [phones, setPhones] = useState<ContactMethod[]>([{ id: 'ct_init_p1', label: 'Mobile', value: '' }]);
   const [emails, setEmails] = useState<ContactMethod[]>([{ id: 'ct_init_e1', label: 'Work', value: '' }]);
+  const [customPhoneKeys, setCustomPhoneKeys] = useState<Record<string, boolean>>({});
+  const [customEmailKeys, setCustomEmailKeys] = useState<Record<string, boolean>>({});
   const [handles, setHandles] = useState<LabeledHandle[]>([]);
   const [editingRestrictedLines, setEditingRestrictedLines] = useState<Record<string, 'DNC' | 'Invalid'>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -225,6 +230,8 @@ export default function ContactModal({
         } else {
           setEditingRestrictedLines({});
         }
+        setCustomPhoneKeys({});
+        setCustomEmailKeys({});
       } else {
         setCompanyId(initialCompanyId || '');
         setFullName('');
@@ -234,6 +241,8 @@ export default function ContactModal({
         setDncReason('');
         setPhones([{ id: generateCtId(), label: 'Mobile', value: '' }]);
         setEmails([{ id: generateCtId(), label: 'Work', value: '' }]);
+        setCustomPhoneKeys({});
+        setCustomEmailKeys({});
         setHandles([]);
         setEditingRestrictedLines({});
       }
@@ -303,11 +312,17 @@ export default function ContactModal({
     const validEmails = emails.filter((e) => e.value.trim() !== '');
     const validHandles = handles.filter((h) => h.handle.trim() !== '');
 
-    const legacyPhones = validPhones.map((p) => ({ id: p.id, label: p.label, number: p.value, value: p.value }));
-    const legacyEmails = validEmails.map((e) => ({ id: e.id, label: e.label, email: e.value, value: e.value }));
+    const legacyPhones = validPhones.map((p) => {
+      const cleanLabel = (!p.label || p.label === 'Custom...' || !p.label.trim()) ? 'Mobile' : p.label.trim();
+      return { id: p.id, label: cleanLabel, number: p.value, value: p.value };
+    });
+    const legacyEmails = validEmails.map((e) => {
+      const cleanLabel = (!e.label || e.label === 'Custom...' || !e.label.trim()) ? 'Work' : e.label.trim();
+      return { id: e.id, label: cleanLabel, email: e.value, value: e.value };
+    });
 
-    const primaryMobile = validPhones.find((p) => p.label === 'Mobile')?.value || validPhones[0]?.value || '';
-    const primaryLandline = validPhones.find((p) => p.label === 'Landline' || p.label === 'Direct Line' || p.label === 'Telephone')?.value || '';
+    const primaryMobile = validPhones.find((p) => (p.label || '').toLowerCase() === 'mobile')?.value || validPhones[0]?.value || '';
+    const primaryLandline = validPhones.find((p) => ['work', 'main', 'landline', 'direct line', 'direct', 'telephone'].includes((p.label || '').toLowerCase()))?.value || '';
     const primaryEmail = validEmails[0]?.value || '';
 
     const userUid = user?.uid || '';
@@ -657,20 +672,46 @@ export default function ContactModal({
 
               {phones.map((p, idx) => {
                 const currentRestriction = getLineRestriction(editingRestrictedLines, p.value);
+                const phoneKey = p.id || String(idx);
+                const isCustomPhone = customPhoneKeys[phoneKey] !== undefined
+                  ? customPhoneKeys[phoneKey]
+                  : !PHONE_PRESETS.includes(p.label as any);
 
                 return (
                   <div key={p.id || idx} className="flex items-center space-x-2">
                     <select
-                      value={p.label}
-                      onChange={(e) => handlePhoneChange(idx, 'label', e.target.value)}
-                      className="w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                      value={isCustomPhone ? 'Custom...' : p.label}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'Custom...') {
+                          setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: true }));
+                          handlePhoneChange(idx, 'label', '');
+                        } else {
+                          setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: false }));
+                          handlePhoneChange(idx, 'label', val);
+                        }
+                      }}
+                      className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
                     >
-                      {PHONE_LABEL_OPTIONS.map((opt) => (
+                      {PHONE_PRESETS.map((opt) => (
                         <option key={opt} value={opt}>
                           {opt}
                         </option>
                       ))}
+                      <option value="Custom...">Custom...</option>
                     </select>
+
+                    {isCustomPhone && (
+                      <input
+                        type="text"
+                        value={p.label === 'Custom...' ? '' : p.label}
+                        onChange={(e) => handlePhoneChange(idx, 'label', e.target.value)}
+                        placeholder="Tag (e.g. Operations Desk)"
+                        className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                        autoFocus
+                      />
+                    )}
+
                     <input
                       type="text"
                       value={p.value}
@@ -766,20 +807,46 @@ export default function ContactModal({
 
               {emails.map((e, idx) => {
                 const currentRestriction = getLineRestriction(editingRestrictedLines, e.value);
+                const emailKey = e.id || String(idx);
+                const isCustomEmail = customEmailKeys[emailKey] !== undefined
+                  ? customEmailKeys[emailKey]
+                  : !EMAIL_PRESETS.includes(e.label as any);
 
                 return (
                   <div key={e.id || idx} className="flex items-center space-x-2">
                     <select
-                      value={e.label}
-                      onChange={(eVal) => handleEmailChange(idx, 'label', eVal.target.value)}
-                      className="w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                      value={isCustomEmail ? 'Custom...' : e.label}
+                      onChange={(eVal) => {
+                        const val = eVal.target.value;
+                        if (val === 'Custom...') {
+                          setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: true }));
+                          handleEmailChange(idx, 'label', '');
+                        } else {
+                          setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: false }));
+                          handleEmailChange(idx, 'label', val);
+                        }
+                      }}
+                      className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
                     >
-                      {EMAIL_LABEL_OPTIONS.map((opt) => (
+                      {EMAIL_PRESETS.map((opt) => (
                         <option key={opt} value={opt}>
                           {opt}
                         </option>
                       ))}
+                      <option value="Custom...">Custom...</option>
                     </select>
+
+                    {isCustomEmail && (
+                      <input
+                        type="text"
+                        value={e.label === 'Custom...' ? '' : e.label}
+                        onChange={(eVal) => handleEmailChange(idx, 'label', eVal.target.value)}
+                        placeholder="Tag (e.g. Inquiries)"
+                        className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                        autoFocus
+                      />
+                    )}
+
                     <input
                       type="email"
                       value={e.value}

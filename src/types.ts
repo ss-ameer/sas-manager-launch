@@ -80,7 +80,17 @@ export interface Workspace {
 
 export type LegalSuffix = 'None / To Be Added Later' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other';
 
-export type PhoneCategory = 'Mobile' | 'Telephone' | 'Direct' | 'WhatsApp' | 'Work' | 'Fax' | 'Other';
+export type PhoneCategory =
+  | 'Mobile'
+  | 'Work'
+  | 'Main'
+  | 'Direct'
+  | 'WhatsApp'
+  | 'Telephone'
+  | 'Landline'
+  | 'Fax'
+  | 'Other'
+  | string;
 
 export interface LabeledPhone {
   number: string;

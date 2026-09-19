@@ -330,10 +330,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [outcome, setOutcome] = useState<string>('');
   const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
   const availablePurposes = useMemo(() => {
+    let list: string[] = [];
     if (callPurposes && callPurposes.length > 0) {
-      return Array.from(new Set([...SYSTEM_CALL_PURPOSES, ...callPurposes.map(p => p.name)]));
+      list = Array.from(new Set([
+        ...SYSTEM_CALL_PURPOSES,
+        ...callPurposes.map(p => p.name === 'Inbound Enquiry' ? 'Inbound' : p.name)
+      ]));
+    } else {
+      list = [...SYSTEM_CALL_PURPOSES];
     }
-    return [...SYSTEM_CALL_PURPOSES];
+    // Always place fallback 'General / Other' at the bottom of the list
+    if (list.includes('General / Other')) {
+      list = list.filter(p => p !== 'General / Other');
+      list.push('General / Other');
+    }
+    return list;
   }, [callPurposes]);
 
   const [purpose, setPurpose] = useState<string>('Discovery / Qualification');
@@ -722,7 +733,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         setOutcome(activeLog.outcome || '');
         const normalizedPurp = activeLog.purpose === 'Discovery / Validation'
           ? 'Discovery / Qualification'
-          : (activeLog.purpose || 'Discovery / Qualification');
+          : (activeLog.purpose === 'Inbound Enquiry' ? 'Inbound' : (activeLog.purpose || 'Discovery / Qualification'));
         setPurpose(normalizedPurp);
         setNotes(activeLog.requirement_notes || (activeLog as any).notes || '');
         setWhatsappDraft(activeLog.whatsapp_draft || '');
@@ -1124,6 +1135,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   interface CompanySearchResult {
     company: Company;
     matchedContact?: Contact;
+    contactMatchSnippet?: string;
   }
 
   const internalCompaniesList = useMemo(() => {
@@ -1163,42 +1175,87 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       const cityMatch = city.includes(q);
       const phoneMatch = compPhones.toLowerCase().includes(q) || (cleanQ.length >= 3 && compPhonesClean.includes(cleanQ));
 
-      // Check contacts of this company
+      // Check contacts of this company with context-aware match tracking
       const compContacts = contactsByCompany.get(c.id) || [];
       let matchedCt: Contact | undefined;
+      let matchedSnippet: string | undefined;
 
       for (const ct of compContacts) {
-        const ctName = (ct.full_name || '').toLowerCase();
-        const ctDesig = (ct.designation || '').toLowerCase();
-        const ctEmail = (ct.email || '').toLowerCase();
-        const ctMobile = ct.mobile || '';
-        const ctLandline = ct.landline || '';
-        const ctMobileDigits = ctMobile.replace(/[\s\-\(\)\+]/g, '');
-        const ctLandlineDigits = ctLandline.replace(/[\s\-\(\)\+]/g, '');
-
+        const ctName = (ct.full_name || '').trim();
+        const ctDesig = (ct.designation || '').trim();
+        const ctEmail = (ct.email || '').trim();
+        const ctEmails = getContactEmails(ct);
         const ctPhones = getContactPhones(ct);
-        const anyPhoneMatch = ctPhones.some((p) => {
-          const pNum = p.number || '';
-          const pDigits = pNum.replace(/[\s\-\(\)\+]/g, '');
-          return pNum.toLowerCase().includes(q) || (cleanQ.length >= 3 && pDigits.includes(cleanQ));
-        });
 
-        if (
-          ctName.includes(q) ||
-          ctDesig.includes(q) ||
-          ctEmail.includes(q) ||
-          ctMobile.toLowerCase().includes(q) ||
-          ctLandline.toLowerCase().includes(q) ||
-          (cleanQ.length >= 3 && (ctMobileDigits.includes(cleanQ) || ctLandlineDigits.includes(cleanQ))) ||
-          anyPhoneMatch
-        ) {
+        // 1. Check contact email
+        let matchingEmail = '';
+        if (ctEmail && ctEmail.toLowerCase().includes(q)) {
+          matchingEmail = ctEmail;
+        } else {
+          const foundEmail = ctEmails.find((e) => (e.email || (e as any).value || '').toLowerCase().includes(q));
+          if (foundEmail) {
+            matchingEmail = foundEmail.email || (foundEmail as any).value || '';
+          }
+        }
+
+        // 2. Check contact phone
+        let matchingPhone = '';
+        let matchingPhoneLabel = '';
+        for (const p of ctPhones) {
+          const pNum = p.number || (p as any).value || '';
+          const pDigits = pNum.replace(/[\s\-\(\)\+]/g, '');
+          if (pNum.toLowerCase().includes(q) || (cleanQ.length >= 3 && pDigits.includes(cleanQ))) {
+            matchingPhone = pNum;
+            matchingPhoneLabel = p.label || 'Phone';
+            break;
+          }
+        }
+        if (!matchingPhone && ct.mobile) {
+          const mobDigits = ct.mobile.replace(/[\s\-\(\)\+]/g, '');
+          if (ct.mobile.toLowerCase().includes(q) || (cleanQ.length >= 3 && mobDigits.includes(cleanQ))) {
+            matchingPhone = ct.mobile;
+            matchingPhoneLabel = 'Mobile';
+          }
+        }
+        if (!matchingPhone && ct.landline) {
+          const llDigits = ct.landline.replace(/[\s\-\(\)\+]/g, '');
+          if (ct.landline.toLowerCase().includes(q) || (cleanQ.length >= 3 && llDigits.includes(cleanQ))) {
+            matchingPhone = ct.landline;
+            matchingPhoneLabel = 'Landline';
+          }
+        }
+
+        // 3. Check designation / role
+        const desigMatch = Boolean(ctDesig && ctDesig.toLowerCase().includes(q));
+
+        // 4. Check contact name
+        const contactNameMatch = Boolean(ctName && ctName.toLowerCase().includes(q));
+
+        if (matchingEmail) {
           matchedCt = ct;
+          matchedSnippet = `(Email: ${matchingEmail})`;
+          break;
+        } else if (matchingPhone) {
+          matchedCt = ct;
+          matchedSnippet = `(${matchingPhoneLabel || 'Phone'}: ${matchingPhone})`;
+          break;
+        } else if (desigMatch) {
+          matchedCt = ct;
+          matchedSnippet = `(Role: ${ctDesig})`;
+          break;
+        } else if (contactNameMatch) {
+          matchedCt = ct;
+          matchedSnippet = `(${ctDesig || 'Contact'})`;
           break;
         }
       }
 
       if (nameMatch || aliasMatch || cityMatch || phoneMatch || matchedCt) {
-        results.push({ company: c, matchedContact: matchedCt });
+        results.push({
+          company: c,
+          matchedContact: matchedCt,
+          contactMatchSnippet: matchedSnippet
+        });
       }
     }
 
@@ -3247,16 +3304,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         {isComboboxOpen && (
                           <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 shadow-xl p-1 space-y-0.5">
                             {filteredCompanyResults.length > 0 ? (
-                              filteredCompanyResults.map(({ company: c, matchedContact }, idx) => {
-                                const contactPhoneDisplay = matchedContact
-                                  ? (matchedContact.mobile
-                                      ? `Mobile: ${matchedContact.mobile}`
-                                      : (matchedContact.landline
-                                          ? `Tel: ${matchedContact.landline}`
-                                          : (getContactPhones(matchedContact)[0]?.number
-                                              ? `Phone: ${getContactPhones(matchedContact)[0]?.number}`
-                                              : '')))
-                                  : '';
+                              filteredCompanyResults.map(({ company: c, matchedContact, contactMatchSnippet }, idx) => {
+                                const snippetToDisplay = contactMatchSnippet || (matchedContact ? (matchedContact.designation ? `(${matchedContact.designation})` : `(Contact)`) : '');
 
                                 const isFirstInternal = idx === 0 && c.isInternalCompany;
                                 const isFirstNonInternalAfterInternal =
@@ -3310,7 +3359,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                                 <span>👤</span>
                                                 <span>
                                                   Matched Contact: <strong className="text-emerald-200">{matchedContact.full_name}</strong>
-                                                  {contactPhoneDisplay ? ` (${contactPhoneDisplay})` : ''}
+                                                  {snippetToDisplay ? ` ${snippetToDisplay}` : ''}
                                                 </span>
                                               </span>
                                             </div>

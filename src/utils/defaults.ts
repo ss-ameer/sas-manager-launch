@@ -29,14 +29,16 @@ export const SYSTEM_CALL_OUTCOMES: any[] = [
 ];
 
 export const SYSTEM_CALL_PURPOSES = [
-  'Inbound Enquiry',
+  'Inbound',
   'Introduction / Pitch',
   'Discovery / Qualification',
   'Follow-up / Check-in',
   'Closing / Negotiation',
+  'Internal Coordination',
   'Issue Resolution',
   'Re-engagement / Win-Back',
-  'Order Fulfillment / Logistics'
+  'Order Fulfillment / Logistics',
+  'General / Other'
 ] as const;
 
 export type SystemCallPurpose = (typeof SYSTEM_CALL_PURPOSES)[number];
@@ -130,6 +132,14 @@ export function healDropdownOptions(
 ): { mergedList: DropdownOption[]; changed: boolean } {
   const list = currentList ? [...currentList] : [];
   let changed = false;
+
+  // Normalize legacy option names (e.g., Inbound Enquiry -> Inbound)
+  for (let idx = 0; idx < list.length; idx++) {
+    if (list[idx]?.name === 'Inbound Enquiry') {
+      list[idx] = { ...list[idx], name: 'Inbound' };
+      changed = true;
+    }
+  }
 
   defaults.forEach((defItem, i) => {
     const isObject = typeof defItem === 'object' && defItem !== null;
