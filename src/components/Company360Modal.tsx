@@ -3,6 +3,8 @@ import { Company, Contact, Enquiry, CallLogEntry, UserProfile, Workspace, Salesp
 import { getReferenceId } from '../utils/refId';
 import ContactModal from './ContactModal';
 import CompanyEditModal from './CompanyEditModal';
+import LiveExecutionModal from './LiveExecutionModal';
+import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import {
   Building2,
   Users2,
@@ -107,6 +109,7 @@ export default function Company360Modal({
   const [selectedContactToEdit, setSelectedContactToEdit] = useState<Contact | null>(null);
   const [internalEditModalOpen, setInternalEditModalOpen] = useState(false);
   const [localCompanyOverride, setLocalCompanyOverride] = useState<Company | null>(null);
+  const [activeExecutionTask, setActiveExecutionTask] = useState<CallLogEntry | null>(null);
 
   // Reset local override if companyId changes
   useEffect(() => {
@@ -1065,15 +1068,13 @@ export default function Company360Modal({
               setCallLogs={setCallLogs}
               setCompanies={setCompanies}
               setContacts={setContacts}
-              onExecuteTask={onExecuteTask || ((task) => {
-                handleInitiate({
-                  mode: 'live_call',
-                  task,
-                  company: company,
-                  contact: companyContacts.find((c) => c.id === task.contact_id),
-                  source: 'company_360_timeline'
-                });
-              })}
+              onExecuteTask={(task) => {
+                if (onExecuteTask) {
+                  onExecuteTask(task);
+                } else {
+                  setActiveExecutionTask(task);
+                }
+              }}
               onSelectCallLog={(log) => {
                 if (onOpenActivityDrawer) {
                   onOpenActivityDrawer({
@@ -1129,6 +1130,57 @@ export default function Company360Modal({
               );
             }
             setInternalEditModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Live Execution Center Direct Modal */}
+      {activeExecutionTask && (
+        <LiveExecutionModal
+          isOpen={Boolean(activeExecutionTask)}
+          onClose={() => setActiveExecutionTask(null)}
+          task={activeExecutionTask}
+          onSwitchTask={setActiveExecutionTask}
+          user={user}
+          callLogs={companyCallLogs}
+          contacts={companyContacts}
+          companies={companies}
+          enquiries={companyEnquiries}
+          setCompanies={setCompanies}
+          setContacts={setContacts}
+          setCallLogs={setCallLogs}
+          onCompleteTask={async (completedTask) => {
+            try {
+              await CallLogRepository.save(completedTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing completed task:', e);
+            }
+            setActiveExecutionTask(null);
+          }}
+          onRescheduleTask={async (rescheduledTask) => {
+            try {
+              await CallLogRepository.save(rescheduledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing rescheduled task:', e);
+            }
+            setActiveExecutionTask(null);
+          }}
+          onCancelTask={async (cancelledTask) => {
+            try {
+              await CallLogRepository.save(cancelledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing cancelled task:', e);
+            }
+            setActiveExecutionTask(null);
           }}
         />
       )}

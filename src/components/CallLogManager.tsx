@@ -1923,11 +1923,72 @@ export default function CallLogManager({
     }
   };
 
-  // Base list of completed/historical interaction logs (excluding scheduled tasks)
+  // Base list of completed/historical interaction logs (excluding scheduled tasks, superseded, cancelled, and future scheduled tasks)
   const nonScheduledHistoryLogs = useMemo(() => {
+    const now = Date.now();
     return workspaceCallLogs.filter((l) => {
-      const normLogStatus = (l.status || '').toLowerCase().trim();
-      return !(normLogStatus === 'scheduled' || normLogStatus === 'scheduled / planned' || normLogStatus.includes('scheduled'));
+      if (l.is_deleted) return false;
+
+      const normStatus = (l.status || '').toLowerCase().trim();
+      const normOutcome = (l.outcome || '').toLowerCase().trim();
+
+      // 1. Exclude superseded logs
+      if (normStatus === 'superseded' || normStatus.includes('superseded')) {
+        return false;
+      }
+
+      // 2. Exclude clear cancellation variants
+      if (
+        normStatus === 'cancelled' ||
+        normStatus === 'canceled' ||
+        normStatus.includes('cancelled') ||
+        normStatus.includes('canceled') ||
+        normOutcome === 'cancelled' ||
+        normOutcome === 'canceled' ||
+        normOutcome.includes('cancelled') ||
+        normOutcome.includes('canceled') ||
+        Boolean((l as any).cancellation_reason)
+      ) {
+        return false;
+      }
+
+      // 3. Exclude pending and scheduled tasks (these belong exclusively in the Activity Queue)
+      if (
+        isTaskPending(l) ||
+        normStatus === 'scheduled' ||
+        normStatus === 'scheduled / planned' ||
+        normStatus === 'scheduled / draft' ||
+        normStatus === 'pending' ||
+        normStatus === 'planned' ||
+        normStatus === 'draft' ||
+        normStatus === 'rescheduled' ||
+        normStatus.includes('scheduled') ||
+        normStatus.includes('planned') ||
+        normStatus.includes('draft')
+      ) {
+        return false;
+      }
+
+      // 4. Exclude scheduled future tasks (where scheduledDate > Date.now())
+      const scheduledDateRaw =
+        (l as any).scheduledDate ||
+        (l as any).scheduled_date ||
+        (l as any).scheduled_for ||
+        ((normStatus.includes('scheduled') || normStatus === 'pending') ? l.next_followup_date : null);
+      if (scheduledDateRaw) {
+        const parsedScheduled = parseTaskScheduledDate(scheduledDateRaw);
+        if (parsedScheduled && parsedScheduled.getTime() > now) {
+          return false;
+        }
+      }
+
+      // 5. Exclude future dates (interaction dates cannot be in the future)
+      const logDate = parseTaskScheduledDate(l.date);
+      if (logDate && logDate.getTime() > now) {
+        return false;
+      }
+
+      return true;
     });
   }, [workspaceCallLogs]);
 

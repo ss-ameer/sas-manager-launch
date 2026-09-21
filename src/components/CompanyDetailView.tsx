@@ -20,6 +20,8 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
+import LiveExecutionModal from './LiveExecutionModal';
+import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import {
   Company,
   Contact,
@@ -153,6 +155,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
 
   // Retractable activity history drawer state
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activeExecutionTask, setActiveExecutionTask] = useState<CallLogEntry | null>(null);
 
   // ESC key listener to dismiss drawer
   useEffect(() => {
@@ -981,7 +984,13 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 salespersons={salespersons}
                 onClose={() => setIsHistoryOpen(false)}
                 onSelectCallLog={onSelectCallLog}
-                onExecuteTask={onExecuteTask || ((task) => triggerActivity({ mode: 'live_call', task, source: 'company_detail_timeline' }))}
+                onExecuteTask={(task) => {
+                  if (onExecuteTask) {
+                    onExecuteTask(task);
+                  } else {
+                    setActiveExecutionTask(task);
+                  }
+                }}
                 onSelectEnquiry={onSelectEnquiry}
                 onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
                 user={user}
@@ -996,6 +1005,57 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Live Execution Command Center Modal */}
+      {activeExecutionTask && (
+        <LiveExecutionModal
+          isOpen={Boolean(activeExecutionTask)}
+          onClose={() => setActiveExecutionTask(null)}
+          task={activeExecutionTask}
+          onSwitchTask={setActiveExecutionTask}
+          user={user}
+          callLogs={callLogs}
+          contacts={contacts}
+          companies={companies}
+          enquiries={enquiries}
+          setCompanies={setCompanies}
+          setContacts={setContacts}
+          setCallLogs={setCallLogs}
+          onCompleteTask={async (completedTask) => {
+            try {
+              await CallLogRepository.save(completedTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing completed task:', e);
+            }
+            setActiveExecutionTask(null);
+          }}
+          onRescheduleTask={async (rescheduledTask) => {
+            try {
+              await CallLogRepository.save(rescheduledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing rescheduled task:', e);
+            }
+            setActiveExecutionTask(null);
+          }}
+          onCancelTask={async (cancelledTask) => {
+            try {
+              await CallLogRepository.save(cancelledTask);
+              if (setCallLogs) {
+                setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
+              }
+            } catch (e) {
+              console.warn('Error syncing cancelled task:', e);
+            }
+            setActiveExecutionTask(null);
+          }}
+        />
+      )}
     </>
   );
 };
