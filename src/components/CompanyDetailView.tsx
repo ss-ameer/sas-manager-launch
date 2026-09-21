@@ -104,6 +104,7 @@ export interface CompanyDetailViewProps {
   onOpenEditCompany?: (company: Company) => void;
   onSelectEnquiry?: (id: string) => void;
   onSelectCallLog?: (log: CallLogEntry) => void;
+  onEditCallLog?: (log: CallLogEntry) => void;
   onExecuteTask?: (task: CallLogEntry) => void;
   onAddContact?: (companyId: string) => void;
   onEditContact?: (contact: Contact, companyId: string) => void;
@@ -133,6 +134,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   onOpenEditCompany,
   onSelectEnquiry,
   onSelectCallLog,
+  onEditCallLog,
   onExecuteTask,
   onAddContact,
   onEditContact,
@@ -983,7 +985,34 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 companies={companies}
                 salespersons={salespersons}
                 onClose={() => setIsHistoryOpen(false)}
-                onSelectCallLog={onSelectCallLog}
+                onEditCallLog={(log) => {
+                  if (onEditCallLog) {
+                    onEditCallLog(log);
+                  } else if (onSelectCallLog) {
+                    onSelectCallLog(log);
+                  } else {
+                    triggerActivity({
+                      companyId: company.id,
+                      companyName: company.display_name,
+                      logToEdit: log,
+                      existingLog: log
+                    });
+                  }
+                }}
+                onSelectCallLog={(log) => {
+                  if (onEditCallLog) {
+                    onEditCallLog(log);
+                  } else if (onSelectCallLog) {
+                    onSelectCallLog(log);
+                  } else {
+                    triggerActivity({
+                      companyId: company.id,
+                      companyName: company.display_name,
+                      logToEdit: log,
+                      existingLog: log
+                    });
+                  }
+                }}
                 onExecuteTask={(task) => {
                   if (onExecuteTask) {
                     onExecuteTask(task);

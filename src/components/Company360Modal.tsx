@@ -4,6 +4,7 @@ import { getReferenceId } from '../utils/refId';
 import ContactModal from './ContactModal';
 import CompanyEditModal from './CompanyEditModal';
 import LiveExecutionModal from './LiveExecutionModal';
+import CallLogDetailModal from './CallLogDetailModal';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import {
   Building2,
@@ -110,6 +111,7 @@ export default function Company360Modal({
   const [internalEditModalOpen, setInternalEditModalOpen] = useState(false);
   const [localCompanyOverride, setLocalCompanyOverride] = useState<Company | null>(null);
   const [activeExecutionTask, setActiveExecutionTask] = useState<CallLogEntry | null>(null);
+  const [selectedCallLogDetail, setSelectedCallLogDetail] = useState<CallLogEntry | null>(null);
 
   // Reset local override if companyId changes
   useEffect(() => {
@@ -579,7 +581,15 @@ export default function Company360Modal({
           </div>
 
           {/* Card 4: Last Contacted */}
-          <div className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+          <div
+            className={`p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs ${lastContactInfo.latest ? 'cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors' : ''}`}
+            onClick={() => {
+              if (lastContactInfo.latest) {
+                setSelectedCallLogDetail(lastContactInfo.latest);
+              }
+            }}
+            title={lastContactInfo.latest ? "Click to view latest activity details" : undefined}
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider font-mono">
               <span>Last Contacted</span>
               {lastContactInfo.icon}
@@ -1075,6 +1085,15 @@ export default function Company360Modal({
                   setActiveExecutionTask(task);
                 }
               }}
+              onEditCallLog={(log) => {
+                if (onOpenActivityDrawer) {
+                  onOpenActivityDrawer({
+                    companyId: company.id,
+                    companyName: company.display_name,
+                    logToEdit: log
+                  });
+                }
+              }}
               onSelectCallLog={(log) => {
                 if (onOpenActivityDrawer) {
                   onOpenActivityDrawer({
@@ -1084,6 +1103,7 @@ export default function Company360Modal({
                   });
                 }
               }}
+              onOpenActivityDrawer={onOpenActivityDrawer}
               onSelectEnquiry={(id) => {
                 if (onOpenEnquiry) {
                   onClose();
@@ -1181,6 +1201,38 @@ export default function Company360Modal({
               console.warn('Error syncing cancelled task:', e);
             }
             setActiveExecutionTask(null);
+          }}
+        />
+      )}
+
+      {/* Read-Only Call Log Detail Inspection Modal */}
+      {selectedCallLogDetail && company && (
+        <CallLogDetailModal
+          entry={selectedCallLogDetail}
+          currentUser={user}
+          companies={companies}
+          setCompanies={setCompanies}
+          contacts={contacts}
+          enquiries={companyEnquiries}
+          callLogs={companyCallLogs}
+          activeWorkspace={activeWorkspace}
+          onClose={() => setSelectedCallLogDetail(null)}
+          onOpenCompany360={() => setSelectedCallLogDetail(null)}
+          onEdit={(entry) => {
+            setSelectedCallLogDetail(null);
+            if (onOpenActivityDrawer) {
+              onOpenActivityDrawer({
+                companyId: company.id,
+                companyName: company.display_name,
+                logToEdit: entry
+              });
+            }
+          }}
+          onDelete={(id) => {
+            if (setCallLogs) {
+              setCallLogs((prev) => prev.filter((l) => l.id !== id));
+            }
+            setSelectedCallLogDetail(null);
           }}
         />
       )}

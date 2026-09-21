@@ -38,6 +38,9 @@ export interface CompanyActivityTimelineProps {
   isLoading?: boolean;
   onClose?: () => void;
   onSelectCallLog?: (log: CallLogEntry) => void;
+  onEditCallLog?: (log: CallLogEntry) => void;
+  onInspectCallLog?: (log: CallLogEntry) => void;
+  onOpenActivityDrawer?: (options: any) => void;
   onSelectEnquiry?: (id: string) => void;
   onOpenCompany360?: () => void;
   onExecuteTask?: (task: CallLogEntry) => void;
@@ -337,6 +340,9 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   isLoading = false,
   onClose,
   onSelectCallLog,
+  onEditCallLog,
+  onInspectCallLog,
+  onOpenActivityDrawer,
   onSelectEnquiry,
   onOpenCompany360,
   onExecuteTask,
@@ -755,11 +761,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                                 id={`view-task-${task.id}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (onSelectCallLog) {
-                                    onSelectCallLog(task);
-                                  } else {
-                                    setSelectedDetailLog(task);
-                                  }
+                                  setSelectedDetailLog(task);
+                                  if (onInspectCallLog) onInspectCallLog(task);
                                 }}
                                 className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-2xs flex items-center space-x-1 transition cursor-pointer"
                                 title="View details / history"
@@ -972,11 +975,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   key={log.id}
                   onClick={() => {
                     if (canAccess) {
-                      if (onSelectCallLog) {
-                        onSelectCallLog(log);
-                      } else {
-                        setSelectedDetailLog(log);
-                      }
+                      setSelectedDetailLog(log);
+                      if (onInspectCallLog) onInspectCallLog(log);
                     }
                   }}
                   className={`group relative p-3.5 rounded-xl border transition-all duration-150 space-y-2.5 ${
@@ -1001,10 +1001,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                         • {timeInfo.formatted}
                       </span>
                       {canAccess ? (
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-0.5 ml-1">
+                        <button
+                          type="button"
+                          id={`view-details-${log.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDetailLog(log);
+                            if (onInspectCallLog) onInspectCallLog(log);
+                          }}
+                          className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 ml-1 cursor-pointer transition-colors"
+                          title="View interaction details"
+                        >
                           <span>Details</span>
                           <ExternalLink className="w-2.5 h-2.5" />
-                        </span>
+                        </button>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 ml-1 select-none">
                           <Lock className="w-2.5 h-2.5 shrink-0" />
@@ -1148,14 +1158,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                         </span>
                       )}
 
-                      {canAccess ? (
-                        (onSelectCallLog || setSelectedDetailLog) && (
-                          <div className="text-[11px] font-medium text-blue-600 dark:text-blue-400 group-hover:underline flex items-center space-x-0.5">
-                            <span>View</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </div>
-                        )
-                      ) : (
+                      {!canAccess && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1 select-none">
                           <Lock className="w-2.5 h-2.5 shrink-0" />
                           <span>Restricted</span>
@@ -1390,7 +1393,17 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
           }}
           onEdit={(entry) => {
             setSelectedDetailLog(null);
-            if (onSelectCallLog) onSelectCallLog(entry);
+            if (onEditCallLog) {
+              onEditCallLog(entry);
+            } else if (onSelectCallLog) {
+              onSelectCallLog(entry);
+            } else if (onOpenActivityDrawer) {
+              onOpenActivityDrawer({
+                companyId: entry.company_id || companyId,
+                companyName: entry.company_name || companyName,
+                logToEdit: entry
+              });
+            }
           }}
           onDelete={(id) => {
             if (setCallLogs) {
