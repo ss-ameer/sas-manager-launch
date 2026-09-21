@@ -695,3 +695,5 @@ export interface ClaimedSequenceResult {
   sequence: number;
 }
 
+export const WORKSPACE_STORAGE_KEY = 'sas_active_workspace_id';
+

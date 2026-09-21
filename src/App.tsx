@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDocs } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
-import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, DropdownOption, Workspace, CallLogEntry, CallStatus } from './types';
+import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
+export { WORKSPACE_STORAGE_KEY };
 import {
   ActivityLauncherProvider,
   InitiateActivityOptions,
@@ -160,13 +161,14 @@ export default function App() {
     getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE])
   );
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(() => {
-    const lastActive = localStorage.getItem('last_active_workspace_id');
-    if (lastActive && lastActive.trim() !== '') return lastActive;
+    const savedId = localStorage.getItem(WORKSPACE_STORAGE_KEY) || localStorage.getItem('last_active_workspace_id');
+    if (savedId && savedId.trim() !== '') return savedId;
     return getLocalCache('omni_active_workspace_id', 'ws_default');
   });
 
   const setActiveWorkspaceId = (id: string) => {
     setActiveWorkspaceIdState(id);
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
     localStorage.setItem('last_active_workspace_id', id);
     setLocalCache('omni_active_workspace_id', id);
 
@@ -684,17 +686,34 @@ export default function App() {
   useEffect(() => { 
     setLocalCache('omni_active_workspace_id', activeWorkspaceId); 
     if (activeWorkspaceId) {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, activeWorkspaceId);
       localStorage.setItem('last_active_workspace_id', activeWorkspaceId);
     }
   }, [activeWorkspaceId]);
+  // Rehydration & Validation on App Load / Reload or when accessible workspace list finishes loading
   useEffect(() => {
-    const savedWs = localStorage.getItem('last_active_workspace_id') || localStorage.getItem('omni_active_workspace_id');
-    if (savedWs && savedWs !== activeWorkspaceId) {
-      setActiveWorkspaceId(savedWs);
-    } else if (user?.defaultWorkspaceId && user.defaultWorkspaceId !== activeWorkspaceId) {
-      setActiveWorkspaceId(user.defaultWorkspaceId);
+    if (authLoading) return;
+    if (!visibleWorkspaces || visibleWorkspaces.length === 0) return;
+
+    const savedId = localStorage.getItem(WORKSPACE_STORAGE_KEY) || localStorage.getItem('last_active_workspace_id');
+    const isValidMatch = Boolean(savedId && visibleWorkspaces.some((w) => w.id === savedId));
+
+    if (savedId && isValidMatch) {
+      if (activeWorkspaceId !== savedId) {
+        setActiveWorkspaceId(savedId);
+      }
+    } else {
+      // Fall back cleanly to user's default workspace if valid, or first available workspace, or default
+      const userDefault = user?.defaultWorkspaceId && visibleWorkspaces.some((w) => w.id === user.defaultWorkspaceId)
+        ? user.defaultWorkspaceId
+        : undefined;
+      const fallbackId = userDefault || visibleWorkspaces[0]?.id || 'ws_default';
+
+      if (activeWorkspaceId !== fallbackId) {
+        setActiveWorkspaceId(fallbackId);
+      }
     }
-  }, [user?.defaultWorkspaceId]);
+  }, [authLoading, visibleWorkspaces, user?.defaultWorkspaceId]);
   useEffect(() => { setLocalCache('omni_call_logs', callLogs); }, [callLogs]);
   useEffect(() => { setLocalCache('omni_companies', companies); }, [companies]);
   useEffect(() => { setLocalCache('omni_contacts', contacts); }, [contacts]);

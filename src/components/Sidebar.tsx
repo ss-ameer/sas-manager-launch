@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { UserProfile, Workspace } from '../types';
+import { UserProfile, Workspace, WORKSPACE_STORAGE_KEY } from '../types';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { BRAND_CONFIG } from '../config';
@@ -159,7 +159,9 @@ export default function Sidebar({
               if (e.target.value === '__manage__') {
                 onOpenWorkspaceManager();
               } else {
-                onSelectWorkspace(e.target.value);
+                const selectedWorkspaceId = e.target.value;
+                localStorage.setItem(WORKSPACE_STORAGE_KEY, selectedWorkspaceId);
+                onSelectWorkspace(selectedWorkspaceId);
               }
               if (onClose) onClose();
             }}

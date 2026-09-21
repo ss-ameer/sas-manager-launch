@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Workspace, UserProfile, UserRole, WorkspaceMember } from '../types';
+import { Workspace, UserProfile, UserRole, WorkspaceMember, WORKSPACE_STORAGE_KEY } from '../types';
 import { X, Plus, Check, Building, Layers, Globe, Shield, Edit3, Trash2, Key, Download, AlertTriangle } from 'lucide-react';
 import { safeAddDoc, safeUpdateDoc, safeGetDocs, safeGetDoc, safeDeleteDoc, safeSetDoc, db } from '../firebase';
 import { where, writeBatch, doc } from 'firebase/firestore';
@@ -262,8 +262,9 @@ export default function WorkspaceManagerModal({
 
       // User Session Safety Protection
       if (activeWorkspaceId === wsId) {
-        onSelectWorkspace('ws_default');
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, 'ws_default');
         localStorage.setItem('last_active_workspace_id', 'ws_default');
+        onSelectWorkspace('ws_default');
       }
 
       const nextWorkspaces = workspaces.filter((w) => w.id !== wsId);
@@ -593,6 +594,7 @@ export default function WorkspaceManagerModal({
       }
 
       // Immediately select and switch active workspace context
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, wsId);
       onSelectWorkspace(wsId);
       triggerToast(`Successfully joined workspace: ${wsName}!`, 'success');
       setIsJoining(false);
@@ -1116,6 +1118,7 @@ export default function WorkspaceManagerModal({
                           {!isActive && (
                             <button
                               onClick={() => {
+                                localStorage.setItem(WORKSPACE_STORAGE_KEY, ws.id);
                                 onSelectWorkspace(ws.id);
                                 triggerToast(`Switched to ${ws.name}`, 'info');
                               }}
