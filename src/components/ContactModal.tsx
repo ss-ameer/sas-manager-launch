@@ -40,6 +40,8 @@ interface ContactModalProps {
   onClose: () => void;
   contact?: Contact | null; // null if creating
   companyId?: string; // Pre-selected company ID if creating from company view
+  companyName?: string; // Pre-selected company name if creating with fixed company
+  lockCompany?: boolean; // If true, locks company selection to prevent accidental detachment
   companies: Company[];
   activeWorkspaceId: string;
   user: UserProfile;
@@ -62,6 +64,8 @@ export default function ContactModal({
   onClose,
   contact,
   companyId: initialCompanyId,
+  companyName: initialCompanyName,
+  lockCompany,
   companies,
   activeWorkspaceId,
   user,
@@ -72,7 +76,7 @@ export default function ContactModal({
 }: ContactModalProps) {
   const isEditing = !!contact?.id;
 
-  const [companyId, setCompanyId] = useState<string>('');
+  const [companyId, setCompanyId] = useState<string>(contact?.company_id || initialCompanyId || '');
   const [fullName, setFullName] = useState<string>('');
   const [designation, setDesignation] = useState<string>('');
   const [isPrimary, setIsPrimary] = useState<boolean>(false);
@@ -108,7 +112,14 @@ export default function ContactModal({
     });
   };
 
+  const isCompanyLocked = Boolean(lockCompany || (initialCompanyId && !isEditing));
   const selectedCompany = companies.find((c) => c.id === companyId);
+  const resolvedDisplayCompanyName =
+    selectedCompany?.display_name ||
+    selectedCompany?.canonical_name ||
+    (selectedCompany as any)?.name ||
+    (initialCompanyId && companyId === initialCompanyId ? initialCompanyName : '') ||
+    '';
   const availableCompanyPhones = selectedCompany ? getCompanyPhones(selectedCompany) : [];
   const availableCompanyEmails = selectedCompany ? getCompanyEmails(selectedCompany) : [];
 
@@ -580,21 +591,40 @@ export default function ContactModal({
           <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
             {/* Company Selection */}
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                Associated Company
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Associated Company
+                </label>
+                {isCompanyLocked && (
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                    Locked to Context
+                  </span>
+                )}
+              </div>
               <div className="relative">
                 <select
                   value={companyId}
+                  disabled={isCompanyLocked}
                   onChange={(e) => setCompanyId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800/60 disabled:cursor-not-allowed disabled:text-slate-600 dark:disabled:text-slate-400"
                 >
-                  <option value="">(Unassigned / Independent Contact)</option>
+                  {!companyId && !initialCompanyId && (
+                    <option value="">(Unassigned / Independent Contact)</option>
+                  )}
+                  {/* If companyId is supplied but not present in companies array, show a dedicated option for it */}
+                  {companyId && !companies.some((comp) => comp.id === companyId) && (
+                    <option value={companyId}>
+                      {resolvedDisplayCompanyName || 'Associated Company'}
+                    </option>
+                  )}
                   {companies.map((comp) => (
                     <option key={comp.id} value={comp.id}>
-                      {comp.display_name} ({comp.city}, {comp.country})
+                      {comp.display_name || comp.canonical_name || (comp as any).name} {comp.city ? `(${comp.city}${comp.country ? `, ${comp.country}` : ''})` : ''}
                     </option>
                   ))}
+                  {!isCompanyLocked && companyId && (
+                    <option value="">(Unassigned / Independent Contact)</option>
+                  )}
                 </select>
               </div>
             </div>

@@ -1198,6 +1198,14 @@ export default function LiveExecutionModal({
   };
 
   const companyName = currentTask?.company_name || currentTask?.unlinked_name || linkedCompany?.display_name || 'No Company Account';
+  const activeCompanyId = currentTask?.company_id || (currentTask as any)?.companyId || linkedCompany?.id || '';
+  const activeCompanyName =
+    currentTask?.company_name ||
+    (currentTask as any)?.companyName ||
+    linkedCompany?.display_name ||
+    linkedCompany?.name ||
+    (companyName !== 'No Company Account' ? companyName : '') ||
+    '';
   const displayContactName =
     activeContactName ||
     (currentTask?.contact_name && currentTask.contact_name !== 'No Contact Person' ? currentTask.contact_name : '') ||
@@ -2321,7 +2329,7 @@ export default function LiveExecutionModal({
                                 displayContactName !== 'No contacts available' &&
                                 activeTarget !== 'mainline' &&
                                 !allSelectableContacts.some((c) => c.id === (activeContactId || targetContact?.id)) && (
-                                  <option value="__current__">
+                                  <option value={activeContactId || targetContact?.id || '__current__'}>
                                     {displayContactName} {contactDesignation ? `(${contactDesignation})` : ''}
                                   </option>
                                 )}
@@ -4068,17 +4076,17 @@ export default function LiveExecutionModal({
         <ContactModal
           isOpen={isContactModalOpen}
           onClose={() => setIsContactModalOpen(false)}
-          companyId={currentTask.company_id}
+          companyId={activeCompanyId || undefined}
+          companyName={activeCompanyName || undefined}
+          lockCompany={Boolean(activeCompanyId)}
           companies={companies}
-          activeWorkspaceId={currentTask.workspace_id || 'ws_default'}
+          activeWorkspaceId={currentTask?.workspace_id || (currentTask as any)?.workspaceId || 'ws_default'}
           user={user || { uid: 'system_op', email: 'operator@crm.local', name: 'Operator' }}
           setContacts={setContacts}
           setCompanies={setCompanies}
           setCallLogs={setCallLogs}
           onSaved={(savedContact: Contact) => {
             if (savedContact) {
-              setActiveContactId(savedContact.id || '');
-              setActiveContactName(savedContact.full_name || '');
               const phones = getContactPhones(savedContact);
               const primaryPhone =
                 phones[0]?.value ||
@@ -4086,11 +4094,44 @@ export default function LiveExecutionModal({
                 savedContact.mobile ||
                 savedContact.landline ||
                 '';
-              setActiveContactPhone(primaryPhone);
               const emails = getContactEmails(savedContact);
               const primaryEmail = emails[0]?.value || savedContact.email || '';
+
+              // 1. Immediately update active contact state
+              setActiveContactId(savedContact.id || '');
+              setActiveContactName(savedContact.full_name || '');
+              setActiveContactPhone(primaryPhone);
               setActiveContactEmail(primaryEmail);
+
+              // 2. Immediately switch active target header to this new contact
               setActiveTargetOverride('contact');
+
+              // 3. Update current task state to point to new contact
+              setCurrentTask((prev: any) =>
+                prev
+                  ? {
+                      ...prev,
+                      contact_id: savedContact.id || prev.contact_id,
+                      contactId: savedContact.id || prev.contactId,
+                      contact_name: savedContact.full_name || prev.contact_name,
+                      contactPerson: savedContact.full_name || prev.contactPerson,
+                      contactName: savedContact.full_name || prev.contactName,
+                      contact_phone: primaryPhone || prev.contact_phone,
+                      phone_number: primaryPhone || prev.phone_number,
+                      contact_email: primaryEmail || prev.contact_email
+                    }
+                  : prev
+              );
+
+              // 4. Update contacts collection state so downstream selectors immediately contain this contact
+              if (setContacts) {
+                setContacts((prev) => {
+                  if (prev.some((c) => c.id === savedContact.id)) {
+                    return prev.map((c) => (c.id === savedContact.id ? savedContact : c));
+                  }
+                  return [savedContact, ...prev];
+                });
+              }
             }
             setIsContactModalOpen(false);
           }}
