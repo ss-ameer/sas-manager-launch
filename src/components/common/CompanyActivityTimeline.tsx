@@ -88,7 +88,7 @@ export function formatTimelineDate(dateStr?: string): { relative: string; format
 
     let relative = '';
     if (diffMs < 0) {
-      relative = `Scheduled · ${month} ${day}`;
+      relative = `${month} ${day} · ${timeString}`;
     } else if (isToday) {
       relative = `Today · ${timeString}`;
     } else if (isYesterday) {
@@ -109,6 +109,57 @@ export function formatTimelineDate(dateStr?: string): { relative: string; format
     return { relative, formatted };
   } catch {
     return { relative: dateStr, formatted: dateStr };
+  }
+}
+
+/**
+ * Formats completion timestamp for completed activity card headers into:
+ * 'Completed · Today · 11:39 PM' or 'Completed · Sep 21 · 11:39 PM'
+ */
+export function formatCompletedTimestamp(dateStr?: string): { relative: string; formatted: string } {
+  if (!dateStr) return { relative: 'Completed', formatted: '—' };
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { relative: `Completed · ${dateStr}`, formatted: dateStr };
+
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    const isSameYear = d.getFullYear() === now.getFullYear();
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[d.getMonth()];
+    const day = d.getDate();
+    const year = d.getFullYear();
+
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const timeString = `${hours}:${minutes} ${ampm}`;
+
+    const formatted = `${month} ${day}, ${year} · ${timeString}`;
+
+    let relativeTime = '';
+    if (isToday) {
+      relativeTime = `Today · ${timeString}`;
+    } else if (isYesterday) {
+      relativeTime = `Yesterday · ${timeString}`;
+    } else if (isSameYear) {
+      relativeTime = `${month} ${day} · ${timeString}`;
+    } else {
+      relativeTime = `${month} ${day}, ${year} · ${timeString}`;
+    }
+
+    return {
+      relative: `Completed · ${relativeTime}`,
+      formatted,
+    };
+  } catch {
+    return { relative: 'Completed', formatted: dateStr || '—' };
   }
 }
 
@@ -164,7 +215,10 @@ export function getAgentInitials(name?: string): string {
 }
 
 /**
- * Evaluates whether an activity log is an active pending / scheduled task
+ * Evaluates whether an activity log is an active pending / scheduled task.
+ * Any activity with status in ['Scheduled', 'Planned', 'Draft'] MUST be pinned inside
+ * the dedicated 'UPCOMING / SCHEDULED TASKS' banner at the top of the history panel
+ * until completed/cancelled.
  */
 export function isScheduledTask(log: CallLogEntry): boolean {
   if (log.is_deleted) return false;
@@ -174,9 +228,13 @@ export function isScheduledTask(log: CallLogEntry): boolean {
   // Completed / cancelled / executed checks
   if (
     status === 'cancelled' ||
+    status === 'canceled' ||
     Boolean((log as any).cancellation_reason) ||
     status.includes('completed') ||
     status.includes('conducted') ||
+    status === 'sent' ||
+    status.includes('sent') ||
+    outcome.includes('completed') ||
     Boolean((log as any).completed_at) ||
     Boolean((log as any).completedAt) ||
     Boolean((log as any).executed_at)
@@ -184,18 +242,21 @@ export function isScheduledTask(log: CallLogEntry): boolean {
     return false;
   }
 
-  // Explicit scheduled task status
-  const isExplicitScheduled =
+  // Any activity with status in ['Scheduled', 'Planned', 'Draft']
+  const isScheduledStatus =
     status === 'scheduled' ||
-    status === 'scheduled / planned' ||
-    status === 'scheduled / draft' ||
+    status === 'planned' ||
+    status === 'draft' ||
+    status.includes('scheduled') ||
+    status.includes('planned') ||
+    status.includes('draft') ||
     status === 'rescheduled' ||
     status === 'pending';
 
   const hasScheduledDate = Boolean(log.next_followup_date || (log as any).scheduled_for);
   const isTaskFlag = Boolean((log as any).is_task);
 
-  return isExplicitScheduled || (hasScheduledDate && !outcome.includes('completed')) || isTaskFlag;
+  return isScheduledStatus || (hasScheduledDate && !outcome.includes('completed')) || isTaskFlag;
 }
 
 /**
@@ -717,7 +778,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                                 className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition cursor-pointer hover:shadow-sm shrink-0"
                                 title="Launch execution center for scheduled task"
                               >
-                                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
                                 <span>⚡ Execute</span>
                               </button>
                             </div>
@@ -832,7 +892,30 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               </div>
             ) : (
             filteredLogs.map((log) => {
-              const timeInfo = formatTimelineDate(log.date || (log as any).createdAt);
+              const statusLower = (log.status || '').toLowerCase().trim();
+              const outcomeLower = (log.outcome || '').toLowerCase().trim();
+              const isCompletedLog =
+                statusLower === 'completed' ||
+                statusLower.includes('completed') ||
+                statusLower === 'sent' ||
+                statusLower.includes('sent') ||
+                statusLower.includes('conducted') ||
+                outcomeLower.includes('completed') ||
+                Boolean((log as any).completed_at) ||
+                Boolean((log as any).completedAt) ||
+                Boolean((log as any).executed_at);
+
+              const completionTimestamp =
+                (log as any).completed_at ||
+                (log as any).completedAt ||
+                (log as any).executed_at ||
+                log.date ||
+                (log as any).createdAt;
+
+              const timeInfo = isCompletedLog
+                ? formatCompletedTimestamp(completionTimestamp)
+                : formatTimelineDate(log.date || (log as any).createdAt);
+
               const resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
               const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
               const isEmailChannel = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
@@ -859,7 +942,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const outcomeLabel = log.outcome || null;
               const badgeStyle = getStatusBadgeStyle(log.status, log.outcome);
 
-              const statusLower = (log.status || '').toLowerCase().trim();
               const isExecutableTask =
                 (statusLower === 'scheduled' ||
                  statusLower.includes('scheduled') ||
@@ -907,7 +989,11 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   {/* Top Bar: Relative Time, Formatted Date & Badges */}
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-400">
-                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      {isCompletedLog ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
                       <span className="text-xs font-bold text-slate-900 dark:text-white" title={timeInfo.formatted}>
                         {timeInfo.relative}
                       </span>
@@ -937,7 +1023,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                           className="px-2 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-[10px] font-bold shadow-2xs flex items-center space-x-1 transition cursor-pointer ml-1"
                           title="Launch execution center for scheduled task"
                         >
-                          <Zap className="w-2.5 h-2.5 text-amber-300 fill-amber-300" />
                           <span>⚡ Execute</span>
                         </button>
                       )}
@@ -1061,22 +1146,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                           <Calendar className="w-3 h-3 shrink-0" />
                           <span>Next: {formatCleanDate(log.next_followup_date)}</span>
                         </span>
-                      )}
-
-                      {canAccess && isExecutableTask && (
-                        <button
-                          type="button"
-                          id={`execute-history-task-${log.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleExecuteTask(log);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-[11px] font-bold shadow-2xs flex items-center space-x-1 transition cursor-pointer hover:shadow-xs"
-                          title="Launch execution center for scheduled task"
-                        >
-                          <Zap className="w-3 h-3 text-amber-300 fill-amber-300" />
-                          <span>⚡ Execute</span>
-                        </button>
                       )}
 
                       {canAccess ? (

@@ -2269,7 +2269,7 @@ export default function LiveExecutionModal({
                             title="The interaction log will be assigned to this contact profile"
                           >
                             <Target className="w-2.5 h-2.5" />
-                            <span>🎯 Active Target</span>
+                            <span>Active Target</span>
                           </span>
                         ) : (
                           <button
@@ -2743,7 +2743,7 @@ export default function LiveExecutionModal({
                             title="The interaction log will be assigned to Company Mainline"
                           >
                             <Target className="w-2.5 h-2.5" />
-                            <span>🎯 Active Target</span>
+                            <span>Active Target</span>
                           </span>
                         ) : (
                           <button
@@ -3856,10 +3856,10 @@ export default function LiveExecutionModal({
                     title="Cancel this scheduled task and remove it from the active queue"
                   >
                     <Ban className="w-3.5 h-3.5" />
-                    <span>✕ Cancel Task</span>
+                    <span>Cancel Task</span>
                   </button>
 
-                  {/* 📅 Reschedule */}
+                  {/* Reschedule */}
                   <button
                     type="button"
                     id="lifecycle-reschedule-task-btn"
@@ -3873,7 +3873,7 @@ export default function LiveExecutionModal({
                     title="Reschedule this task for another date or time"
                   >
                     <CalendarClock className="w-3.5 h-3.5" />
-                    <span>📅 Reschedule</span>
+                    <span>Reschedule</span>
                   </button>
 
                   {/* 💬 Immediate Pivot: Log Call & Open WhatsApp */}
@@ -3891,7 +3891,7 @@ export default function LiveExecutionModal({
                     </button>
                   )}
 
-                  {/* ✓ Complete Task */}
+                  {/* Complete Task */}
                   <button
                     type="button"
                     id="lifecycle-complete-task-btn"
@@ -3916,12 +3916,12 @@ export default function LiveExecutionModal({
                     ) : isCompletionMode ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>✓ Confirm & Complete</span>
+                        <span>Confirm & Complete</span>
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>✓ Complete Task</span>
+                        <span>Complete Task</span>
                       </>
                     )}
                   </button>
