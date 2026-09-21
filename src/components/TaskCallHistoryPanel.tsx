@@ -17,11 +17,12 @@ import {
   Calendar,
   Filter
 } from 'lucide-react';
-import { CallLogEntry, Contact } from '../types';
+import { CallLogEntry, Contact, Company, getCompanyPhones, isSamePhoneNumber } from '../types';
 
 export interface TaskCallHistoryPanelProps {
   companyName?: string;
   companyId?: string;
+  company?: Company;
   historyLogs: CallLogEntry[];
   isLoading?: boolean;
   isExpanded: boolean;
@@ -114,6 +115,7 @@ export function formatFollowupDate(dateStr?: string): string {
 export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
   companyName = 'Account',
   companyId,
+  company,
   historyLogs,
   isLoading = false,
   isExpanded,
@@ -323,6 +325,19 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
             const phoneTarget = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : (resolvedContact?.mobile || resolvedContact?.phone || '');
             const contactPersonName = log.contact_name || resolvedContact?.full_name;
 
+            const rawContact = (log.contact_name || (log as any).contactPerson || resolvedContact?.full_name || '').trim();
+            const isMainline = !rawContact ||
+              rawContact.toLowerCase() === 'no contact person' ||
+              rawContact.toLowerCase() === 'company mainline' ||
+              rawContact.toLowerCase() === 'mainline' ||
+              rawContact.toLowerCase() === 'unassigned';
+            const hasContact = Boolean(log.contact_id && resolvedContact) || (!isMainline && rawContact !== '');
+            const contactName = hasContact ? (!isMainline ? rawContact : (resolvedContact?.full_name || '')) : '';
+
+            const compPhones = company ? getCompanyPhones(company) : [];
+            const matchedPhone = compPhones.find((p) => (p.value && phoneTarget && isSamePhoneNumber(p.value, phoneTarget)) || p.value === phoneTarget || p.number === phoneTarget);
+            const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
+
             const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
             const statusLabel = log.status || 'Logged';
             const outcomeLabel = log.outcome || null;
@@ -379,11 +394,11 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
 
                 {/* Contact Spoken To / Mainline / Email Target */}
                 <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-300 text-[11px]">
-                  {contactPersonName ? (
+                  {hasContact ? (
                     <>
                       <User className="w-3 h-3 text-blue-500 shrink-0" />
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {contactPersonName}
+                        Contact: {contactName}
                       </span>
                       {isEmailChannel ? (
                         emailTarget && (
@@ -405,25 +420,25 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
                         </span>
                       )}
                     </>
-                  ) : isEmailChannel && emailTarget ? (
+                  ) : isEmailChannel ? (
                     <>
                       <Mail className="w-3 h-3 text-purple-500 shrink-0" />
                       <span className="font-mono text-purple-700 dark:text-purple-300 font-semibold truncate" title={emailTarget}>
-                        {emailTarget}
+                        {emailTarget ? `Mainline (Email: ${emailTarget})` : 'Email Outreach / Direct'}
                       </span>
                     </>
                   ) : phoneTarget ? (
                     <>
-                      <Phone className="w-3 h-3 text-blue-500 shrink-0" />
+                      <Building className="w-3 h-3 text-blue-500 shrink-0" />
                       <span className="font-mono text-slate-700 dark:text-slate-300 font-medium truncate">
-                        Contact ({phoneTarget})
+                        Mainline ({phoneLabel || 'Phone'}: {phoneTarget})
                       </span>
                     </>
                   ) : (
                     <>
                       <Building className="w-3 h-3 text-slate-400 shrink-0" />
                       <span className="text-slate-500 dark:text-slate-400 font-medium">
-                        {isEmailChannel ? 'Email Outreach / Direct' : 'Company Mainline / Direct'}
+                        Company Mainline / Direct
                       </span>
                     </>
                   )}

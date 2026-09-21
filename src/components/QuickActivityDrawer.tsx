@@ -503,7 +503,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [expressTemperature, setExpressTemperature] = useState<'Cold' | 'Warm' | 'Hot'>('Cold');
   const [primaryDialedPhoneId, setPrimaryDialedPhoneId] = useState<string>('');
   const [crmTargetType, setCrmTargetType] = useState<'contact' | 'company_mainline'>('contact');
-  const [mainlineTag, setMainlineTag] = useState<string>('Front Desk');
+  const [mainlineTag, setMainlineTag] = useState<string>('Main');
 
   const handleCycleTemperature = () => {
     setExpressTemperature((prev) => {
@@ -1374,7 +1374,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         if (lbl.includes('mobile') || lbl.includes('direct') || lbl.includes('personal')) {
           return;
         }
-        list.push({ number: p.number, label: p.label || 'Front Desk' });
+        list.push({ number: p.number, label: p.label || 'Main' });
       }
     });
     return list;
@@ -1809,7 +1809,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 }
                 const existingPhones = getCompanyPhones(targetComp);
                 if (!existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, phoneTrim))) {
-                  const tagLabel = mainlineTag.trim() || 'Front Desk';
+                  const tagLabel = mainlineTag.trim() || 'Main';
                   const newPhoneObj = {
                     id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
                     label: tagLabel,
@@ -1884,7 +1884,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 const phoneTrim = selectedContactPhone.trim();
                 const existingPhones = getCompanyPhones(targetComp);
                 if (!existingPhones.some((p) => isSamePhoneNumber(p.number || p.value, phoneTrim))) {
-                  const tagLabel = isAddingNewCompanyLine ? (mainlineTag.trim() || 'Front Desk') : 'Direct Line';
+                  const tagLabel = isAddingNewCompanyLine ? (mainlineTag.trim() || 'Main') : 'Direct Line';
                   const newPhoneObj = {
                     id: `phone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
                     label: tagLabel,
@@ -3417,10 +3417,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           const compPhones = getCompanyPhones(selComp);
                           if (compPhones.length > 0) {
                             setSelectedContactPhone(compPhones[0].number);
-                            setMainlineTag(compPhones[0].label || 'Front Desk');
+                            setMainlineTag(compPhones[0].label || 'Main');
                           } else if (selComp.general_phone) {
                             setSelectedContactPhone(selComp.general_phone);
-                            setMainlineTag('Front Desk');
+                            setMainlineTag('Main');
                           }
                         }
                       }}
@@ -3656,7 +3656,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     type="text"
                                     value={mainlineTag}
                                     onChange={(e) => setMainlineTag(e.target.value)}
-                                    placeholder="Line tag (e.g. Front Desk, Switchboard, Reception)..."
+                                    placeholder="Line tag (e.g. Main, Front Desk, Switchboard, Reception)..."
                                     className="w-full rounded-lg bg-slate-950 border border-amber-500/50 px-3 py-2 text-xs text-amber-100 placeholder-slate-500 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
                                   />
                                 </div>
@@ -3675,13 +3675,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     if (val === 'ADD_NEW_LINE') {
                                       setIsAddingNewCompanyLine(true);
                                       setSelectedContactPhone('');
-                                      setMainlineTag('Front Desk');
+                                      setMainlineTag('Main');
                                     } else {
                                       setIsAddingNewCompanyLine(false);
                                       setSelectedContactPhone(val);
                                       const matched = companyMainlines.find((m) => m.number === val);
                                       if (matched) {
-                                        setMainlineTag(matched.label || 'Front Desk');
+                                        setMainlineTag(matched.label || 'Main');
                                       }
                                     }
                                   }}
@@ -3695,7 +3695,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     const badge = res === 'DNC' ? ' 🚫 [DNC]' : res === 'Invalid' ? ' ⚠️ [Invalid]' : res ? ` ⚠️ [${res}]` : '';
                                     return (
                                       <option key={`m_${idx}`} value={m.number}>
-                                        {m.number} — {m.label || 'Front Desk'}{badge}
+                                        {m.number} ({m.label || 'Main'}){badge}
                                       </option>
                                     );
                                   })}

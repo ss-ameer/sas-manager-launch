@@ -4022,6 +4022,7 @@ export default function LiveExecutionModal({
               <TaskCallHistoryPanel
                 companyName={companyName}
                 companyId={currentTask.company_id}
+                company={linkedCompany || undefined}
                 historyLogs={recentHistoryLogs}
                 isLoading={isLoadingHistory}
                 isExpanded={isHistoryExpanded}

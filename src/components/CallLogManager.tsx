@@ -3409,13 +3409,25 @@ export default function CallLogManager({
                           const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
                           const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
 
+                          const rawContact = (log.contact_name || (log as any).contactPerson || '').trim();
+                          const isMainline = !rawContact ||
+                            rawContact.toLowerCase() === 'no contact person' ||
+                            rawContact.toLowerCase() === 'company mainline' ||
+                            rawContact.toLowerCase() === 'mainline' ||
+                            rawContact.toLowerCase() === 'unassigned';
+
+                          const comp = log.company_id ? companyMap.get(log.company_id) : null;
+                          const compPhones = comp ? getCompanyPhones(comp) : [];
+                          const matchedPhone = compPhones.find((p) => (p.value && rawPhone && isSamePhoneNumber(p.value, rawPhone)) || p.value === rawPhone || p.number === rawPhone);
+                          const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
+
                           if (isEmail) {
                             return (
                               <span className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
                                 <Mail className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                                {log.contact_name ? (
+                                {!isMainline ? (
                                   <span>
-                                    {log.contact_name}{' '}
+                                    Contact: {rawContact}{' '}
                                     {rawEmail && (
                                       <span className="font-mono text-[11px] font-normal text-purple-600 dark:text-purple-400">
                                         ({rawEmail})
@@ -3424,7 +3436,21 @@ export default function CallLogManager({
                                   </span>
                                 ) : (
                                   <span className="font-mono text-[11px] font-medium text-purple-600 dark:text-purple-400">
-                                    {rawEmail || 'Email Outreach'}
+                                    {rawEmail ? `Mainline (Email: ${rawEmail})` : 'Email Outreach'}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          }
+
+                          if (!isMainline) {
+                            return (
+                              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 inline-flex items-center space-x-1">
+                                <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                <span>Contact: {rawContact}</span>
+                                {rawPhone && (
+                                  <span className={`font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                                    ({rawPhone})
                                   </span>
                                 )}
                               </span>
@@ -3432,12 +3458,14 @@ export default function CallLogManager({
                           }
 
                           return (
-                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                              {log.contact_name || 'Contact'}{' '}
-                              {rawPhone && (
-                                <span className={`font-mono text-[11px] font-normal text-slate-500 dark:text-slate-400 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
-                                  ({rawPhone})
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-300 inline-flex items-center space-x-1">
+                              <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              {rawPhone ? (
+                                <span className={`font-mono text-slate-700 dark:text-slate-300 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                                  Mainline ({phoneLabel || 'Phone'}: {rawPhone})
                                 </span>
+                              ) : (
+                                <span className="text-slate-500 dark:text-slate-400">Company Mainline</span>
                               )}
                             </span>
                           );
@@ -3733,12 +3761,24 @@ export default function CallLogManager({
                               const rawEmail = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '');
                               const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
 
+                              const rawContact = (log.contact_name || (log as any).contactPerson || '').trim();
+                              const isMainline = !rawContact ||
+                                rawContact.toLowerCase() === 'no contact person' ||
+                                rawContact.toLowerCase() === 'company mainline' ||
+                                rawContact.toLowerCase() === 'mainline' ||
+                                rawContact.toLowerCase() === 'unassigned';
+
+                              const comp = log.company_id ? companyMap.get(log.company_id) : null;
+                              const compPhones = comp ? getCompanyPhones(comp) : [];
+                              const matchedPhone = compPhones.find((p) => (p.value && rawPhone && isSamePhoneNumber(p.value, rawPhone)) || p.value === rawPhone || p.number === rawPhone);
+                              const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
+
                               if (isEmail) {
                                 return (
                                   <span className="inline-flex items-center space-x-1.5 text-xs text-slate-700 dark:text-slate-300">
                                     <Mail className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                    <span className="truncate max-w-[200px]" title={rawEmail || log.contact_name}>
-                                      {log.contact_name ? `${log.contact_name} ${rawEmail ? `(${rawEmail})` : ''}` : (rawEmail || '-')}
+                                    <span className="truncate max-w-[200px]" title={rawEmail || rawContact}>
+                                      {!isMainline ? `Contact: ${rawContact} ${rawEmail ? `(${rawEmail})` : ''}` : (rawEmail ? `Mainline (Email: ${rawEmail})` : 'Email Outreach')}
                                     </span>
                                   </span>
                                 );
@@ -3746,7 +3786,7 @@ export default function CallLogManager({
 
                               return (
                                 <span className="text-xs text-slate-700 dark:text-slate-300">
-                                  {log.contact_name ? `${log.contact_name} ${rawPhone ? `(${rawPhone})` : ''}` : (rawPhone || '-')}
+                                  {!isMainline ? `Contact: ${rawContact} ${rawPhone ? `(${rawPhone})` : ''}` : (rawPhone ? `Mainline (${phoneLabel || 'Phone'}: ${rawPhone})` : '-')}
                                 </span>
                               );
                             })()}
@@ -4182,10 +4222,10 @@ export default function CallLogManager({
                             type="button"
                             onClick={() => handlePhoneInputChange(p.number)}
                             className="text-[11px] px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono border border-blue-200 transition cursor-pointer flex items-center gap-1 font-bold"
-                            title={`Set phone number to ${p.label || 'Company Line'}: ${p.number}`}
+                            title={`Set phone number to ${p.number} (${p.label || 'Main'})`}
                           >
-                            <span className="opacity-70 font-normal">{p.label || 'Main'}:</span>
                             <span>{p.number}</span>
+                            <span className="opacity-70 font-normal">({p.label || 'Main'})</span>
                           </button>
                         ))}
                       </div>

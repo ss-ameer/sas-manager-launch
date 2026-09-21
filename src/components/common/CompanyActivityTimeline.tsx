@@ -21,7 +21,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
-import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace } from '../../types';
+import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace, getCompanyPhones, isSamePhoneNumber } from '../../types';
 import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry, canAccessActivityDetail } from '../../utils/permissions';
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
@@ -633,12 +633,24 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     const contactPhone = task.contact_phone && !task.contact_phone.includes('@')
                       ? task.contact_phone
                       : (resolvedContact?.mobile || resolvedContact?.phone || (task as any).phone_number || (task as any).phone || '');
-                    const contactDisplayName =
-                      task.contact_name ||
-                      resolvedContact?.full_name ||
-                      (task as any).target_contact_person ||
-                      (isEmailTask ? (taskEmail || 'Email Contact') : (contactPhone ? `Contact (${contactPhone})` : 'Primary Decision Maker'));
-                    const contactDesignation = resolvedContact?.designation || (task as any).contact_designation || '';
+                    const rawTaskContactName = (task.contact_name || resolvedContact?.full_name || (task as any).target_contact_person || (task as any).contactPerson || '').trim();
+                    const isTaskMainline = !rawTaskContactName ||
+                      rawTaskContactName.toLowerCase() === 'no contact person' ||
+                      rawTaskContactName.toLowerCase() === 'company mainline' ||
+                      rawTaskContactName.toLowerCase() === 'mainline' ||
+                      rawTaskContactName.toLowerCase() === 'unassigned';
+                    const hasTaskContact = Boolean(task.contact_id && resolvedContact) || (!isTaskMainline && rawTaskContactName !== '');
+                    const taskContactName = hasTaskContact ? (!isTaskMainline ? rawTaskContactName : (resolvedContact?.full_name || '')) : '';
+
+                    const taskTargetCompany = (task.company_id ? companies.find((c) => c.id === task.company_id) : null) || (companyId ? companies.find((c) => c.id === companyId) : null);
+                    const taskCompPhones = taskTargetCompany ? getCompanyPhones(taskTargetCompany) : [];
+                    const matchedTaskPhone = taskCompPhones.find((p) => (p.value && contactPhone && isSamePhoneNumber(p.value, contactPhone)) || p.value === contactPhone || p.number === contactPhone);
+                    const taskPhoneLabel = matchedTaskPhone?.label || (task as any).phone_label || (task as any).phoneLabel || 'Phone';
+
+                    const contactDisplayName = hasTaskContact
+                      ? `Contact: ${taskContactName}`
+                      : (contactPhone ? `Mainline (${taskPhoneLabel || 'Phone'}: ${contactPhone})` : (isEmailTask ? (taskEmail ? `Mainline (Email: ${taskEmail})` : 'Email Outreach') : 'Company Mainline'));
+                    const contactDesignation = hasTaskContact ? (resolvedContact?.designation || (task as any).contact_designation || '') : '';
                     const intentText =
                       task.followup_intent ||
                       task.requirement_notes ||
@@ -723,9 +735,11 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
                               isEmailTask
                                 ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
-                                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                : hasTaskContact
+                                ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                             }`}>
-                              {isEmailTask ? <Mail className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                              {isEmailTask ? <Mail className="w-3 h-3" /> : hasTaskContact ? <User className="w-3 h-3" /> : <Building className="w-3 h-3" />}
                             </div>
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
@@ -736,19 +750,21 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                                   </span>
                                 )}
                               </div>
-                              {isEmailTask ? (
-                                taskEmail && (
-                                  <div className="text-[11px] font-mono font-medium text-purple-600 dark:text-purple-400 flex items-center space-x-1">
-                                    <Mail className="w-2.5 h-2.5" />
-                                    <span>{taskEmail}</span>
-                                  </div>
-                                )
-                              ) : (
-                                contactPhone && (
-                                  <div className="text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400 flex items-center space-x-1">
-                                    <Phone className="w-2.5 h-2.5" />
-                                    <span>{contactPhone}</span>
-                                  </div>
+                              {hasTaskContact && (
+                                isEmailTask ? (
+                                  taskEmail && (
+                                    <div className="text-[11px] font-mono font-medium text-purple-600 dark:text-purple-400 flex items-center space-x-1">
+                                      <Mail className="w-2.5 h-2.5" />
+                                      <span>{taskEmail}</span>
+                                    </div>
+                                  )
+                                ) : (
+                                  contactPhone && (
+                                    <div className="text-[11px] font-mono font-medium text-blue-600 dark:text-blue-400 flex items-center space-x-1">
+                                      <Phone className="w-2.5 h-2.5" />
+                                      <span>({contactPhone})</span>
+                                    </div>
+                                  )
                                 )
                               )}
                             </div>
@@ -823,6 +839,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const emailTarget = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '') || resolvedContact?.email || '';
               const phoneTarget = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : (resolvedContact?.mobile || resolvedContact?.phone || '');
               const contactPersonName = log.contact_name || resolvedContact?.full_name;
+
+              const rawContact = (log.contact_name || (log as any).contactPerson || resolvedContact?.full_name || '').trim();
+              const isMainline = !rawContact ||
+                rawContact.toLowerCase() === 'no contact person' ||
+                rawContact.toLowerCase() === 'company mainline' ||
+                rawContact.toLowerCase() === 'mainline' ||
+                rawContact.toLowerCase() === 'unassigned';
+              const hasContact = Boolean(log.contact_id && resolvedContact) || (!isMainline && rawContact !== '');
+              const contactName = hasContact ? (!isMainline ? rawContact : (resolvedContact?.full_name || '')) : '';
+
+              const targetCompany = (log.company_id ? companies.find((c) => c.id === log.company_id) : null) || (companyId ? companies.find((c) => c.id === companyId) : null);
+              const compPhones = targetCompany ? getCompanyPhones(targetCompany) : [];
+              const matchedPhone = compPhones.find((p) => (p.value && phoneTarget && isSamePhoneNumber(p.value, phoneTarget)) || p.value === phoneTarget || p.number === phoneTarget);
+              const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
 
               const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
               const statusLabel = log.status || 'Logged';
@@ -938,11 +968,11 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   {/* Contact Spoken To & Purpose */}
                   <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                     <div className="flex items-center space-x-1.5 min-w-0">
-                      {contactPersonName ? (
+                      {hasContact ? (
                         <>
                           <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                            {contactPersonName}
+                            Contact: {contactName}
                           </span>
                           {isEmailChannel ? (
                             emailTarget && (
@@ -964,25 +994,25 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                             </span>
                           )}
                         </>
-                      ) : isEmailChannel && emailTarget ? (
+                      ) : isEmailChannel ? (
                         <>
                           <Mail className="w-3.5 h-3.5 text-purple-500 shrink-0" />
                           <span className="font-mono text-purple-700 dark:text-purple-300 font-semibold truncate" title={emailTarget}>
-                            {emailTarget}
+                            {emailTarget ? `Mainline (Email: ${emailTarget})` : 'Email Outreach / Direct'}
                           </span>
                         </>
                       ) : phoneTarget ? (
                         <>
-                          <Phone className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <Building className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span className="font-mono text-slate-700 dark:text-slate-300 font-medium truncate">
-                            Contact ({phoneTarget})
+                            Mainline ({phoneLabel || 'Phone'}: {phoneTarget})
                           </span>
                         </>
                       ) : (
                         <>
                           <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="text-slate-500 dark:text-slate-400 font-medium">
-                            {isEmailChannel ? 'Email Outreach / Direct' : 'Company Mainline / Direct'}
+                            Company Mainline / Direct
                           </span>
                         </>
                       )}
