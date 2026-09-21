@@ -822,19 +822,61 @@ export default function LiveExecutionModal({
         setActivePreset('tomorrow');
       }
 
-      // Initialize contact details
-      setActiveContactId(currentTask.contact_id || '');
-      setActiveContactName(currentTask.contact_name || '');
-      setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
-      setActiveContactEmail(
-        (currentTask as any)?.contact_email ||
-        (currentTask as any)?.target_email ||
-        currentTask?.email_address ||
-        currentTask?.email ||
-        ''
-      );
+      // Initialize contact details with robust auto-binding
+      const explicitContactId = currentTask.contact_id || (currentTask as any).contactId || (currentTask as any).contact_person_id || '';
+      const explicitContactName = (currentTask.contact_name || (currentTask as any).contactPerson || (currentTask as any).contact_person || (currentTask as any).contactName || '').trim();
+
+      const compId = currentTask.company_id || (currentTask as any).companyId || '';
+      const compName = (currentTask.company_name || (currentTask as any).companyName || '').trim().toLowerCase();
+
+      // Find available contacts for this company
+      const availableCompContacts = (contacts || []).filter((c) => {
+        if (c.is_deleted) return false;
+        if (compId && (c.company_id === compId || (c as any).companyId === compId)) return true;
+        if (compName && (c as any).company_name && (c as any).company_name.trim().toLowerCase() === compName) return true;
+        return false;
+      });
+
+      let matchedContact: Contact | null = null;
+      if (explicitContactId) {
+        matchedContact = (contacts || []).find((c) => c.id === explicitContactId) || null;
+      }
+      if (!matchedContact && explicitContactName && explicitContactName.toLowerCase() !== 'no contact person' && explicitContactName.toLowerCase() !== 'company mainline' && explicitContactName.toLowerCase() !== 'unassigned') {
+        matchedContact = availableCompContacts.find((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === explicitContactName.toLowerCase()) ||
+          (contacts || []).find((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === explicitContactName.toLowerCase()) || null;
+      }
+      // If task has no explicit contact attached but the company has contacts, auto-select first primary contact immediately on mount
+      if (!matchedContact && availableCompContacts.length > 0) {
+        const primary = availableCompContacts.find((c) => c.is_primary || (c as any).isPrimary) || availableCompContacts[0];
+        matchedContact = primary || null;
+      }
+
+      if (matchedContact) {
+        setActiveContactId(matchedContact.id || '');
+        setActiveContactName(matchedContact.full_name || '');
+        const phones = getContactPhones(matchedContact);
+        const contactPrimaryPhone = phones[0]?.value || matchedContact.mobile || matchedContact.phone || matchedContact.landline || '';
+        const resolvedPhone = currentTask.contact_phone || currentTask.phone_number || currentTask.phone || contactPrimaryPhone || '';
+        setActiveContactPhone(resolvedPhone);
+        const emails = getContactEmails(matchedContact);
+        const contactPrimaryEmail = emails[0]?.value || matchedContact.email || '';
+        const resolvedEmail = (currentTask as any)?.contact_email || (currentTask as any)?.target_email || currentTask?.email_address || currentTask?.email || contactPrimaryEmail || '';
+        setActiveContactEmail(resolvedEmail);
+        setActiveTargetOverride('contact');
+      } else {
+        setActiveContactId(explicitContactId || '');
+        setActiveContactName(explicitContactName || '');
+        setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
+        setActiveContactEmail(
+          (currentTask as any)?.contact_email ||
+          (currentTask as any)?.target_email ||
+          currentTask?.email_address ||
+          currentTask?.email ||
+          ''
+        );
+        setActiveTargetOverride(null);
+      }
       setCopiedEmail(false);
-      setActiveTargetOverride(null);
       setIsLinkedEnquiryExpanded(false);
 
       // Reset Task Lifecycle Action panels and inputs
@@ -858,7 +900,7 @@ export default function LiveExecutionModal({
         }
       }, 150);
     }
-  }, [currentTask, isOpen, callStatuses]);
+  }, [currentTask, isOpen, callStatuses, contacts, companies]);
 
   // Update outcomes when status changes
   useEffect(() => {
@@ -969,6 +1011,59 @@ export default function LiveExecutionModal({
     return companies.find((c) => c.id === currentTask.company_id) || null;
   }, [currentTask, companies]);
 
+  // Auto-bind contact if modal is open with active task and contacts arrive asynchronously
+  useEffect(() => {
+    if (!isOpen || !currentTask) return;
+    if (activeContactId) return; // already bound
+    if (activeTargetOverride === 'mainline') return; // user explicitly picked mainline
+
+    const compId = currentTask.company_id || (currentTask as any).companyId || linkedCompany?.id;
+    const compName = (currentTask.company_name || (currentTask as any).companyName || linkedCompany?.display_name || '').trim().toLowerCase();
+
+    const availableCompContacts = (contacts || []).filter((c) => {
+      if (c.is_deleted) return false;
+      if (compId && (c.company_id === compId || (c as any).companyId === compId)) return true;
+      if (compName && (c as any).company_name && (c as any).company_name.trim().toLowerCase() === compName) return true;
+      return false;
+    });
+
+    if (availableCompContacts.length === 0) return;
+
+    // Check if task has an explicit contact id or name
+    const explicitContactId = currentTask.contact_id || (currentTask as any).contactId;
+    const explicitContactName = (currentTask.contact_name || (currentTask as any).contactPerson || (currentTask as any).contact_person || (currentTask as any).contactName || '').trim();
+
+    let matched: Contact | null = null;
+    if (explicitContactId) {
+      matched = (contacts || []).find((c) => c.id === explicitContactId) || null;
+    }
+    if (!matched && explicitContactName && explicitContactName.toLowerCase() !== 'no contact person' && explicitContactName.toLowerCase() !== 'company mainline' && explicitContactName.toLowerCase() !== 'unassigned') {
+      matched = availableCompContacts.find((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === explicitContactName.toLowerCase()) ||
+        (contacts || []).find((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === explicitContactName.toLowerCase()) || null;
+    }
+    if (!matched && availableCompContacts.length > 0) {
+      matched = availableCompContacts.find((c) => c.is_primary || (c as any).isPrimary) || availableCompContacts[0];
+    }
+
+    if (matched) {
+      setActiveContactId(matched.id || '');
+      setActiveContactName(matched.full_name || '');
+      const phones = getContactPhones(matched);
+      const contactPrimaryPhone = phones[0]?.value || matched.mobile || matched.phone || matched.landline || '';
+      if (!activeContactPhone) {
+        const resolvedPhone = currentTask.contact_phone || currentTask.phone_number || currentTask.phone || contactPrimaryPhone || '';
+        setActiveContactPhone(resolvedPhone);
+      }
+      const emails = getContactEmails(matched);
+      const contactPrimaryEmail = emails[0]?.value || matched.email || '';
+      if (!activeContactEmail) {
+        const resolvedEmail = (currentTask as any)?.contact_email || (currentTask as any)?.target_email || currentTask?.email_address || currentTask?.email || contactPrimaryEmail || '';
+        setActiveContactEmail(resolvedEmail);
+      }
+      setActiveTargetOverride('contact');
+    }
+  }, [isOpen, currentTask, contacts, linkedCompany, activeContactId, activeTargetOverride, activeContactPhone, activeContactEmail]);
+
   // Company Mainline Phone resolution
   const companyMainPhone = useMemo(() => {
     if (!linkedCompany) return currentTask?.company_phone || '';
@@ -991,12 +1086,17 @@ export default function LiveExecutionModal({
 
   // Target Contact Person resolution
   const targetContact = useMemo(() => {
-    const cId = activeContactId || currentTask?.contact_id;
+    const cId = activeContactId || currentTask?.contact_id || (currentTask as any)?.contactId;
     if (cId && contacts) {
-      return contacts.find((c) => c.id === cId) || null;
+      const found = contacts.find((c) => c.id === cId);
+      if (found) return found;
+    }
+    const cName = (activeContactName || currentTask?.contact_name || (currentTask as any)?.contactPerson || '').trim().toLowerCase();
+    if (cName && cName !== 'no contact person' && cName !== 'company mainline' && contacts) {
+      return contacts.find((c) => (c.full_name || '').trim().toLowerCase() === cName) || null;
     }
     return null;
-  }, [activeContactId, currentTask, contacts]);
+  }, [activeContactId, activeContactName, currentTask, contacts]);
 
   const contactDesignation =
     targetContact?.designation ||
@@ -1098,7 +1198,12 @@ export default function LiveExecutionModal({
   };
 
   const companyName = currentTask?.company_name || currentTask?.unlinked_name || linkedCompany?.display_name || 'No Company Account';
-  const displayContactName = activeContactName || currentTask?.contact_name || targetContact?.full_name || 'No Contact Person';
+  const displayContactName =
+    activeContactName ||
+    (currentTask?.contact_name && currentTask.contact_name !== 'No Contact Person' ? currentTask.contact_name : '') ||
+    ((currentTask as any)?.contactPerson && (currentTask as any).contactPerson !== 'No Contact Person' ? (currentTask as any).contactPerson : '') ||
+    targetContact?.full_name ||
+    (allSelectableContacts.length === 0 ? 'No contacts available' : 'No Contact Person');
   const originalAgenda = currentTask?.followup_intent || currentTask?.requirement_notes || currentTask?.notes || '';
 
   // Active Target Auto-Detection based on task payload
@@ -2198,30 +2303,39 @@ export default function LiveExecutionModal({
                           value={
                             activeTarget === 'mainline'
                               ? '__mainline__'
-                              : (activeContactId || targetContact?.id || (displayContactName && displayContactName !== 'No Contact Person' ? '__current__' : ''))
+                              : (activeContactId || targetContact?.id || (displayContactName && displayContactName !== 'No Contact Person' && displayContactName !== 'No contacts available' ? '__current__' : ''))
                           }
                           onChange={(e) => handleSelectContactOption(e.target.value)}
                           className="w-full text-xs font-semibold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-lg pl-2.5 pr-8 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer appearance-none truncate"
                           title="Select Target Contact Person"
                         >
-                          {/* If current contact is not in allSelectableContacts list */}
-                          {displayContactName &&
-                            displayContactName !== 'No Contact Person' &&
-                            activeTarget !== 'mainline' &&
-                            !allSelectableContacts.some((c) => c.id === (activeContactId || targetContact?.id)) && (
-                              <option value="__current__">
-                                {displayContactName} {contactDesignation ? `(${contactDesignation})` : ''}
-                              </option>
-                            )}
+                          {allSelectableContacts.length === 0 ? (
+                            <option value="" disabled>
+                              No contacts available
+                            </option>
+                          ) : (
+                            <>
+                              {/* If current contact is not in allSelectableContacts list */}
+                              {displayContactName &&
+                                displayContactName !== 'No Contact Person' &&
+                                displayContactName !== 'No contacts available' &&
+                                activeTarget !== 'mainline' &&
+                                !allSelectableContacts.some((c) => c.id === (activeContactId || targetContact?.id)) && (
+                                  <option value="__current__">
+                                    {displayContactName} {contactDesignation ? `(${contactDesignation})` : ''}
+                                  </option>
+                                )}
 
-                          {allSelectableContacts.map((c) => {
-                            const desig = c.designation || (c as any).role;
-                            return (
-                              <option key={c.id} value={c.id}>
-                                {c.full_name}{desig ? ` (${desig})` : ''}
-                              </option>
-                            );
-                          })}
+                              {allSelectableContacts.map((c) => {
+                                const desig = c.designation || (c as any).role;
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {c.full_name}{desig ? ` (${desig})` : ''}
+                                  </option>
+                                );
+                              })}
+                            </>
+                          )}
 
                           {/* Fallback option for Company Mainline / Switchboard */}
                           <option value="__mainline__">
@@ -2233,16 +2347,31 @@ export default function LiveExecutionModal({
                     </div>
 
                     <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
-                      {activeTarget === 'mainline' ? 'Company Mainline / Switchboard' : displayContactName}
+                      {activeTarget === 'mainline'
+                        ? 'Company Mainline / Switchboard'
+                        : (allSelectableContacts.length === 0 && (!displayContactName || displayContactName === 'No Contact Person' || displayContactName === 'No contacts available'))
+                        ? 'No contacts available'
+                        : displayContactName}
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">
-                      {activeTarget === 'mainline' ? 'General Reception / Switchboard' : contactDesignation}
+                      {activeTarget === 'mainline'
+                        ? 'General Reception / Switchboard'
+                        : (allSelectableContacts.length === 0 && (!displayContactName || displayContactName === 'No Contact Person' || displayContactName === 'No contacts available'))
+                        ? 'Use Company Mainline or click + Add / Edit'
+                        : contactDesignation}
                     </div>
                     {activeTarget === 'contact' ? (
-                      <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
-                        <Check className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span>Logs interaction against this individual profile</span>
-                      </div>
+                      allSelectableContacts.length === 0 ? (
+                        <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                          <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                          <span>No contacts registered under this account</span>
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                          <Check className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                          <span>Logs interaction against this individual profile</span>
+                        </div>
+                      )
                     ) : (
                       <div className="mt-1 flex items-center space-x-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
                         <Check className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />

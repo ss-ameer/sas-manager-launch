@@ -74,6 +74,7 @@ interface Company360ModalProps {
     logToEdit?: any;
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
+  onExecuteTask?: (task: CallLogEntry) => void;
 }
 
 export default function Company360Modal({
@@ -97,7 +98,8 @@ export default function Company360Modal({
   onCreateEnquiryForCompany,
   onEditCompany,
   onOpenActivityDrawer,
-  onInitiateActivity
+  onInitiateActivity,
+  onExecuteTask
 }: Company360ModalProps) {
   const launcher = useActivityLauncher();
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
@@ -1063,6 +1065,15 @@ export default function Company360Modal({
               setCallLogs={setCallLogs}
               setCompanies={setCompanies}
               setContacts={setContacts}
+              onExecuteTask={onExecuteTask || ((task) => {
+                handleInitiate({
+                  mode: 'live_call',
+                  task,
+                  company: company,
+                  contact: companyContacts.find((c) => c.id === task.contact_id),
+                  source: 'company_360_timeline'
+                });
+              })}
               onSelectCallLog={(log) => {
                 if (onOpenActivityDrawer) {
                   onOpenActivityDrawer({

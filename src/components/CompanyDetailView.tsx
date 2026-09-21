@@ -102,6 +102,7 @@ export interface CompanyDetailViewProps {
   onOpenEditCompany?: (company: Company) => void;
   onSelectEnquiry?: (id: string) => void;
   onSelectCallLog?: (log: CallLogEntry) => void;
+  onExecuteTask?: (task: CallLogEntry) => void;
   onAddContact?: (companyId: string) => void;
   onEditContact?: (contact: Contact, companyId: string) => void;
   onDeleteContact?: (contactId: string) => void;
@@ -130,6 +131,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   onOpenEditCompany,
   onSelectEnquiry,
   onSelectCallLog,
+  onExecuteTask,
   onAddContact,
   onEditContact,
   onDeleteContact,
@@ -979,6 +981,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
                 salespersons={salespersons}
                 onClose={() => setIsHistoryOpen(false)}
                 onSelectCallLog={onSelectCallLog}
+                onExecuteTask={onExecuteTask || ((task) => triggerActivity({ mode: 'live_call', task, source: 'company_detail_timeline' }))}
                 onSelectEnquiry={onSelectEnquiry}
                 onOpenCompany360={onOpenCompany360 && company.id ? () => onOpenCompany360(company.id!) : undefined}
                 user={user}
