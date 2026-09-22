@@ -928,8 +928,6 @@ export default function LiveExecutionModal({
 
       if (isAsyncChannel && isSentStatus && callOutcome !== 'Message Sent / Awaiting Reply') {
         setCallOutcome('Message Sent / Awaiting Reply');
-      } else if (callOutcome && !isSuccessStatus(callStatus)) {
-        setCallOutcome('');
       }
     }
   }, [callStatus, callOutcome, isOpen, currentChannel]);
@@ -1635,21 +1633,11 @@ export default function LiveExecutionModal({
   };
 
   // Refined [✓ Complete Task] Action:
-  // 1st click: Pre-sets disposition to completed ("Connected / Completed"), focuses scratchpad with subtle indicator
-  // 2nd click: Commits completed status, archives task, and strictly advances queue
+  // 1st click: Focuses scratchpad with subtle indicator so operator can enter final details
+  // 2nd click: Commits status, archives task, and strictly advances queue
   const handleCompleteTaskClick = () => {
     if (!isCompletionMode) {
       setIsCompletionMode(true);
-
-      // Automatically set the disposition to completed/connected state for active channel
-      const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
-      const isAlreadyCompleted = activeDispObj && isSuccessStatus(activeDispObj.status);
-      if (!isAlreadyCompleted) {
-        const completedDisp = activeDispositions[0];
-        if (completedDisp) {
-          handleSelectDisposition(completedDisp);
-        }
-      }
 
       // Focus the Live Notes Scratchpad textarea so the user can quickly append final details
       safeSetTimeout(() => {
@@ -1699,9 +1687,12 @@ export default function LiveExecutionModal({
       const userUid = user?.uid || 'system_op';
       const userName = user?.full_name || user?.username || user?.email || 'Operator';
 
-      const updatedStatus: string = forceCompleted || ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus)
-        ? (isSuccessStatus(callStatus) ? callStatus : 'Completed / Connected')
-        : callStatus;
+      // Preserve the user's selected call disposition status (e.g. 'No Answer', 'Busy', 'Invalid Number')
+      // Only convert to 'Completed / Connected' if the status was still pending in a scheduled/draft state
+      const isScheduledStatus = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus);
+      const updatedStatus: string = isScheduledStatus
+        ? 'Completed / Connected'
+        : (callStatus || 'Completed / Connected');
       const finalNotes: string = notes.trim()
         ? currentTask.requirement_notes
           ? `${currentTask.requirement_notes}\n[Notes]: ${notes.trim()}`
@@ -1811,6 +1802,7 @@ export default function LiveExecutionModal({
         completed_at: nowIso,
         completedAt: nowIso,
         executed_at: nowIso,
+        is_task: false,
         enquiry_id: currentTask.enquiry_id || (currentTask as any)?.linked_enquiry_id || resolvedLinkedEnquiry?.id || undefined,
         enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
         ...(nextFollowUpDate ? { next_followup_date: nextFollowUpDate } : {})

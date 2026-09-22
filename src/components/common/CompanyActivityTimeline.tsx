@@ -472,30 +472,29 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     return <PhoneCall className="w-3 h-3 text-blue-500 shrink-0" />;
   };
 
-  const getStatusBadgeStyle = (status?: string, outcome?: string) => {
-    const combined = `${status || ''} ${outcome || ''}`.toLowerCase();
+  const getStatusBadgeStyle = (status?: string) => {
+    const s = (status || '').toLowerCase().trim();
     const isSuccess =
-      combined.includes('completed') ||
-      combined.includes('conducted') ||
-      combined.includes('sent') ||
-      combined.includes('interested') ||
-      combined.includes('positive') ||
-      combined.includes('qualified');
+      s.includes('completed') ||
+      s.includes('conducted') ||
+      s.includes('sent');
 
     const isFailed =
-      combined.includes('invalid') ||
-      combined.includes('cancelled') ||
-      combined.includes('wrong number') ||
-      combined.includes('not interested') ||
-      combined.includes('lost');
+      s.includes('invalid') ||
+      s.includes('cancelled') ||
+      s.includes('canceled') ||
+      s.includes('wrong number');
 
     const isPending =
-      combined.includes('no answer') ||
-      combined.includes('busy') ||
-      combined.includes('voicemail') ||
-      combined.includes('follow-up') ||
-      combined.includes('followup') ||
-      combined.includes('rescheduled');
+      s.includes('no answer') ||
+      s.includes('busy') ||
+      s.includes('voicemail') ||
+      s.includes('follow-up') ||
+      s.includes('followup') ||
+      s.includes('rescheduled') ||
+      s.includes('scheduled') ||
+      s.includes('planned') ||
+      s.includes('pending');
 
     if (isSuccess) {
       return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/80';
@@ -507,6 +506,39 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
       return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/80';
     }
     return 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700';
+  };
+
+  const getOutcomeBadgeStyle = (outcome?: string) => {
+    const o = (outcome || '').toLowerCase().trim();
+    const isPositive =
+      o.includes('meeting') ||
+      o.includes('quote') ||
+      o.includes('proposal') ||
+      o.includes('interested') ||
+      o.includes('won') ||
+      o.includes('closed') ||
+      o.includes('deal') ||
+      o.includes('positive') ||
+      o.includes('qualified');
+
+    const isNegative =
+      o.includes('ghosted') ||
+      o.includes('not interested') ||
+      o.includes('competitor') ||
+      o.includes('blocked') ||
+      o.includes('wrong person') ||
+      o.includes('unqualified') ||
+      o.includes('objection') ||
+      o.includes('dnc') ||
+      o.includes('lost');
+
+    if (isPositive) {
+      return 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60';
+    }
+    if (isNegative) {
+      return 'bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60';
+    }
+    return 'bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700';
   };
 
   return (
@@ -943,7 +975,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
               const statusLabel = log.status || 'Logged';
               const outcomeLabel = log.outcome || null;
-              const badgeStyle = getStatusBadgeStyle(log.status, log.outcome);
+              const badgeStyle = getStatusBadgeStyle(log.status);
 
               const isExecutableTask =
                 (statusLower === 'scheduled' ||
@@ -1045,13 +1077,17 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                         <span>{channelName}</span>
                       </span>
 
-                      {/* Status / Outcome Badge */}
+                      {/* Status Badge */}
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeStyle}`}>
                         {statusLabel}
-                        {outcomeLabel && outcomeLabel !== statusLabel && (
-                          <span className="ml-1 opacity-90 font-medium">({outcomeLabel})</span>
-                        )}
                       </span>
+
+                      {/* Independent Outcome Tag */}
+                      {outcomeLabel && outcomeLabel !== statusLabel && (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${getOutcomeBadgeStyle(outcomeLabel)}`}>
+                          {outcomeLabel}
+                        </span>
+                      )}
                     </div>
                   </div>
 
