@@ -384,13 +384,44 @@ export default function CallLogReportModal({
             .card-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
             .card-val { font-size: 18px; font-weight: 900; color: #0f172a; margin-top: 4px; }
             table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 11px; }
-            th { background: #0f172a; color: #ffffff; text-align: left; padding: 8px 10px; font-weight: 700; }
-            td { border-bottom: 1px solid #e2e8f0; padding: 8px 10px; color: #1e293b; }
+            th { background: #0f172a; color: #ffffff; text-align: left; padding: 6px 8px; font-weight: 700; vertical-align: top; }
+            td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; color: #1e293b; vertical-align: top; }
+            tr { min-height: 38px; }
             tr:nth-child(even) { background: #f8fafc; }
+            .notes-cell {
+              max-width: 220px;
+              vertical-align: top;
+              padding: 6px 8px;
+              display: -webkit-box;
+              -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              line-height: 1.35;
+              max-height: 2.7em;
+              word-break: break-word;
+            }
             .footer { margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 10px; color: #94a3b8; text-align: center; }
             @media print {
               body { padding: 0; }
               button { display: none; }
+              th, td {
+                padding: 6px 8px !important;
+                vertical-align: top !important;
+              }
+              .notes-cell {
+                display: -webkit-box !important;
+                -webkit-line-clamp: 2 !important;
+                -webkit-box-orient: vertical !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                line-height: 1.35 !important;
+                max-height: 2.7em !important;
+                word-break: break-word !important;
+              }
+              tr {
+                page-break-inside: avoid;
+              }
             }
           </style>
         </head>
@@ -442,20 +473,20 @@ export default function CallLogReportModal({
           <table>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Channel / Mode</th>
-                <th>Status</th>
-                <th>Outcome</th>
-                <th>Company</th>
-                <th>Contact / Details</th>
-                <th>Logged By</th>
-                <th>Notes</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Date</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Channel / Mode</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Status</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Outcome</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Company</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Contact / Details</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Logged By</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Notes</th>
               </tr>
             </thead>
             <tbody>
               ${
                 sortedFilteredLogs.length === 0
-                  ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8;">No records found for this period.</td></tr>`
+                  ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8; vertical-align: middle;">No records found for this period.</td></tr>`
                   : sortedFilteredLogs
                       .map((l) => {
                         const rawInt = (l.interaction_type as string) || '';
@@ -560,14 +591,14 @@ export default function CallLogReportModal({
 
                         return `
                 <tr>
-                  <td style="white-space:nowrap; font-weight:600;">${formatReportDate(l.date || l.createdAt)}</td>
-                  <td>${channelBadgeHtml}</td>
-                  <td>${statusBadgeHtml}</td>
-                  <td>${outcomeBadgeHtml}</td>
-                  <td><strong>${l.company_name || l.unlinked_name || 'Direct Client'}</strong></td>
-                  <td>${l.contact_name || '-'}${contactDetail ? `<br/><span style="color:#64748b;">${contactDetail}</span>` : ''}</td>
-                  <td>${loggedByFormatted}</td>
-                  <td style="max-width: 220px;">${l.requirement_notes || '-'}</td>
+                  <td style="white-space:nowrap; font-weight:600; vertical-align: top; padding: 6px 8px;">${formatReportDate(l.date || l.createdAt)}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${channelBadgeHtml}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${statusBadgeHtml}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${outcomeBadgeHtml}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;"><strong>${l.company_name || l.unlinked_name || 'Direct Client'}</strong></td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${l.contact_name || '-'}${contactDetail ? `<br/><span style="color:#64748b;">${contactDetail}</span>` : ''}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${loggedByFormatted}</td>
+                  <td class="notes-cell" style="vertical-align: top; padding: 6px 8px; max-width: 220px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; max-height: 2.7em; word-break: break-word;">${l.requirement_notes || '-'}</td>
                 </tr>
               `;
                       })
@@ -586,12 +617,12 @@ export default function CallLogReportModal({
           <table>
             <thead>
               <tr style="background:#b45309;">
-                <th>Due Date</th>
-                <th>Company</th>
-                <th>Contact</th>
-                <th>Phone</th>
-                <th>Agent</th>
-                <th>Next Step Notes</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Due Date</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Company</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Contact</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Phone</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Agent</th>
+                <th style="vertical-align: top; padding: 6px 8px;">Next Step Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -599,12 +630,12 @@ export default function CallLogReportModal({
                 .map(
                   (f) => `
                 <tr>
-                  <td style="font-weight:700; color:#b45309;">${formatReportDate(f.next_followup_date)}</td>
-                  <td><strong>${f.company_name || f.unlinked_name || 'Direct Client'}</strong></td>
-                  <td>${f.contact_name || '-'}</td>
-                  <td>${f.contact_phone || f.email_address || '-'}</td>
-                  <td>${normalizeAgentName(f.logged_by || (f as any).sales_person || (f as any).handled_by_team_member_name)}</td>
-                  <td>${f.requirement_notes || '-'}</td>
+                  <td style="font-weight:700; color:#b45309; vertical-align: top; padding: 6px 8px;">${formatReportDate(f.next_followup_date)}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;"><strong>${f.company_name || f.unlinked_name || 'Direct Client'}</strong></td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${f.contact_name || '-'}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${f.contact_phone || f.email_address || '-'}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${normalizeAgentName(f.logged_by || (f as any).sales_person || (f as any).handled_by_team_member_name)}</td>
+                  <td class="notes-cell" style="vertical-align: top; padding: 6px 8px; max-width: 220px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; max-height: 2.7em; word-break: break-word;">${f.requirement_notes || '-'}</td>
                 </tr>
               `
                 )
