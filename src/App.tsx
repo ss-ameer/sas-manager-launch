@@ -1405,7 +1405,7 @@ export default function App() {
   }
 
   // Calculate next S/N for registration
-  const nextSn = workspaceEnquiries.length > 0 ? Math.max(...workspaceEnquiries.map((e) => e.sn)) + 1 : 1001;
+  const nextSn = workspaceEnquiries.length > 0 ? workspaceEnquiries.reduce((max, e) => Math.max(max, e.sn || 0), 1000) + 1 : 1001;
 
   const selectedEnquiry = enquiries.find((e) => e.id === selectedEnquiryId);
 

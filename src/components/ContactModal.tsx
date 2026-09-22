@@ -341,7 +341,8 @@ export default function ContactModal({
 
     if (!activeWorkspaceId) {
       setIsSaving(false);
-      throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
+      alert("Active workspace context lost. Please select an active workspace before saving.");
+      return;
     }
 
     const payload: Omit<Contact, 'id'> = {

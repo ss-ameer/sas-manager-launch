@@ -735,6 +735,23 @@ export default function LiveExecutionModal({
 
   // Ref for notes textarea
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const timeoutsRef = useRef<Set<any>>(new Set());
+
+  const safeSetTimeout = (callback: () => void, ms: number) => {
+    const timer = setTimeout(() => {
+      timeoutsRef.current.delete(timer);
+      callback();
+    }, ms);
+    timeoutsRef.current.add(timer);
+    return timer;
+  };
+
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach((t) => clearTimeout(t));
+      timeoutsRef.current.clear();
+    };
+  }, []);
 
   // Modals integration state
   const [isContactModalOpen, setIsContactModalOpen] = useState<boolean>(false);
@@ -894,7 +911,7 @@ export default function LiveExecutionModal({
       setReschedulePreset('tomorrow');
 
       // Auto-focus notes textarea on lead load
-      setTimeout(() => {
+      safeSetTimeout(() => {
         if (notesTextareaRef.current) {
           notesTextareaRef.current.focus();
         }
@@ -1192,7 +1209,7 @@ export default function LiveExecutionModal({
     if (!emailToCopy) return;
     navigator.clipboard?.writeText(emailToCopy);
     setCopiedEmail(true);
-    setTimeout(() => {
+    safeSetTimeout(() => {
       setCopiedEmail(false);
     }, 2000);
   };
@@ -1401,9 +1418,6 @@ export default function LiveExecutionModal({
   // Contextual dispositions based on active interaction channel
   const activeDispositions = useMemo(() => getDispositionsForChannel(currentChannel), [currentChannel]);
 
-  // Safe Guard Return (Must be after all hooks!)
-  if (!isOpen || !currentTask) return null;
-
   const activeChannel = currentChannel;
   const chNorm = (activeChannel || '').trim().toLowerCase();
   const isEmailChannel = chNorm.includes('email');
@@ -1606,7 +1620,7 @@ export default function LiveExecutionModal({
       const newText = before + inserted + after;
       setNotes(newText);
       const newCursorPos = start + inserted.length;
-      setTimeout(() => {
+      safeSetTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
@@ -1638,7 +1652,7 @@ export default function LiveExecutionModal({
       }
 
       // Focus the Live Notes Scratchpad textarea so the user can quickly append final details
-      setTimeout(() => {
+      safeSetTimeout(() => {
         if (notesTextareaRef.current) {
           notesTextareaRef.current.focus();
           const len = notesTextareaRef.current.value.length;
@@ -1664,7 +1678,8 @@ export default function LiveExecutionModal({
     forceCompleted: boolean = false,
     pivotToWhatsApp: boolean = false
   ) => {
-    if (!currentTask || !currentTask.id || isSubmitting) return;
+    if (!currentTask || isSubmitting) return;
+    const taskId = currentTask.id || `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     // Explicitly guarantee no lingering drawer or reschedule state leaks into completion payload
     setActiveDrawer('none');
@@ -1779,6 +1794,7 @@ export default function LiveExecutionModal({
       // Step 1: Update the CURRENT task's database record
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
+        id: taskId,
         channel: currentChannel as ActivityChannel,
         contact_id: resolvedTargetContactId,
         contact_name: resolvedTargetContactName,

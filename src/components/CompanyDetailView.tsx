@@ -211,22 +211,22 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
       }));
 
     return [...direct, ...teamContacts];
-  }, [company, contacts, salespersons, activeWorkspace]);
+  }, [company?.id, company?.isInternalCompany, contacts, salespersons, activeWorkspace?.id]);
 
   // Linked call logs and enquiries
   const linkedCompanyLogs = useMemo(() => {
-    if (!company) return [];
+    if (!company?.id) return [];
     return callLogs
       .filter((l) => l.company_id === company.id)
       .sort((a, b) => new Date(b.date || (b as any).createdAt || 0).getTime() - new Date(a.date || (a as any).createdAt || 0).getTime());
-  }, [company, callLogs]);
+  }, [company?.id, callLogs]);
 
   const linkedCompanyEnquiries = useMemo(() => {
-    if (!company) return [];
+    if (!company?.id) return [];
     return enquiries
       .filter((e) => e.company_id === company.id)
       .sort((a, b) => new Date(b.created_at || (b as any).createdAt || 0).getTime() - new Date(a.created_at || (a as any).createdAt || 0).getTime());
-  }, [company, enquiries]);
+  }, [company?.id, enquiries]);
 
   // Combined count of activity logs and linked proposals/quotes
   const combinedHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;

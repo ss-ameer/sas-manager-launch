@@ -165,9 +165,8 @@ export default function Company360Modal({
     }
   };
 
-  if ((isOpen !== undefined && !isOpen) || !companyId || !company) return null;
-
   const companyContacts = useMemo(() => {
+    if (!company) return [];
     const direct = contacts.filter((c) => !c.is_deleted && c.company_id === company.id);
     if (!company.isInternalCompany || !salespersons || salespersons.length === 0) {
       return direct;
@@ -197,12 +196,20 @@ export default function Company360Modal({
       } as Contact));
 
     return [...direct, ...teamContacts];
-  }, [contacts, company.id, company.isInternalCompany, salespersons, activeWorkspace?.id]);
+  }, [contacts, company?.id, company?.isInternalCompany, salespersons, activeWorkspace?.id]);
 
-  const companyCallLogs = callLogs.filter(
-    (l) => !l.is_deleted && (l.company_id === company.id || (l.company_name && l.company_name.toLowerCase() === company.display_name.toLowerCase()))
-  );
-  const companyEnquiries = enquiries.filter((e) => !e.is_deleted && e.company_id === company.id);
+  const companyCallLogs = useMemo(() => {
+    if (!company) return [];
+    const compDisplayName = (company.display_name || '').toLowerCase();
+    return callLogs.filter(
+      (l) => !l.is_deleted && (l.company_id === company.id || (l.company_name && l.company_name.toLowerCase() === compDisplayName))
+    );
+  }, [callLogs, company?.id, company?.display_name]);
+
+  const companyEnquiries = useMemo(() => {
+    if (!company) return [];
+    return enquiries.filter((e) => !e.is_deleted && e.company_id === company.id);
+  }, [enquiries, company?.id]);
 
   const handleOutboundInteraction = (
     e: React.MouseEvent,
@@ -212,6 +219,7 @@ export default function Company360Modal({
     contactPhone?: string,
     contactEmail?: string
   ) => {
+    if (!company) return;
     const p = contactPhone || (contact ? (getContactPhones(contact)[0]?.value || contact.mobile || contact.phone || '') : '');
     const em = contactEmail || (contact ? (getContactEmails(contact)[0]?.value || contact.email || '') : '');
     const ctName = contact ? (contact.full_name || (contact as any).name || '') : undefined;
@@ -241,9 +249,10 @@ export default function Company360Modal({
     });
   };
 
-  const relationshipVal = company.relationship || 'Prospect';
+  const relationshipVal = company?.relationship || 'Prospect';
 
   const handleCycleTemperature = async () => {
+    if (!company) return;
     const nextTemp: 'Cold' | 'Warm' | 'Hot' | 'DNC' =
       temperatureVal === 'Cold' ? 'Warm' :
       temperatureVal === 'Warm' ? 'Hot' :
@@ -262,8 +271,8 @@ export default function Company360Modal({
     }
   };
 
-  const compPhones = getCompanyPhones(company);
-  const compEmails = getCompanyEmails(company);
+  const compPhones = company ? getCompanyPhones(company) : [];
+  const compEmails = company ? getCompanyEmails(company) : [];
 
   // Executive Commercial KPIs
   // Partition enquiries into authorized vs restricted context-only
@@ -362,6 +371,8 @@ export default function Company360Modal({
       latest
     };
   }, [companyCallLogs]);
+
+  if ((isOpen !== undefined && !isOpen) || !companyId || !company) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden animate-fade-in">
