@@ -53,6 +53,7 @@ export interface CompanyActivityTimelineProps {
   isBasicTier?: boolean;
   className?: string;
   showHeader?: boolean;
+  compact?: boolean;
 }
 
 /**
@@ -354,7 +355,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   activeWorkspace,
   isBasicTier = false,
   className = '',
-  showHeader = true
+  showHeader = true,
+  compact = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
@@ -545,7 +547,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     <div className={`flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/90 text-slate-900 dark:text-slate-100 overflow-hidden ${className}`}>
       {/* Header bar */}
       {showHeader && (
-        <div className="shrink-0 p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs space-y-3">
+        <div className={`shrink-0 ${compact ? 'p-2.5 sm:p-3 space-y-2' : 'p-3.5 sm:p-4 space-y-3'} border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs`}>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center space-x-2 min-w-0">
               <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800/80 shrink-0">
@@ -696,7 +698,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
       )}
 
       {/* Main Timeline Feed */}
-      <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
+      <div className={`flex-1 overflow-y-auto ${compact ? 'p-2.5 sm:p-3 space-y-2' : 'p-3.5 sm:p-4 space-y-3'}`}>
         {isLoading ? (
           <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
             <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -763,7 +765,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       <div
                         key={task.id}
                         id={`queued-task-${task.id}`}
-                        className={`p-3.5 sm:p-4 rounded-xl border transition-all shadow-xs ${
+                        className={`${compact ? 'p-2.5 sm:p-3' : 'p-3.5 sm:p-4'} rounded-xl border transition-all shadow-xs ${
                           dueInfo.isOverdue
                             ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-400 dark:border-rose-800/80 ring-1 ring-rose-200 dark:ring-rose-900/40'
                             : 'bg-gradient-to-br from-amber-50/70 via-white to-amber-50/40 dark:from-amber-950/25 dark:via-slate-900 dark:to-slate-900 border-amber-400 dark:border-amber-600/70'
@@ -1011,7 +1013,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       if (onInspectCallLog) onInspectCallLog(log);
                     }
                   }}
-                  className={`group relative p-3.5 rounded-xl border transition-all duration-150 space-y-2.5 ${
+                  className={`group relative ${compact ? 'p-2.5 space-y-2' : 'p-3.5 space-y-2.5'} rounded-xl border transition-all duration-150 ${
                     canAccess
                       ? 'bg-white dark:bg-slate-800/90 border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500/80 cursor-pointer'
                       : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 shadow-2xs cursor-default select-none'
@@ -1239,7 +1241,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                         onSelectEnquiry(e.id);
                       }
                     }}
-                    className="p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-sm transition space-y-2 text-xs cursor-pointer hover:border-purple-400 dark:hover:border-purple-500/80 group"
+                    className={`${compact ? 'p-2.5 space-y-1.5' : 'p-3.5 space-y-2'} rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-sm transition text-xs cursor-pointer hover:border-purple-400 dark:hover:border-purple-500/80 group`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center space-x-2 min-w-0">

@@ -75,7 +75,7 @@ import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
 import CallLogDetailModal from './CallLogDetailModal';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import TaskCallHistoryPanel from './TaskCallHistoryPanel';
+import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
 import { IndustryBadge } from '../utils/taxonomy';
 import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 
@@ -1552,6 +1552,27 @@ export default function LiveExecutionModal({
       setFollowUpIntent('');
     } else if (disp.defaultPreset) {
       applyFollowUpPreset(disp.defaultPreset, disp.defaultIntent);
+    }
+  };
+
+  // 1-Click "Call Dropped" Quick Action Handler:
+  // Sets outcome to 'Call Dropped / Disconnected', status to 'Follow-Up Required', presets a 15-min retry, and adds note if empty
+  const handleCallDropped = () => {
+    setCallOutcome('Call Dropped / Disconnected');
+    setCallStatus('Follow-Up Required');
+    setActiveDispositionId('followup');
+
+    // Preset 15-minute retry
+    const retryDate = new Date(Date.now() + 15 * 60 * 1000);
+    const offset = retryDate.getTimezoneOffset() * 60000;
+    const localIso = new Date(retryDate.getTime() - offset).toISOString().slice(0, 16);
+    setNextFollowUpDate(localIso);
+    setActivePreset(null);
+    setFollowUpIntent('Call dropped / disconnected - Retry callback');
+
+    // Add note if empty
+    if (!notes.trim()) {
+      setNotes('Call dropped / disconnected mid-conversation. Follow-up retry scheduled for 15 minutes.');
     }
   };
 
@@ -3240,14 +3261,32 @@ export default function LiveExecutionModal({
 
               {/* Tactile 1-Click Disposition Matrix */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
                     <Activity className="w-3.5 h-3.5 text-blue-500" />
                     <span>1-Click Disposition ({activeChannel})</span>
                   </label>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                    Pre-selects standard next-step defaults
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    {(activeChannel.toLowerCase().includes('call') || activeChannel.toLowerCase().includes('phone')) && (
+                      <button
+                        type="button"
+                        id="quick-action-call-dropped-btn"
+                        onClick={handleCallDropped}
+                        className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border shadow-2xs ${
+                          callOutcome === 'Call Dropped / Disconnected'
+                            ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-500/30'
+                            : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                        }`}
+                        title="1-Click: Mark call dropped/disconnected, set status to Follow-Up Required, and schedule a 15-minute retry"
+                      >
+                        <PhoneOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <span>⚡ Call Dropped (15m Retry)</span>
+                      </button>
+                    )}
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">
+                      Pre-selects standard next-step defaults
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
@@ -4035,17 +4074,24 @@ export default function LiveExecutionModal({
           {/* Dedicated Expandable Call History Panel (Right Pane on Desktop / Split View) */}
           {isHistoryExpanded && (
             <div className="w-full md:w-5/12 lg:w-2/5 flex flex-col border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-800 max-h-[380px] md:max-h-none overflow-hidden shrink-0">
-              <TaskCallHistoryPanel
+              <CompanyActivityTimeline
                 companyName={companyName}
                 companyId={currentTask.company_id}
-                company={linkedCompany || undefined}
                 historyLogs={recentHistoryLogs}
+                enquiries={enquiries ? enquiries.filter((e) => e.company_id === currentTask.company_id) : []}
                 isLoading={isLoadingHistory}
-                isExpanded={isHistoryExpanded}
-                onToggleExpand={() => setIsHistoryExpanded(false)}
+                compact={true}
+                showHeader={true}
+                onClose={() => setIsHistoryExpanded(false)}
                 onOpenCompany360={() => setIsCompany360Open(true)}
                 onSelectCallLog={(log) => setSelectedHistoryLog(log)}
+                onInspectCallLog={(log) => setSelectedHistoryLog(log)}
                 contacts={contacts}
+                companies={companies}
+                user={user}
+                setCallLogs={setCallLogs}
+                setCompanies={setCompanies}
+                setContacts={setContacts}
               />
             </div>
           )}
