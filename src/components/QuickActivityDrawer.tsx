@@ -5,6 +5,10 @@ import {
   MicOff,
   Phone,
   PhoneCall,
+  PhoneMissed,
+  PhoneOff,
+  CheckCircle2,
+  Ban,
   MessageSquare,
   Mail,
   Users,
@@ -194,6 +198,82 @@ export const isInternalTaskChannel = (ch?: ActivityChannel | string): boolean =>
   const norm = String(ch || '').toLowerCase().trim();
   return norm.includes('internal') || norm.includes('task') || norm.includes('admin');
 };
+
+export interface QuickDispositionItem {
+  id: string;
+  label: string;
+  sublabel: string;
+  status: CallStatus;
+  defaultOutcome: string;
+  defaultPreset: 'laterToday' | 'tomorrow' | 'clear';
+  defaultIntent: string;
+  activeClass: string;
+  inactiveClass: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
+  {
+    id: 'connected',
+    label: 'Connected',
+    sublabel: 'Spoke with contact',
+    status: 'Completed' as CallStatus,
+    defaultOutcome: 'Information Gathered',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Follow-up on discussion',
+    activeClass: 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-500/30',
+    inactiveClass: 'bg-emerald-950/20 text-emerald-300 border-emerald-900/60 hover:bg-emerald-900/30',
+    icon: CheckCircle2
+  },
+  {
+    id: 'scheduled',
+    label: 'Scheduled / Planned',
+    sublabel: 'Outreach planned for future',
+    status: 'Scheduled' as CallStatus,
+    defaultOutcome: 'Follow-up Scheduled',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Scheduled outreach follow-up',
+    activeClass: 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/30',
+    inactiveClass: 'bg-blue-950/20 text-blue-300 border-blue-900/60 hover:bg-blue-900/30',
+    icon: CalendarClock
+  },
+  {
+    id: 'no_answer_busy',
+    label: 'No Answer / Busy',
+    sublabel: 'No reply, busy, or voicemail',
+    status: 'No Answer' as CallStatus,
+    defaultOutcome: 'No Response / Ghosted',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Retry call - No answer or line busy',
+    activeClass: 'bg-amber-500 text-white border-amber-400 shadow-md ring-2 ring-amber-400/30',
+    inactiveClass: 'bg-amber-950/20 text-amber-300 border-amber-900/60 hover:bg-amber-900/30',
+    icon: PhoneMissed
+  },
+  {
+    id: 'call_dropped',
+    label: 'Call Dropped',
+    sublabel: 'Line cut or abrupt disconnect',
+    status: 'Follow-Up Required' as CallStatus,
+    defaultOutcome: 'Call Dropped / Disconnected',
+    defaultPreset: 'laterToday',
+    defaultIntent: 'Call dropped / disconnected - Retry callback',
+    activeClass: 'bg-amber-600 text-white border-amber-500 shadow-md ring-2 ring-amber-500/30',
+    inactiveClass: 'bg-amber-950/20 text-amber-300 border-amber-900/60 hover:bg-amber-900/30',
+    icon: PhoneOff
+  },
+  {
+    id: 'invalid',
+    label: 'Invalid Number',
+    sublabel: 'Dead line or wrong contact',
+    status: 'Invalid Number' as CallStatus,
+    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultPreset: 'clear',
+    defaultIntent: '',
+    activeClass: 'bg-rose-600 text-white border-rose-500 shadow-md ring-2 ring-rose-500/30',
+    inactiveClass: 'bg-rose-950/20 text-rose-300 border-rose-900/60 hover:bg-rose-900/30',
+    icon: Ban
+  }
+];
 
 const getLocalDateTimeString = (d: Date = new Date()): string => {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
@@ -386,7 +466,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     const isCall = isPhoneChannel(interChanStr);
     const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
     let activeStatus = status;
-    if (available.length > 0 && !available.includes(status)) {
+    if (isCall) {
+      const validCallStatuses = ['Completed', 'Completed / Connected', 'Scheduled', 'Scheduled / Planned', 'No Answer', 'Busy', 'Follow-Up Required', 'Invalid Number', 'Invalid'];
+      if (!validCallStatuses.includes(status) && available.length > 0 && !available.includes(status)) {
+        activeStatus = available[0] as CallStatus;
+        setStatus(activeStatus);
+      }
+    } else if (available.length > 0 && !available.includes(status)) {
       activeStatus = available[0] as CallStatus;
       setStatus(activeStatus);
     }
@@ -400,6 +486,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
     if (isInternal || isAsyncChannel) {
       if (outcome) setOutcome('');
+    } else if (isCall) {
+      // Retain phone call dispositions & outcomes (Call Dropped, No Response, Wrong Person, etc.)
     } else if (outcome && !isSuccessStatus(activeStatus)) {
       setOutcome('');
     }
@@ -413,7 +501,16 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [locationOrLink, setLocationOrLink] = useState<string>('');
   const [followupIntent, setFollowupIntent] = useState<string>('');
 
-  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom', customIntent?: string) => {
+  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | 'clear', customIntent?: string) => {
+    if (preset === 'clear') {
+      setFollowupDate('');
+      setActiveFollowUpPreset(null);
+      if (customIntent !== undefined) {
+        setFollowupIntent(customIntent);
+      }
+      return;
+    }
+
     setActiveFollowUpPreset(preset);
     if (customIntent !== undefined) {
       setFollowupIntent(customIntent);
@@ -456,6 +553,42 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     const offset = targetDate.getTimezoneOffset() * 60000;
     const localIso = new Date(targetDate.getTime() - offset).toISOString().slice(0, 16);
     setFollowupDate(localIso);
+  };
+
+  const handleSelectCallDisposition = (disp: QuickDispositionItem) => {
+    setStatus(disp.status);
+    setOutcome(disp.defaultOutcome);
+
+    if (disp.id === 'call_dropped') {
+      const retryDate = new Date(Date.now() + 15 * 60 * 1000);
+      const offset = retryDate.getTimezoneOffset() * 60000;
+      const localIso = new Date(retryDate.getTime() - offset).toISOString().slice(0, 16);
+      setFollowupDate(localIso);
+      setActiveFollowUpPreset(null);
+      setFollowupIntent('Call dropped / disconnected - Retry callback');
+      if (!notes.trim()) {
+        setNotes('Call dropped / disconnected mid-conversation. Follow-up retry scheduled for 15 minutes.');
+      }
+    } else if (disp.id === 'scheduled') {
+      if (disp.defaultPreset) {
+        applyFollowUpPreset(disp.defaultPreset, disp.defaultIntent);
+      }
+      setTimeout(() => {
+        const input = document.getElementById('drawer-next-followup-datetime') as HTMLInputElement | null;
+        if (input) {
+          input.focus();
+          if (typeof (input as any).showPicker === 'function') {
+            try { (input as any).showPicker(); } catch {}
+          }
+        }
+      }, 50);
+    } else if (disp.defaultPreset === 'clear') {
+      setFollowupDate('');
+      setActiveFollowUpPreset(null);
+      setFollowupIntent('');
+    } else if (disp.defaultPreset) {
+      applyFollowUpPreset(disp.defaultPreset, disp.defaultIntent);
+    }
   };
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -2455,13 +2588,28 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
       const activeLog = existingLog || logToEdit;
 
-      let finalStatus: CallStatus = status || 'Completed';
+      // Flexible dropped calls & status normalization:
+      // If the user selects 'Call Dropped' (or outcome is Call Dropped / Disconnected) but clears the follow-up date,
+      // save the task status as 'Completed' with outcome 'Call Dropped / Disconnected' and do not generate a follow-up task.
+      const isCallDropped = (status === 'Follow-Up Required' || outcome === 'Call Dropped / Disconnected');
+      const isDateCleared = !followupDate || followupDate.trim() === '';
+      const isCurScheduled = status === 'Scheduled' || status === 'Scheduled / Planned' || status?.toLowerCase().includes('scheduled');
+
+      let finalStatus: CallStatus;
+      let finalOutcome = outcome;
       let completedAtIso: string | undefined = undefined;
 
-      const isCurScheduled = finalStatus === 'Scheduled' || finalStatus === 'Scheduled / Planned' || finalStatus?.toLowerCase().includes('scheduled');
-      if (!isCurScheduled && (drawerMode === 'execute' || finalStatus === 'Completed' || drawerMode !== 'edit')) {
-        finalStatus = (status && status !== 'Scheduled / Planned' && status !== 'Scheduled' && !status.toLowerCase().includes('scheduled')) ? status : 'Completed';
+      if (isCallDropped && isDateCleared) {
+        finalStatus = 'Completed';
+        finalOutcome = 'Call Dropped / Disconnected';
         completedAtIso = nowIso;
+      } else {
+        if (!isCurScheduled && (drawerMode === 'execute' || status === 'Completed' || drawerMode !== 'edit')) {
+          finalStatus = (status && status !== 'Scheduled / Planned' && status !== 'Scheduled' && !status.toLowerCase().includes('scheduled')) ? status : 'Completed';
+          completedAtIso = nowIso;
+        } else {
+          finalStatus = status || 'Completed';
+        }
       }
 
       const payload: Omit<CallLogEntry, 'id'> = {
@@ -2470,7 +2618,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         status: finalStatus,
         outcome: isInternalTask
           ? undefined
-          : (isCompletedState ? (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || '')) : ''),
+          : (isCallDropped ? (finalOutcome || 'Call Dropped / Disconnected') : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (finalOutcome || ''))),
         channel: channel,
         category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
         department: isInternalTask ? 'Administration' : undefined,
@@ -4440,39 +4588,84 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Dynamic Status / Disposition Toggle */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                {(isMessageChannel(interactionChannel) ? "MESSAGE" : isInternalTask ? "TASK" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
-              </label>
-              <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                {((isPhoneChannel(interactionChannel) && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel))
-                  
-                  .map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => {
-                      const newStatus = st as CallStatus;
-                      setStatus(newStatus);
-                      if (!isSuccessStatus(newStatus)) {
-                        setOutcome('');
-                      }
-                    }}
-                    className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
-                      status === st || (st === 'Scheduled / Planned' && status === 'Scheduled') || (st === 'Completed / Connected' && status === 'Completed')
-                        ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-                    }`}
-                  >
-                    {st}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  {(isMessageChannel(interactionChannel) ? "MESSAGE" : isInternalTask ? "TASK" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
+                </label>
+                {isPhoneChannel(interactionChannel) && (
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    1-Click Next-Step Defaults
+                  </span>
+                )}
               </div>
+
+              {isPhoneChannel(interactionChannel) ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {QUICK_CALL_DISPOSITIONS.map((disp) => {
+                    const isActive =
+                      (disp.id === 'call_dropped' && (status === 'Follow-Up Required' || outcome === 'Call Dropped / Disconnected')) ||
+                      (disp.id === 'connected' && (status === 'Completed' || status === 'Completed / Connected') && outcome !== 'Call Dropped / Disconnected') ||
+                      (disp.id === 'scheduled' && (status === 'Scheduled' || status === 'Scheduled / Planned')) ||
+                      (disp.id === 'no_answer_busy' && (status === 'No Answer' || status === 'Busy')) ||
+                      (disp.id === 'invalid' && (status === 'Invalid Number' || status === 'Invalid'));
+                    const IconComp = disp.icon;
+
+                    return (
+                      <button
+                        key={disp.id}
+                        type="button"
+                        id={`drawer-disposition-btn-${disp.id}`}
+                        onClick={() => handleSelectCallDisposition(disp)}
+                        className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between min-h-[72px] ${
+                          isActive ? disp.activeClass : disp.inactiveClass
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <IconComp className="w-4 h-4 shrink-0" />
+                          {isActive && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs leading-tight">
+                            {disp.label}
+                          </div>
+                          <div className={`text-[10px] mt-0.5 leading-tight ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                            {disp.sublabel}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                  {getStatusesForChannel(interactionChannel).map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => {
+                        const newStatus = st as CallStatus;
+                        setStatus(newStatus);
+                        if (!isSuccessStatus(newStatus)) {
+                          setOutcome('');
+                        }
+                      }}
+                      className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                        status === st || (st === 'Scheduled / Planned' && status === 'Scheduled') || (st === 'Completed / Connected' && status === 'Completed')
+                          ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+                      }`}
+                    >
+                      {st}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Outcome & Purpose Grid */}
             {!isInternalTask && (
-              <div className={`grid gap-3 ${isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                {isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
+              <div className={`grid gap-3 ${((isCompletedState || status === 'Follow-Up Required' || Boolean(outcome)) && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {((isCompletedState || status === 'Follow-Up Required' || Boolean(outcome)) && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) && (
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                       {interactionChannel.toUpperCase()} OUTCOME
@@ -4791,15 +4984,45 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       >
                         Custom
                       </button>
+                      {followupDate && (
+                        <button
+                          type="button"
+                          id="drawer-preset-clear-button"
+                          onClick={() => {
+                            setFollowupDate('');
+                            setActiveFollowUpPreset(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border border-rose-500/30 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60 hover:text-rose-100 flex items-center justify-center gap-1"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Clear</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* Scheduled Date & Time picker + Follow-Up Intent Input */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                        Scheduled Date & Time
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label htmlFor="drawer-next-followup-datetime" className="block text-[11px] font-semibold text-slate-300">
+                          Scheduled Date & Time
+                        </label>
+                        {followupDate && (
+                          <button
+                            type="button"
+                            id="drawer-clear-datetime-btn"
+                            onClick={() => {
+                              setFollowupDate('');
+                              setActiveFollowUpPreset(null);
+                            }}
+                            className="text-[10px] font-medium text-rose-400 hover:text-rose-300 transition-colors cursor-pointer flex items-center gap-1"
+                          >
+                            <X className="w-3 h-3" />
+                            <span>Clear</span>
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         id="drawer-next-followup-datetime"

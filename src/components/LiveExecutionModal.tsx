@@ -190,9 +190,9 @@ interface DispositionConfig {
 export const CALL_DISPOSITIONS: DispositionConfig[] = [
   {
     id: 'connected',
-    label: 'Connected / Completed',
+    label: 'Connected',
     sublabel: 'Spoke with contact',
-    status: 'Completed / Connected',
+    status: 'Completed',
     defaultOutcome: 'Information Gathered',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Follow-up on discussion',
@@ -201,44 +201,44 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     icon: CheckCircle2
   },
   {
-    id: 'followup',
-    label: 'Follow-up Required',
-    sublabel: 'Callback requested',
-    status: 'Completed / Connected',
+    id: 'scheduled',
+    label: 'Scheduled / Planned',
+    sublabel: 'Outreach planned for future',
+    status: 'Scheduled',
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: 'tomorrow',
-    defaultIntent: 'Follow-up callback / review proposal',
+    defaultIntent: 'Scheduled outreach follow-up',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
   },
   {
-    id: 'no_answer',
-    label: 'No Answer / Voicemail',
-    sublabel: 'No reply or left VM',
+    id: 'no_answer_busy',
+    label: 'No Answer / Busy',
+    sublabel: 'No reply, busy, or voicemail',
     status: 'No Answer',
     defaultOutcome: 'No Response / Ghosted',
     defaultPreset: 'tomorrow',
-    defaultIntent: 'Retry call - No answer / left voicemail',
+    defaultIntent: 'Retry call - No answer or line busy',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: PhoneMissed
   },
   {
-    id: 'gatekeeper_busy',
-    label: 'Gatekeeper / Busy',
-    sublabel: 'Engaged or assistant barrier',
-    status: 'Busy',
-    defaultOutcome: 'Gatekeeper Blocked',
-    defaultPreset: 'tomorrow',
-    defaultIntent: 'Retry call - Try bypass gatekeeper / line busy',
-    activeClass: 'bg-orange-500 text-white border-orange-500 shadow-md ring-2 ring-orange-400/30',
-    inactiveClass: 'bg-orange-50/80 dark:bg-orange-950/30 text-orange-800 dark:text-orange-300 border-orange-200 dark:border-orange-800/60 hover:bg-orange-100/80',
-    icon: Users
+    id: 'call_dropped',
+    label: 'Call Dropped',
+    sublabel: 'Line cut or abrupt disconnect',
+    status: 'Follow-Up Required',
+    defaultOutcome: 'Call Dropped / Disconnected',
+    defaultPreset: 'laterToday',
+    defaultIntent: 'Call dropped / disconnected - Retry callback',
+    activeClass: 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/30',
+    inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
+    icon: PhoneOff
   },
   {
-    id: 'invalid_number',
-    label: 'Invalid / Wrong Number',
+    id: 'invalid',
+    label: 'Invalid Number',
     sublabel: 'Dead line or wrong contact',
     status: 'Invalid Number',
     defaultOutcome: 'Wrong Person / Unqualified',
@@ -1546,7 +1546,30 @@ export default function LiveExecutionModal({
       setFollowUpChannel('Message (WhatsApp/SMS)');
     }
 
-    if (disp.defaultPreset === 'clear') {
+    if (disp.id === 'call_dropped') {
+      const retryDate = new Date(Date.now() + 15 * 60 * 1000);
+      const offset = retryDate.getTimezoneOffset() * 60000;
+      const localIso = new Date(retryDate.getTime() - offset).toISOString().slice(0, 16);
+      setNextFollowUpDate(localIso);
+      setActivePreset(null);
+      setFollowUpIntent('Call dropped / disconnected - Retry callback');
+      if (!notes.trim()) {
+        setNotes('Call dropped / disconnected mid-conversation. Follow-up retry scheduled for 15 minutes.');
+      }
+    } else if (disp.id === 'scheduled') {
+      if (disp.defaultPreset) {
+        applyFollowUpPreset(disp.defaultPreset, disp.defaultIntent);
+      }
+      setTimeout(() => {
+        const input = document.getElementById('next-followup-datetime') as HTMLInputElement | null;
+        if (input) {
+          input.focus();
+          if (typeof (input as any).showPicker === 'function') {
+            try { (input as any).showPicker(); } catch {}
+          }
+        }
+      }, 50);
+    } else if (disp.defaultPreset === 'clear') {
       setNextFollowUpDate('');
       setActivePreset(null);
       setFollowUpIntent('');
@@ -1555,29 +1578,17 @@ export default function LiveExecutionModal({
     }
   };
 
-  // 1-Click "Call Dropped" Quick Action Handler:
-  // Sets outcome to 'Call Dropped / Disconnected', status to 'Follow-Up Required', presets a 15-min retry, and adds note if empty
-  const handleCallDropped = () => {
-    setCallOutcome('Call Dropped / Disconnected');
-    setCallStatus('Follow-Up Required');
-    setActiveDispositionId('followup');
-
-    // Preset 15-minute retry
-    const retryDate = new Date(Date.now() + 15 * 60 * 1000);
-    const offset = retryDate.getTimezoneOffset() * 60000;
-    const localIso = new Date(retryDate.getTime() - offset).toISOString().slice(0, 16);
-    setNextFollowUpDate(localIso);
-    setActivePreset(null);
-    setFollowUpIntent('Call dropped / disconnected - Retry callback');
-
-    // Add note if empty
-    if (!notes.trim()) {
-      setNotes('Call dropped / disconnected mid-conversation. Follow-up retry scheduled for 15 minutes.');
-    }
-  };
-
   // Quick Follow-Up Preset Calculation
-  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom', customIntent?: string) => {
+  const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | 'clear', customIntent?: string) => {
+    if (preset === 'clear') {
+      setNextFollowUpDate('');
+      setActivePreset(null);
+      if (customIntent !== undefined) {
+        setFollowUpIntent(customIntent);
+      }
+      return;
+    }
+
     setActivePreset(preset);
     if (customIntent !== undefined) {
       setFollowUpIntent(customIntent);
@@ -1708,12 +1719,22 @@ export default function LiveExecutionModal({
       const userUid = user?.uid || 'system_op';
       const userName = user?.full_name || user?.username || user?.email || 'Operator';
 
-      // Preserve the user's selected call disposition status (e.g. 'No Answer', 'Busy', 'Invalid Number')
-      // Only convert to 'Completed / Connected' if the status was still pending in a scheduled/draft state
-      const isScheduledStatus = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus);
-      const updatedStatus: string = isScheduledStatus
-        ? 'Completed / Connected'
-        : (callStatus || 'Completed / Connected');
+      // Flexible dropped calls & status normalization:
+      // If the user selects 'Call Dropped' (or outcome is Call Dropped / Disconnected) but clears the follow-up date,
+      // save the task status as 'Completed' with outcome 'Call Dropped / Disconnected' and do not generate a follow-up task.
+      const isCallDropped = activeDispositionId === 'call_dropped' || callOutcome === 'Call Dropped / Disconnected';
+      const isDateCleared = !nextFollowUpDate || nextFollowUpDate.trim() === '';
+
+      let updatedStatus: string;
+      if (isCallDropped && isDateCleared) {
+        updatedStatus = 'Completed';
+        finalOutcome = 'Call Dropped / Disconnected';
+      } else {
+        const isScheduledStatus = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(callStatus);
+        updatedStatus = isScheduledStatus
+          ? 'Completed'
+          : (callStatus || 'Completed');
+      }
       const finalNotes: string = notes.trim()
         ? currentTask.requirement_notes
           ? `${currentTask.requirement_notes}\n[Notes]: ${notes.trim()}`
@@ -3266,27 +3287,9 @@ export default function LiveExecutionModal({
                     <Activity className="w-3.5 h-3.5 text-blue-500" />
                     <span>1-Click Disposition ({activeChannel})</span>
                   </label>
-                  <div className="flex items-center space-x-2">
-                    {(activeChannel.toLowerCase().includes('call') || activeChannel.toLowerCase().includes('phone')) && (
-                      <button
-                        type="button"
-                        id="quick-action-call-dropped-btn"
-                        onClick={handleCallDropped}
-                        className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border shadow-2xs ${
-                          callOutcome === 'Call Dropped / Disconnected'
-                            ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-500/30'
-                            : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
-                        }`}
-                        title="1-Click: Mark call dropped/disconnected, set status to Follow-Up Required, and schedule a 15-minute retry"
-                      >
-                        <PhoneOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                        <span>⚡ Call Dropped (15m Retry)</span>
-                      </button>
-                    )}
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">
-                      Pre-selects standard next-step defaults
-                    </span>
-                  </div>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    Pre-selects standard next-step defaults
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
@@ -3610,14 +3613,44 @@ export default function LiveExecutionModal({
                   >
                     Custom Date/Time
                   </button>
+                  <button
+                    type="button"
+                    id="preset-clear-button"
+                    onClick={() => {
+                      setNextFollowUpDate('');
+                      setActivePreset(null);
+                      setFollowUpIntent('');
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/60"
+                  >
+                    Clear Date
+                  </button>
                 </div>
 
                 {/* Datetime picker + Intent Input */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                      Scheduled Date & Time
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label htmlFor="next-followup-datetime" className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                        Scheduled Date & Time
+                      </label>
+                      {nextFollowUpDate && (
+                        <button
+                          type="button"
+                          id="clear-followup-datetime-btn"
+                          onClick={() => {
+                            setNextFollowUpDate('');
+                            setActivePreset(null);
+                            setFollowUpIntent('');
+                          }}
+                          className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer flex items-center gap-0.5"
+                          title="Clear scheduled date and time"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Clear</span>
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="datetime-local"
                       id="next-followup-datetime"

@@ -479,6 +479,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     const isSuccess =
       s.includes('completed') ||
       s.includes('conducted') ||
+      s.includes('connected') ||
       s.includes('sent');
 
     const isFailed =
@@ -493,6 +494,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
       s.includes('voicemail') ||
       s.includes('follow-up') ||
       s.includes('followup') ||
+      s.includes('dropped') ||
       s.includes('rescheduled') ||
       s.includes('scheduled') ||
       s.includes('planned') ||
@@ -508,6 +510,35 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
       return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/80';
     }
     return 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700';
+  };
+
+  /**
+   * Normalizes bulky legacy status strings for cleaner badge display:
+   * - 'Completed / Connected' -> 'Connected'
+   * - 'No Answer / Voicemail' or 'No Answer / Busy' -> 'No Answer'
+   * - 'Invalid / Wrong Number' -> 'Invalid Number'
+   * - 'Call Dropped / Disconnected' -> 'Call Dropped'
+   * - Any other string with ' / ' where the first term is 'Completed' or 'Scheduled' -> displays the second term.
+   */
+  const normalizeStatusBadgeLabel = (status?: string): string => {
+    if (!status) return 'Logged';
+    const trimmed = status.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (lower === 'completed / connected') return 'Connected';
+    if (lower === 'no answer / voicemail' || lower === 'no answer / busy') return 'No Answer';
+    if (lower === 'invalid / wrong number' || lower === 'invalid/wrong number') return 'Invalid Number';
+    if (lower === 'call dropped / disconnected' || lower === 'call dropped/disconnected') return 'Call Dropped';
+
+    if (trimmed.includes(' / ')) {
+      const parts = trimmed.split(' / ');
+      const firstTerm = parts[0]?.trim().toLowerCase();
+      if (firstTerm === 'completed' || firstTerm === 'scheduled') {
+        return parts.slice(1).join(' / ').trim() || trimmed;
+      }
+    }
+
+    return trimmed;
   };
 
   const getOutcomeBadgeStyle = (outcome?: string) => {
@@ -975,9 +1006,9 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
 
               const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
-              const statusLabel = log.status || 'Logged';
+              const statusLabel = normalizeStatusBadgeLabel(log.status);
               const outcomeLabel = log.outcome || null;
-              const badgeStyle = getStatusBadgeStyle(log.status);
+              const badgeStyle = getStatusBadgeStyle(log.status || statusLabel);
 
               const isExecutableTask =
                 (statusLower === 'scheduled' ||
@@ -1031,9 +1062,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       <span className="text-xs font-bold text-slate-900 dark:text-white" title={timeInfo.formatted}>
                         {timeInfo.relative}
                       </span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono hidden sm:inline">
-                        • {timeInfo.formatted}
-                      </span>
                       {canAccess ? (
                         <button
                           type="button"
@@ -1085,17 +1113,12 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       </span>
 
                       {/* Independent Outcome Tag */}
-                      {outcomeLabel && outcomeLabel !== statusLabel && (
+                      {outcomeLabel && outcomeLabel !== log.status && outcomeLabel !== statusLabel && (
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${getOutcomeBadgeStyle(outcomeLabel)}`}>
                           {outcomeLabel}
                         </span>
                       )}
                     </div>
-                  </div>
-
-                  {/* Sub-header: Formatted Date on mobile */}
-                  <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono sm:hidden">
-                    {timeInfo.formatted}
                   </div>
 
                   {/* Contact Spoken To & Purpose */}
