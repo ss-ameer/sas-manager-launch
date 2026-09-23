@@ -105,6 +105,82 @@ export function getStatusesForChannel(channel?: string): string[] {
 }
 
 /**
+ * Normalizes raw status strings for clean, channel-appropriate single-word badge display:
+ * - Phone Call: 'Connected', 'Scheduled', 'No Answer', 'Busy', 'Call Dropped', 'Invalid Number'
+ * - Message / Email: 'Sent', 'Scheduled', 'Failed'
+ * - Site Visit / Meeting: 'Completed', 'Scheduled', 'Cancelled'
+ * - Internal Task: 'Completed', 'Scheduled', 'In Progress'
+ */
+export function normalizeStatusBadgeLabel(status?: string, channel?: string): string {
+  if (!status) return 'Logged';
+  const trimmed = status.trim();
+  const lower = trimmed.toLowerCase();
+  const chanLower = (channel || '').toLowerCase().trim();
+  const isMsgOrEmail = chanLower.includes('whatsapp') || chanLower.includes('message') || chanLower.includes('email') || chanLower.includes('sms') || chanLower.includes('mail');
+  const isMeetingOrSite = chanLower.includes('meeting') || chanLower.includes('site') || chanLower.includes('visit');
+
+  if (isMsgOrEmail) {
+    if (lower === 'completed' || lower.includes('sent') || lower.includes('delivered')) {
+      return 'Sent';
+    }
+    if (lower.includes('scheduled') || lower.includes('planned') || lower.includes('draft')) {
+      return 'Scheduled';
+    }
+    if (lower.includes('failed') || lower.includes('bounced') || lower.includes('invalid')) {
+      return 'Failed';
+    }
+  }
+
+  if (isMeetingOrSite) {
+    if (lower === 'completed' || lower.includes('conducted')) {
+      return 'Completed';
+    }
+    if (lower.includes('scheduled') || lower.includes('planned')) {
+      return 'Scheduled';
+    }
+    if (lower.includes('cancelled') || lower.includes('canceled') || lower.includes('no show') || lower.includes('denied') || lower.includes('rescheduled')) {
+      return 'Cancelled';
+    }
+  }
+
+  if (chanLower.includes('task') || chanLower.includes('internal') || chanLower.includes('admin')) {
+    if (lower === 'completed') return 'Completed';
+    if (lower.includes('scheduled') || lower.includes('planned')) return 'Scheduled';
+    if (lower.includes('progress') || lower.includes('working') || lower.includes('blocked')) return 'In Progress';
+  }
+
+  // Phone Call (or general fallback)
+  if (lower === 'completed / connected' || lower === 'connected' || ((!chanLower || chanLower.includes('call') || chanLower.includes('phone')) && (lower === 'completed' || lower === 'completed log'))) {
+    return 'Connected';
+  }
+  if (lower === 'no answer / voicemail' || lower === 'no answer / busy' || lower === 'no answer' || lower === 'busy' || lower === 'busy / no answer') {
+    return 'No Answer';
+  }
+  if (lower === 'invalid / wrong number' || lower === 'invalid/wrong number' || lower === 'invalid number' || lower === 'wrong number') {
+    return 'Invalid Number';
+  }
+  if (lower === 'call dropped / disconnected' || lower === 'call dropped/disconnected' || lower === 'call dropped' || lower === 'follow-up required' || lower.includes('dropped')) {
+    return 'Call Dropped';
+  }
+  if (lower === 'scheduled / planned' || lower === 'scheduled / draft' || lower === 'scheduled') {
+    return 'Scheduled';
+  }
+  if (lower.includes('cancel')) {
+    return 'Cancelled';
+  }
+
+  if (trimmed.includes(' / ')) {
+    const parts = trimmed.split(' / ');
+    const firstTerm = parts[0]?.trim().toLowerCase();
+    if (firstTerm === 'completed' || firstTerm === 'scheduled') {
+      return parts.slice(1).join(' / ').trim() || trimmed;
+    }
+  }
+
+  return trimmed;
+}
+
+/**
  * Determines whether a given status represents a successful interaction
  * where an outcome can be meaningfully recorded.
  */

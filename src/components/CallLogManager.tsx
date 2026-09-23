@@ -68,7 +68,7 @@ import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
-import { isSuccessStatus } from '../utils/activityLogic';
+import { isSuccessStatus, normalizeStatusBadgeLabel } from '../utils/activityLogic';
 import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -274,7 +274,7 @@ export default function CallLogManager({
   salespersons = [],
   user,
   triggerToast,
-  initialSubTab = 'queue',
+  initialSubTab = 'log',
   setCallLogs,
   setCompanies,
   setContacts,
@@ -704,13 +704,15 @@ export default function CallLogManager({
   const [showReportExportModal, setShowReportExportModal] = useState(false);
 
   // Helper Badge Renderers
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, channel?: string) => {
     if (!status) return null;
-    const s = status.toLowerCase();
+    const normalized = normalizeStatusBadgeLabel(status, channel);
+    const s = normalized.toLowerCase();
+    const rawLower = status.toLowerCase();
 
     // Check if there is a custom color from database options
     const customOption = (callStatuses || []).find(
-      (opt) => opt.name.toLowerCase() === s
+      (opt) => opt.name.toLowerCase() === rawLower || opt.name.toLowerCase() === s
     );
     if (customOption && customOption.color) {
       return (
@@ -719,28 +721,29 @@ export default function CallLogManager({
           className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border"
         >
           <Clock className="w-3 h-3" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
     }
 
-    if (isSuccessStatus(status)) {
+    if (normalized === 'Connected' || normalized === 'Sent' || isSuccessStatus(status) || isSuccessStatus(normalized)) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
           <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
-    } else if (s === 'scheduled' || s === 'scheduled / planned' || s.includes('scheduled') || s.includes('planned') || s.includes('in progress')) {
+    } else if (normalized === 'Scheduled' || s.includes('scheduled') || s.includes('planned') || s.includes('in progress')) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/40">
           <Clock className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
     } else if (
-      s === 'cancelled' ||
-      s === 'invalid number' ||
+      normalized === 'Cancelled' ||
+      normalized === 'Invalid Number' ||
+      normalized === 'Failed' ||
       s.includes('invalid') ||
       s.includes('wrong') ||
       s.includes('dnc') ||
@@ -748,17 +751,19 @@ export default function CallLogManager({
       s.includes('failed') ||
       s.includes('bounced') ||
       s.includes('dead') ||
-      s.includes('no show')
+      s.includes('no show') ||
+      s.includes('cancel')
     ) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
           <XCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
     } else if (
-      s === 'busy' ||
-      s === 'no answer' ||
+      normalized === 'No Answer' ||
+      normalized === 'Busy' ||
+      normalized === 'Call Dropped' ||
       s.includes('no answer') ||
       s.includes('voicemail') ||
       s.includes('busy') ||
@@ -770,14 +775,14 @@ export default function CallLogManager({
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
           <PhoneOff className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
     } else {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
           <Clock className="w-3 h-3 text-slate-500" />
-          <span>{status}</span>
+          <span>{normalized}</span>
         </span>
       );
     }
@@ -3977,13 +3982,27 @@ export default function CallLogManager({
                         })()}
 
                         {/* Disposition Pill */}
-                        <span className={`inline-flex items-center px-2 py-0.2 rounded text-[10px] font-bold border ${
-                          isSuccessStatus(log.status)
-                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                        }`}>
-                          {log.status}
-                        </span>
+                        {(() => {
+                          const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                          const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
+                          const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed' || normStatus === 'Cancelled';
+                          const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
+
+                          let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+                          if (isConnected) {
+                            pillStyle = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+                          } else if (isFailed) {
+                            pillStyle = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+                          } else if (isDroppedOrBusy) {
+                            pillStyle = 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+                          }
+
+                          return (
+                            <span className={`inline-flex items-center px-2 py-0.2 rounded text-[10px] font-bold border ${pillStyle}`}>
+                              {normStatus}
+                            </span>
+                          );
+                        })()}
 
                         {/* Outcome */}
                         {log.outcome && (
@@ -4298,7 +4317,27 @@ export default function CallLogManager({
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-1">
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{log.status}</span>
+                              {(() => {
+                                const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                                const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
+                                const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed' || normStatus === 'Cancelled';
+                                const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
+
+                                let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+                                if (isConnected) {
+                                  pillStyle = 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+                                } else if (isFailed) {
+                                  pillStyle = 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+                                } else if (isDroppedOrBusy) {
+                                  pillStyle = 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+                                }
+
+                                return (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border w-fit ${pillStyle}`}>
+                                    {normStatus}
+                                  </span>
+                                );
+                              })()}
                               <span className="text-[10px] text-slate-500">{log.outcome || '-'}</span>
                             </div>
                           </td>

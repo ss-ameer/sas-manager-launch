@@ -18,6 +18,7 @@ import {
   Zap,
   CalendarClock,
   CheckCircle2,
+  XCircle,
   AlertTriangle,
   Lock
 } from 'lucide-react';
@@ -476,6 +477,10 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
 
   const getStatusBadgeStyle = (status?: string) => {
     const s = (status || '').toLowerCase().trim();
+    if (s.includes('cancelled') || s.includes('canceled')) {
+      return 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700';
+    }
+
     const isSuccess =
       s.includes('completed') ||
       s.includes('conducted') ||
@@ -1016,16 +1021,28 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
             filteredLogs.map((log) => {
               const statusLower = (log.status || '').toLowerCase().trim();
               const outcomeLower = (log.outcome || '').toLowerCase().trim();
+              const notesText = `${log.requirement_notes || ''} ${log.notes || ''} ${log.followup_intent || ''}`.toLowerCase();
+              const isCancelled =
+                statusLower === 'cancelled' ||
+                statusLower === 'canceled' ||
+                statusLower.includes('cancelled') ||
+                statusLower.includes('canceled') ||
+                notesText.includes('[cancelled]') ||
+                notesText.includes('[canceled]');
+
               const isCompletedLog =
-                statusLower === 'completed' ||
-                statusLower.includes('completed') ||
-                statusLower === 'sent' ||
-                statusLower.includes('sent') ||
-                statusLower.includes('conducted') ||
-                outcomeLower.includes('completed') ||
-                Boolean((log as any).completed_at) ||
-                Boolean((log as any).completedAt) ||
-                Boolean((log as any).executed_at);
+                !isCancelled && (
+                  statusLower === 'completed' ||
+                  statusLower.includes('completed') ||
+                  statusLower === 'sent' ||
+                  statusLower.includes('sent') ||
+                  statusLower.includes('conducted') ||
+                  statusLower === 'connected' ||
+                  outcomeLower.includes('completed') ||
+                  Boolean((log as any).completed_at) ||
+                  Boolean((log as any).completedAt) ||
+                  Boolean((log as any).executed_at)
+                );
 
               const completionTimestamp =
                 (log as any).completed_at ||
@@ -1060,11 +1077,12 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
 
               const channelName = normalizeChannelBadgeLabel(log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call'));
-              const statusLabel = normalizeStatusBadgeLabel(log.status, channelName);
+              const statusLabel = isCancelled ? 'Cancelled' : normalizeStatusBadgeLabel(log.status, channelName);
               const outcomeLabel = log.outcome || null;
-              const badgeStyle = getStatusBadgeStyle(log.status || statusLabel);
+              const badgeStyle = getStatusBadgeStyle(isCancelled ? 'cancelled' : (log.status || statusLabel));
 
               const isExecutableTask =
+                !isCancelled &&
                 (statusLower === 'scheduled' ||
                  statusLower.includes('scheduled') ||
                  statusLower === 'planned' ||
@@ -1074,8 +1092,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                  statusLower === 'pending' ||
                  isScheduledTask(log)) &&
                 !statusLower.includes('completed') &&
-                !statusLower.includes('cancelled') &&
-                !statusLower.includes('canceled') &&
                 !(log as any).completed_at &&
                 !(log as any).executed_at;
 
@@ -1099,16 +1115,20 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     }
                   }}
                   className={`group relative ${compact ? 'p-2.5 space-y-2' : 'p-3.5 space-y-2.5'} rounded-xl border transition-all duration-150 ${
-                    canAccess
-                      ? 'bg-white dark:bg-slate-800/90 border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500/80 cursor-pointer'
-                      : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 shadow-2xs cursor-default select-none'
+                    isCancelled
+                      ? 'bg-slate-50/70 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800/80 opacity-80 shadow-2xs'
+                      : canAccess
+                        ? 'bg-white dark:bg-slate-800/90 border-slate-200/80 dark:border-slate-700 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500/80 cursor-pointer'
+                        : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 shadow-2xs cursor-default select-none'
                   }`}
                   title={canAccess ? "Click to view full interaction details and notes" : "Activity details restricted"}
                 >
                   {/* Top Bar: Relative Time, Formatted Date & Badges */}
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-400">
-                      {isCompletedLog ? (
+                      {isCancelled ? (
+                        <XCircle className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                      ) : isCompletedLog ? (
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       ) : (
                         <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1166,8 +1186,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                         {statusLabel}
                       </span>
 
-                      {/* Independent Outcome Tag */}
-                      {outcomeLabel && outcomeLabel !== log.status && outcomeLabel !== statusLabel && (
+                      {/* Independent Outcome Tag - Suppress follow-up badge if cancelled */}
+                      {outcomeLabel && outcomeLabel !== log.status && outcomeLabel !== statusLabel && (!isCancelled || !outcomeLabel.toLowerCase().includes('follow-up')) && (
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${getOutcomeBadgeStyle(outcomeLabel)}`}>
                           {outcomeLabel}
                         </span>
@@ -1266,7 +1286,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     </div>
 
                     <div className="flex items-center space-x-2 shrink-0">
-                      {canAccess && log.next_followup_date && (
+                      {canAccess && log.next_followup_date && !isCancelled && (
                         <span className="inline-flex items-center space-x-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
                           <Calendar className="w-3 h-3 shrink-0" />
                           <span>Next: {formatCleanDate(log.next_followup_date)}</span>

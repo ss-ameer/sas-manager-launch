@@ -329,7 +329,7 @@ export default function Company360Modal({
     };
   }, [companyEnquiries, authorizedEnquiries]);
 
-  // 4. Last Contacted relative timestamp & channel
+  // 4. Last Contacted relative timestamp & channel (strictly past executed interactions only)
   const lastContactInfo = useMemo(() => {
     if (!companyCallLogs || companyCallLogs.length === 0) {
       return {
@@ -337,16 +337,80 @@ export default function Company360Modal({
         formatted: 'No logs recorded',
         channel: 'Never',
         agent: null,
-        icon: <Clock className="w-3.5 h-3.5 text-slate-400" />
+        icon: <Clock className="w-3.5 h-3.5 text-slate-400" />,
+        latest: null
       };
     }
-    const sorted = [...companyCallLogs].sort((a, b) => {
-      const dateA = new Date(a.date || (a as any).createdAt || 0).getTime();
-      const dateB = new Date(b.date || (b as any).createdAt || 0).getTime();
+
+    const now = Date.now();
+    const VALID_PAST_STATUSES = new Set([
+      'completed',
+      'sent',
+      'connected',
+      'no answer',
+      'busy',
+      'call dropped',
+      'failed',
+      'in progress',
+      'cancelled',
+      'canceled',
+      'invalid number',
+      'completed / connected',
+      'completed / attended',
+      'sent / delivered',
+      'no answer / busy',
+      'no answer / voicemail',
+      'call dropped / disconnected',
+      'invalid / wrong number'
+    ]);
+
+    // Strictly consider only past completed or executed interactions:
+    // Exclude scheduled/pending future tasks and do NOT use next_followup_date
+    const pastLogs = companyCallLogs.filter((l) => {
+      const normStatus = (l.status || '').toLowerCase().trim();
+      if (
+        normStatus === 'scheduled' ||
+        normStatus === 'scheduled / planned' ||
+        normStatus === 'scheduled / draft' ||
+        normStatus === 'pending'
+      ) {
+        return false;
+      }
+      if (l.is_task && normStatus !== 'completed') {
+        return false;
+      }
+      if (!VALID_PAST_STATUSES.has(normStatus)) {
+        return false;
+      }
+
+      const dateStr = l.date || (l as any).createdAt || (l as any).created_at || (l as any).executed_at;
+      if (!dateStr) return false;
+      const timeMs = new Date(dateStr).getTime();
+      if (isNaN(timeMs) || timeMs > now) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (pastLogs.length === 0) {
+      return {
+        relative: 'No outreach yet',
+        formatted: 'No past outreach recorded',
+        channel: 'Never',
+        agent: null,
+        icon: <Clock className="w-3.5 h-3.5 text-slate-400" />,
+        latest: null
+      };
+    }
+
+    const sorted = [...pastLogs].sort((a, b) => {
+      const dateA = new Date(a.date || (a as any).createdAt || (a as any).created_at || (a as any).executed_at || 0).getTime();
+      const dateB = new Date(b.date || (b as any).createdAt || (b as any).created_at || (b as any).executed_at || 0).getTime();
       return dateB - dateA;
     });
     const latest = sorted[0];
-    const timeInfo = formatTimelineDate(latest.date || (latest as any).createdAt);
+    const timeInfo = formatTimelineDate(latest.date || (latest as any).createdAt || (latest as any).created_at || (latest as any).executed_at);
     const rawChan = (latest.channel || latest.interaction_type || 'Call').toLowerCase();
     let chanLabel = 'Call';
     let icon = <Phone className="w-3.5 h-3.5 text-blue-500" />;
@@ -419,20 +483,37 @@ export default function Company360Modal({
                 </span>
 
                 {/* Two-Tier Industry Taxonomy Badge */}
-                <IndustryBadge
-                  company={
-                    company
-                      ? {
-                          ...company,
-                          business_type_raw: formatSubTypeName(
-                            (company as any).subType || company.business_type_raw
-                          )
-                        }
-                      : company
-                  }
-                  size="sm"
-                  showEmpty
-                />
+                {(() => {
+                  const rawSub =
+                    (company as any)?.subType?.trim() ||
+                    company?.business_type_raw?.trim() ||
+                    company?.industry?.trim() ||
+                    company?.industry_type?.trim() ||
+                    '';
+                  const isPlaceholder =
+                    !rawSub ||
+                    /none/i.test(rawSub) ||
+                    /to be added later/i.test(rawSub) ||
+                    /unspecified/i.test(rawSub);
+
+                  if (isPlaceholder) return null;
+
+                  return (
+                    <IndustryBadge
+                      company={
+                        company
+                          ? {
+                              ...company,
+                              business_type_raw: formatSubTypeName(
+                                (company as any).subType || company.business_type_raw
+                              )
+                            }
+                          : company
+                      }
+                      size="sm"
+                    />
+                  );
+                })()}
 
                 {/* Internal / Subsidiary Badge */}
                 {company.isInternalCompany && (
@@ -442,7 +523,9 @@ export default function Company360Modal({
                   </span>
                 )}
 
-                {company.legal_suffix && (
+                {company.legal_suffix &&
+                  !/none/i.test(company.legal_suffix) &&
+                  !/to be added later/i.test(company.legal_suffix) && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0">
                     {company.legal_suffix}
                   </span>

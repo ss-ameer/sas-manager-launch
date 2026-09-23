@@ -273,18 +273,35 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
               </div>
 
               <div className="flex items-center space-x-2 flex-wrap gap-y-1.5 pt-0.5">
-                <IndustryBadge
-                  company={
-                    company
-                      ? {
-                          ...company,
-                          business_type_raw: formatSubTypeName((company as any).subType || company.business_type_raw)
-                        }
-                      : company
-                  }
-                  size="sm"
-                  showEmpty
-                />
+                {(() => {
+                  const rawSub =
+                    (company as any)?.subType?.trim() ||
+                    company?.business_type_raw?.trim() ||
+                    company?.industry?.trim() ||
+                    company?.industry_type?.trim() ||
+                    '';
+                  const isPlaceholder =
+                    !rawSub ||
+                    /none/i.test(rawSub) ||
+                    /to be added later/i.test(rawSub) ||
+                    /unspecified/i.test(rawSub);
+
+                  if (isPlaceholder) return null;
+
+                  return (
+                    <IndustryBadge
+                      company={
+                        company
+                          ? {
+                              ...company,
+                              business_type_raw: formatSubTypeName((company as any).subType || company.business_type_raw)
+                            }
+                          : company
+                      }
+                      size="sm"
+                    />
+                  );
+                })()}
                 {(!isInternal || !isRelationshipOurCompany) && (
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
                     {company.relationship || 'Prospect'}

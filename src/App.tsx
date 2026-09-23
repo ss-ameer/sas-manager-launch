@@ -1679,7 +1679,7 @@ export default function App() {
               salespersons={workspaceSalespersons}
               user={user}
               triggerToast={triggerToast}
-              initialSubTab="queue"
+              initialSubTab="log"
               setCallLogs={setCallLogs}
               setCompanies={setCompanies}
               setContacts={setContacts}

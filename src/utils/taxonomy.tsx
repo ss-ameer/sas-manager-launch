@@ -78,14 +78,20 @@ export function formatIndustryBadge(company?: Partial<Company> | null): Industry
 
   const parent = company.industry_parent ? getParentIndustry(company.industry_parent) : undefined;
   const icon = parent?.icon || '🏷️';
-  const rawSub =
+  let rawSub =
     (company as any).subType?.trim() ||
     company.business_type_raw?.trim() ||
     company.industry?.trim() ||
     company.industry_type?.trim() ||
     '';
 
-  const displayText = rawSub ? formatSubTypeName(rawSub) : 'Unspecified';
+  const isPlaceholder =
+    !rawSub ||
+    /none/i.test(rawSub) ||
+    /to be added later/i.test(rawSub) ||
+    /unspecified/i.test(rawSub);
+
+  const displayText = !isPlaceholder ? formatSubTypeName(rawSub) : 'Unspecified';
 
   return {
     icon,
@@ -271,8 +277,12 @@ export const IndustryBadge: React.FC<IndustryBadgeProps> = ({
 }) => {
   const { icon, displayText, parentLabel } = formatIndustryBadge(company);
 
-  if (displayText === 'Unspecified' && !showEmpty) {
-    return null;
+  if (displayText === 'Unspecified') {
+    if (!showEmpty) return null;
+    const raw = (company as any)?.subType || company?.business_type_raw || company?.industry || '';
+    if (!raw || /none/i.test(raw) || /to be added later/i.test(raw)) {
+      return null;
+    }
   }
 
   const sizeClasses = {
