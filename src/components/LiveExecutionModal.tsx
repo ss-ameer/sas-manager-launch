@@ -827,7 +827,7 @@ export default function LiveExecutionModal({
 
       // Default next follow-up date to tomorrow at 10:00 AM (if not already set)
       if (currentTask.next_followup_date) {
-        setNextFollowUpDate(currentTask.next_followup_date);
+        setNextFollowUpDate(String(currentTask.next_followup_date).replace(' ', 'T').slice(0, 16));
         setActivePreset('custom');
       } else {
         const tomorrow = new Date();

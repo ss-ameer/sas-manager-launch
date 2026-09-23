@@ -453,6 +453,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     if (isInternal || isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
       setOutcome('');
     }
+
+    // Reset phone-specific follow-up retry state when switching away from Phone Call to asynchronous or internal channels
+    if ((isAsync || isInternal) && !isCall) {
+      if (
+        followupIntent.toLowerCase().includes('call dropped') ||
+        followupIntent.toLowerCase().includes('retry callback') ||
+        status === 'Follow-Up Required' ||
+        outcome === 'Call Dropped / Disconnected'
+      ) {
+        setFollowupDate('');
+        setFollowupIntent('');
+      }
+    }
     
     if (newChanStr !== 'Email') setEmailSubject('');
     if (!isMessageChannel(newChanStr)) setWhatsappDraft('');
