@@ -1,3 +1,14 @@
+/**
+ * TaskCallHistoryPanel.tsx (RETIRED)
+ *
+ * NOTE: This component is retired. All views now use `CompanyActivityTimeline` directly
+ * with `compact={true}` for unified activity rendering, omnichannel disposition pills,
+ * and company-level chronological timeline management.
+ *
+ * This file is retained strictly as a backward-compatibility stub to guarantee zero
+ * orphaned import or export breakages across future modular extensions.
+ */
+
 import React from 'react';
 import { CallLogEntry, Contact, Company } from '../types';
 import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
@@ -96,7 +107,7 @@ export function formatFollowupDate(dateStr?: string): string {
 
 /**
  * @deprecated Use CompanyActivityTimeline directly with `compact={true}`.
- * Wrapped around CompanyActivityTimeline for backward compatibility.
+ * Clean backward-compatibility wrapper around CompanyActivityTimeline.
  */
 export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
   companyName = 'Account',
@@ -104,13 +115,11 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
   company,
   historyLogs = [],
   isLoading = false,
-  isExpanded,
   onToggleExpand,
   onOpenCompany360,
   onSelectCallLog,
   contacts = [],
-  className = '',
-  isMobile = false
+  className = ''
 }) => {
   return (
     <CompanyActivityTimeline
@@ -131,3 +140,4 @@ export const TaskCallHistoryPanel: React.FC<TaskCallHistoryPanelProps> = ({
 };
 
 export default TaskCallHistoryPanel;
+

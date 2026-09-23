@@ -154,6 +154,20 @@ export function parseTaskScheduledDate(dateStr?: any): Date | null {
   return null;
 }
 
+export function parseLocalDateBoundary(dateStr: string, isEndOfDay = false): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.trim().split('-');
+  if (parts.length !== 3) return null;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  if (isEndOfDay) {
+    return new Date(year, month, day, 23, 59, 59, 999);
+  }
+  return new Date(year, month, day, 0, 0, 0, 0);
+}
+
 export function isTaskOverdue(dateStr?: string): boolean {
   if (!dateStr) return false;
   const parsed = parseTaskScheduledDate(dateStr);
@@ -648,17 +662,33 @@ export default function CallLogManager({
     }
   };
 
-  // Search & Filters
+  // Search & Multi-Filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [industryFilter, setIndustryFilter] = useState<string>('all');
+  const [channelFilter, setChannelFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [outcomeFilter, setOutcomeFilter] = useState<string>('all');
+  const [datePresetFilter, setDatePresetFilter] = useState<string>('all');
+  const [customDateStart, setCustomDateStart] = useState<string>('');
+  const [customDateEnd, setCustomDateEnd] = useState<string>('');
+  const [agentFilter, setAgentFilter] = useState<string>('all');
+  const [industryFilter, setIndustryFilter] = useState<string>('all');
   const [geographyFilter, setGeographyFilter] = useState<string>('all');
 
   // Reset page to 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, industryFilter, statusFilter, outcomeFilter, geographyFilter]);
+  }, [
+    searchTerm,
+    channelFilter,
+    statusFilter,
+    outcomeFilter,
+    datePresetFilter,
+    customDateStart,
+    customDateEnd,
+    agentFilter,
+    industryFilter,
+    geographyFilter
+  ]);
 
   // Multi-select & Batch Actions (Marking is optional)
   const [isMarkingMode, setIsMarkingMode] = useState(false);
@@ -2000,6 +2030,87 @@ export default function CallLogManager({
     return nonScheduledHistoryLogs.filter((l) => Boolean(l.isInternalOps)).length;
   }, [nonScheduledHistoryLogs]);
 
+  // Derived list of distinct agents/operators for the filter dropdown
+  const availableAgents = useMemo(() => {
+    const set = new Set<string>();
+    (salespersons || []).forEach((s) => {
+      const name = s.full_name || '';
+      if (name && name.trim()) set.add(name.trim());
+    });
+    workspaceCallLogs.forEach((l) => {
+      if (l.logged_by && l.logged_by.trim()) set.add(l.logged_by.trim());
+      if (l.sales_person && l.sales_person.trim()) {
+        const resolved = getSalespersonFullName(l.sales_person, salespersons);
+        if (resolved && resolved !== 'Unassigned') set.add(resolved);
+        else set.add(l.sales_person.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [salespersons, workspaceCallLogs]);
+
+  // Active filter count
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (channelFilter !== 'all') count++;
+    if (statusFilter !== 'all') count++;
+    if (outcomeFilter !== 'all') count++;
+    if (datePresetFilter !== 'all') count++;
+    if (datePresetFilter === 'custom' && (customDateStart || customDateEnd)) count++;
+    if (agentFilter !== 'all') count++;
+    if (industryFilter !== 'all') count++;
+    if (geographyFilter !== 'all') count++;
+    return count;
+  }, [searchTerm, channelFilter, statusFilter, outcomeFilter, datePresetFilter, customDateStart, customDateEnd, agentFilter, industryFilter, geographyFilter]);
+
+  // 1-Click Reset All Filters back to defaults
+  const handleResetFilters = useCallback(() => {
+    setSearchTerm('');
+    setChannelFilter('all');
+    setStatusFilter('all');
+    setOutcomeFilter('all');
+    setDatePresetFilter('all');
+    setCustomDateStart('');
+    setCustomDateEnd('');
+    setAgentFilter('all');
+    setIndustryFilter('all');
+    setGeographyFilter('all');
+  }, []);
+
+  // Human-readable labels for active filters in SearchResultCounter
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (channelFilter !== 'all') labels.push(`Channel: ${channelFilter}`);
+    if (statusFilter !== 'all') labels.push(`Status: ${statusFilter}`);
+    if (outcomeFilter !== 'all') labels.push(`Outcome: ${outcomeFilter}`);
+    if (datePresetFilter !== 'all') {
+      if (datePresetFilter === 'custom') {
+        const startLabel = customDateStart || 'any';
+        const endLabel = customDateEnd || 'any';
+        labels.push(`Date: ${startLabel} → ${endLabel}`);
+      } else {
+        const presetName =
+          datePresetFilter === 'today'
+            ? 'Today'
+            : datePresetFilter === 'yesterday'
+            ? 'Yesterday'
+            : datePresetFilter === 'this_week'
+            ? 'This Week'
+            : datePresetFilter === 'this_month'
+            ? 'This Month'
+            : datePresetFilter;
+        labels.push(`Date: ${presetName}`);
+      }
+    }
+    if (agentFilter !== 'all') labels.push(`Agent: ${agentFilter}`);
+    if (industryFilter !== 'all') {
+      const pi = PARENT_INDUSTRIES.find((p) => p.id === industryFilter);
+      labels.push(`Industry: ${pi?.label || industryFilter}`);
+    }
+    if (geographyFilter !== 'all') labels.push(`Location: ${geographyFilter}`);
+    return labels;
+  }, [channelFilter, statusFilter, outcomeFilter, datePresetFilter, customDateStart, customDateEnd, agentFilter, industryFilter, geographyFilter]);
+
   // Filtered History List
   const filteredHistoryLogs = useMemo(() => {
     const list = nonScheduledHistoryLogs.filter((l) => {
@@ -2010,50 +2121,177 @@ export default function CallLogManager({
         if (!l.isInternalOps) return false;
       }
 
+      // Channel Filter
+      if (channelFilter !== 'all') {
+        const normChan = (l.channel || l.interaction_type || (l.isInternalOps ? 'Internal Task' : 'Phone Call')).toLowerCase().trim();
+        const cf = channelFilter.toLowerCase().trim();
+        if (cf === 'phone call') {
+          if (!normChan.includes('call') && !normChan.includes('phone')) return false;
+        } else if (cf === 'whatsapp / message' || cf.includes('whatsapp') || cf.includes('message')) {
+          if (!normChan.includes('whatsapp') && !normChan.includes('message') && !normChan.includes('sms')) return false;
+        } else if (cf === 'email') {
+          if (!normChan.includes('email') && !normChan.includes('mail')) return false;
+        } else if (cf === 'site visit') {
+          if (!normChan.includes('site') && !normChan.includes('visit')) return false;
+        } else if (cf === 'meeting') {
+          if (!normChan.includes('meeting')) return false;
+        } else if (cf === 'internal task') {
+          if (!normChan.includes('internal') && !normChan.includes('task') && !l.isInternalOps) return false;
+        } else {
+          if (!normChan.includes(cf)) return false;
+        }
+      }
+
+      // Status Filter with normalized statuses
       if (statusFilter !== 'all') {
         const normFilter = statusFilter.toLowerCase().trim();
         const normLogStatus = (l.status || '').toLowerCase().trim();
-        if (normLogStatus !== normFilter) return false;
+
+        if (normFilter === 'connected') {
+          const isConnected = normLogStatus === 'connected' || normLogStatus === 'completed / connected' || normLogStatus === 'completed';
+          if (!isConnected) return false;
+        } else if (normFilter === 'scheduled / planned' || normFilter === 'scheduled') {
+          const isScheduled = normLogStatus.includes('scheduled') || normLogStatus.includes('planned') || normLogStatus.includes('draft') || normLogStatus === 'pending';
+          if (!isScheduled) return false;
+        } else if (normFilter === 'no answer / busy') {
+          const isNoAnsOrBusy = normLogStatus.includes('no answer') || normLogStatus.includes('busy') || normLogStatus.includes('voicemail');
+          if (!isNoAnsOrBusy) return false;
+        } else if (normFilter === 'call dropped') {
+          const isDropped = normLogStatus.includes('dropped') || normLogStatus.includes('disconnected');
+          if (!isDropped) return false;
+        } else if (normFilter === 'sent') {
+          const isSent = normLogStatus.includes('sent') || normLogStatus.includes('delivered');
+          if (!isSent) return false;
+        } else if (normFilter === 'invalid number') {
+          const isInvalid = normLogStatus.includes('invalid') || normLogStatus.includes('wrong number');
+          if (!isInvalid) return false;
+        } else {
+          if (normLogStatus !== normFilter) return false;
+        }
       }
-      if (outcomeFilter !== 'all' && l.outcome !== outcomeFilter) return false;
+
+      // Outcome Filter
+      if (outcomeFilter !== 'all') {
+        const normLogOutcome = (l.outcome || '').toLowerCase().trim();
+        const normFilterOutcome = outcomeFilter.toLowerCase().trim();
+        if (normLogOutcome !== normFilterOutcome) return false;
+      }
+
+      // Date Range / Preset Filter
+      if (datePresetFilter !== 'all') {
+        const logDateStr = l.date || l.created_at;
+        const parsed = parseTaskScheduledDate(logDateStr);
+        if (!parsed) return false;
+
+        const now = new Date();
+        if (datePresetFilter === 'today') {
+          const isToday =
+            parsed.getFullYear() === now.getFullYear() &&
+            parsed.getMonth() === now.getMonth() &&
+            parsed.getDate() === now.getDate();
+          if (!isToday) return false;
+        } else if (datePresetFilter === 'yesterday') {
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          const isYesterday =
+            parsed.getFullYear() === yesterday.getFullYear() &&
+            parsed.getMonth() === yesterday.getMonth() &&
+            parsed.getDate() === yesterday.getDate();
+          if (!isYesterday) return false;
+        } else if (datePresetFilter === 'this_week') {
+          const startOfWeek = new Date(now);
+          const day = startOfWeek.getDay();
+          const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+          startOfWeek.setDate(diff);
+          startOfWeek.setHours(0, 0, 0, 0);
+
+          const endOfWeek = new Date(startOfWeek);
+          endOfWeek.setDate(endOfWeek.getDate() + 6);
+          endOfWeek.setHours(23, 59, 59, 999);
+
+          if (parsed.getTime() < startOfWeek.getTime() || parsed.getTime() > endOfWeek.getTime()) {
+            return false;
+          }
+        } else if (datePresetFilter === 'this_month') {
+          const isThisMonth =
+            parsed.getFullYear() === now.getFullYear() &&
+            parsed.getMonth() === now.getMonth();
+          if (!isThisMonth) return false;
+        } else if (datePresetFilter === 'custom') {
+          if (customDateStart) {
+            const start = parseLocalDateBoundary(customDateStart, false);
+            if (start && parsed.getTime() < start.getTime()) return false;
+          }
+          if (customDateEnd) {
+            const end = parseLocalDateBoundary(customDateEnd, true);
+            if (end && parsed.getTime() > end.getTime()) return false;
+          }
+        }
+      }
+
+      // Agent / User Filter
+      if (agentFilter !== 'all') {
+        const normAgent = agentFilter.toLowerCase().trim();
+        const logAgent1 = (l.logged_by || '').toLowerCase().trim();
+        const logAgent2 = (l.sales_person || '').toLowerCase().trim();
+        const logUser = (l.user_name || (l as any).userName || '').toLowerCase().trim();
+        if (
+          logAgent1 !== normAgent &&
+          logAgent2 !== normAgent &&
+          logUser !== normAgent &&
+          !logAgent1.includes(normAgent) &&
+          !logAgent2.includes(normAgent)
+        ) {
+          return false;
+        }
+      }
+
+      // Location / Geography Filter
       if (geographyFilter !== 'all' && l.geography !== geographyFilter) return false;
 
+      // Industry Filter
       const comp = l.company_id ? companies.find((c) => c.id === l.company_id) : null;
-
       if (industryFilter !== 'all') {
         if (!comp || comp.industry_parent !== industryFilter) {
           return false;
         }
       }
 
+      // Search Input: Fast text filtering across company name, contact person, phone number, and interaction notes
       if (searchTerm) {
-        const q = searchTerm.toLowerCase();
+        const q = searchTerm.toLowerCase().trim();
         const callRefId = getReferenceId('CL', l, callLogs).toLowerCase();
         const compRefId = l.company_id ? getReferenceId('CMP', { id: l.company_id }, companies).toLowerCase() : '';
         const contRefId = l.contact_id ? getReferenceId('CT', { id: l.contact_id }, contacts).toLowerCase() : '';
         const enqRefId = l.enquiry_id ? getReferenceId('EQ', { id: l.enquiry_id }, enquiries).toLowerCase() : '';
         const indRaw = (comp?.business_type_raw || comp?.industry_type || comp?.industry || '').toLowerCase();
         const indParent = (comp?.industry_parent || '').toLowerCase();
+        const resolvedCompName = getResolvedCompanyName(l).toLowerCase();
+        const contName = (l.contact_name || '').toLowerCase();
+        const contPhone = (l.contact_phone || '').toLowerCase();
+        const notes = (l.notes || '').toLowerCase();
+        const reqNotes = (l.requirement_notes || '').toLowerCase();
 
         return (
           callRefId.includes(q) ||
           compRefId.includes(q) ||
           contRefId.includes(q) ||
           enqRefId.includes(q) ||
+          resolvedCompName.includes(q) ||
+          contName.includes(q) ||
+          contPhone.includes(q) ||
+          notes.includes(q) ||
+          reqNotes.includes(q) ||
           (l.id || '').toLowerCase().includes(q) ||
           (l.title || '').toLowerCase().includes(q) ||
           (l.internalCategory || '').toLowerCase().includes(q) ||
           (l.requester || '').toLowerCase().includes(q) ||
           (l.deliverableUrl || '').toLowerCase().includes(q) ||
-          (l.notes || '').toLowerCase().includes(q) ||
-          getResolvedCompanyName(l).toLowerCase().includes(q) ||
           indRaw.includes(q) ||
           indParent.includes(q) ||
-          (l.contact_name || '').toLowerCase().includes(q) ||
-          (l.contact_phone || '').includes(q) ||
-          (l.requirement_notes || '').toLowerCase().includes(q) ||
           (l.enquiry_quote_ref || '').toLowerCase().includes(q) ||
-          (l.logged_by || '').toLowerCase().includes(q)
+          (l.logged_by || '').toLowerCase().includes(q) ||
+          (l.sales_person || '').toLowerCase().includes(q)
         );
       }
       return true;
@@ -2068,7 +2306,25 @@ export default function CallLogManager({
         return dateA.localeCompare(dateB);
       }
     });
-  }, [nonScheduledHistoryLogs, historyActivityType, statusFilter, outcomeFilter, geographyFilter, industryFilter, searchTerm, historySortOrder, companies, callLogs, contacts, enquiries]);
+  }, [
+    nonScheduledHistoryLogs,
+    historyActivityType,
+    channelFilter,
+    statusFilter,
+    outcomeFilter,
+    datePresetFilter,
+    customDateStart,
+    customDateEnd,
+    agentFilter,
+    geographyFilter,
+    industryFilter,
+    searchTerm,
+    historySortOrder,
+    companies,
+    callLogs,
+    contacts,
+    enquiries
+  ]);
 
   // Pagination Logic
   const totalItems = filteredHistoryLogs.length;
@@ -2824,19 +3080,42 @@ export default function CallLogManager({
             </div>
           </div>
 
-          {/* Faceted Search & Filters */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-              <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                <Filter className="w-4 h-4" />
-                <span>Faceted Search & Filters</span>
+          {/* Faceted Search & Multi-Filter Control Bar */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
+            {/* Top Row: Title, Active Filter Badge, 1-Click Reset, and View Mode Toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800/60">
+              <div className="flex items-center flex-wrap gap-2 text-xs">
+                <div className="flex items-center space-x-1.5 font-bold text-slate-700 dark:text-slate-200">
+                  <Filter className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span className="font-mono uppercase tracking-wider text-[11px]">Activity Filters</span>
+                </div>
+                {activeFiltersCount > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                    {activeFiltersCount} {activeFiltersCount === 1 ? 'Filter' : 'Filters'} Active
+                  </span>
+                )}
+                {activeFiltersCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer"
+                    title="1-Click Reset all active filters to default"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Filters</span>
+                  </button>
+                )}
               </div>
-              <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg">
+
+              {/* View Mode Toggle: Cards vs Table */}
+              <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => { setViewMode('card'); localStorage.setItem('callLogViewMode', 'card'); }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                    viewMode === 'card' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
+                    viewMode === 'card'
+                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
@@ -2845,8 +3124,10 @@ export default function CallLogManager({
                 <button
                   type="button"
                   onClick={() => { setViewMode('table'); localStorage.setItem('callLogViewMode', 'table'); }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                    viewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
+                    viewMode === 'table'
+                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
                   <List className="w-3.5 h-3.5" />
@@ -2854,24 +3135,219 @@ export default function CallLogManager({
                 </button>
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+
+            {/* Quick Channel Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <span className="text-xs font-semibold text-slate-400 mr-1 flex items-center gap-1 shrink-0">
+                <ListFilter className="w-3.5 h-3.5" />
+                <span>Channel:</span>
+              </span>
+              {[
+                { id: 'all', label: 'All Channels' },
+                { id: 'Phone Call', label: 'Phone Call', icon: Phone },
+                { id: 'WhatsApp / Message', label: 'WhatsApp', icon: MessageSquare },
+                { id: 'Email', label: 'Email', icon: Mail },
+                { id: 'Site Visit', label: 'Site Visit', icon: Building },
+                { id: 'Meeting', label: 'Meeting', icon: Users },
+                { id: 'Internal Task', label: 'Internal Task', icon: CheckSquare }
+              ].map((ch) => {
+                const isSelected = channelFilter === ch.id;
+                const IconComponent = ch.icon;
+                return (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => setChannelFilter(ch.id)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition cursor-pointer border ${
+                      isSelected
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs font-semibold'
+                        : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                    }`}
+                  >
+                    {IconComponent && <IconComponent className="w-3 h-3" />}
+                    <span>{ch.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Primary Filter Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {/* 1. Fast Search Input */}
+              <div className="relative lg:col-span-2">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search logs..."
-                  className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  placeholder="Search company, contact, phone, notes..."
+                  className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400"
                 />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
+              {/* 2. Channel Dropdown */}
+              <div>
+                <select
+                  value={channelFilter}
+                  onChange={(e) => setChannelFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                >
+                  <option value="all">All Channels</option>
+                  <option value="Phone Call">📞 Phone Call</option>
+                  <option value="WhatsApp / Message">💬 WhatsApp / Message</option>
+                  <option value="Email">✉️ Email</option>
+                  <option value="Site Visit">🏢 Site Visit</option>
+                  <option value="Meeting">👥 Meeting</option>
+                  <option value="Internal Task">📋 Internal Task</option>
+                </select>
+              </div>
+
+              {/* 3. Status Dropdown (Normalized Statuses) */}
+              <div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="Connected">Connected</option>
+                  <option value="Scheduled / Planned">Scheduled / Planned</option>
+                  <option value="No Answer / Busy">No Answer / Busy</option>
+                  <option value="Call Dropped">Call Dropped</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Invalid Number">Invalid Number</option>
+                  {activeStatuses
+                    .filter((s) => {
+                      const norm = s.toLowerCase();
+                      return ![
+                        'connected',
+                        'scheduled / planned',
+                        'scheduled',
+                        'no answer / busy',
+                        'no answer',
+                        'busy',
+                        'voicemail',
+                        'call dropped',
+                        'dropped',
+                        'sent',
+                        'invalid number',
+                        'invalid / wrong number'
+                      ].includes(norm);
+                    })
+                    .map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* 4. Outcome Dropdown */}
+              <div>
+                <select
+                  value={outcomeFilter}
+                  onChange={(e) => setOutcomeFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                >
+                  <option value="all">All Outcomes</option>
+                  {activeOutcomes.map((oc) => (
+                    <option key={oc} value={oc}>
+                      {oc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 5. Date Preset Dropdown */}
+              <div>
+                <select
+                  value={datePresetFilter}
+                  onChange={(e) => setDatePresetFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                >
+                  <option value="all">All Time</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="this_week">This Week</option>
+                  <option value="this_month">This Month</option>
+                  <option value="custom">📅 Custom Range...</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Custom Date Range Row (when "Custom Range..." is selected) */}
+            {datePresetFilter === 'custom' && (
+              <div className="flex flex-wrap items-center gap-2.5 p-2.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 rounded-xl text-xs">
+                <span className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>Custom Date Range:</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor="custom-date-start" className="text-slate-500 dark:text-slate-400 font-medium">From:</label>
+                  <input
+                    id="custom-date-start"
+                    type="date"
+                    value={customDateStart}
+                    onChange={(e) => setCustomDateStart(e.target.value)}
+                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor="custom-date-end" className="text-slate-500 dark:text-slate-400 font-medium">To:</label>
+                  <input
+                    id="custom-date-end"
+                    type="date"
+                    value={customDateEnd}
+                    onChange={(e) => setCustomDateEnd(e.target.value)}
+                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                {(customDateStart || customDateEnd) && (
+                  <button
+                    type="button"
+                    onClick={() => { setCustomDateStart(''); setCustomDateEnd(''); }}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium ml-1 cursor-pointer"
+                  >
+                    Clear dates
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Secondary Controls: Agent, Industry, Geography, and Sort Order */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 border-t border-slate-100 dark:border-slate-800/40">
+              {/* 6. Agent / User Filter */}
+              <div>
+                <select
+                  value={agentFilter}
+                  onChange={(e) => setAgentFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                >
+                  <option value="all">All Agents / Operators</option>
+                  {availableAgents.map((ag) => (
+                    <option key={ag} value={ag}>
+                      👤 {ag}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 7. Industry Filter */}
               <div>
                 <select
                   value={industryFilter}
                   onChange={(e) => setIndustryFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
                 >
                   <option value="all">All Industries</option>
                   {PARENT_INDUSTRIES.map((pi) => (
@@ -2881,54 +3357,32 @@ export default function CallLogManager({
                   ))}
                 </select>
               </div>
-              
-              <div>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
-                >
-                  <option value="all">All Statuses</option>
-                  {activeStatuses.map((st) => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <select
-                  value={outcomeFilter}
-                  onChange={(e) => setOutcomeFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
-                >
-                  <option value="all">All Outcomes</option>
-                  {activeOutcomes.map((oc) => (
-                    <option key={oc} value={oc}>{oc}</option>
-                  ))}
-                </select>
-              </div>
 
+              {/* 8. Geography / Location Filter */}
               <div>
                 <select
                   value={geographyFilter}
                   onChange={(e) => setGeographyFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
                 >
                   <option value="all">All Locations</option>
                   {(activeWorkspace.geography_options || []).map((g) => (
-                    <option key={g} value={g}>{g}</option>
+                    <option key={g} value={g}>
+                      📍 {g}
+                    </option>
                   ))}
                 </select>
               </div>
 
+              {/* 9. Sort Order */}
               <div>
                 <select
                   value={historySortOrder}
                   onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white font-medium cursor-pointer"
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
                 >
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
+                  <option value="newest">🕒 Newest First</option>
+                  <option value="oldest">🕒 Oldest First</option>
                 </select>
               </div>
             </div>
@@ -2940,19 +3394,9 @@ export default function CallLogManager({
               searchQuery={searchTerm}
               entityLabel={historyActivityType === 'internal' ? 'Internal Ops Tasks' : 'Outreach Logs'}
               singularEntityLabel={historyActivityType === 'internal' ? 'Internal Task' : 'Outreach Log'}
-              onClear={() => {
-                setSearchTerm('');
-                setIndustryFilter('all');
-                setStatusFilter('all');
-                setOutcomeFilter('all');
-                setGeographyFilter('all');
-              }}
-              activeFilterLabels={[
-                industryFilter !== 'all' ? `Industry: ${PARENT_INDUSTRIES.find(p => p.id === industryFilter)?.label || industryFilter}` : '',
-                statusFilter !== 'all' ? `Status: ${statusFilter}` : '',
-                outcomeFilter !== 'all' ? `Outcome: ${outcomeFilter}` : '',
-                geographyFilter !== 'all' ? `Location: ${geographyFilter}` : ''
-              ].filter(Boolean)}
+              onClear={handleResetFilters}
+              activeFiltersCount={activeFiltersCount}
+              activeFilterLabels={activeFilterLabels}
             />
           </div>
 
@@ -3941,16 +4385,10 @@ export default function CallLogManager({
                     ? 'No internal ops tasks match the search or filters.'
                     : 'No outreach call logs match the search or filters.'}
                 </p>
-                {(searchTerm || industryFilter !== 'all' || statusFilter !== 'all' || outcomeFilter !== 'all' || geographyFilter !== 'all') ? (
+                {activeFiltersCount > 0 ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSearchTerm('');
-                      setIndustryFilter('all');
-                      setStatusFilter('all');
-                      setOutcomeFilter('all');
-                      setGeographyFilter('all');
-                    }}
+                    onClick={handleResetFilters}
                     className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer font-sans not-italic"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
