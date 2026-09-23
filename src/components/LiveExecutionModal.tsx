@@ -1828,13 +1828,13 @@ export default function LiveExecutionModal({
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
         id: taskId,
-        channel: currentChannel as ActivityChannel,
+        channel: (pivotToWhatsApp ? 'Message' : currentChannel) as ActivityChannel,
         contact_id: resolvedTargetContactId,
         contact_name: resolvedTargetContactName,
         contact_phone: resolvedTargetContactPhone,
         ...((resolvedTargetContactEmail ? { contact_email: resolvedTargetContactEmail, target_email: resolvedTargetContactEmail } : {}) as any),
-        status: updatedStatus as CallStatus,
-        outcome: finalOutcome,
+        status: (pivotToWhatsApp ? 'Completed' : updatedStatus) as CallStatus,
+        outcome: pivotToWhatsApp ? (finalOutcome || 'Message Sent / Awaiting Reply') : finalOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
         requirement_notes: finalNotes,
         date: nowIso,
@@ -1864,7 +1864,7 @@ export default function LiveExecutionModal({
           contact_phone: resolvedTargetContactPhone,
           channel: followUpChannel || currentChannel || 'Phone Call',
           date: nextFollowUpDate,
-          status: 'Scheduled / Planned' as CallStatus,
+          status: 'Scheduled' as CallStatus,
           outcome: 'Follow-Up Scheduled',
           purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
           requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : (notes.trim() ? `Follow up on: ${notes.trim()}` : ''),
@@ -1947,12 +1947,19 @@ export default function LiveExecutionModal({
       // Step 4: Advance to next lead, close modal, or pivot in-place to WhatsApp
       if (pivotToWhatsApp) {
         // Immediate Pivot to WhatsApp:
+        // Launch WhatsApp web/app preserving any drafted notes
+        const targetPhone = resolvedTargetContactPhone || directPhone || companyMainPhone || '';
+        const waUrl = getWhatsAppUrl(targetPhone, notes.trim() || undefined);
+        if (waUrl) {
+          window.open(waUrl, '_blank', 'noopener,noreferrer');
+        }
+
         // Transition modal to Message (WhatsApp), reset call-specific scratchpad notes, keep same lead active
         setCurrentChannel('Message (WhatsApp/SMS)');
         setFollowUpChannel('Message (WhatsApp/SMS)');
         setNotes('');
-        setCallStatus('Completed / Sent');
-        setCallOutcome('WhatsApp Sent / Message Delivered');
+        setCallStatus('Completed');
+        setCallOutcome('Message Sent / Awaiting Reply');
         const waDisps = getDispositionsForChannel('Message (WhatsApp/SMS)');
         if (waDisps.length > 0) {
           setActiveDispositionId(waDisps[0].id);
@@ -2036,7 +2043,7 @@ export default function LiveExecutionModal({
         date: finalRescheduleDate,
         next_followup_date: finalRescheduleDate,
         scheduled_for: finalRescheduleDate,
-        status: 'Scheduled / Planned' as CallStatus,
+        status: 'Scheduled' as CallStatus,
         requirement_notes: updatedNotes,
         updatedAt: nowIso,
         rescheduled_at: nowIso,
@@ -4033,7 +4040,7 @@ export default function LiveExecutionModal({
 
               {/* Right: Pivot WhatsApp, Save & Close (Secondary) and Complete & Next / Save & Next (Primary) */}
               <div className="flex items-center space-x-2.5">
-                {isPhoneChannel && !isExecutingTask && (
+                {isPhoneChannel && (
                   <button
                     type="button"
                     id="save-and-pivot-whatsapp-button"
@@ -4043,7 +4050,7 @@ export default function LiveExecutionModal({
                     title="Log this call and open WhatsApp message view without advancing to the next lead"
                   >
                     <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Log & WhatsApp</span>
+                    <span>Log & Open WhatsApp</span>
                   </button>
                 )}
 

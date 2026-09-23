@@ -73,7 +73,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('whatsapp') ||
     norm.includes('sms')
   ) {
-    return ['Sent / Completed', 'Scheduled / Draft', 'Failed / Bounced'];
+    return ['Sent', 'Scheduled / Planned', 'Failed / Bounced'];
   }
 
   // Meeting / Site Visit
@@ -82,7 +82,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('site visit') ||
     norm.includes('visit')
   ) {
-    return ['Completed', 'Scheduled / Planned', 'Cancelled', 'Rescheduled'];
+    return ['Completed', 'Scheduled / Planned', 'Cancelled'];
   }
 
   // Internal Task / Admin
@@ -91,7 +91,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('task') ||
     norm.includes('admin')
   ) {
-    return ['Completed', 'In Progress', 'Scheduled / Planned'];
+    return ['Completed', 'Scheduled / Planned', 'In Progress'];
   }
 
   // Default: Phone Call

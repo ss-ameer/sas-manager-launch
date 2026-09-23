@@ -159,7 +159,7 @@ export function formatCompletedTimestamp(dateStr?: string): { relative: string; 
     }
 
     return {
-      relative: `Completed · ${relativeTime}`,
+      relative: relativeTime,
       formatted,
     };
   } catch {
@@ -513,22 +513,76 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   };
 
   /**
-   * Normalizes bulky legacy status strings for cleaner badge display:
-   * - 'Completed / Connected' -> 'Connected'
-   * - 'No Answer / Voicemail' or 'No Answer / Busy' -> 'No Answer'
-   * - 'Invalid / Wrong Number' -> 'Invalid Number'
-   * - 'Call Dropped / Disconnected' -> 'Call Dropped'
-   * - Any other string with ' / ' where the first term is 'Completed' or 'Scheduled' -> displays the second term.
+   * Normalizes channel names for clean badge display:
+   * - WhatsApp/SMS/Message -> 'WhatsApp'
+   * - Email -> 'Email'
+   * - Meeting -> 'Meeting'
+   * - Site Visit -> 'Site Visit'
+   * - Internal Task -> 'Internal Task'
+   * - Call -> 'Phone Call'
    */
-  const normalizeStatusBadgeLabel = (status?: string): string => {
+  const normalizeChannelBadgeLabel = (rawChannel?: string): string => {
+    if (!rawChannel) return 'Phone Call';
+    const norm = rawChannel.toLowerCase().trim();
+    if (norm.includes('whatsapp') || norm.includes('message') || norm.includes('sms')) return 'WhatsApp';
+    if (norm.includes('email') || norm.includes('mail')) return 'Email';
+    if (norm.includes('meeting')) return 'Meeting';
+    if (norm.includes('site') || norm.includes('visit')) return 'Site Visit';
+    if (norm.includes('task') || norm.includes('admin') || norm.includes('internal')) return 'Internal Task';
+    if (norm.includes('call') || norm.includes('phone')) return 'Phone Call';
+    return rawChannel;
+  };
+
+  /**
+   * Normalizes status strings for clean, channel-appropriate single-word badge display:
+   * - Message / Email: 'Sent', 'Scheduled', 'Failed'
+   * - Site Visit / Meeting: 'Completed', 'Scheduled', 'Cancelled'
+   * - Internal Task: 'Completed', 'Scheduled', 'In Progress'
+   * - Phone Call: 'Connected', 'Scheduled', 'No Answer', 'Busy', 'Call Dropped', 'Invalid Number'
+   */
+  const normalizeStatusBadgeLabel = (status?: string, channel?: string): string => {
     if (!status) return 'Logged';
     const trimmed = status.trim();
     const lower = trimmed.toLowerCase();
+    const chanLower = (channel || '').toLowerCase().trim();
+    const isMsgOrEmail = chanLower.includes('whatsapp') || chanLower.includes('message') || chanLower.includes('email') || chanLower.includes('sms') || chanLower.includes('mail');
+    const isMeetingOrSite = chanLower.includes('meeting') || chanLower.includes('site') || chanLower.includes('visit');
 
-    if (lower === 'completed / connected') return 'Connected';
-    if (lower === 'no answer / voicemail' || lower === 'no answer / busy') return 'No Answer';
-    if (lower === 'invalid / wrong number' || lower === 'invalid/wrong number') return 'Invalid Number';
-    if (lower === 'call dropped / disconnected' || lower === 'call dropped/disconnected') return 'Call Dropped';
+    if (isMsgOrEmail) {
+      if (lower === 'completed' || lower.includes('sent') || lower.includes('delivered')) {
+        return 'Sent';
+      }
+      if (lower.includes('scheduled') || lower.includes('planned') || lower.includes('draft')) {
+        return 'Scheduled';
+      }
+      if (lower.includes('failed') || lower.includes('bounced') || lower.includes('invalid')) {
+        return 'Failed';
+      }
+    }
+
+    if (isMeetingOrSite) {
+      if (lower === 'completed' || lower.includes('conducted')) {
+        return 'Completed';
+      }
+      if (lower.includes('scheduled') || lower.includes('planned')) {
+        return 'Scheduled';
+      }
+      if (lower.includes('cancelled') || lower.includes('canceled') || lower.includes('no show') || lower.includes('denied') || lower.includes('rescheduled')) {
+        return 'Cancelled';
+      }
+    }
+
+    if (chanLower.includes('task') || chanLower.includes('internal') || chanLower.includes('admin')) {
+      if (lower === 'completed') return 'Completed';
+      if (lower.includes('scheduled') || lower.includes('planned')) return 'Scheduled';
+      if (lower.includes('progress') || lower.includes('working') || lower.includes('blocked')) return 'In Progress';
+    }
+
+    if (lower === 'completed / connected' || lower === 'connected') return 'Connected';
+    if (lower === 'no answer / voicemail' || lower === 'no answer / busy' || lower === 'no answer' || lower === 'busy') return 'No Answer';
+    if (lower === 'invalid / wrong number' || lower === 'invalid/wrong number' || lower === 'invalid number') return 'Invalid Number';
+    if (lower === 'call dropped / disconnected' || lower === 'call dropped/disconnected' || lower === 'call dropped' || lower === 'follow-up required') return 'Call Dropped';
+    if (lower === 'scheduled / planned' || lower === 'scheduled / draft' || lower === 'scheduled') return 'Scheduled';
 
     if (trimmed.includes(' / ')) {
       const parts = trimmed.split(' / ');
@@ -789,7 +843,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       task.notes ||
                       task.purpose ||
                       'Follow-up scheduled';
-                    const channelName = task.channel || task.interaction_type || (isEmailTask ? 'Email' : 'Call');
+                    const channelName = normalizeChannelBadgeLabel(task.channel || task.interaction_type || (isEmailTask ? 'Email' : 'Call'));
                     const canAccessTask = canAccessActivityDetail(user, task, enquiries, activeWorkspace, salespersons);
 
                     return (
@@ -1005,8 +1059,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const matchedPhone = compPhones.find((p) => (p.value && phoneTarget && isSamePhoneNumber(p.value, phoneTarget)) || p.value === phoneTarget || p.number === phoneTarget);
               const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
 
-              const channelName = log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call');
-              const statusLabel = normalizeStatusBadgeLabel(log.status);
+              const channelName = normalizeChannelBadgeLabel(log.channel || log.interaction_type || (isEmailChannel ? 'Email' : 'Call'));
+              const statusLabel = normalizeStatusBadgeLabel(log.status, channelName);
               const outcomeLabel = log.outcome || null;
               const badgeStyle = getStatusBadgeStyle(log.status || statusLabel);
 

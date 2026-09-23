@@ -4638,26 +4638,58 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                  {getStatusesForChannel(interactionChannel).map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => {
-                        const newStatus = st as CallStatus;
-                        setStatus(newStatus);
-                        if (!isSuccessStatus(newStatus)) {
-                          setOutcome('');
-                        }
-                      }}
-                      className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
-                        status === st || (st === 'Scheduled / Planned' && status === 'Scheduled') || (st === 'Completed / Connected' && status === 'Completed')
-                          ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
+                  {getStatusesForChannel(interactionChannel).map((st) => {
+                    const isActive =
+                      status === st ||
+                      (st === 'Sent' && (status === 'Completed' || status === 'Sent' || status === 'Sent / Completed')) ||
+                      (st === 'Completed' && (status === 'Completed' || status === 'Completed / Conducted' || status === 'Completed / Connected')) ||
+                      (st === 'Scheduled / Planned' && (status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft')) ||
+                      (st === 'Failed / Bounced' && (status === 'Failed' || status === 'Failed / Bounced')) ||
+                      (st === 'Cancelled' && (status === 'Cancelled' || status === 'Cancelled / Declined')) ||
+                      (st === 'In Progress' && status === 'In Progress');
+
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          let newStatus: CallStatus = st as CallStatus;
+                          if (st === 'Sent') {
+                            newStatus = 'Completed';
+                          } else if (st === 'Scheduled / Planned') {
+                            newStatus = 'Scheduled';
+                          } else if (st === 'Failed / Bounced') {
+                            newStatus = 'Failed';
+                          }
+                          setStatus(newStatus);
+                          if (!isSuccessStatus(newStatus)) {
+                            setOutcome('');
+                          }
+                          if (st === 'Scheduled / Planned') {
+                            if (!followupDate) {
+                              applyFollowUpPreset('tomorrow');
+                            }
+                            setTimeout(() => {
+                              const input = document.getElementById('drawer-next-followup-datetime') as HTMLInputElement | null;
+                              if (input) {
+                                input.focus();
+                                if (typeof (input as any).showPicker === 'function') {
+                                  try { (input as any).showPicker(); } catch {}
+                                }
+                              }
+                            }, 50);
+                          }
+                        }}
+                        className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
+                          isActive
+                            ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
