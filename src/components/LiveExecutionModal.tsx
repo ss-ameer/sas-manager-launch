@@ -470,8 +470,8 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
 export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
   {
     id: 'wa_sent',
-    label: 'Message Delivered',
-    sublabel: 'Chat sent via WhatsApp',
+    label: 'Message Sent / Awaiting Reply',
+    sublabel: 'Delivered via WhatsApp',
     status: 'Sent / Completed',
     defaultOutcome: 'Message Sent / Awaiting Reply',
     defaultPreset: 'tomorrow',
@@ -482,7 +482,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
   },
   {
     id: 'wa_followup',
-    label: 'Follow-up Required',
+    label: 'Follow-up Scheduled',
     sublabel: 'Planned message cadence',
     status: 'Sent / Completed',
     defaultOutcome: 'Follow-up Scheduled',
@@ -494,7 +494,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
   },
   {
     id: 'wa_noresponse',
-    label: 'No Response / Read',
+    label: 'No Response / Ghosted',
     sublabel: 'No reply received',
     status: 'Sent / Completed',
     defaultOutcome: 'No Response / Ghosted',
@@ -506,7 +506,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
   },
   {
     id: 'wa_invalid',
-    label: 'Not on WhatsApp / Invalid',
+    label: 'Invalid Number / Not on WhatsApp',
     sublabel: 'Failed to reach number',
     status: 'Failed / Bounced',
     defaultOutcome: 'Wrong Person / Unqualified',
@@ -1574,10 +1574,19 @@ export default function LiveExecutionModal({
   const isSiteVisitChannel = chNorm.includes('visit') || chNorm.includes('site');
   const isInternalChannel = chNorm.includes('internal') || chNorm.includes('task') || chNorm.includes('admin');
   const isPhoneChannel = chNorm.includes('call') || chNorm.includes('phone');
+  const isWhatsAppChannel = chNorm.includes('whatsapp') || chNorm.includes('message') || chNorm.includes('sms');
   const isPhoneOrWhatsApp = !isEmailChannel && !isMeetingChannel && !isSiteVisitChannel && !isInternalChannel;
+  const hasAvailableMobile = Boolean(
+    (directPhone && !isTollFreeOrLandline(directPhone)) ||
+    getBestMobileForContact(targetContact) ||
+    resolveBestCompanyMobile(availableCompanyContacts, targetContact)?.phone ||
+    (companyMainPhone && !isTollFreeOrLandline(companyMainPhone))
+  );
+  const showLogAndOpenWhatsApp = isWhatsAppChannel || hasAvailableMobile;
   const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const isCompletedState = isSuccessStatus(callStatus);
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
+  const showOutcomeSelector = isWhatsAppChannel || (isCompletedState && availableOutcomes.length > 0 && !isEmailChannel);
 
   // Identify when modal is executing a scheduled task from the queue
   const isExecutingTask = Boolean(
@@ -2562,7 +2571,7 @@ export default function LiveExecutionModal({
             {/* Scrollable Form Content */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
               {/* Company Header with Google Search & Two-Tier Industry Badge */}
-              <div className="p-3.5 bg-slate-50/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
+              <div className="p-3.5 bg-slate-50/80 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5 mb-3">
                 <div className="flex flex-wrap items-start justify-between gap-2.5">
                   <div className="flex items-start space-x-2.5">
                     <div className="p-2 bg-blue-100/70 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-xl shrink-0 mt-0.5">
@@ -2612,7 +2621,7 @@ export default function LiveExecutionModal({
               {isAddingInlinePhone && (
                 <div
                   id="inline-add-phone-panel"
-                  className="p-3.5 bg-amber-50/95 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 rounded-xl shadow-xs space-y-2.5 animate-in fade-in duration-150"
+                  className="p-3.5 bg-amber-50/95 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 rounded-xl shadow-xs space-y-2.5 mb-3 animate-in fade-in duration-150"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
@@ -2764,7 +2773,7 @@ export default function LiveExecutionModal({
               )}
 
               {/* Dual-Track Contact Deck with Active Target Highlighting */}
-              <div className="sticky top-0 z-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 pb-3 pt-1 shadow-xs">
+              <div className="sticky top-0 z-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 pb-3 pt-3 !mt-0 -mx-4 sm:-mx-5 px-4 sm:px-5 shadow-xs">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* a) Target Contact Person Card */}
                 <div
@@ -3825,7 +3834,7 @@ export default function LiveExecutionModal({
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
                     <Activity className="w-3.5 h-3.5 text-blue-500" />
-                    <span>1-Click Disposition ({activeChannel})</span>
+                    <span>1-Click Disposition ({activeChannel.toLowerCase().includes('whatsapp') || activeChannel.toLowerCase().includes('message') ? 'WhatsApp' : getChannelShortLabel(activeChannel)})</span>
                   </label>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                     Pre-selects standard next-step defaults
@@ -3864,7 +3873,7 @@ export default function LiveExecutionModal({
                 </div>
 
                 {/* Interaction Purpose & Detailed Outcome Grid */}
-                <div className={`pt-1 grid gap-2.5 ${isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                <div className={`pt-1 grid gap-2.5 ${showOutcomeSelector ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                   {/* Purpose Selector */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
@@ -3900,7 +3909,7 @@ export default function LiveExecutionModal({
                   </div>
 
                   {/* Outcome Refinement / Fine-Tuning Dropdown */}
-                  {isCompletedState && availableOutcomes.length > 0 && !activeChannel.toLowerCase().match(/email|message|whatsapp|sms/) && (
+                  {showOutcomeSelector && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label htmlFor="activity-outcome-select" className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
@@ -4528,14 +4537,14 @@ export default function LiveExecutionModal({
 
               {/* Right: Pivot WhatsApp, Save & Close (Secondary) and Complete & Next / Save & Next (Primary) */}
               <div className="flex items-center space-x-2.5">
-                {isPhoneChannel && (
+                {showLogAndOpenWhatsApp && (
                   <button
                     type="button"
                     id="save-and-pivot-whatsapp-button"
                     disabled={isSubmitting}
                     onClick={handlePivotToWhatsApp}
                     className="px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800/60 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer shadow-2xs flex items-center space-x-1.5 disabled:opacity-50"
-                    title="Log this call and open WhatsApp message view without advancing to the next lead"
+                    title="Log activity and open WhatsApp message view"
                   >
                     <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>Log & Open WhatsApp</span>
