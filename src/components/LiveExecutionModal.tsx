@@ -39,7 +39,8 @@ import {
   CalendarX,
   AlertTriangle,
   ShieldAlert,
-  PhoneOff
+  PhoneOff,
+  Plus
 } from 'lucide-react';
 import {
   CallLogEntry,
@@ -735,6 +736,14 @@ export default function LiveExecutionModal({
   // Active Target Selection: 'contact' | 'mainline' (auto-detected from task payload, with user override capability)
   const [activeTargetOverride, setActiveTargetOverride] = useState<'contact' | 'mainline' | null>(null);
 
+  // Company Multi-Line & Inline Phone Add States
+  const [selectedCompanyPhoneOverride, setSelectedCompanyPhoneOverride] = useState<string | null>(null);
+  const [isAddingInlinePhone, setIsAddingInlinePhone] = useState<boolean>(false);
+  const [inlinePhoneTarget, setInlinePhoneTarget] = useState<'mainline' | 'contact'>('mainline');
+  const [inlinePhoneLabel, setInlinePhoneLabel] = useState<string>('Front Desk');
+  const [inlinePhoneNumber, setInlinePhoneNumber] = useState<string>('');
+  const [isSavingInlinePhone, setIsSavingInlinePhone] = useState<boolean>(false);
+
   // Expandable state for Linked Enquiry line items preview
   const [isLinkedEnquiryExpanded, setIsLinkedEnquiryExpanded] = useState<boolean>(false);
 
@@ -826,7 +835,7 @@ export default function LiveExecutionModal({
       }
 
       setIsDnc(Boolean(currentTask.is_dnc || currentTask.dnc));
-      setNotes(currentTask.requirement_notes || currentTask.notes || '');
+      setNotes(currentTask.status === 'Completed' ? (currentTask.requirement_notes || currentTask.notes || '') : '');
       setFollowUpIntent(currentTask.followup_intent || '');
       setFollowUpChannel(normalizeModalFollowUpChannel(taskChan));
 
@@ -905,6 +914,10 @@ export default function LiveExecutionModal({
       setActiveDrawer('none');
       setRescheduleReason('');
       setCancelReason('');
+      setSelectedCompanyPhoneOverride(null);
+      setIsAddingInlinePhone(false);
+      setInlinePhoneNumber('');
+      setInlinePhoneLabel('Front Desk');
 
       // Initialize default reschedule date to tomorrow 10:00 AM
       const reschedTomorrow = new Date();
@@ -999,6 +1012,9 @@ export default function LiveExecutionModal({
     setRescheduleReason('');
     setCancelReason('');
     setIsCompletionMode(false);
+    setSelectedCompanyPhoneOverride(null);
+    setIsAddingInlinePhone(false);
+    setInlinePhoneNumber('');
 
     // Reset interaction scratchpad and follow-up states so new task has clean defaults
     setNotes('');
@@ -1084,15 +1100,70 @@ export default function LiveExecutionModal({
     }
   }, [isOpen, currentTask, contacts, linkedCompany, activeContactId, activeTargetOverride, activeContactPhone, activeContactEmail]);
 
-  // Company Mainline Phone resolution
-  const companyMainPhone = useMemo(() => {
-    if (!linkedCompany) return currentTask?.company_phone || '';
-    const phoneList = getCompanyPhones(linkedCompany);
-    if (phoneList && phoneList.length > 0 && phoneList[0].value) {
-      return phoneList[0].value;
+  // Available Company Phones (Multi-Line support for Company Mainline)
+  const availableCompanyPhones = useMemo(() => {
+    const list: Array<{ id: string; label: string; value: string }> = [];
+    const seen = new Set<string>();
+
+    if (linkedCompany) {
+      const compPhones = getCompanyPhones(linkedCompany);
+      compPhones.forEach((p, idx) => {
+        const val = (p.value || p.number || '').trim();
+        if (val && !seen.has(val)) {
+          seen.add(val);
+          list.push({
+            id: p.id || `cp_${idx}`,
+            label: p.label || 'Landline',
+            value: val
+          });
+        }
+      });
+
+      const rawNumbers = (linkedCompany as any).phone_numbers;
+      if (Array.isArray(rawNumbers)) {
+        rawNumbers.forEach((p: any, idx: number) => {
+          const val = typeof p === 'string' ? p.trim() : (p?.value || p?.number || '').trim();
+          const lbl = typeof p === 'object' && p?.label ? p.label : 'Office';
+          if (val && !seen.has(val)) {
+            seen.add(val);
+            list.push({ id: `raw_pn_${idx}`, label: lbl, value: val });
+          }
+        });
+      }
+
+      const generalPhones = (linkedCompany as any).general_phones || (linkedCompany as any).phones;
+      if (Array.isArray(generalPhones)) {
+        generalPhones.forEach((p: any, idx: number) => {
+          const val = typeof p === 'string' ? p.trim() : (p?.value || p?.number || '').trim();
+          const lbl = typeof p === 'object' && p?.label ? p.label : 'Switchboard';
+          if (val && !seen.has(val)) {
+            seen.add(val);
+            list.push({ id: `gen_p_${idx}`, label: lbl, value: val });
+          }
+        });
+      }
     }
-    return linkedCompany.general_phone || linkedCompany.phone || currentTask?.company_phone || '';
+
+    const taskCompPhone = (currentTask?.company_phone || '').trim();
+    if (taskCompPhone && !seen.has(taskCompPhone)) {
+      seen.add(taskCompPhone);
+      list.push({ id: 'task_cp', label: 'Mainline', value: taskCompPhone });
+    }
+
+    return list;
   }, [linkedCompany, currentTask]);
+
+  // Company Mainline Phone resolution (incorporating operator line selection)
+  const companyMainPhone = useMemo(() => {
+    if (selectedCompanyPhoneOverride && availableCompanyPhones.some((p) => p.value === selectedCompanyPhoneOverride)) {
+      return selectedCompanyPhoneOverride;
+    }
+    if (availableCompanyPhones.length > 0) {
+      return availableCompanyPhones[0].value;
+    }
+    if (!linkedCompany) return currentTask?.company_phone || '';
+    return linkedCompany.general_phone || linkedCompany.phone || currentTask?.company_phone || '';
+  }, [selectedCompanyPhoneOverride, availableCompanyPhones, linkedCompany, currentTask]);
 
   // Company Mainline Email resolution
   const companyMainEmail = useMemo(() => {
@@ -1585,6 +1656,11 @@ export default function LiveExecutionModal({
 
   // Quick Follow-Up Preset Calculation
   const applyFollowUpPreset = (preset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | 'clear', customIntent?: string) => {
+    // Ensure yellow Reschedule Active Task container is closed when selecting follow-up preset
+    if (activeDrawer === 'reschedule') {
+      setActiveDrawer('none');
+    }
+
     if (preset === 'clear') {
       setNextFollowUpDate('');
       setActivePreset(null);
@@ -1636,6 +1712,85 @@ export default function LiveExecutionModal({
     const offset = targetDate.getTimezoneOffset() * 60000;
     const localIso = new Date(targetDate.getTime() - offset).toISOString().slice(0, 16);
     setNextFollowUpDate(localIso);
+  };
+
+  // Inline Phone Save & Immediate Selection Handler
+  const handleSaveInlinePhone = async () => {
+    const rawNum = inlinePhoneNumber.trim();
+    if (!rawNum) return;
+    setIsSavingInlinePhone(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const labelTrimmed = inlinePhoneLabel.trim() || (inlinePhoneTarget === 'mainline' ? 'Front Desk' : 'Mobile');
+
+      if (inlinePhoneTarget === 'mainline' || !targetContact) {
+        // Save to Company
+        const newPhoneEntry = {
+          id: `phone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          label: labelTrimmed,
+          value: rawNum,
+          number: rawNum
+        };
+        setSelectedCompanyPhoneOverride(rawNum);
+        setActiveTargetOverride('mainline');
+
+        if (linkedCompany && linkedCompany.id) {
+          const existingGeneralPhones = (linkedCompany as any).general_phones || [];
+          const existingPhones = (linkedCompany as any).phones || [];
+          const updatedGeneralPhones = [...existingGeneralPhones, newPhoneEntry];
+          const updatedPhones = [...existingPhones, newPhoneEntry];
+
+          const updatedCompany: Company = {
+            ...linkedCompany,
+            general_phones: updatedGeneralPhones,
+            phones: updatedPhones,
+            general_phone: linkedCompany.general_phone || rawNum,
+            updatedAt: nowIso
+          };
+
+          await safeSetDoc('companies', linkedCompany.id, updatedCompany);
+          await CompanyRepository.saveCompany(updatedCompany);
+          if (setCompanies) {
+            setCompanies((prev) => prev.map((c) => (c.id === updatedCompany.id ? updatedCompany : c)));
+          }
+        }
+      } else {
+        // Save to Target Contact
+        const newPhoneEntry = {
+          id: `phone_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          label: labelTrimmed,
+          value: rawNum,
+          number: rawNum
+        };
+        setActiveContactPhone(rawNum);
+        setActiveTargetOverride('contact');
+
+        if (targetContact && targetContact.id) {
+          const existingPhones = (targetContact as any).phones || [];
+          const updatedContact: Contact = {
+            ...targetContact,
+            phones: [...existingPhones, newPhoneEntry],
+            mobile: targetContact.mobile || rawNum,
+            phone: targetContact.phone || rawNum,
+            updatedAt: nowIso
+          };
+
+          await safeSetDoc('contacts', targetContact.id, updatedContact);
+          await CompanyRepository.updateContact(targetContact.id, updatedContact);
+          if (setContacts) {
+            setContacts((prev) => prev.map((c) => (c.id === updatedContact.id ? updatedContact : c)));
+          }
+        }
+      }
+
+      setIsAddingInlinePhone(false);
+      setInlinePhoneNumber('');
+      setInlinePhoneLabel('Front Desk');
+    } catch (err) {
+      console.error('[LiveExecutionModal] Failed to add inline phone number:', err);
+    } finally {
+      setIsSavingInlinePhone(false);
+    }
   };
 
   // Timestamp Insertion Helper
@@ -1902,7 +2057,7 @@ export default function LiveExecutionModal({
           status: 'Scheduled' as CallStatus,
           outcome: 'Follow-Up Scheduled',
           purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
-          requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : (notes.trim() ? `Follow up on: ${notes.trim()}` : ''),
+          requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : 'Scheduled follow-up task',
           followup_intent: followUpIntent.trim() || undefined,
           enquiry_id: currentTask.enquiry_id || (currentTask as any)?.linked_enquiry_id || resolvedLinkedEnquiry?.id || undefined,
           enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
@@ -2342,6 +2497,161 @@ export default function LiveExecutionModal({
                 </div>
               </div>
 
+              {/* Inline "+ Add Number" Quick Drawer Panel */}
+              {isAddingInlinePhone && (
+                <div
+                  id="inline-add-phone-panel"
+                  className="p-3.5 bg-amber-50/95 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 rounded-xl shadow-xs space-y-2.5 animate-in fade-in duration-150"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-5 h-5 rounded-md bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center">
+                        <Plus className="w-3.5 h-3.5" />
+                      </div>
+                      <h4 className="text-xs font-bold text-amber-950 dark:text-amber-100">
+                        Add & Select Phone Number
+                      </h4>
+                      <span className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">
+                        Immediately active for this session
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingInlinePhone(false);
+                        setInlinePhoneNumber('');
+                      }}
+                      className="p-1 rounded-md text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Target Choice Pill: Mainline vs Contact */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Save to:</span>
+                    <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-white dark:bg-slate-800">
+                      <button
+                        type="button"
+                        id="inline-target-mainline-btn"
+                        onClick={() => {
+                          setInlinePhoneTarget('mainline');
+                          if (inlinePhoneLabel === 'Mobile' || inlinePhoneLabel === 'Direct') {
+                            setInlinePhoneLabel('Front Desk');
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                          inlinePhoneTarget === 'mainline'
+                            ? 'bg-amber-600 text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Company Mainline
+                      </button>
+                      {targetContact && (
+                        <button
+                          type="button"
+                          id="inline-target-contact-btn"
+                          onClick={() => {
+                            setInlinePhoneTarget('contact');
+                            if (inlinePhoneLabel === 'Front Desk') {
+                              setInlinePhoneLabel('Mobile');
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                            inlinePhoneTarget === 'contact'
+                              ? 'bg-emerald-600 text-white shadow-2xs'
+                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          Contact: {targetContact.full_name?.split(' ')[0] || 'Personnel'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Input Fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                        Label / Department
+                      </label>
+                      <input
+                        type="text"
+                        id="inline-phone-label-input"
+                        value={inlinePhoneLabel}
+                        onChange={(e) => setInlinePhoneLabel(e.target.value)}
+                        placeholder="e.g. Front Desk, Engineering"
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-medium"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
+                        Phone Number *
+                      </label>
+                      <input
+                        type="tel"
+                        id="inline-phone-number-input"
+                        autoFocus
+                        value={inlinePhoneNumber}
+                        onChange={(e) => setInlinePhoneNumber(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveInlinePhone();
+                          }
+                        }}
+                        placeholder="e.g. 056 687 3083 or 02 652 0000"
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Action row with quick chips and save/cancel */}
+                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[10px] text-slate-400">Presets:</span>
+                      {(inlinePhoneTarget === 'mainline'
+                        ? ['Front Desk', 'Engineering', 'Reception', 'Switchboard', 'Accounts', 'Procurement']
+                        : ['Mobile', 'Direct', 'WhatsApp', 'Work', 'Office']
+                      ).map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setInlinePhoneLabel(chip)}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center space-x-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingInlinePhone(false);
+                          setInlinePhoneNumber('');
+                        }}
+                        className="px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        id="save-inline-phone-btn"
+                        disabled={!inlinePhoneNumber.trim() || isSavingInlinePhone}
+                        onClick={handleSaveInlinePhone}
+                        className="inline-flex items-center space-x-1 px-3 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg shadow-xs disabled:opacity-50 cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{isSavingInlinePhone ? 'Saving...' : 'Save & Select'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Dual-Track Contact Deck with Active Target Highlighting */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* a) Target Contact Person Card */}
@@ -2712,8 +3022,25 @@ export default function LiveExecutionModal({
                   ) : (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                       <div className="truncate min-w-0">
-                        <div className="text-[10px] uppercase font-semibold text-slate-400">
-                          {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400">
+                            {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
+                          </div>
+                          <button
+                            type="button"
+                            id="add-contact-inline-number-btn"
+                            onClick={() => {
+                              setInlinePhoneTarget('contact');
+                              setInlinePhoneLabel('Mobile');
+                              setInlinePhoneNumber('');
+                              setIsAddingInlinePhone(true);
+                            }}
+                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline cursor-pointer"
+                            title="Add and immediately select a new number for this contact"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                            <span>+ Add Number</span>
+                          </button>
                         </div>
                         <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                           {directPhone || <span className="text-slate-400 font-normal italic">No direct number</span>}
@@ -3066,7 +3393,24 @@ export default function LiveExecutionModal({
                   ) : (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                       <div className="truncate">
-                        <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
+                          <button
+                            type="button"
+                            id="add-company-inline-number-btn"
+                            onClick={() => {
+                              setInlinePhoneTarget('mainline');
+                              setInlinePhoneLabel('Front Desk');
+                              setInlinePhoneNumber('');
+                              setIsAddingInlinePhone(true);
+                            }}
+                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:underline cursor-pointer"
+                            title="Add and immediately select a new mainline phone number"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                            <span>+ Add Number</span>
+                          </button>
+                        </div>
                         <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                           {companyMainPhone || <span className="text-slate-400 font-normal italic">No switchboard listed</span>}
                         </div>
@@ -3145,6 +3489,47 @@ export default function LiveExecutionModal({
                       })() : (
                         <span className="text-[11px] text-slate-400">Not registered</span>
                       )}
+                    </div>
+                  )}
+
+                  {/* Multi-Line Switcher for Company Mainline */}
+                  {availableCompanyPhones.length > 1 && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-amber-500" />
+                          <span>Available Lines ({availableCompanyPhones.length})</span>
+                        </span>
+                        <span className="text-[9px] text-slate-400">Tap to switch active dialed line</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableCompanyPhones.map((phone) => {
+                          const isSelected = companyMainPhone === phone.value;
+                          return (
+                            <button
+                              key={phone.id || phone.value}
+                              type="button"
+                              id={`switch-company-line-${phone.value.replace(/[^\w]/g, '-')}`}
+                              onClick={() => {
+                                setSelectedCompanyPhoneOverride(phone.value);
+                                setActiveTargetOverride('mainline');
+                              }}
+                              className={`px-2 py-1 rounded-lg text-xs font-semibold transition cursor-pointer border flex items-center gap-1.5 ${
+                                isSelected
+                                  ? 'bg-amber-600 text-white border-amber-600 shadow-2xs ring-1 ring-amber-400/40'
+                                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-300'
+                              }`}
+                              title={`Switch active dialed line to ${phone.label}: ${phone.value}`}
+                            >
+                              <span className={`text-[10px] font-bold uppercase ${isSelected ? 'text-amber-100' : 'text-amber-600 dark:text-amber-400'}`}>
+                                {phone.label}:
+                              </span>
+                              <span className="font-mono text-[11px]">{phone.value}</span>
+                              {isSelected && <Check className="w-3 h-3 text-white ml-0.5 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3487,11 +3872,7 @@ export default function LiveExecutionModal({
                       executeSubmission(true, isCompletionMode || isExecutingTask);
                     }
                   }}
-                  placeholder={
-                    isCompletionMode
-                      ? "Add final interaction notes (optional) and click 'Complete & Next' below (or Ctrl+Enter)..."
-                      : "Type live call notes, objection notes, decision-maker feedback, or requirements gathered..."
-                  }
+                  placeholder="Notes on this interaction (saved to activity history)..."
                   className={`w-full px-3.5 py-2.5 text-xs rounded-xl border transition placeholder:text-slate-400 resize-none font-sans leading-relaxed ${
                     isCompletionMode
                       ? 'border-emerald-400 dark:border-emerald-600 ring-2 ring-emerald-500/20 bg-emerald-50/20 dark:bg-emerald-950/10 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500'
@@ -3519,13 +3900,14 @@ export default function LiveExecutionModal({
                 </div>
               </div>
 
-              {/* Quick Follow-Up Date Presets */}
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700 rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
-                    <CalendarClock className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Next Follow-Up Scheduling</span>
-                  </label>
+              {/* Quick Follow-Up Date Presets (Mutually Exclusive with Reschedule Active Task) */}
+              {activeDrawer !== 'reschedule' && (
+                <div id="next-followup-scheduling-card" className="p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center space-x-1.5">
+                      <CalendarClock className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Next Follow-Up Scheduling</span>
+                    </label>
                   {nextFollowUpDate && (
                     <button
                       type="button"
@@ -3712,12 +4094,13 @@ export default function LiveExecutionModal({
                       type="text"
                       value={followUpIntent}
                       onChange={(e) => setFollowUpIntent(e.target.value)}
-                      placeholder="e.g. Call back regarding quote revisions..."
+                      placeholder="Agenda / instructions for the next follow-up task..."
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                     />
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             {/* Reschedule Active Task Sub-Panel */}
@@ -3817,7 +4200,7 @@ export default function LiveExecutionModal({
                       type="text"
                       value={rescheduleReason}
                       onChange={(e) => setRescheduleReason(e.target.value)}
-                      placeholder="e.g. Requested callback on Thursday morning..."
+                      placeholder="Reason for postponing this task without completing it..."
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-700/80 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition"
                     />
                   </div>
