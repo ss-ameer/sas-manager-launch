@@ -640,4 +640,201 @@ export function isPhoneChannel(ch?: string): boolean {
   return norm.includes('call') || norm.includes('phone');
 }
 
+export type OutreachCadence = 'never' | 'stale' | 'recent';
+
+export interface CompanyOutreachSummary {
+  lastContactedAt: number | null;
+  lastContactedDateStr: string | null;
+  lastContactedChannel: string | null;
+  totalCompletedTouches: number;
+  totalCalls: number;
+  outreachCadence: OutreachCadence;
+}
+
+/**
+ * Formats a timestamp into a human-friendly relative outreach date:
+ * "Today", "Yesterday", "Sep 18", or "Jan 12, 2025".
+ */
+export function formatRelativeOutreachDate(timestamp: number | null | undefined): string {
+  if (!timestamp) return 'Never';
+  const now = new Date();
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return 'Never';
+
+  const startOfNow = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOfNow - startOfDate) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+
+  const isSameYear = now.getFullYear() === date.getFullYear();
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = monthNames[date.getMonth()];
+  const day = date.getDate();
+
+  return isSameYear ? `${month} ${day}` : `${month} ${day}, ${date.getFullYear()}`;
+}
+
+/**
+ * Derives outreach summary for an individual company from raw activity/call logs.
+ */
+export function calculateCompanyOutreach(
+  companyId: string | undefined,
+  companyName: string | undefined,
+  allLogs: CallLogEntry[] | undefined
+): CompanyOutreachSummary {
+  if (!allLogs || allLogs.length === 0 || (!companyId && !companyName)) {
+    return {
+      lastContactedAt: null,
+      lastContactedDateStr: null,
+      lastContactedChannel: null,
+      totalCompletedTouches: 0,
+      totalCalls: 0,
+      outreachCadence: 'never'
+    };
+  }
+
+  const compId = companyId;
+  const normCompName = (companyName || '').trim().toLowerCase();
+  const now = Date.now();
+  const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+  let latestTimestamp: number | null = null;
+  let latestDateStr: string | null = null;
+  let latestChannel: string | null = null;
+  let completedTouches = 0;
+  let completedCalls = 0;
+
+  for (const log of allLogs) {
+    if (log.is_deleted) continue;
+
+    const matchesCompany =
+      (compId && log.company_id === compId) ||
+      (normCompName && log.company_name && log.company_name.trim().toLowerCase() === normCompName);
+
+    if (!matchesCompany) continue;
+
+    if (isScheduledTask(log)) continue;
+    const st = (log.status || '').toLowerCase().trim();
+    if (st === 'scheduled' || st === 'scheduled / planned' || st === 'cancelled') continue;
+
+    const rawTs = (log as any).completedAt || (log as any).completed_at || (log as any).executed_at || log.createdAt || log.date;
+    if (!rawTs) continue;
+    const parsed = new Date(rawTs).getTime();
+    if (isNaN(parsed) || parsed > now) continue;
+
+    completedTouches++;
+    const ch = (log.channel || '').toLowerCase();
+    if (!ch || ch.includes('call') || ch.includes('phone') || log.interaction_type === 'call') {
+      completedCalls++;
+    }
+
+    if (latestTimestamp === null || parsed > latestTimestamp) {
+      latestTimestamp = parsed;
+      latestDateStr = rawTs;
+      latestChannel = log.channel || 'Phone Call';
+    }
+  }
+
+  let cadence: OutreachCadence = 'never';
+  if (completedTouches === 0 || latestTimestamp === null) {
+    cadence = 'never';
+  } else if (now - latestTimestamp > FOURTEEN_DAYS_MS) {
+    cadence = 'stale';
+  } else {
+    cadence = 'recent';
+  }
+
+  return {
+    lastContactedAt: latestTimestamp,
+    lastContactedDateStr: latestDateStr,
+    lastContactedChannel: latestChannel,
+    totalCompletedTouches: completedTouches,
+    totalCalls: completedCalls,
+    outreachCadence: cadence
+  };
+}
+
+/**
+ * Builds an index of company outreach summaries keyed by company ID in O(N + M) time.
+ */
+export function buildCompanyOutreachMap(
+  companies: Company[],
+  allLogs: CallLogEntry[] | undefined
+): Map<string, CompanyOutreachSummary> {
+  const map = new Map<string, CompanyOutreachSummary>();
+
+  for (const c of companies) {
+    if (c.id) {
+      map.set(c.id, {
+        lastContactedAt: null,
+        lastContactedDateStr: null,
+        lastContactedChannel: null,
+        totalCompletedTouches: 0,
+        totalCalls: 0,
+        outreachCadence: 'never'
+      });
+    }
+  }
+
+  if (!allLogs || allLogs.length === 0) {
+    return map;
+  }
+
+  const nameToIdMap = new Map<string, string>();
+  for (const c of companies) {
+    if (c.id && c.display_name) {
+      nameToIdMap.set(c.display_name.trim().toLowerCase(), c.id);
+    }
+  }
+
+  const now = Date.now();
+  const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+  for (const log of allLogs) {
+    if (log.is_deleted) continue;
+    if (isScheduledTask(log)) continue;
+    const st = (log.status || '').toLowerCase().trim();
+    if (st === 'scheduled' || st === 'scheduled / planned' || st === 'cancelled') continue;
+
+    const rawTs = (log as any).completedAt || (log as any).completed_at || (log as any).executed_at || log.createdAt || log.date;
+    if (!rawTs) continue;
+    const parsed = new Date(rawTs).getTime();
+    if (isNaN(parsed) || parsed > now) continue;
+
+    let targetCompanyId = log.company_id;
+    if (!targetCompanyId && log.company_name) {
+      targetCompanyId = nameToIdMap.get(log.company_name.trim().toLowerCase());
+    }
+
+    if (!targetCompanyId || !map.has(targetCompanyId)) continue;
+
+    const summary = map.get(targetCompanyId)!;
+    summary.totalCompletedTouches++;
+    const ch = (log.channel || '').toLowerCase();
+    if (!ch || ch.includes('call') || ch.includes('phone') || log.interaction_type === 'call') {
+      summary.totalCalls++;
+    }
+
+    if (summary.lastContactedAt === null || parsed > summary.lastContactedAt) {
+      summary.lastContactedAt = parsed;
+      summary.lastContactedDateStr = rawTs;
+      summary.lastContactedChannel = log.channel || 'Phone Call';
+    }
+  }
+
+  for (const summary of map.values()) {
+    if (summary.totalCompletedTouches === 0 || summary.lastContactedAt === null) {
+      summary.outreachCadence = 'never';
+    } else if (now - summary.lastContactedAt > FOURTEEN_DAYS_MS) {
+      summary.outreachCadence = 'stale';
+    } else {
+      summary.outreachCadence = 'recent';
+    }
+  }
+
+  return map;
+}
+
 

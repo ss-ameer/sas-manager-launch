@@ -23,6 +23,12 @@ import {
   CompanySearchMatchResult
 } from './CompaniesRegistry';
 import { CompanyCardView } from './CompanyCardView';
+import {
+  buildCompanyOutreachMap,
+  formatRelativeOutreachDate,
+  CompanyOutreachSummary,
+  OutreachCadence
+} from '../utils/activityLogic';
 import { useIndustryTaxonomy } from '../hooks/useIndustryTaxonomy';
 import IndustryTaxonomySelector from './common/IndustryTaxonomySelector';
 import { db } from '../firebase';
@@ -398,6 +404,7 @@ export default function CompanyModal({
   const [industryFilter, setIndustryFilter] = useState<string>('ALL');
   const [relationshipFilter, setRelationshipFilter] = useState<string>('ALL');
   const [temperatureFilter, setTemperatureFilter] = useState<string>('ALL');
+  const [outreachCadenceFilter, setOutreachCadenceFilter] = useState<string>('ALL');
   const [companyViewStyle, setCompanyViewStyle] = useState<'cards' | 'table'>('table');
   const [contactViewStyle, setContactViewStyle] = useState<'table' | 'cards'>('table');
 
@@ -407,7 +414,7 @@ export default function CompanyModal({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, industryFilter, relationshipFilter, temperatureFilter, viewMode]);
+  }, [searchQuery, industryFilter, relationshipFilter, temperatureFilter, outreachCadenceFilter, viewMode]);
 
   // Multi-select Contact State & Bulk Reassign State (Marking is optional)
   const [isContactMarkingMode, setIsContactMarkingMode] = useState(false);
@@ -1785,6 +1792,11 @@ export default function CompanyModal({
     return map;
   }, [companies, searchQuery, contacts]);
 
+  // Pre-calculate outreach summary (last contact, completed touches, cadence) for all companies
+  const companyOutreachMap = useMemo(() => {
+    return buildCompanyOutreachMap(companies, callLogs);
+  }, [companies, callLogs]);
+
   const filteredCompanies = useMemo(() => {
     return companies.filter((c) => {
       if (c.is_deleted) return false;
@@ -1804,9 +1816,15 @@ export default function CompanyModal({
         temperatureFilter === 'ALL' ||
         (c.temperature || 'Cold') === temperatureFilter;
 
-      return matchesIndustry && matchesRelationship && matchesTemperature;
+      const summary = c.id ? companyOutreachMap.get(c.id) : null;
+      const cadence = summary?.outreachCadence || 'never';
+      const matchesCadence =
+        outreachCadenceFilter === 'ALL' ||
+        cadence === outreachCadenceFilter;
+
+      return matchesIndustry && matchesRelationship && matchesTemperature && matchesCadence;
     });
-  }, [companies, searchEvaluationMap, searchQuery, industryFilter, relationshipFilter, temperatureFilter, contacts]);
+  }, [companies, searchEvaluationMap, searchQuery, industryFilter, relationshipFilter, temperatureFilter, outreachCadenceFilter, companyOutreachMap, contacts]);
 
   const paginatedCompanies = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -1829,14 +1847,23 @@ export default function CompanyModal({
     if (temperatureFilter !== 'ALL') {
       labels.push(`Temp: ${temperatureFilter}`);
     }
+    if (outreachCadenceFilter !== 'ALL') {
+      const cadenceMap: Record<string, string> = {
+        never: 'Never Contacted',
+        stale: 'Needs Follow-Up (>14d)',
+        recent: 'Recently Active (≤14d)'
+      };
+      labels.push(`Cadence: ${cadenceMap[outreachCadenceFilter] || outreachCadenceFilter}`);
+    }
     return labels;
-  }, [industryFilter, relationshipFilter, temperatureFilter, liveTaxonomySectors]);
+  }, [industryFilter, relationshipFilter, temperatureFilter, outreachCadenceFilter, liveTaxonomySectors]);
 
   const handleClearCompanyFilters = () => {
     setSearchQuery('');
     setIndustryFilter('ALL');
     setRelationshipFilter('ALL');
     setTemperatureFilter('ALL');
+    setOutreachCadenceFilter('ALL');
   };
 
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
@@ -2091,8 +2118,8 @@ export default function CompanyModal({
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                  <div className="relative md:col-span-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mb-4">
+                  <div className="relative md:col-span-12 lg:col-span-4">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
                     <input
                       type="text"
@@ -2103,7 +2130,7 @@ export default function CompanyModal({
                     />
                   </div>
 
-                  <div className="md:col-span-3">
+                  <div className="md:col-span-6 lg:col-span-2">
                     <select
                       value={industryFilter}
                       onChange={(e) => setIndustryFilter(e.target.value)}
@@ -2118,7 +2145,7 @@ export default function CompanyModal({
                     </select>
                   </div>
                   
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-6 lg:col-span-2">
                     <select
                       value={relationshipFilter}
                       onChange={(e) => setRelationshipFilter(e.target.value)}
@@ -2131,7 +2158,7 @@ export default function CompanyModal({
                     </select>
                   </div>
                   
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-6 lg:col-span-2">
                     <select
                       value={temperatureFilter}
                       onChange={(e) => setTemperatureFilter(e.target.value)}
@@ -2141,6 +2168,21 @@ export default function CompanyModal({
                       {(companyTemperatures || []).map((t) => (
                         <option key={t.id} value={t.name}>{t.name}</option>
                       ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-6 lg:col-span-2">
+                    <select
+                      id="company-outreach-cadence-filter-select"
+                      value={outreachCadenceFilter}
+                      onChange={(e) => setOutreachCadenceFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
+                      title="Filter companies by outreach cadence"
+                    >
+                      <option value="ALL">All Accounts</option>
+                      <option value="never">Never Contacted</option>
+                      <option value="stale">Needs Follow-Up / Stale (&gt;14 Days)</option>
+                      <option value="recent">Recently Active (≤14 Days)</option>
                     </select>
                   </div>
                 </div>
@@ -2183,6 +2225,14 @@ export default function CompanyModal({
                           const emails = getCompanyEmails(c);
                           const matchResult = (c.id ? searchEvaluationMap.get(c.id) : null) || evaluateCompanySearch(c, searchQuery, companies, contacts);
                           const matchHint = matchResult.matchHint;
+                          const outreach = (c.id ? companyOutreachMap.get(c.id) : null) || {
+                            lastContactedAt: null,
+                            lastContactedDateStr: null,
+                            lastContactedChannel: null,
+                            totalCompletedTouches: 0,
+                            totalCalls: 0,
+                            outreachCadence: 'never' as OutreachCadence
+                          };
                           const hasIndustry = Boolean(
                             c.industry_parent ||
                             c.business_type_raw ||
@@ -2262,11 +2312,31 @@ export default function CompanyModal({
                                 )}
                               </td>
                               <td className="py-4 px-4 whitespace-nowrap">
-                                {linkCount > 0 ? (
-                                  <span className="text-slate-900 dark:text-white font-medium text-xs">{linkCount} Enquiries</span>
-                                ) : (
-                                  <span className="italic text-slate-600 dark:text-slate-300 text-xs">0 Enquiries</span>
-                                )}
+                                <div className="flex flex-col items-start gap-1">
+                                  {outreach.outreachCadence === 'never' ? (
+                                    <span
+                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                                      title="No completed outreach or activity logs found for this account"
+                                    >
+                                      Never Contacted
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                        outreach.outreachCadence === 'recent'
+                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                      }`}
+                                      title={`Last contacted on ${new Date(outreach.lastContactedAt!).toLocaleString()}${outreach.lastContactedChannel ? ` via ${outreach.lastContactedChannel}` : ''}`}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" />
+                                      <span>Last: {formatRelativeOutreachDate(outreach.lastContactedAt)}</span>
+                                    </span>
+                                  )}
+                                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                    {outreach.totalCalls} Calls · {linkCount} Enquiries
+                                  </div>
+                                </div>
                               </td>
                               <td className="py-4 px-4 text-right whitespace-nowrap">
                                 <button
@@ -2310,6 +2380,7 @@ export default function CompanyModal({
                           matchHint={matchHint}
                           companies={companies}
                           setCompanies={setCompanies}
+                          outreachSummary={c.id ? companyOutreachMap.get(c.id) : undefined}
                         />
                       );
                     })}
@@ -2330,7 +2401,7 @@ export default function CompanyModal({
             ) : (
                 <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm">
                   <p className="italic">No matching companies found in your database.</p>
-                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL') && (
+                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL' || outreachCadenceFilter !== 'ALL') && (
                     <button
                       type="button"
                       onClick={handleClearCompanyFilters}

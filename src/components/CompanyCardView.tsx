@@ -5,6 +5,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { MapPin } from 'lucide-react';
 import { SearchMatchHint, CompanySearchMatchHint, UnassignedIndustryPill } from './CompaniesRegistry';
+import { CompanyOutreachSummary, formatRelativeOutreachDate } from '../utils/activityLogic';
 
 export interface CompanyCardViewProps {
   company: Company;
@@ -15,6 +16,7 @@ export interface CompanyCardViewProps {
   matchHint?: SearchMatchHint | null;
   companies: Company[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  outreachSummary?: CompanyOutreachSummary;
 }
 
 export const CompanyCardView: React.FC<CompanyCardViewProps> = ({
@@ -25,7 +27,8 @@ export const CompanyCardView: React.FC<CompanyCardViewProps> = ({
   relVal,
   matchHint,
   companies,
-  setCompanies
+  setCompanies,
+  outreachSummary
 }) => {
   const hasIndustry = Boolean(
     c.industry_parent ||
@@ -34,6 +37,15 @@ export const CompanyCardView: React.FC<CompanyCardViewProps> = ({
     c.industry ||
     c.industry_type
   );
+
+  const summary = outreachSummary || {
+    lastContactedAt: null,
+    lastContactedDateStr: null,
+    lastContactedChannel: null,
+    totalCompletedTouches: 0,
+    totalCalls: 0,
+    outreachCadence: 'never' as const
+  };
 
   return (
     <div
@@ -108,23 +120,50 @@ export const CompanyCardView: React.FC<CompanyCardViewProps> = ({
         )}
       </div>
 
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-mono text-slate-600 dark:text-slate-300">
-        <span>
-          {c.aliases && c.aliases.length > 0 ? (
-            `${c.aliases.length} ALIASES`
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 w-full text-xs font-sans gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          {summary.outreachCadence === 'never' ? (
+            <span
+              className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+              title="No completed outreach logged for this account"
+            >
+              Never Contacted
+            </span>
           ) : (
-            <span className="italic text-slate-600 dark:text-slate-300">NO ALIASES</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                summary.outreachCadence === 'recent'
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+              }`}
+              title={`Last contacted on ${new Date(summary.lastContactedAt!).toLocaleString()}${summary.lastContactedChannel ? ` via ${summary.lastContactedChannel}` : ''}`}
+            >
+              Last: {formatRelativeOutreachDate(summary.lastContactedAt)}
+            </span>
           )}
-        </span>
-        <span
-          className={
-            linkCount > 0
-              ? 'text-blue-600 dark:text-blue-400 font-semibold'
-              : 'italic text-slate-600 dark:text-slate-300'
-          }
-        >
-          {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
-        </span>
+
+          {summary.totalCompletedTouches > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+              title={`${summary.totalCompletedTouches} completed interaction${summary.totalCompletedTouches === 1 ? '' : 's'}`}
+            >
+              <span>📞</span>
+              <span>{summary.totalCompletedTouches}</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 font-mono text-xs">
+          <span
+            className={
+              linkCount > 0
+                ? 'text-blue-600 dark:text-blue-400 font-semibold'
+                : 'italic text-slate-500 dark:text-slate-400'
+            }
+          >
+            {linkCount > 0 ? `${linkCount} ENQUIRIES` : '0 ENQUIRIES'}
+          </span>
+        </div>
       </div>
     </div>
   );
