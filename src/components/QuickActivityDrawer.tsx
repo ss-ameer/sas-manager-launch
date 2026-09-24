@@ -88,7 +88,11 @@ import {
   resolveContactByPhoneNumber,
   resolveGeographyFromCompany,
   cleanNotePrefix,
-  combineInteractionNotes
+  combineInteractionNotes,
+  isScheduledTask,
+  isTollFreeOrLandline,
+  getBestMobileForContact,
+  resolveBestCompanyMobile
 } from '../utils/activityLogic';
 
 export {
@@ -479,6 +483,30 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     if (newChanStr !== 'Email') setEmailSubject('');
     if (!isMessageChannel(newChanStr)) setWhatsappDraft('');
     if (newChanStr !== 'Meeting' && newChanStr !== 'Site Visit') setLocationOrLink('');
+
+    // Channel-Aware Mobile Phone Selection for WhatsApp / Message:
+    // If switching to WhatsApp/Message and current phone is 800 or landline (or empty), auto-switch to valid mobile
+    if (isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('whatsapp')) {
+      if (!selectedContactPhone || isTollFreeOrLandline(selectedContactPhone)) {
+        const compContacts = (contacts || []).filter(
+          (c) => !c.is_deleted && (c.company_id === selectedCompanyId || c.company_ids?.includes(selectedCompanyId))
+        );
+        const curCt = compContacts.find((c) => c.id === selectedContactId);
+        const ctMobile = getBestMobileForContact(curCt);
+        if (ctMobile) {
+          setSelectedContactPhone(ctMobile);
+          setCrmTargetType('contact');
+        } else {
+          const compBest = resolveBestCompanyMobile(compContacts, curCt);
+          if (compBest) {
+            setSelectedContactId(compBest.contact.id || '');
+            setSelectedContactName(compBest.contact.full_name || (compBest.contact as any).name || '');
+            setSelectedContactPhone(compBest.phone);
+            setCrmTargetType('contact');
+          }
+        }
+      }
+    }
     
     setValidationError(null);
   };
@@ -990,7 +1018,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           setSelectedContactId(matchedCanonical.id || '');
           setSelectedContactName(matchedCanonical.full_name || (matchedCanonical as any).name || '');
           const phones = getContactPhones(matchedCanonical);
-          const firstPhone = contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '';
+          const isMsgChan = isMessageChannel(channel as string) || (channel as string).toLowerCase().includes('whatsapp');
+          let firstPhone = '';
+          if (isMsgChan) {
+            const bestMobile = getBestMobileForContact(matchedCanonical);
+            firstPhone = bestMobile || (!isTollFreeOrLandline(contactPhone) ? contactPhone : '') || matchedCanonical.mobile || phones[0]?.number || contactPhone || '';
+          } else {
+            firstPhone = contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '';
+          }
           setSelectedContactPhone(firstPhone);
           const emails = getContactEmails(matchedCanonical);
           const firstEmail = contactEmail || matchedCanonical.email || emails[0]?.email || (matchedCanonical as any).email || '';
@@ -1175,9 +1210,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         if (selectedContactName !== canonicalName) {
           setSelectedContactName(canonicalName);
         }
+        const isMsgChan = isMessageChannel(channel as string) || (channel as string).toLowerCase().includes('whatsapp');
         if (!selectedContactPhone) {
           const phones = getContactPhones(matchedCanonical);
-          setSelectedContactPhone(contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '');
+          if (isMsgChan) {
+            const bestMobile = getBestMobileForContact(matchedCanonical);
+            setSelectedContactPhone(bestMobile || (!isTollFreeOrLandline(contactPhone) ? contactPhone : '') || matchedCanonical.mobile || phones[0]?.number || contactPhone || '');
+          } else {
+            setSelectedContactPhone(contactPhone || matchedCanonical.mobile || matchedCanonical.landline || phones[0]?.number || (matchedCanonical as any).phone || '');
+          }
+        } else if (isMsgChan && isTollFreeOrLandline(selectedContactPhone)) {
+          const bestMobile = getBestMobileForContact(matchedCanonical);
+          if (bestMobile) {
+            setSelectedContactPhone(bestMobile);
+          }
         }
         if (!selectedContactEmail) {
           const emails = getContactEmails(matchedCanonical);
@@ -1189,7 +1235,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           setSelectedContactId(primary.id || '');
           setSelectedContactName(primary.full_name || (primary as any).name || '');
           const phones = getContactPhones(primary);
-          setSelectedContactPhone(primary.mobile || primary.landline || phones[0]?.number || '');
+          const isMsgChan = isMessageChannel(channel as string) || (channel as string).toLowerCase().includes('whatsapp');
+          let primaryPhone = '';
+          if (isMsgChan) {
+            primaryPhone = getBestMobileForContact(primary) || primary.mobile || phones[0]?.number || primary.landline || '';
+          } else {
+            primaryPhone = primary.mobile || primary.landline || phones[0]?.number || '';
+          }
+          setSelectedContactPhone(primaryPhone);
           const emails = getContactEmails(primary);
           setSelectedContactEmail(primary.email || emails[0]?.email || '');
         } else {
@@ -2719,7 +2772,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         last_modified_by_name: userName,
         createdAt: nowIso,
         updatedAt: nowIso,
-        ...(completedAtIso ? { completedAt: completedAtIso } : {}),
+        ...(completedAtIso && !isCurScheduled ? { completedAt: completedAtIso, completed_at: completedAtIso, executed_at: completedAtIso } : {}),
         ...(isDncOptOut ? { dnc: true, opt_out: true, is_dnc: true } : { dnc: false, opt_out: false, is_dnc: false }) as any
       };
 
@@ -2789,6 +2842,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             createdAt: nowIso,
             updatedAt: nowIso
           };
+
+          // Explicitly strip any completed markers from spawned follow-up task
+          delete (spawnedFollowUpLog as any).completedAt;
+          delete (spawnedFollowUpLog as any).completed_at;
+          delete (spawnedFollowUpLog as any).executed_at;
+          delete (spawnedFollowUpLog as any).completedAtIso;
 
           if (isInternalTask) {
             delete (spawnedFollowUpLog as any).outcome;
@@ -2875,6 +2934,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             next_followup_date: undefined
           };
 
+          // Strictly strip any completed markers from scheduled task entry
+          delete (scheduledTaskEntry as any).completedAt;
+          delete (scheduledTaskEntry as any).completed_at;
+          delete (scheduledTaskEntry as any).executed_at;
+          delete (scheduledTaskEntry as any).completedAtIso;
+
           if (isInternalTask) {
             delete (scheduledTaskEntry as any).outcome;
           }
@@ -2930,6 +2995,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               createdAt: nowIso,
               updatedAt: nowIso
             };
+
+            // Explicitly strip any completed markers from spawned follow-up task
+            delete (spawnedFollowUpLog as any).completedAt;
+            delete (spawnedFollowUpLog as any).completed_at;
+            delete (spawnedFollowUpLog as any).executed_at;
+            delete (spawnedFollowUpLog as any).completedAtIso;
 
             if (isInternalTask) {
               delete (spawnedFollowUpLog as any).outcome;

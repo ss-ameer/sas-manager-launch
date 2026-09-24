@@ -37,7 +37,7 @@ import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
-import { isSuccessStatus } from '../utils/activityLogic';
+import { isSuccessStatus, isScheduledTask } from '../utils/activityLogic';
 import { canAccessEnquiry, getSalespersonFullName } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -367,6 +367,9 @@ export default function Company360Modal({
     // Strictly consider only past completed or executed interactions:
     // Exclude scheduled/pending future tasks and do NOT use next_followup_date
     const pastLogs = companyCallLogs.filter((l) => {
+      if (isScheduledTask(l)) {
+        return false;
+      }
       const normStatus = (l.status || '').toLowerCase().trim();
       if (
         normStatus === 'scheduled' ||

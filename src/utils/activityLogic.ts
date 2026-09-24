@@ -1,4 +1,4 @@
-import { ActivityChannel, CallStatus, Company, Contact, Workspace, getContactPhones, isSamePhoneNumber } from '../types';
+import { ActivityChannel, CallLogEntry, CallStatus, Company, Contact, Workspace, getContactPhones, isSamePhoneNumber } from '../types';
 import { SYSTEM_CALL_PURPOSES } from './defaults';
 
 export const CHANNELS = [
@@ -424,6 +424,220 @@ export function combineInteractionNotes(existingNotes?: string, newNotes?: strin
   }
 
   return `${cleanExisting}\n[Notes]: ${cleanedNew}`;
+}
+
+/**
+ * Evaluates whether an activity log is an active pending / scheduled task.
+ * If status is 'scheduled' or 'scheduled / planned', it is strictly treated as a scheduled task
+ * unless its status has explicitly changed to completed, cancelled, or failed.
+ * A rogue completedAt / completed_at field will NOT disqualify it from queuedTasks.
+ */
+export function isScheduledTask(log: CallLogEntry | Partial<CallLogEntry> | null | undefined): boolean {
+  if (!log || log.is_deleted) return false;
+  const status = (log.status || '').toLowerCase().trim();
+  const outcome = (log.outcome || '').toLowerCase().trim();
+
+  // Explicit terminal statuses: completed, cancelled, failed, superseded
+  if (
+    status === 'cancelled' ||
+    status === 'canceled' ||
+    status.includes('cancelled') ||
+    status.includes('canceled') ||
+    Boolean((log as any).cancellation_reason) ||
+    status === 'superseded' ||
+    status === 'completed' ||
+    status.startsWith('completed') ||
+    status === 'conducted' ||
+    status.includes('conducted') ||
+    status === 'failed' ||
+    status.includes('failed') ||
+    status === 'invalid' ||
+    status === 'invalid number' ||
+    status === 'bounced'
+  ) {
+    return false;
+  }
+
+  // Any activity with scheduled or planned status
+  const isScheduledStatus =
+    status === 'scheduled' ||
+    status === 'scheduled / planned' ||
+    status === 'scheduled / draft' ||
+    status === 'planned' ||
+    status === 'draft' ||
+    status === 'rescheduled' ||
+    status === 'pending' ||
+    status.startsWith('scheduled') ||
+    status.includes('scheduled');
+
+  if (isScheduledStatus) {
+    return true;
+  }
+
+  const hasScheduledDate = Boolean(log.next_followup_date || (log as any).scheduled_for);
+  const isTaskFlag = Boolean((log as any).is_task);
+
+  // If flagged as task and outcome does not indicate completed
+  if (isTaskFlag && !outcome.includes('completed') && !outcome.includes('cancelled')) {
+    return true;
+  }
+
+  // If has scheduled date and outcome is not completed
+  if (hasScheduledDate && !outcome.includes('completed') && !outcome.includes('cancelled') && (status === '' || status === 'scheduled')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Evaluates whether a phone number is likely a toll-free (e.g. 800) or fixed landline number.
+ */
+export function isTollFreeOrLandline(phone?: string, label?: string): boolean {
+  if (!phone) return false;
+  const lbl = (label || '').toLowerCase().trim();
+  if (
+    lbl.includes('landline') ||
+    lbl.includes('office') ||
+    lbl.includes('switchboard') ||
+    lbl.includes('toll') ||
+    lbl.includes('fax') ||
+    lbl.includes('desk') ||
+    lbl.includes('mainline') ||
+    lbl.includes('reception') ||
+    lbl.includes('front desk')
+  ) {
+    return true;
+  }
+  const clean = phone.replace(/[^\d+]/g, '');
+  // UAE Toll Free / International 800 numbers: 800..., +971800..., 00971800..., 971800..., +1800...
+  if (
+    clean.startsWith('800') ||
+    clean.startsWith('+971800') ||
+    clean.startsWith('00971800') ||
+    clean.startsWith('971800') ||
+    clean.startsWith('+1800') ||
+    clean.startsWith('1800') ||
+    clean.startsWith('+1888') ||
+    clean.startsWith('+1877') ||
+    clean.startsWith('+1866')
+  ) {
+    return true;
+  }
+  // UAE Fixed Landlines: 02, 03, 04, 06, 07, 09 or +9712, +9713, +9714, etc.
+  const uaeClean = clean.startsWith('+971')
+    ? clean.slice(4)
+    : clean.startsWith('00971')
+      ? clean.slice(5)
+      : clean.startsWith('971')
+        ? clean.slice(3)
+        : clean;
+  if (/^0[234679]\d{7}$/.test(uaeClean) || /^[234679]\d{7}$/.test(uaeClean)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Evaluates whether a phone number is likely a mobile phone number suitable for WhatsApp / SMS.
+ */
+export function isLikelyMobileNumber(phone?: string, label?: string): boolean {
+  if (!phone) return false;
+  if (isTollFreeOrLandline(phone, label)) return false;
+  const lbl = (label || '').toLowerCase().trim();
+  if (lbl.includes('mobile') || lbl.includes('cell') || lbl.includes('whatsapp') || lbl.includes('personal')) {
+    return true;
+  }
+  const clean = phone.replace(/[^\d+]/g, '');
+  const uaeClean = clean.startsWith('+971')
+    ? clean.slice(4)
+    : clean.startsWith('00971')
+      ? clean.slice(5)
+      : clean.startsWith('971')
+        ? clean.slice(3)
+        : clean;
+  // UAE mobile starts with 05 or 5 followed by 8 digits
+  if (/^0?5[024568]\d{7}$/.test(uaeClean)) {
+    return true;
+  }
+  return !isTollFreeOrLandline(phone, label);
+}
+
+/**
+ * Resolves the best mobile phone number for a contact, specifically prioritizing mobile lines
+ * over landlines or toll-free switchboard numbers for WhatsApp or SMS outreach.
+ */
+export function getBestMobileForContact(contact?: Partial<Contact> | null): string | null {
+  if (!contact) return null;
+  // 1. Direct explicit mobile field
+  if (contact.mobile && !isTollFreeOrLandline(contact.mobile, 'Mobile')) {
+    return contact.mobile;
+  }
+  // 2. Check contact's phones array for mobile-labeled lines
+  const phones = getContactPhones(contact);
+  const mobileLabeled = phones.find((p) => {
+    const lbl = (p.label || '').toLowerCase();
+    return (
+      (lbl.includes('mobile') || lbl.includes('cell') || lbl.includes('whatsapp')) &&
+      !isTollFreeOrLandline(p.value, p.label)
+    );
+  });
+  if (mobileLabeled) {
+    return mobileLabeled.value;
+  }
+  // 3. Any phone in list that is likely mobile
+  const anyMobile = phones.find((p) => isLikelyMobileNumber(p.value, p.label));
+  if (anyMobile) {
+    return anyMobile.value;
+  }
+  // 4. Contact phone if not landline/toll-free
+  if (contact.phone && !isTollFreeOrLandline(contact.phone)) {
+    return contact.phone;
+  }
+  return null;
+}
+
+/**
+ * Searches across available company contacts to find the best contact and mobile phone number for WhatsApp outreach.
+ */
+export function resolveBestCompanyMobile(
+  companyContacts: Contact[],
+  currentContact?: Partial<Contact> | null
+): { contact: Contact; phone: string } | null {
+  // 1. Check current contact first
+  if (currentContact) {
+    const directMobile = getBestMobileForContact(currentContact);
+    if (directMobile) {
+      return { contact: currentContact as Contact, phone: directMobile };
+    }
+  }
+  if (!companyContacts || companyContacts.length === 0) return null;
+  // 2. Check primary contact
+  const primary = companyContacts.find((c) => c.is_primary || (c as any).isPrimary);
+  if (primary) {
+    const pMobile = getBestMobileForContact(primary);
+    if (pMobile) {
+      return { contact: primary, phone: pMobile };
+    }
+  }
+  // 3. Check any other company contact
+  for (const c of companyContacts) {
+    const cMobile = getBestMobileForContact(c);
+    if (cMobile) {
+      return { contact: c, phone: cMobile };
+    }
+  }
+  return null;
+}
+
+export function isMessageChannel(ch?: string): boolean {
+  const norm = String(ch || '').toLowerCase();
+  return norm.includes('message') || norm.includes('whatsapp') || norm.includes('sms');
+}
+
+export function isPhoneChannel(ch?: string): boolean {
+  const norm = String(ch || '').toLowerCase();
+  return norm.includes('call') || norm.includes('phone');
 }
 
 

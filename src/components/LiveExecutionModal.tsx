@@ -75,7 +75,12 @@ import {
   resolveContactByPhoneNumber,
   resolveGeographyFromCompany,
   cleanNotePrefix,
-  combineInteractionNotes
+  combineInteractionNotes,
+  isMessageChannel,
+  isScheduledTask,
+  isTollFreeOrLandline,
+  getBestMobileForContact,
+  resolveBestCompanyMobile
 } from '../utils/activityLogic';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
@@ -884,12 +889,32 @@ export default function LiveExecutionModal({
         matchedContact = primary || null;
       }
 
+      const isMsgChan = isMessageChannel(taskChan) || taskChan.toLowerCase().includes('whatsapp');
       if (matchedContact) {
         setActiveContactId(matchedContact.id || '');
         setActiveContactName(matchedContact.full_name || '');
         const phones = getContactPhones(matchedContact);
         const contactPrimaryPhone = phones[0]?.value || matchedContact.mobile || matchedContact.phone || matchedContact.landline || '';
-        const resolvedPhone = currentTask.contact_phone || currentTask.phone_number || currentTask.phone || contactPrimaryPhone || '';
+        let resolvedPhone = currentTask.contact_phone || currentTask.phone_number || currentTask.phone || contactPrimaryPhone || '';
+
+        // Channel-Aware Mobile Phone Selection for WhatsApp:
+        // Prioritize mobile phone numbers: inspect targetContact?.mobile or company contacts with mobile designations
+        if (isMsgChan) {
+          const ctMobile = getBestMobileForContact(matchedContact);
+          if (ctMobile) {
+            resolvedPhone = ctMobile;
+          } else if (isTollFreeOrLandline(resolvedPhone)) {
+            const compBest = resolveBestCompanyMobile(availableCompContacts, matchedContact);
+            if (compBest) {
+              resolvedPhone = compBest.phone;
+              if (compBest.contact.id && compBest.contact.id !== matchedContact.id) {
+                matchedContact = compBest.contact;
+                setActiveContactId(compBest.contact.id);
+                setActiveContactName(compBest.contact.full_name || '');
+              }
+            }
+          }
+        }
         setActiveContactPhone(resolvedPhone);
         const emails = getContactEmails(matchedContact);
         const contactPrimaryEmail = emails[0]?.value || matchedContact.email || '';
@@ -899,7 +924,17 @@ export default function LiveExecutionModal({
       } else {
         setActiveContactId(explicitContactId || '');
         setActiveContactName(explicitContactName || '');
-        setActiveContactPhone(currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '');
+        let initialPhone = currentTask.contact_phone || currentTask.phone_number || currentTask.phone || currentTask.unlinked_contact_info || '';
+        if (isMsgChan && (isTollFreeOrLandline(initialPhone) || !initialPhone)) {
+          const compBest = resolveBestCompanyMobile(availableCompContacts);
+          if (compBest) {
+            initialPhone = compBest.phone;
+            setActiveContactId(compBest.contact.id || '');
+            setActiveContactName(compBest.contact.full_name || '');
+            setActiveTargetOverride('contact');
+          }
+        }
+        setActiveContactPhone(initialPhone);
         setActiveContactEmail(
           (currentTask as any)?.contact_email ||
           (currentTask as any)?.target_email ||
@@ -970,7 +1005,7 @@ export default function LiveExecutionModal({
         const allLogs = await ActivityLogRepository.getAllLocal();
         if (isMounted) {
           const matching = allLogs
-            .filter((l) => l.company_id === currentTask.company_id && l.id !== currentTask.id)
+            .filter((l) => l.company_id === currentTask.company_id && l.id !== currentTask.id && !isScheduledTask(l))
             .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
             .slice(0, 100);
           setFetchedCompanyLogs(matching);
@@ -988,12 +1023,12 @@ export default function LiveExecutionModal({
     };
   }, [isOpen, currentTask, callLogs]);
 
-  // Derive recent company history
+  // Derive recent company history (completed / executed interactions only)
   const recentHistoryLogs = useMemo(() => {
     if (!currentTask || !currentTask.company_id) return [];
     if (callLogs && callLogs.length > 0) {
       return callLogs
-        .filter((l) => l.company_id === currentTask.company_id && l.id !== currentTask.id)
+        .filter((l) => l.company_id === currentTask.company_id && l.id !== currentTask.id && !isScheduledTask(l))
         .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
         .slice(0, 100);
     }
@@ -1102,6 +1137,18 @@ export default function LiveExecutionModal({
     }
   }, [isOpen, currentTask, contacts, linkedCompany, activeContactId, activeTargetOverride, activeContactPhone, activeContactEmail]);
 
+  // Available contacts belonging to the active company
+  const availableCompanyContacts = useMemo(() => {
+    const compId = currentTask?.company_id || (currentTask as any)?.companyId || linkedCompany?.id;
+    const compName = (currentTask?.company_name || (currentTask as any)?.companyName || linkedCompany?.display_name || '').trim().toLowerCase();
+    return (contacts || []).filter((c) => {
+      if (c.is_deleted) return false;
+      if (compId && (c.company_id === compId || (c as any).companyId === compId)) return true;
+      if (compName && (c as any).company_name && (c as any).company_name.trim().toLowerCase() === compName) return true;
+      return false;
+    });
+  }, [contacts, currentTask, linkedCompany]);
+
   // Available Company Phones (Multi-Line support for Company Mainline)
   const availableCompanyPhones = useMemo(() => {
     const list: Array<{ id: string; label: string; value: string }> = [];
@@ -1199,19 +1246,32 @@ export default function LiveExecutionModal({
     'Decision Maker / Contact';
 
   // Direct contact phone number resolution
-  const directPhone =
-    activeContactPhone ||
-    targetContact?.mobile ||
-    targetContact?.phone ||
-    targetContact?.landline ||
-    (targetContact?.phones && targetContact.phones.length > 0
-      ? (targetContact.phones[0] as any).number || (targetContact.phones[0] as any).value
-      : '') ||
-    currentTask?.contact_phone ||
-    currentTask?.phone_number ||
-    currentTask?.phone ||
-    currentTask?.unlinked_contact_info ||
-    '';
+  const isWaChannel = isMessageChannel(currentChannel) || currentChannel.toLowerCase().includes('whatsapp');
+  const directPhone = useMemo(() => {
+    if (isWaChannel) {
+      if (activeContactPhone && !isTollFreeOrLandline(activeContactPhone)) {
+        return activeContactPhone;
+      }
+      const ctMobile = getBestMobileForContact(targetContact);
+      if (ctMobile) return ctMobile;
+      const compMobile = resolveBestCompanyMobile(availableCompanyContacts, targetContact);
+      if (compMobile) return compMobile.phone;
+    }
+    return (
+      activeContactPhone ||
+      targetContact?.mobile ||
+      targetContact?.phone ||
+      targetContact?.landline ||
+      (targetContact?.phones && targetContact.phones.length > 0
+        ? (targetContact.phones[0] as any).number || (targetContact.phones[0] as any).value
+        : '') ||
+      currentTask?.contact_phone ||
+      currentTask?.phone_number ||
+      currentTask?.phone ||
+      currentTask?.unlinked_contact_info ||
+      ''
+    );
+  }, [isWaChannel, activeContactPhone, targetContact, availableCompanyContacts, currentTask]);
 
   // Direct contact email resolution
   const directEmail = useMemo(() => {
@@ -1532,6 +1592,28 @@ export default function LiveExecutionModal({
         handleSelectDisposition(nextDisps[0]);
       }
     }
+
+    // Channel-Aware Mobile Phone Selection for WhatsApp:
+    // If switching to WhatsApp / Message and current phone is 800 or landline, auto-switch to first valid mobile
+    const isMsg = isMessageChannel(newChan) || newChan.toLowerCase().includes('whatsapp');
+    if (isMsg) {
+      const curPhone = activeContactPhone || directPhone || '';
+      if (!curPhone || isTollFreeOrLandline(curPhone)) {
+        const ctMobile = getBestMobileForContact(targetContact);
+        if (ctMobile) {
+          setActiveContactPhone(ctMobile);
+          setActiveTargetOverride('contact');
+        } else {
+          const compBest = resolveBestCompanyMobile(availableCompanyContacts, targetContact);
+          if (compBest) {
+            setActiveContactId(compBest.contact.id || '');
+            setActiveContactName(compBest.contact.full_name || '');
+            setActiveContactPhone(compBest.phone);
+            setActiveTargetOverride('contact');
+          }
+        }
+      }
+    }
   };
 
   // Helper for dynamic channel icon
@@ -1561,7 +1643,13 @@ export default function LiveExecutionModal({
   };
 
   const cleanWhatsAppUrl = (phoneStr: string) => {
-    return getWhatsAppUrl(phoneStr);
+    let p = phoneStr;
+    if (isTollFreeOrLandline(p)) {
+      const best = getBestMobileForContact(targetContact) ||
+        resolveBestCompanyMobile(availableCompanyContacts, targetContact)?.phone;
+      if (best) p = best;
+    }
+    return getWhatsAppUrl(p);
   };
 
   // Helper to evaluate line safety restriction (DNC or Invalid) for specific contact or company lines
@@ -2066,6 +2154,12 @@ export default function LiveExecutionModal({
           createdAt: nowIso,
           updatedAt: nowIso
         };
+
+        // Explicitly strip any completed markers from spawned follow-up task
+        delete (spawnedFollowUpTask as any).completedAt;
+        delete (spawnedFollowUpTask as any).completed_at;
+        delete (spawnedFollowUpTask as any).executed_at;
+        delete (spawnedFollowUpTask as any).completedAtIso;
       }
 
       // Single atomic consolidated write path
@@ -2136,7 +2230,14 @@ export default function LiveExecutionModal({
       if (pivotToWhatsApp) {
         // Immediate Pivot to WhatsApp:
         // Launch WhatsApp web/app preserving any drafted notes
-        const targetPhone = resolvedTargetContactPhone || directPhone || companyMainPhone || '';
+        let targetPhone = resolvedTargetContactPhone || directPhone || companyMainPhone || '';
+        if (isTollFreeOrLandline(targetPhone)) {
+          const bestMobile = getBestMobileForContact(targetContact) ||
+            resolveBestCompanyMobile(availableCompanyContacts, targetContact)?.phone;
+          if (bestMobile) {
+            targetPhone = bestMobile;
+          }
+        }
         const waUrl = getWhatsAppUrl(targetPhone, notes.trim() || undefined);
         if (waUrl) {
           window.open(waUrl, '_blank', 'noopener,noreferrer');

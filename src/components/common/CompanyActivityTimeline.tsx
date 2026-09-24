@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace, getCompanyPhones, isSamePhoneNumber } from '../../types';
 import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry, canAccessActivityDetail } from '../../utils/permissions';
-import { getEventOccurrenceTimestamp, isContactUnassigned, resolveContactByPhoneNumber } from '../../utils/activityLogic';
+import { getEventOccurrenceTimestamp, isContactUnassigned, resolveContactByPhoneNumber, isScheduledTask } from '../../utils/activityLogic';
+export { isScheduledTask };
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
@@ -167,51 +168,6 @@ export function getAgentInitials(name?: string): string {
   if (parts.length === 0) return 'ST';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/**
- * Evaluates whether an activity log is an active pending / scheduled task.
- * Any activity with status in ['Scheduled', 'Planned', 'Draft'] MUST be pinned inside
- * the dedicated 'UPCOMING / SCHEDULED TASKS' banner at the top of the history panel
- * until completed/cancelled.
- */
-export function isScheduledTask(log: CallLogEntry): boolean {
-  if (log.is_deleted) return false;
-  const status = (log.status || '').toLowerCase().trim();
-  const outcome = (log.outcome || '').toLowerCase().trim();
-
-  // Completed / cancelled / executed checks
-  if (
-    status === 'cancelled' ||
-    status === 'canceled' ||
-    Boolean((log as any).cancellation_reason) ||
-    status.includes('completed') ||
-    status.includes('conducted') ||
-    status === 'sent' ||
-    status.includes('sent') ||
-    outcome.includes('completed') ||
-    Boolean((log as any).completed_at) ||
-    Boolean((log as any).completedAt) ||
-    Boolean((log as any).executed_at)
-  ) {
-    return false;
-  }
-
-  // Any activity with status in ['Scheduled', 'Planned', 'Draft']
-  const isScheduledStatus =
-    status === 'scheduled' ||
-    status === 'planned' ||
-    status === 'draft' ||
-    status.includes('scheduled') ||
-    status.includes('planned') ||
-    status.includes('draft') ||
-    status === 'rescheduled' ||
-    status === 'pending';
-
-  const hasScheduledDate = Boolean(log.next_followup_date || (log as any).scheduled_for);
-  const isTaskFlag = Boolean((log as any).is_task);
-
-  return isScheduledStatus || (hasScheduledDate && !outcome.includes('completed')) || isTaskFlag;
 }
 
 /**
@@ -605,7 +561,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                     Activity History
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-mono">
-                    {historyLogs.length + enquiries.length}
+                    {pastHistoryLogs.length + enquiries.length}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
@@ -653,7 +609,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
-                <span>Activities ({historyLogs.length})</span>
+                <span>Activities ({pastHistoryLogs.length})</span>
               </button>
               <button
                 type="button"
@@ -1042,20 +998,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               const outcomeLabel = log.outcome || null;
               const badgeStyle = getStatusBadgeStyle(isCancelled ? 'cancelled' : (log.status || statusLabel));
 
-              const isExecutableTask =
-                !isCancelled &&
-                (statusLower === 'scheduled' ||
-                 statusLower.includes('scheduled') ||
-                 statusLower === 'planned' ||
-                 statusLower.includes('planned') ||
-                 statusLower === 'draft' ||
-                 statusLower.includes('draft') ||
-                 statusLower === 'pending' ||
-                 isScheduledTask(log)) &&
-                !statusLower.includes('completed') &&
-                !(log as any).completed_at &&
-                !(log as any).executed_at;
-
               const agentName =
                 (log as any).handled_by_team_member_name ||
                 log.sales_person ||
@@ -1117,21 +1059,6 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                           <Lock className="w-2.5 h-2.5 shrink-0" />
                           <span>Restricted</span>
                         </span>
-                      )}
-
-                      {canAccess && isExecutableTask && (
-                        <button
-                          type="button"
-                          id={`execute-top-task-${log.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleExecuteTask(log);
-                          }}
-                          className="px-2 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-[10px] font-bold shadow-2xs flex items-center space-x-1 transition cursor-pointer ml-1"
-                          title="Launch execution center for scheduled task"
-                        >
-                          <span>⚡ Execute</span>
-                        </button>
                       )}
                     </div>
 

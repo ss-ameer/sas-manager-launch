@@ -41,6 +41,7 @@ import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
+import { isScheduledTask } from '../utils/activityLogic';
 import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import { useActivityLauncher } from '../context/ActivityLauncherContext';
 
@@ -228,8 +229,13 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
       .sort((a, b) => new Date(b.created_at || (b as any).createdAt || 0).getTime() - new Date(a.created_at || (a as any).createdAt || 0).getTime());
   }, [company?.id, enquiries]);
 
-  // Combined count of activity logs and linked proposals/quotes
-  const combinedHistoryCount = linkedCompanyLogs.length + linkedCompanyEnquiries.length;
+  // Completed / executed activity logs (strictly excluding pending/scheduled tasks)
+  const completedCompanyLogs = useMemo(() => {
+    return linkedCompanyLogs.filter((l) => !isScheduledTask(l));
+  }, [linkedCompanyLogs]);
+
+  // Combined count of executed/completed activity history touchpoints and linked proposals/quotes
+  const combinedHistoryCount = completedCompanyLogs.length + linkedCompanyEnquiries.length;
 
   if (!isOpen || !company) return null;
 
