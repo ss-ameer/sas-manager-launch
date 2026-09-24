@@ -189,6 +189,20 @@ export default function CallLogReportModal({
 
   // Filter logs based on selection
   const filteredLogs = callLogs.filter((l) => {
+    // Strictly exclude internal operations / development tasks from sales outreach Call Operations Activity Log & metrics
+    if (l.isInternalOps) return false;
+    const chanLower = (l.channel || '').toLowerCase().trim();
+    if (
+      chanLower === 'internal task' ||
+      chanLower === 'internal ops' ||
+      chanLower === 'task' ||
+      chanLower.includes('internal') ||
+      chanLower === 'internal task / admin' ||
+      chanLower === 'admin'
+    ) {
+      return false;
+    }
+
     // Exclude pending scheduled queue tasks from the daily operational log by default
     const st = (l.status || '').toLowerCase();
     if (statusFilter === 'all' || statusFilter === '') {

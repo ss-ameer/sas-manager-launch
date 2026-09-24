@@ -380,4 +380,50 @@ export function getEventOccurrenceTimestamp(item: any): string {
   );
 }
 
+/**
+ * Strips repeated or nested [Notes]: prefixes and trims surrounding whitespace.
+ */
+export function cleanNotePrefix(text?: string): string {
+  if (!text) return '';
+  let cleaned = text.trim();
+  // Strip repeated / nested [Notes]: or [Notes] prefixes
+  while (/^\[Notes\]:?\s*/i.test(cleaned)) {
+    cleaned = cleaned.replace(/^\[Notes\]:?\s*/i, '').trim();
+  }
+  return cleaned;
+}
+
+/**
+ * Combines existing task requirement notes with new interaction notes,
+ * strictly preventing recursive nesting, duplicate headers, or duplicate retry templates.
+ */
+export function combineInteractionNotes(existingNotes?: string, newNotes?: string): string {
+  const cleanExisting = (existingNotes || '').trim();
+  const rawNew = (newNotes || '').trim();
+  if (!rawNew) return cleanExisting;
+
+  const cleanedNew = cleanNotePrefix(rawNew);
+  if (!cleanedNew) return cleanExisting;
+
+  // If the new notes start with or equal retry callback template, ensure clean formatting without [Notes]: wrapping
+  const isRetryTemplate =
+    cleanedNew.toLowerCase().startsWith('call dropped / disconnected') ||
+    cleanedNew.toLowerCase().startsWith('retry callback');
+
+  if (!cleanExisting) {
+    return isRetryTemplate ? cleanedNew : `[Notes]: ${cleanedNew}`;
+  }
+
+  // Avoid appending if the exact same note is already contained in existing notes
+  if (cleanExisting.includes(cleanedNew)) {
+    return cleanExisting;
+  }
+
+  if (isRetryTemplate) {
+    return `${cleanExisting}\n${cleanedNew}`;
+  }
+
+  return `${cleanExisting}\n[Notes]: ${cleanedNew}`;
+}
+
 

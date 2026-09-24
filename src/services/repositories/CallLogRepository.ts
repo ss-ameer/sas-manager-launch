@@ -311,9 +311,9 @@ export class ActivityLogRepository {
     const sanitized: ActivityLogEntry = {
       ...entry,
       isInternalOps: true,
-      channel: entry.channel || 'Internal Ops',
+      channel: entry.channel || 'Internal Task',
       company_id: undefined,
-      company_name: undefined,
+      company_name: entry.company_name || 'Internal / Operations',
       contact_id: undefined,
       contact_name: undefined,
       contact_phone: undefined

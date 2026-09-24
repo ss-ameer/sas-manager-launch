@@ -73,7 +73,9 @@ import {
   getPurposesForChannel,
   isContactUnassigned,
   resolveContactByPhoneNumber,
-  resolveGeographyFromCompany
+  resolveGeographyFromCompany,
+  cleanNotePrefix,
+  combineInteractionNotes
 } from '../utils/activityLogic';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
@@ -1895,11 +1897,7 @@ export default function LiveExecutionModal({
           ? 'Completed'
           : (callStatus || 'Completed');
       }
-      const finalNotes: string = notes.trim()
-        ? currentTask.requirement_notes
-          ? `${currentTask.requirement_notes}\n[Notes]: ${notes.trim()}`
-          : notes.trim()
-        : currentTask.requirement_notes || '';
+      const finalNotes: string = combineInteractionNotes(currentTask.requirement_notes, notes);
 
       // Step 0: Upstream Contact Sync for 'Invalid Number' and DNC
       const targetContactId = activeContactId || currentTask.contact_id;
@@ -2057,8 +2055,8 @@ export default function LiveExecutionModal({
           status: 'Scheduled' as CallStatus,
           outcome: 'Follow-Up Scheduled',
           purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
-          requirement_notes: followUpIntent.trim() ? followUpIntent.trim() : 'Scheduled follow-up task',
-          followup_intent: followUpIntent.trim() || undefined,
+          requirement_notes: followUpIntent.trim() ? cleanNotePrefix(followUpIntent) : 'Scheduled follow-up task',
+          followup_intent: cleanNotePrefix(followUpIntent) || undefined,
           enquiry_id: currentTask.enquiry_id || (currentTask as any)?.linked_enquiry_id || resolvedLinkedEnquiry?.id || undefined,
           enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
           logged_by: userName,
@@ -2299,13 +2297,12 @@ export default function LiveExecutionModal({
       const reasonText = cancelReason.trim() || 'Operator cancelled task';
       const cancellationLogText = `[Cancelled]: ${reasonText}`;
 
-      const combinedNotes = notes.trim()
-        ? currentTask.requirement_notes
-          ? `${currentTask.requirement_notes}\n${cancellationLogText}\n[Notes]: ${notes.trim()}`
-          : `${cancellationLogText}\n[Notes]: ${notes.trim()}`
-        : currentTask.requirement_notes
-          ? `${currentTask.requirement_notes}\n${cancellationLogText}`
-          : cancellationLogText;
+      const cleanScratchpad = cleanNotePrefix(notes);
+      let combinedNotes = currentTask.requirement_notes?.trim() || '';
+      combinedNotes = combinedNotes ? `${combinedNotes}\n${cancellationLogText}` : cancellationLogText;
+      if (cleanScratchpad) {
+        combinedNotes = `${combinedNotes}\n[Notes]: ${cleanScratchpad}`;
+      }
 
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,

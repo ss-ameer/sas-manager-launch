@@ -68,7 +68,15 @@ import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
-import { isSuccessStatus, normalizeStatusBadgeLabel, isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
+import {
+  isSuccessStatus,
+  normalizeStatusBadgeLabel,
+  isContactUnassigned,
+  resolveContactByPhoneNumber,
+  resolveGeographyFromCompany,
+  cleanNotePrefix,
+  combineInteractionNotes
+} from '../utils/activityLogic';
 import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -1034,8 +1042,18 @@ export default function CallLogManager({
     return Boolean(comp?.is_dnc || cont?.is_dnc);
   };
 
+  // Helper to identify internal ops / development tasks
+  const isInternalTaskLog = (l: Partial<CallLogEntry>): boolean => {
+    if (l.isInternalOps) return true;
+    const ch = (l.channel || '').toLowerCase().trim();
+    return ch === 'internal task' || ch === 'internal ops' || ch === 'task' || ch.includes('internal') || ch === 'internal task / admin' || ch === 'admin';
+  };
+
   // Helper to resolve company name from master record if available
   const getResolvedCompanyName = (entry: Partial<CallLogEntry>): string => {
+    if (isInternalTaskLog(entry)) {
+      return entry.company_name || 'Internal / Operations';
+    }
     if (entry.company_id) {
       const comp = companyMap.get(entry.company_id);
       if (comp) return comp.display_name || comp.canonical_name || entry.company_name || 'Direct Client';
@@ -1272,6 +1290,7 @@ export default function CallLogManager({
     };
 
     const completedToday = workspaceCallLogs.filter((l) => {
+      if (isInternalTaskLog(l)) return false;
       if (!isNonScheduledOrCompleted(l.status)) return false;
       const execDate = getLogExecutionDate(l);
       return execDate ? isTaskDueToday(execDate) : false;
@@ -1283,6 +1302,7 @@ export default function CallLogManager({
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
     const completedThisWeek = workspaceCallLogs.filter((l) => {
+      if (isInternalTaskLog(l)) return false;
       if (!isNonScheduledOrCompleted(l.status)) return false;
       const execDate = getLogExecutionDate(l);
       const t = execDate ? (parseTaskScheduledDate(execDate)?.getTime() || 0) : 0;
@@ -1417,7 +1437,9 @@ export default function CallLogManager({
       const finalContactName = trimmedContact || selectedEntry?.contact_name || '';
       const finalContactPhone = fastContactPhone.trim() || selectedEntry?.contact_phone || selectedEntry?.unlinked_contact_info || '';
 
-      const updatedNotes = fastNotes ? `${selectedEntry?.requirement_notes || ''}\n[Completed Note]: ${fastNotes}`.trim() : (selectedEntry?.requirement_notes || '');
+      const updatedNotes = fastNotes
+        ? combineInteractionNotes(selectedEntry?.requirement_notes, fastNotes)
+        : (selectedEntry?.requirement_notes || '');
       
       const updatedPayload = {
         date: nowIso,
@@ -2042,11 +2064,11 @@ export default function CallLogManager({
   }, [workspaceCallLogs]);
 
   const salesHistoryCount = useMemo(() => {
-    return nonScheduledHistoryLogs.filter((l) => !l.isInternalOps).length;
+    return nonScheduledHistoryLogs.filter((l) => !isInternalTaskLog(l)).length;
   }, [nonScheduledHistoryLogs]);
 
   const opsHistoryCount = useMemo(() => {
-    return nonScheduledHistoryLogs.filter((l) => Boolean(l.isInternalOps)).length;
+    return nonScheduledHistoryLogs.filter((l) => isInternalTaskLog(l)).length;
   }, [nonScheduledHistoryLogs]);
 
   // Derived list of distinct agents/operators for the filter dropdown
@@ -2133,17 +2155,21 @@ export default function CallLogManager({
   // Filtered History List
   const filteredHistoryLogs = useMemo(() => {
     const list = nonScheduledHistoryLogs.filter((l) => {
+      const isInternal = isInternalTaskLog(l);
+      const cf = channelFilter.toLowerCase().trim();
+      const isExplicitInternalFilter = cf === 'internal task' || cf.includes('internal') || cf === 'task';
+
       // Filter by Top-Level Scope View (Sales Outreach vs Internal Ops)
       if (historyActivityType === 'sales') {
-        if (l.isInternalOps) return false;
+        if (isInternal && !isExplicitInternalFilter) return false;
+        if (!isInternal && isExplicitInternalFilter) return false;
       } else {
-        if (!l.isInternalOps) return false;
+        if (!isInternal) return false;
       }
 
       // Channel Filter
       if (channelFilter !== 'all') {
-        const normChan = (l.channel || l.interaction_type || (l.isInternalOps ? 'Internal Task' : 'Phone Call')).toLowerCase().trim();
-        const cf = channelFilter.toLowerCase().trim();
+        const normChan = (l.channel || l.interaction_type || (isInternal ? 'Internal Task' : 'Phone Call')).toLowerCase().trim();
         if (cf === 'phone call') {
           if (!normChan.includes('call') && !normChan.includes('phone')) return false;
         } else if (cf === 'whatsapp / message' || cf.includes('whatsapp') || cf.includes('message')) {
@@ -2155,7 +2181,7 @@ export default function CallLogManager({
         } else if (cf === 'meeting') {
           if (!normChan.includes('meeting')) return false;
         } else if (cf === 'internal task') {
-          if (!normChan.includes('internal') && !normChan.includes('task') && !l.isInternalOps) return false;
+          if (!normChan.includes('internal') && !normChan.includes('task') && !isInternal) return false;
         } else {
           if (!normChan.includes(cf)) return false;
         }
@@ -3070,7 +3096,7 @@ export default function CallLogManager({
                   setEditingLog(null);
                   if (onOpenActivityDrawer) {
                     onOpenActivityDrawer({
-                      channel: historyActivityType === 'internal' ? 'Internal Ops' : 'Call',
+                      channel: historyActivityType === 'internal' ? 'Internal Task' : 'Call',
                       drawerMode: 'create',
                       initialIsInternalOps: historyActivityType === 'internal'
                     });
@@ -3191,7 +3217,7 @@ export default function CallLogManager({
             </div>
 
             {/* Primary Filter Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
               {/* 1. Fast Search Input */}
               <div className="relative lg:col-span-2">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -3214,24 +3240,7 @@ export default function CallLogManager({
                 )}
               </div>
 
-              {/* 2. Channel Dropdown */}
-              <div>
-                <select
-                  value={channelFilter}
-                  onChange={(e) => setChannelFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
-                >
-                  <option value="all">All Channels</option>
-                  <option value="Phone Call">📞 Phone Call</option>
-                  <option value="WhatsApp / Message">💬 WhatsApp / Message</option>
-                  <option value="Email">✉️ Email</option>
-                  <option value="Site Visit">🏢 Site Visit</option>
-                  <option value="Meeting">👥 Meeting</option>
-                  <option value="Internal Task">📋 Internal Task</option>
-                </select>
-              </div>
-
-              {/* 3. Status Dropdown (Normalized Statuses) */}
+              {/* 2. Status Dropdown (Normalized Statuses) */}
               <div>
                 <select
                   value={statusFilter}
@@ -3705,7 +3714,7 @@ export default function CallLogManager({
                                   setDrawerMode('edit');
                                   if (onOpenActivityDrawer) {
                                     onOpenActivityDrawer({ 
-                                      channel: 'Internal Ops', 
+                                      channel: 'Internal Task', 
                                       drawerMode: 'edit',
                                       existingLog: log,
                                       logToEdit: log,
@@ -4199,7 +4208,7 @@ export default function CallLogManager({
                                       setDrawerMode('edit');
                                       if (onOpenActivityDrawer) {
                                         onOpenActivityDrawer({
-                                          channel: 'Internal Ops',
+                                          channel: 'Internal Task',
                                           drawerMode: 'edit',
                                           existingLog: log,
                                           logToEdit: log,
@@ -4455,7 +4464,7 @@ export default function CallLogManager({
                       setEditingLog(null);
                       if (onOpenActivityDrawer) {
                         onOpenActivityDrawer({
-                          channel: 'Internal Ops',
+                          channel: 'Internal Task',
                           drawerMode: 'create',
                           initialIsInternalOps: true
                         });
@@ -5677,7 +5686,7 @@ export default function CallLogManager({
               logToEdit: entry,
               drawerMode: 'edit',
               initialIsInternalOps: Boolean(entry.isInternalOps),
-              channel: entry.channel || (entry.isInternalOps ? 'Internal Ops' : undefined)
+              channel: entry.channel || (entry.isInternalOps ? 'Internal Task' : undefined)
             });
           } else {
             setIsActivityDrawerOpen(true);
@@ -5800,7 +5809,7 @@ export default function CallLogManager({
         contactName={editingLog?.contact_name}
         contactPhone={editingLog?.contact_phone}
         enquiryId={editingLog?.enquiry_id}
-        initialChannel={editingLog?.channel || (historyActivityType === 'internal' ? 'Internal Ops' : undefined)}
+        initialChannel={editingLog?.channel || (historyActivityType === 'internal' ? 'Internal Task' : undefined)}
         initialIsInternalOps={Boolean(editingLog?.isInternalOps || historyActivityType === 'internal')}
         initialStatus={editingLog?.status}
         activeWorkspaceId={activeWorkspace.id}

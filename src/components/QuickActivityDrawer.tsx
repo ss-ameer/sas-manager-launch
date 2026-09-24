@@ -86,7 +86,9 @@ import {
   MESSAGE_OUTCOMES,
   isContactUnassigned,
   resolveContactByPhoneNumber,
-  resolveGeographyFromCompany
+  resolveGeographyFromCompany,
+  cleanNotePrefix,
+  combineInteractionNotes
 } from '../utils/activityLogic';
 
 export {
@@ -409,7 +411,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [internalDeliverableUrl, setInternalDeliverableUrl] = useState<string>(
     existingLog?.deliverableUrl || logToEdit?.deliverableUrl || ''
   );
-  const [channel, setChannel] = useState<ActivityChannel>(initialChannel || 'Call');
+  const [channel, setChannel] = useState<ActivityChannel>(
+    initialChannel || (initialIsInternalOps ? ('Internal Task' as any) : 'Call')
+  );
   const interactionChannel = channel;
   const isInternalTask = isInternalTaskChannel(interactionChannel);
   const [outcome, setOutcome] = useState<string>('');
@@ -691,14 +695,22 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     } else {
       const activeLog = existingLog || logToEdit;
       if (activeLog) {
-        setIsInternalOps(Boolean(activeLog.isInternalOps));
+        const isOps = Boolean(activeLog.isInternalOps || isInternalTaskChannel(activeLog.channel));
+        setIsInternalOps(isOps);
+        if (isOps) {
+          setChannel('Internal Task' as any);
+        }
         setInternalTitle(activeLog.title || '');
         if (activeLog.internalCategory) setInternalCategory(activeLog.internalCategory);
         if (activeLog.requester) setInternalRequester(activeLog.requester);
         if (activeLog.durationMinutes !== undefined) setInternalDurationMinutes(activeLog.durationMinutes);
         if (activeLog.deliverableUrl) setInternalDeliverableUrl(activeLog.deliverableUrl);
       } else {
-        setIsInternalOps(Boolean(initialIsInternalOps));
+        const isOps = Boolean(initialIsInternalOps);
+        setIsInternalOps(isOps);
+        if (isOps) {
+          setChannel('Internal Task' as any);
+        }
         setInternalTitle('');
         setInternalCategory('Development');
         setInternalRequester('Management / Boss');
@@ -1784,26 +1796,28 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         const userName = currentUserName || user?.full_name || user?.username || user?.email || currentUserInitials || 'System';
         const logEntryId = (existingLog && existingLog.id) || (logToEdit && logToEdit.id) || `ops_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+        const cleanedNotes = cleanNotePrefix(notes);
         const opsEntry: CallLogEntry = {
           id: logEntryId,
           workspace_id: activeWorkspaceId,
           date: activityIsoDate,
           status: 'Completed',
-          channel: 'Internal Ops',
+          channel: 'Internal Task',
           isInternalOps: true,
+          company_name: 'Internal / Operations',
           title: internalTitle.trim(),
           internalCategory,
           requester: internalRequester,
           durationMinutes: Number(internalDurationMinutes) || 0,
           deliverableUrl: internalDeliverableUrl.trim() || undefined,
-          requirement_notes: (notes || '').trim() || undefined,
-          notes: (notes || '').trim() || undefined,
+          requirement_notes: cleanedNotes || undefined,
+          notes: cleanedNotes || undefined,
           logged_by: userName,
           sales_person: userName,
           sales_person_id: currentSalespersonId || userUid || undefined,
           handled_by_team_member_name: userName,
           handled_by_salesperson_id: currentSalespersonId || userUid || undefined,
-          interaction_type: 'call',
+          interaction_type: undefined,
           createdAt: existingLog?.createdAt || logToEdit?.createdAt || nowIso,
           updatedAt: nowIso
         };
@@ -2677,10 +2691,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
         geography: resolvedGeography,
         ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
-        requirement_notes: notes.trim(),
+        requirement_notes: cleanNotePrefix(notes),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
         next_followup_date: followupIsoDate,
-        followup_intent: followupDate ? (followupIntent.trim() || undefined) : undefined,
+        followup_intent: followupDate ? (cleanNotePrefix(followupIntent) || undefined) : undefined,
         email_subject: channel === 'Email' ? (emailSubject.trim() || undefined) : undefined,
         email_address: channel === 'Email' ? (effectiveContactEmail.trim() || undefined) : undefined,
         location_or_link: (channel === 'Meeting' || channel === 'Site Visit') ? (locationOrLink.trim() || undefined) : undefined,
