@@ -175,6 +175,19 @@ function normalizeModalFollowUpChannel(raw?: string): MasterActivityChannel {
   return 'Phone Call';
 }
 
+function getChannelShortLabel(channel: string): string {
+  switch (channel) {
+    case 'Message (WhatsApp/SMS)':
+      return 'WhatsApp';
+    case 'Meeting (Virtual/In-Person)':
+      return 'Meeting';
+    case 'Internal Task / Admin':
+      return 'Internal Task';
+    default:
+      return channel;
+  }
+}
+
 function isTaskUpcoming(dateStr?: string): boolean {
   if (!dateStr) return false;
   const parsed = parseTaskScheduledDate(dateStr);
@@ -2751,8 +2764,9 @@ export default function LiveExecutionModal({
               )}
 
               {/* Dual-Track Contact Deck with Active Target Highlighting */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* a) Target Contact Person Card */}
+              <div className="sticky top-0 z-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 pb-3 pt-1 shadow-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* a) Target Contact Person Card */}
                 <div
                   className={`p-3.5 rounded-xl transition-all duration-150 flex flex-col justify-between space-y-2.5 relative overflow-hidden ${
                     activeTarget === 'contact'
@@ -3119,9 +3133,9 @@ export default function LiveExecutionModal({
                     </div>
                   ) : (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                      <div className="truncate min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <div className="text-[10px] uppercase font-semibold text-slate-400">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">
                             {directPhone && directPhone.includes('@') ? 'Direct Email' : 'Direct Number'}
                           </div>
                           <button
@@ -3133,11 +3147,11 @@ export default function LiveExecutionModal({
                               setInlinePhoneNumber('');
                               setIsAddingInlinePhone(true);
                             }}
-                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline cursor-pointer"
+                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline cursor-pointer shrink-0"
                             title="Add and immediately select a new number for this contact"
                           >
-                            <Plus className="w-2.5 h-2.5" />
-                            <span>+ Add Number</span>
+                            <Plus className="w-2.5 h-2.5 shrink-0" />
+                            <span>Add</span>
                           </button>
                         </div>
                         <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
@@ -3490,9 +3504,9 @@ export default function LiveExecutionModal({
                     </div>
                   ) : (
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                      <div className="truncate">
-                        <div className="flex items-center gap-1.5">
-                          <div className="text-[10px] uppercase font-semibold text-slate-400">Switchboard</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">Switchboard</div>
                           <button
                             type="button"
                             id="add-company-inline-number-btn"
@@ -3502,11 +3516,11 @@ export default function LiveExecutionModal({
                               setInlinePhoneNumber('');
                               setIsAddingInlinePhone(true);
                             }}
-                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:underline cursor-pointer"
+                            className="inline-flex items-center space-x-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:underline cursor-pointer shrink-0"
                             title="Add and immediately select a new mainline phone number"
                           >
-                            <Plus className="w-2.5 h-2.5" />
-                            <span>+ Add Number</span>
+                            <Plus className="w-2.5 h-2.5 shrink-0" />
+                            <span>Add</span>
                           </button>
                         </div>
                         <div className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
@@ -3632,6 +3646,7 @@ export default function LiveExecutionModal({
                   )}
                 </div>
               </div>
+            </div>
 
               {/* Dedicated Linked Commercial References Card */}
               {hasLinkedRecord && (
@@ -3783,7 +3798,7 @@ export default function LiveExecutionModal({
                     Auto-updates valid dispositions
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl">
+                <div className="flex flex-wrap gap-2 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl">
                   {CHANNELS.map((ch) => {
                     const isSelected = activeChannel === ch;
                     return (
@@ -3791,14 +3806,14 @@ export default function LiveExecutionModal({
                         key={ch}
                         type="button"
                         onClick={() => handleChannelChange(ch)}
-                        className={`flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        className={`flex items-center justify-center space-x-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                           isSelected
                             ? 'bg-blue-600 text-white shadow-xs'
                             : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700'
                         }`}
                       >
                         {renderChannelIcon(ch)}
-                        <span className="truncate">{ch}</span>
+                        <span>{getChannelShortLabel(ch)}</span>
                       </button>
                     );
                   })}
@@ -4006,19 +4021,7 @@ export default function LiveExecutionModal({
                       <CalendarClock className="w-3.5 h-3.5 text-blue-500" />
                       <span>Next Follow-Up Scheduling</span>
                     </label>
-                  {nextFollowUpDate && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNextFollowUpDate('');
-                        setActivePreset(null);
-                      }}
-                      className="text-[11px] font-semibold text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 cursor-pointer"
-                    >
-                      Clear Schedule
-                    </button>
-                  )}
-                </div>
+                  </div>
 
                 {/* Follow-Up Channel Selector Picker */}
                 <div>
@@ -4152,26 +4155,10 @@ export default function LiveExecutionModal({
                 {/* Datetime picker + Intent Input */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="mb-1">
                       <label htmlFor="next-followup-datetime" className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                         Scheduled Date & Time
                       </label>
-                      {nextFollowUpDate && (
-                        <button
-                          type="button"
-                          id="clear-followup-datetime-btn"
-                          onClick={() => {
-                            setNextFollowUpDate('');
-                            setActivePreset(null);
-                            setFollowUpIntent('');
-                          }}
-                          className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer flex items-center gap-0.5"
-                          title="Clear scheduled date and time"
-                        >
-                          <X className="w-3 h-3" />
-                          <span>Clear</span>
-                        </button>
-                      )}
                     </div>
                     <input
                       type="datetime-local"
@@ -4486,21 +4473,6 @@ export default function LiveExecutionModal({
                     <CalendarClock className="w-3.5 h-3.5" />
                     <span>Reschedule</span>
                   </button>
-
-                  {/* 💬 Immediate Pivot: Log Call & Open WhatsApp */}
-                  {isPhoneChannel && (
-                    <button
-                      type="button"
-                      id="lifecycle-pivot-whatsapp-btn"
-                      disabled={isSubmitting}
-                      onClick={handlePivotToWhatsApp}
-                      className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800/60 shadow-2xs"
-                      title="Log this call attempt and immediately switch to WhatsApp outreach for this contact without advancing the queue"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span>Log & Open WhatsApp</span>
-                    </button>
-                  )}
 
                   {/* Complete Task */}
                   <button
