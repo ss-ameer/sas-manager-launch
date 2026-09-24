@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { CallLogEntry, Contact, Company, Enquiry, Salesperson, Workspace, getCompanyPhones, isSamePhoneNumber } from '../../types';
 import { canUserClickRecord, getSalespersonFullName, canAccessEnquiry, canAccessActivityDetail } from '../../utils/permissions';
+import { getEventOccurrenceTimestamp, isContactUnassigned, resolveContactByPhoneNumber } from '../../utils/activityLogic';
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
@@ -69,65 +70,6 @@ export function formatTimelineDate(dateStr?: string): { relative: string; format
     if (isNaN(d.getTime())) return { relative: dateStr, formatted: dateStr };
 
     const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    const isToday = d.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = d.toDateString() === yesterday.toDateString();
-
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = months[d.getMonth()];
-    const day = d.getDate();
-    const year = d.getFullYear();
-
-    let hours = d.getHours();
-    const minutes = d.getMinutes().toString().padStart(2, '0');
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    const timeString = `${hours}:${minutes} ${ampm}`;
-
-    const formatted = `${month} ${day}, ${year} · ${timeString}`;
-
-    let relative = '';
-    if (diffMs < 0) {
-      relative = `${month} ${day} · ${timeString}`;
-    } else if (isToday) {
-      relative = `Today · ${timeString}`;
-    } else if (isYesterday) {
-      relative = `Yesterday · ${timeString}`;
-    } else if (diffDays > 0 && diffDays < 7) {
-      relative = `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
-    } else if (diffDays >= 7 && diffDays < 30) {
-      const weeks = Math.floor(diffDays / 7);
-      relative = `${weeks} ${weeks === 1 ? 'wk' : 'wks'} ago`;
-    } else if (diffDays >= 30 && diffDays < 365) {
-      const mos = Math.floor(diffDays / 30);
-      relative = `${mos} ${mos === 1 ? 'mo' : 'mos'} ago`;
-    } else {
-      const yrs = Math.floor(diffDays / 365);
-      relative = `${yrs} ${yrs === 1 ? 'yr' : 'yrs'} ago`;
-    }
-
-    return { relative, formatted };
-  } catch {
-    return { relative: dateStr, formatted: dateStr };
-  }
-}
-
-/**
- * Formats completion timestamp for completed activity card headers into:
- * 'Completed · Today · 11:39 PM' or 'Completed · Sep 21 · 11:39 PM'
- */
-export function formatCompletedTimestamp(dateStr?: string): { relative: string; formatted: string } {
-  if (!dateStr) return { relative: 'Completed', formatted: '—' };
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return { relative: `Completed · ${dateStr}`, formatted: dateStr };
-
-    const now = new Date();
     const isToday = d.toDateString() === now.toDateString();
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -146,26 +88,34 @@ export function formatCompletedTimestamp(dateStr?: string): { relative: string; 
     hours = hours ? hours : 12;
     const timeString = `${hours}:${minutes} ${ampm}`;
 
-    const formatted = `${month} ${day}, ${year} · ${timeString}`;
+    const trimmed = String(dateStr).trim();
+    const hasTime = trimmed.includes('T') || trimmed.includes(':');
 
-    let relativeTime = '';
+    const formatted = hasTime ? `${month} ${day}, ${year} · ${timeString}` : `${month} ${day}, ${year}`;
+
+    let relative = '';
     if (isToday) {
-      relativeTime = `Today · ${timeString}`;
+      relative = hasTime ? `Today · ${timeString}` : 'Today';
     } else if (isYesterday) {
-      relativeTime = `Yesterday · ${timeString}`;
+      relative = hasTime ? `Yesterday · ${timeString}` : 'Yesterday';
     } else if (isSameYear) {
-      relativeTime = `${month} ${day} · ${timeString}`;
+      relative = hasTime ? `${month} ${day} · ${timeString}` : `${month} ${day}`;
     } else {
-      relativeTime = `${month} ${day}, ${year} · ${timeString}`;
+      relative = hasTime ? `${month} ${day}, ${year} · ${timeString}` : `${month} ${day}, ${year}`;
     }
 
-    return {
-      relative: relativeTime,
-      formatted,
-    };
+    return { relative, formatted };
   } catch {
-    return { relative: 'Completed', formatted: dateStr || '—' };
+    return { relative: dateStr, formatted: dateStr };
   }
+}
+
+/**
+ * Formats completion timestamp for completed activity card headers into:
+ * 'Today · 11:39 PM' or 'Sep 19 · 11:39 PM'
+ */
+export function formatCompletedTimestamp(dateStr?: string): { relative: string; formatted: string } {
+  return formatTimelineDate(dateStr);
 }
 
 /**
@@ -386,7 +336,13 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   }, [historyLogs]);
 
   const pastHistoryLogs = useMemo(() => {
-    return historyLogs.filter((log) => !isScheduledTask(log));
+    return historyLogs
+      .filter((log) => !isScheduledTask(log))
+      .sort((a, b) => {
+        const timeA = new Date(getEventOccurrenceTimestamp(a)).getTime() || 0;
+        const timeB = new Date(getEventOccurrenceTimestamp(b)).getTime() || 0;
+        return timeB - timeA;
+      });
   }, [historyLogs]);
 
   // Filtered pending queued tasks based on search
@@ -817,21 +773,26 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   {filteredQueuedTasks.map((task) => {
                     const schedDate = task.next_followup_date || (task as any).scheduled_for || task.date;
                     const dueInfo = getScheduledDueBadge(schedDate);
-                    const resolvedContact = task.contact_id ? contactLookup.get(task.contact_id) : undefined;
+                    let resolvedContact = task.contact_id ? contactLookup.get(task.contact_id) : undefined;
                     const channelLower = (task.channel || task.interaction_type || '').toLowerCase();
                     const isEmailTask = channelLower.includes('email') || channelLower === 'mail' || Boolean(task.contact_phone && task.contact_phone.includes('@'));
                     const taskEmail = (task as any).email_address || (task.contact_phone && task.contact_phone.includes('@') ? task.contact_phone : '') || resolvedContact?.email || '';
                     const contactPhone = task.contact_phone && !task.contact_phone.includes('@')
                       ? task.contact_phone
                       : (resolvedContact?.mobile || resolvedContact?.phone || (task as any).phone_number || (task as any).phone || '');
+
+                    // Auto-resolve contact from phone if unassigned or mainline
+                    if (!resolvedContact && contactPhone) {
+                      const autoMatch = resolveContactByPhoneNumber(contactPhone, contacts, task.company_id || companyId);
+                      if (autoMatch?.contact_id) {
+                        resolvedContact = contactLookup.get(autoMatch.contact_id);
+                      }
+                    }
+
                     const rawTaskContactName = (task.contact_name || resolvedContact?.full_name || (task as any).target_contact_person || (task as any).contactPerson || '').trim();
-                    const isTaskMainline = !rawTaskContactName ||
-                      rawTaskContactName.toLowerCase() === 'no contact person' ||
-                      rawTaskContactName.toLowerCase() === 'company mainline' ||
-                      rawTaskContactName.toLowerCase() === 'mainline' ||
-                      rawTaskContactName.toLowerCase() === 'unassigned';
-                    const hasTaskContact = Boolean(task.contact_id && resolvedContact) || (!isTaskMainline && rawTaskContactName !== '');
-                    const taskContactName = hasTaskContact ? (!isTaskMainline ? rawTaskContactName : (resolvedContact?.full_name || '')) : '';
+                    const isTaskMainline = isContactUnassigned(task.contact_id || resolvedContact?.id, rawTaskContactName);
+                    const hasTaskContact = Boolean((task.contact_id || resolvedContact?.id) && resolvedContact) || (!isTaskMainline && rawTaskContactName !== '');
+                    const taskContactName = hasTaskContact ? (!isTaskMainline && rawTaskContactName && !isContactUnassigned(undefined, rawTaskContactName) ? rawTaskContactName : (resolvedContact?.full_name || '')) : (resolvedContact?.full_name || '');
 
                     const taskTargetCompany = (task.company_id ? companies.find((c) => c.id === task.company_id) : null) || (companyId ? companies.find((c) => c.id === companyId) : null);
                     const taskCompPhones = taskTargetCompany ? getCompanyPhones(taskTargetCompany) : [];
@@ -1044,32 +1005,32 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                   Boolean((log as any).executed_at)
                 );
 
-              const completionTimestamp =
-                (log as any).completed_at ||
-                (log as any).completedAt ||
-                (log as any).executed_at ||
-                log.date ||
-                (log as any).createdAt;
+              const eventDateStr = getEventOccurrenceTimestamp(log);
 
               const timeInfo = isCompletedLog
-                ? formatCompletedTimestamp(completionTimestamp)
-                : formatTimelineDate(log.date || (log as any).createdAt);
+                ? formatCompletedTimestamp(eventDateStr)
+                : formatTimelineDate(eventDateStr);
 
-              const resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
+              let resolvedContact = log.contact_id ? contactLookup.get(log.contact_id) : undefined;
               const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
               const isEmailChannel = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
               const emailTarget = (log as any).email_address || (log.contact_phone && log.contact_phone.includes('@') ? log.contact_phone : '') || resolvedContact?.email || '';
               const phoneTarget = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : (resolvedContact?.mobile || resolvedContact?.phone || '');
+
+              // Auto-resolve contact from phone if unassigned or mainline
+              if (!resolvedContact && phoneTarget) {
+                const autoMatch = resolveContactByPhoneNumber(phoneTarget, contacts, log.company_id || companyId);
+                if (autoMatch?.contact_id) {
+                  resolvedContact = contactLookup.get(autoMatch.contact_id);
+                }
+              }
+
               const contactPersonName = log.contact_name || resolvedContact?.full_name;
 
               const rawContact = (log.contact_name || (log as any).contactPerson || resolvedContact?.full_name || '').trim();
-              const isMainline = !rawContact ||
-                rawContact.toLowerCase() === 'no contact person' ||
-                rawContact.toLowerCase() === 'company mainline' ||
-                rawContact.toLowerCase() === 'mainline' ||
-                rawContact.toLowerCase() === 'unassigned';
-              const hasContact = Boolean(log.contact_id && resolvedContact) || (!isMainline && rawContact !== '');
-              const contactName = hasContact ? (!isMainline ? rawContact : (resolvedContact?.full_name || '')) : '';
+              const isMainline = isContactUnassigned(log.contact_id || resolvedContact?.id, rawContact);
+              const hasContact = Boolean((log.contact_id || resolvedContact?.id) && resolvedContact) || (!isMainline && rawContact !== '');
+              const contactName = hasContact ? (!isMainline && rawContact && !isContactUnassigned(undefined, rawContact) ? rawContact : (resolvedContact?.full_name || '')) : (resolvedContact?.full_name || '');
 
               const targetCompany = (log.company_id ? companies.find((c) => c.id === log.company_id) : null) || (companyId ? companies.find((c) => c.id === companyId) : null);
               const compPhones = targetCompany ? getCompanyPhones(targetCompany) : [];

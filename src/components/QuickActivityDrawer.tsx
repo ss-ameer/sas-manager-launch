@@ -83,7 +83,10 @@ import {
   CALL_OUTCOMES,
   MEETING_OUTCOMES,
   SITE_VISIT_OUTCOMES,
-  MESSAGE_OUTCOMES
+  MESSAGE_OUTCOMES,
+  isContactUnassigned,
+  resolveContactByPhoneNumber,
+  resolveGeographyFromCompany
 } from '../utils/activityLogic';
 
 export {
@@ -121,6 +124,7 @@ export interface QuickActivityDrawerProps {
   messageType?: string;
   hasActiveParentModal?: boolean;
   activeWorkspaceId: string;
+  activeWorkspace?: any;
   currentSalespersonId: string;
   currentUserInitials: string;
   currentUserUid?: string;
@@ -357,6 +361,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   messageType,
   hasActiveParentModal,
   activeWorkspaceId,
+  activeWorkspace,
   callStatuses = [],
   callOutcomes = [],
   callPurposes = [],
@@ -2625,6 +2630,39 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         }
       }
 
+      // Auto-resolve contact person from dialed/selected phone number if contact is unassigned
+      const interactionTargetPhone = (resolvedContactPhone || selectedContactPhone || unlinkedContactInfo || '').trim();
+      let resolvedContactDesignation: string | undefined = undefined;
+      let effectiveContactEmail = selectedContactEmail;
+
+      if (isContactUnassigned(resolvedContactId, resolvedContactName) && interactionTargetPhone) {
+        const autoMatch = resolveContactByPhoneNumber(
+          interactionTargetPhone,
+          contacts,
+          resolvedCompanyId || selectedCompanyId
+        );
+        if (autoMatch) {
+          resolvedContactId = autoMatch.contact_id;
+          resolvedContactName = autoMatch.contact_name;
+          resolvedContactPhone = interactionTargetPhone;
+          resolvedContactDesignation = autoMatch.contact_designation;
+          if (!effectiveContactEmail && autoMatch.contact_email) {
+            effectiveContactEmail = autoMatch.contact_email;
+          }
+        }
+      }
+
+      // Geography / Region inheritance from target company
+      const targetCompanyRecord = resolvedCompanyId
+        ? (companies || []).find((c) => c.id === resolvedCompanyId)
+        : (selectedCompanyId ? (companies || []).find((c) => c.id === selectedCompanyId) : null);
+
+      const resolvedGeography = resolveGeographyFromCompany(
+        targetCompanyRecord,
+        activeWorkspace,
+        (activeLog as any)?.geography
+      );
+
       const payload: Omit<CallLogEntry, 'id'> = {
         workspace_id: activeWorkspaceId,
         date: activityIsoDate,
@@ -2637,12 +2675,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         department: isInternalTask ? 'Administration' : undefined,
         interaction_purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
         purpose: isInternalTask ? (purpose || 'Administration') : (purpose || undefined),
+        geography: resolvedGeography,
+        ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
         requirement_notes: notes.trim(),
         whatsapp_draft: whatsappDraft ? whatsappDraft.trim() : undefined,
         next_followup_date: followupIsoDate,
         followup_intent: followupDate ? (followupIntent.trim() || undefined) : undefined,
         email_subject: channel === 'Email' ? (emailSubject.trim() || undefined) : undefined,
-        email_address: channel === 'Email' ? (selectedContactEmail.trim() || undefined) : undefined,
+        email_address: channel === 'Email' ? (effectiveContactEmail.trim() || undefined) : undefined,
         location_or_link: (channel === 'Meeting' || channel === 'Site Visit') ? (locationOrLink.trim() || undefined) : undefined,
         company_id: resolvedCompanyId,
         company_name: resolvedCompanyName,

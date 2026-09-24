@@ -1,4 +1,4 @@
-import { ActivityChannel, CallStatus } from '../types';
+import { ActivityChannel, CallStatus, Company, Contact, Workspace, getContactPhones, isSamePhoneNumber } from '../types';
 import { SYSTEM_CALL_PURPOSES } from './defaults';
 
 export const CHANNELS = [
@@ -227,4 +227,157 @@ export const CALL_OUTCOMES = [...OUTCOMES];
 export const MEETING_OUTCOMES = [...OUTCOMES];
 export const SITE_VISIT_OUTCOMES = [...OUTCOMES];
 export const MESSAGE_OUTCOMES = [...OUTCOMES];
+
+export interface AutoResolvedContact {
+  contact_id: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_designation?: string;
+  contact_email?: string;
+}
+
+/**
+ * Checks whether a contact identification (id or name) is missing or unassigned.
+ */
+export function isContactUnassigned(id?: string, name?: string): boolean {
+  if (!id && !name) return true;
+  if (!name || !name.trim()) return !id;
+  const lower = name.trim().toLowerCase();
+  return (
+    lower === 'no personnel contact assigned' ||
+    lower === 'no contact person' ||
+    lower === 'no contact' ||
+    lower === 'company mainline' ||
+    lower === 'mainline' ||
+    lower === 'unassigned' ||
+    lower === 'general line'
+  );
+}
+
+/**
+ * Auto-resolves contact person details from a dialed/selected phone number by searching
+ * against company contacts (or all contacts).
+ * Uses clean phone number matching (stripping formatting, country code variations, etc.).
+ */
+export function resolveContactByPhoneNumber(
+  phone?: string,
+  contacts?: Contact[],
+  targetCompanyId?: string
+): AutoResolvedContact | null {
+  if (!phone || !phone.trim() || !contacts || contacts.length === 0) return null;
+  const cleanPhone = phone.trim();
+
+  // First prioritize contacts linked to the target company
+  const companyContacts = targetCompanyId
+    ? contacts.filter((c) => c.company_id === targetCompanyId || (c as any).company_ids?.includes(targetCompanyId))
+    : [];
+
+  const candidatePool = companyContacts.length > 0 ? companyContacts : contacts;
+
+  for (const ct of candidatePool) {
+    const phones = getContactPhones(ct);
+    const hasPhoneMatch = phones.some((p) => isSamePhoneNumber(p.number || p.value, cleanPhone));
+    const hasDirectMatch =
+      isSamePhoneNumber(ct.mobile, cleanPhone) ||
+      isSamePhoneNumber(ct.landline, cleanPhone) ||
+      isSamePhoneNumber(ct.phone, cleanPhone);
+
+    if (hasPhoneMatch || hasDirectMatch) {
+      return {
+        contact_id: ct.id || '',
+        contact_name: ct.full_name || (ct as any).name || '',
+        contact_phone: cleanPhone,
+        contact_designation: ct.designation || (ct as any).role || undefined,
+        contact_email: ct.email || undefined
+      };
+    }
+  }
+
+  // Fallback check against remaining contacts if not found in target company
+  if (companyContacts.length > 0 && companyContacts.length < contacts.length) {
+    for (const ct of contacts) {
+      if (companyContacts.includes(ct)) continue;
+      const phones = getContactPhones(ct);
+      const hasPhoneMatch = phones.some((p) => isSamePhoneNumber(p.number || p.value, cleanPhone));
+      const hasDirectMatch =
+        isSamePhoneNumber(ct.mobile, cleanPhone) ||
+        isSamePhoneNumber(ct.landline, cleanPhone) ||
+        isSamePhoneNumber(ct.phone, cleanPhone);
+
+      if (hasPhoneMatch || hasDirectMatch) {
+        return {
+          contact_id: ct.id || '',
+          contact_name: ct.full_name || (ct as any).name || '',
+          contact_phone: cleanPhone,
+          contact_designation: ct.designation || (ct as any).role || undefined,
+          contact_email: ct.email || undefined
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolves Geography / Region snapshot.
+ * Inherits company.jurisdiction or company.city (e.g. 'Abu Dhabi, UAE') instead of falling back
+ * to the user's workspace default (e.g., 'Dubai, UAE').
+ * Only falls back to workspace default territory if the company record itself lacks any city/jurisdiction data.
+ */
+export function resolveGeographyFromCompany(
+  company?: Company | null,
+  workspace?: Workspace | null,
+  existingGeography?: string
+): string {
+  if (company) {
+    const jurisdiction = (company as any).jurisdiction?.trim();
+    if (jurisdiction) return jurisdiction;
+
+    const city = company.city?.trim();
+    const country = company.country?.trim();
+
+    if (city && country) {
+      if (city.toLowerCase().includes(country.toLowerCase())) {
+        return city;
+      }
+      return `${city}, ${country}`;
+    }
+    if (city) return city;
+    if (country) return country;
+  }
+
+  // If an existing valid geography is present on the log and company had no city/jurisdiction
+  if (existingGeography && existingGeography.trim()) {
+    return existingGeography.trim();
+  }
+
+  if (workspace?.geography_options && workspace.geography_options.length > 0) {
+    return workspace.geography_options[0];
+  }
+
+  return 'Dubai, UAE';
+}
+
+/**
+ * Extract actual event occurrence timestamp from an activity record.
+ * Prioritizes date, timestamp, occurred_at over created_at / createdAt.
+ */
+export function getEventOccurrenceTimestamp(item: any): string {
+  if (!item) return '';
+  return (
+    item.date ||
+    item.timestamp ||
+    item.occurred_at ||
+    item.occurredAt ||
+    item.executed_at ||
+    item.executedAt ||
+    item.completed_at ||
+    item.completedAt ||
+    item.createdAt ||
+    item.created_at ||
+    ''
+  );
+}
+
 

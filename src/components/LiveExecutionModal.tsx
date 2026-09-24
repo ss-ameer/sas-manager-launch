@@ -69,7 +69,10 @@ import {
   getStatusesForChannel,
   getOutcomesForStatus,
   isSuccessStatus,
-  getPurposesForChannel
+  getPurposesForChannel,
+  isContactUnassigned,
+  resolveContactByPhoneNumber,
+  resolveGeographyFromCompany
 } from '../utils/activityLogic';
 import ContactModal from './ContactModal';
 import Company360Modal from './Company360Modal';
@@ -102,6 +105,7 @@ export interface LiveExecutionModalProps {
   callStatuses?: { name: string }[];
   callPurposes?: { name: string }[];
   callOutcomes?: { name: string; sentiment?: string }[];
+  activeWorkspace?: any;
 }
 
 function parseTaskScheduledDate(dateStr?: string): Date | null {
@@ -537,7 +541,8 @@ export default function LiveExecutionModal({
   setCallLogs,
   callStatuses,
   callPurposes,
-  callOutcomes
+  callOutcomes,
+  activeWorkspace
 }: LiveExecutionModalProps) {
   const queueProp = taskQueue || queue;
   const [activeQueue, setActiveQueue] = useState<CallLogEntry[]>([]);
@@ -1815,14 +1820,40 @@ export default function LiveExecutionModal({
 
       // Resolve target contact details based on whether contact person or company mainline is selected
       const isTargetMainline = activeTarget === 'mainline';
-      const resolvedTargetContactId = isTargetMainline ? undefined : (activeContactId || currentTask.contact_id || undefined);
-      const resolvedTargetContactName = isTargetMainline ? 'Company Mainline' : (activeContactName || currentTask.contact_name || displayContactName);
-      const resolvedTargetContactPhone = isTargetMainline
+      let resolvedTargetContactId = isTargetMainline ? undefined : (activeContactId || currentTask.contact_id || undefined);
+      let resolvedTargetContactName = isTargetMainline ? 'Company Mainline' : (activeContactName || currentTask.contact_name || displayContactName);
+      let resolvedTargetContactPhone = isTargetMainline
         ? (companyMainPhone || currentTask.company_phone || '')
         : (activeContactPhone || directPhone || currentTask.contact_phone || '');
-      const resolvedTargetContactEmail = isTargetMainline
+      let resolvedTargetContactEmail = isTargetMainline
         ? (companyMainEmail || currentTask.company_email || currentTask.email_address || '')
         : (activeContactEmail || directEmail || (currentTask as any)?.contact_email || currentTask?.email_address || '');
+      let resolvedContactDesignation: string | undefined = undefined;
+
+      // Auto-resolve contact person from matched phone number if contact is unassigned or mainline
+      if (isContactUnassigned(resolvedTargetContactId, resolvedTargetContactName) && resolvedTargetContactPhone) {
+        const autoMatch = resolveContactByPhoneNumber(
+          resolvedTargetContactPhone,
+          contacts,
+          currentTask.company_id
+        );
+        if (autoMatch) {
+          resolvedTargetContactId = autoMatch.contact_id;
+          resolvedTargetContactName = autoMatch.contact_name;
+          resolvedTargetContactPhone = autoMatch.contact_phone;
+          resolvedContactDesignation = autoMatch.contact_designation;
+          if (!resolvedTargetContactEmail && autoMatch.contact_email) {
+            resolvedTargetContactEmail = autoMatch.contact_email;
+          }
+        }
+      }
+
+      // Geography / Region inheritance from company snapshot
+      const resolvedGeography = resolveGeographyFromCompany(
+        linkedCompany,
+        activeWorkspace,
+        currentTask.geography || (currentTask as any)?.geography
+      );
 
       // Step 1: Update the CURRENT task's database record
       const updatedTaskRecord: CallLogEntry = {
@@ -1833,6 +1864,8 @@ export default function LiveExecutionModal({
         contact_name: resolvedTargetContactName,
         contact_phone: resolvedTargetContactPhone,
         ...((resolvedTargetContactEmail ? { contact_email: resolvedTargetContactEmail, target_email: resolvedTargetContactEmail } : {}) as any),
+        geography: resolvedGeography,
+        ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
         status: (pivotToWhatsApp ? 'Completed' : updatedStatus) as CallStatus,
         outcome: pivotToWhatsApp ? (finalOutcome || 'Message Sent / Awaiting Reply') : finalOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
@@ -1862,6 +1895,8 @@ export default function LiveExecutionModal({
           contact_id: resolvedTargetContactId,
           contact_name: resolvedTargetContactName,
           contact_phone: resolvedTargetContactPhone,
+          geography: resolvedGeography,
+          ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
           channel: followUpChannel || currentChannel || 'Phone Call',
           date: nextFollowUpDate,
           status: 'Scheduled' as CallStatus,

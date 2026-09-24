@@ -68,7 +68,7 @@ import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { PARENT_INDUSTRIES, IndustryBadge } from '../utils/taxonomy';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
-import { isSuccessStatus, normalizeStatusBadgeLabel } from '../utils/activityLogic';
+import { isSuccessStatus, normalizeStatusBadgeLabel, isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
 import { getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -1452,19 +1452,33 @@ export default function CallLogManager({
 
       // 2. If next follow up date is set, automatically create a new Scheduled Call Log entry
       if (fastNextFollowup) {
+        const targetCompany = selectedEntry.company_id ? companies.find((c) => c.id === selectedEntry.company_id) : null;
+        let resolvedContactId = selectedEntry.contact_id || '';
+        let resolvedContactName = finalContactName;
+        let resolvedContactPhone = finalContactPhone;
+
+        if (isContactUnassigned(resolvedContactId, resolvedContactName) && resolvedContactPhone) {
+          const autoMatch = resolveContactByPhoneNumber(resolvedContactPhone, contacts, selectedEntry.company_id);
+          if (autoMatch) {
+            resolvedContactId = autoMatch.contact_id;
+            resolvedContactName = autoMatch.contact_name;
+            resolvedContactPhone = autoMatch.contact_phone;
+          }
+        }
+
         const nextCallObj = {
           workspace_id: activeWorkspace.id,
           date: fastNextFollowup,
           status: 'Scheduled / Planned' as const,
           company_id: selectedEntry.company_id || '',
           company_name: finalCompanyName,
-          contact_id: selectedEntry.contact_id || '',
-          contact_name: finalContactName,
-          contact_phone: finalContactPhone,
+          contact_id: resolvedContactId,
+          contact_name: resolvedContactName,
+          contact_phone: resolvedContactPhone,
           enquiry_id: selectedEntry.enquiry_id || '',
           enquiry_quote_ref: selectedEntry.enquiry_quote_ref || '',
           logged_by: user.username,
-          geography: selectedEntry.geography || activeWorkspace.geography_options?.[0] || 'Dubai, UAE',
+          geography: resolveGeographyFromCompany(targetCompany, activeWorkspace, selectedEntry.geography),
           requirement_notes: `Follow-up from call on ${selectedEntry.date}. Note: ${fastNotes || 'Routine check-in'}`,
           createdAt: nowIso,
           updatedAt: nowIso
@@ -5009,17 +5023,7 @@ export default function CallLogManager({
                           setLogFormPhone(comp.general_phone);
                         }
 
-                        const options = activeWorkspace.geography_options || [];
-                        const match = options.find((g) => {
-                          const lowerG = g.toLowerCase();
-                          return (
-                            (comp.city && lowerG.includes(comp.city.toLowerCase())) ||
-                            (comp.country && lowerG.includes(comp.country.toLowerCase()))
-                          );
-                        });
-                        if (match) {
-                          setLogFormGeography(match);
-                        }
+                        setLogFormGeography(resolveGeographyFromCompany(comp, activeWorkspace));
                       }
                     }}
                     className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl font-semibold bg-white"
@@ -5706,8 +5710,9 @@ export default function CallLogManager({
           setLogFormPhone(entry.contact_phone || '');
           setLogFormStatus('Scheduled / Planned');
           setLogFormOutcome('Follow-Up Required');
+          const targetCompany = entry.company_id ? workspaceCompanies.find((c) => c.id === entry.company_id) : null;
           setLogFormNotes(`Follow-up to previous call on ${entry.date}: ${entry.requirement_notes || ''}`);
-          setLogFormGeography(entry.geography || activeWorkspace.geography_options?.[0] || 'Dubai, UAE');
+          setLogFormGeography(resolveGeographyFromCompany(targetCompany, activeWorkspace, entry.geography));
           setLogFormFollowupDate('');
           setLogFormEnquiryId(entry.enquiry_id || '');
           setResolutionState({ matchedType: 'none', message: '' });
@@ -5752,16 +5757,7 @@ export default function CallLogManager({
           setLogFormEnquiryId('');
           setLogFormNotes('');
           setLogFormFollowupDate('');
-          
-          const options = activeWorkspace.geography_options || [];
-          const match = options.find((g) => {
-            const lowerG = g.toLowerCase();
-            return (
-              (company.city && lowerG.includes(company.city.toLowerCase())) ||
-              (company.country && lowerG.includes(company.country.toLowerCase()))
-            );
-          });
-          setLogFormGeography(match || activeWorkspace.geography_options?.[0] || 'Dubai, UAE');
+          setLogFormGeography(resolveGeographyFromCompany(company, activeWorkspace));
           setResolutionState({ matchedType: 'none', message: '' });
           setShowInlineCompanyCreate(false);
           setShowLogModal(true);

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, UserProfile, Workspace, getCompanyPhones } from '../types';
+import { isContactUnassigned, resolveContactByPhoneNumber, resolveGeographyFromCompany } from '../utils/activityLogic';
 import LeadConversionModal from './LeadConversionModal';
 import TemperatureBadge from './TemperatureBadge';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -148,9 +149,29 @@ export default function CallLogDetailModal({
     ? companies.find((c) => c.id === entry.company_id)
     : null;
 
-  const linkedContact = entry.contact_id
-    ? contacts.find((c) => c.id === entry.contact_id)
+  // Auto-resolve contact if contact_id is missing or contact_name is unassigned
+  const phoneToMatch = entry.contact_phone || entry.unlinked_contact_info;
+  const isCurrentlyUnassigned = isContactUnassigned(entry.contact_id, entry.contact_name);
+  const autoMatchedContact = (isCurrentlyUnassigned && phoneToMatch)
+    ? resolveContactByPhoneNumber(phoneToMatch, contacts, entry.company_id)
     : null;
+
+  const linkedContact = (entry.contact_id
+    ? contacts.find((c) => c.id === entry.contact_id)
+    : null) || (autoMatchedContact?.contact_id ? contacts.find((c) => c.id === autoMatchedContact.contact_id) : null);
+
+  const displayContactName = linkedContact?.full_name || autoMatchedContact?.contact_name || (
+    !isCurrentlyUnassigned ? entry.contact_name : (entry.unlinked_name || (phoneToMatch ? `Mainline (${phoneToMatch})` : 'Company Mainline'))
+  );
+
+  const displayContactDesignation = linkedContact?.designation || autoMatchedContact?.contact_designation || (entry as any).contact_designation || (entry as any).designation;
+
+  const displayGeography = (() => {
+    if (linkedCompany && (linkedCompany.city || (linkedCompany as any).jurisdiction)) {
+      return resolveGeographyFromCompany(linkedCompany, activeWorkspace);
+    }
+    return entry.geography || resolveGeographyFromCompany(linkedCompany, activeWorkspace);
+  })();
 
   const linkedEnquiry = entry.enquiry_id
     ? enquiries.find((e) => e.id === entry.enquiry_id)
@@ -613,8 +634,13 @@ export default function CallLogDetailModal({
               </div>
 
               <div className="font-bold text-slate-100 text-sm">
-                {entry.contact_name || entry.unlinked_name || 'No Personnel Contact Assigned'}
+                {displayContactName}
               </div>
+              {displayContactDesignation && (
+                <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  {displayContactDesignation}
+                </div>
+              )}
 
               <div className="mt-2 text-xs text-slate-300 space-y-1">
                 {(() => {
@@ -713,7 +739,7 @@ export default function CallLogDetailModal({
             <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
               <span className="text-xs font-medium text-slate-400">Geography / Region:</span>
               <span className="text-xs font-bold text-slate-200 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
-                {entry.geography || 'Dubai, UAE'}
+                {displayGeography}
               </span>
             </div>
 
