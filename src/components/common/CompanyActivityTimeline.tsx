@@ -46,7 +46,7 @@ export interface CompanyActivityTimelineProps {
   onOpenActivityDrawer?: (options: any) => void;
   onSelectEnquiry?: (id: string) => void;
   onOpenCompany360?: () => void;
-  onExecuteTask?: (task: CallLogEntry) => void;
+  onExecuteTask?: (task: CallLogEntry, targetDetails?: { taskId?: string; companyId?: string }) => void;
   onRefreshTimeline?: () => void;
   setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
@@ -358,7 +358,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
 
   const handleExecuteTask = (task: CallLogEntry) => {
     if (onExecuteTask) {
-      onExecuteTask(task);
+      onExecuteTask(task, { taskId: task.id, companyId: task.company_id });
     } else {
       setInternalExecutingTask(task);
     }
@@ -1329,6 +1329,9 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
           isOpen={Boolean(internalExecutingTask)}
           onClose={() => setInternalExecutingTask(null)}
           task={internalExecutingTask}
+          targetTaskId={internalExecutingTask.id}
+          targetCompanyId={internalExecutingTask.company_id}
+          initialTaskId={internalExecutingTask.id}
           onSwitchTask={setInternalExecutingTask}
           user={user}
           callLogs={historyLogs}

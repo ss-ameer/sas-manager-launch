@@ -5846,6 +5846,9 @@ export default function CallLogManager({
           setExecutionModalInitialIndex(0);
         }}
         task={executionModalTask}
+        targetTaskId={executionModalTask?.id}
+        targetCompanyId={executionModalTask?.company_id}
+        initialTaskId={executionModalTask?.id}
         taskQueue={executionModalQueue}
         queue={executionModalQueue}
         initialIndex={executionModalInitialIndex}

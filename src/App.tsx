@@ -426,6 +426,11 @@ export default function App() {
 
       const channel = normalizeActivityChannel(options.channel);
 
+      const targetTaskId = options.targetTaskId || options.initialTaskId || options.existingLog?.id || options.logToEdit?.id;
+      const targetCompanyId = options.targetCompanyId || compId;
+      const initialTaskId = options.initialTaskId || targetTaskId;
+      const targetTask = options.targetTask || options.existingLog || options.logToEdit || null;
+
       setActivityDrawerContext({
         companyId: compId,
         companyName: compName,
@@ -441,7 +446,11 @@ export default function App() {
         messageType: options.messageType,
         existingLog: options.existingLog || null,
         logToEdit: options.logToEdit || null,
-        drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create')
+        drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create'),
+        targetTaskId,
+        targetCompanyId,
+        initialTaskId,
+        targetTask
       });
       setIsActivityDrawerOpen(true);
     },
@@ -2063,6 +2072,9 @@ export default function App() {
         drawerMode={activityDrawerContext.drawerMode || (activityDrawerContext.existingLog || activityDrawerContext.logToEdit ? 'edit' : undefined)}
         existingLog={activityDrawerContext.existingLog || activityDrawerContext.logToEdit}
         logToEdit={activityDrawerContext.logToEdit || activityDrawerContext.existingLog}
+        targetTaskId={activityDrawerContext.targetTaskId}
+        targetCompanyId={activityDrawerContext.targetCompanyId}
+        initialTaskId={activityDrawerContext.initialTaskId || activityDrawerContext.targetTaskId}
         companyId={activityDrawerContext.companyId}
         companyName={activityDrawerContext.companyName}
         contactId={activityDrawerContext.contactId}

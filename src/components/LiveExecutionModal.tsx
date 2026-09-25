@@ -94,6 +94,10 @@ export interface LiveExecutionModalProps {
   isOpen: boolean;
   onClose: () => void;
   task: CallLogEntry | any | null;
+  targetTaskId?: string;
+  targetCompanyId?: string;
+  initialTaskId?: string;
+  targetTask?: CallLogEntry | any | null;
   taskQueue?: CallLogEntry[];
   queue?: CallLogEntry[];
   initialIndex?: number;
@@ -544,6 +548,10 @@ export default function LiveExecutionModal({
   isOpen,
   onClose,
   task,
+  targetTaskId,
+  targetCompanyId,
+  initialTaskId,
+  targetTask: targetTaskProp,
   taskQueue,
   queue,
   initialIndex = 0,
@@ -571,10 +579,40 @@ export default function LiveExecutionModal({
   // Current active task state (advances strictly forward along activeQueue)
   const [currentTask, setCurrentTask] = useState<CallLogEntry | any>(task);
   const wasOpenRef = useRef<boolean>(false);
+  const lastTargetKeyRef = useRef<string | null>(null);
+  const internalAdvanceRef = useRef<boolean>(false);
 
-  // Initialize or re-sync active queue strictly when modal opens
+  // Sync effective target identifiers
+  const effectiveTargetTaskId = targetTaskId || initialTaskId || (task ? (task.id || (task as any).taskId) : undefined);
+  const effectiveTargetCompanyId = targetCompanyId || (task ? (task.company_id || (task as any).companyId) : undefined);
+  const targetKey = `${effectiveTargetTaskId || ''}::${effectiveTargetCompanyId || ''}`;
+
+  // Initialize or re-sync active queue strictly when modal opens or execution target changes
   useEffect(() => {
-    if (isOpen && !wasOpenRef.current) {
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      lastTargetKeyRef.current = null;
+      internalAdvanceRef.current = false;
+      setActiveQueue([]);
+      setCurrentIndex(0);
+      setCurrentTask(null);
+      return;
+    }
+
+    // Skip re-syncing if the task change is caused by internal linear advancement (e.g. Next / Complete & Next)
+    if (internalAdvanceRef.current) {
+      internalAdvanceRef.current = false;
+      return;
+    }
+
+    const isInitialMount = !wasOpenRef.current;
+    const isTargetChange = Boolean(targetKey && targetKey !== lastTargetKeyRef.current);
+
+    // Ensure this targeted jump executes only on initial mount or when a new execution target is requested
+    if (isInitialMount || isTargetChange) {
+      wasOpenRef.current = true;
+      lastTargetKeyRef.current = targetKey;
+
       let resolved: CallLogEntry[] = [];
 
       if (queueProp && queueProp.length > 0) {
@@ -642,17 +680,28 @@ export default function LiveExecutionModal({
         });
 
         resolved = [...overdueTasks, ...todayTasks];
-
-        // If a specific task was passed and not in resolved, include it
-        if (task && task.id && !resolved.some((q) => q.id === task.id)) {
-          resolved = [task, ...resolved];
-        }
       }
 
-      // Enforce Single Active Pending Task invariant per company in activeQueue
+      // Identify targeted task object if supplied or available in logs
+      const targetTask =
+        task ||
+        targetTaskProp ||
+        (effectiveTargetTaskId
+          ? (queueProp || []).find((t: any) => t.id === effectiveTargetTaskId || t.taskId === effectiveTargetTaskId) ||
+            (callLogs || []).find((t: any) => t.id === effectiveTargetTaskId || t.taskId === effectiveTargetTaskId)
+          : null);
+
+      // Enforce Single Active Pending Task invariant per company in activeQueue,
+      // guaranteeing that the targeted task is preserved if provided
       const companyMapQueue = new Map<string, CallLogEntry>();
       const unlinkedQueue: CallLogEntry[] = [];
+
+      if (targetTask && targetTask.company_id?.trim()) {
+        companyMapQueue.set(targetTask.company_id.trim(), targetTask);
+      }
+
       for (const item of resolved) {
+        if (targetTask && (item.id === targetTask.id || (item as any).taskId === targetTask.id)) continue;
         const cId = item.company_id?.trim();
         if (!cId) {
           unlinkedQueue.push(item);
@@ -662,30 +711,33 @@ export default function LiveExecutionModal({
       }
       resolved = [...Array.from(companyMapQueue.values()), ...unlinkedQueue];
 
-      let startIdx = 0;
-      if (typeof initialIndex === 'number' && initialIndex >= 0 && initialIndex < resolved.length) {
-        startIdx = initialIndex;
-      } else if (task && task.id) {
-        const found = resolved.findIndex((q) => q.id === task.id);
-        if (found !== -1) {
-          startIdx = found;
-        }
+      // 1. Look up the index of the requested task or company:
+      const targetIndex = resolved.findIndex((t: any) =>
+        (effectiveTargetTaskId && (t.id === effectiveTargetTaskId || t.taskId === effectiveTargetTaskId)) ||
+        (effectiveTargetCompanyId && (t.company_id === effectiveTargetCompanyId || t.companyId === effectiveTargetCompanyId))
+      );
+
+      let currentQueueIndex = 0;
+      // 2. If found (targetIndex !== -1), immediately set currentQueueIndex (or currentIndex) to targetIndex
+      if (targetIndex !== -1) {
+        currentQueueIndex = targetIndex;
+      } else if (targetTask) {
+        // 3. If the target task is not present in the currently loaded queue slice (e.g., filtered out or outside pagination), prepend the targeted task object to index 0: [targetTask, ...queue] and set currentQueueIndex = 0
+        resolved = [targetTask, ...resolved.filter((t: any) => t.id !== targetTask.id && t.taskId !== targetTask.id)];
+        currentQueueIndex = 0;
+      } else if (typeof initialIndex === 'number' && initialIndex >= 0 && initialIndex < resolved.length) {
+        currentQueueIndex = initialIndex;
       }
 
       setActiveQueue(resolved);
-      setCurrentIndex(startIdx);
-      if (resolved[startIdx]) {
-        setCurrentTask(resolved[startIdx]);
-      } else if (task) {
-        setCurrentTask(task);
+      setCurrentIndex(currentQueueIndex);
+      if (resolved[currentQueueIndex]) {
+        setCurrentTask(resolved[currentQueueIndex]);
+      } else if (targetTask) {
+        setCurrentTask(targetTask);
       }
-    } else if (!isOpen) {
-      setActiveQueue([]);
-      setCurrentIndex(0);
-      setCurrentTask(null);
     }
-    wasOpenRef.current = isOpen;
-  }, [isOpen, queueProp, initialIndex, task, callLogs]);
+  }, [isOpen, queueProp, initialIndex, task, targetTaskId, targetCompanyId, initialTaskId, targetTaskProp, callLogs, targetKey]);
 
   // Read active channel with fallback to 'Phone Call'
   const initialTaskChannel: string = currentTask?.channel || 'Phone Call';
@@ -1074,6 +1126,7 @@ export default function LiveExecutionModal({
 
     const nextIndex = currentIndex + 1;
     if (nextIndex < activeQueue.length) {
+      internalAdvanceRef.current = true;
       setCurrentIndex(nextIndex);
       const nextTask = activeQueue[nextIndex];
       setCurrentTask(nextTask);
@@ -1082,6 +1135,7 @@ export default function LiveExecutionModal({
       }
     } else {
       // Reached the end of queue - cleanly exit
+      internalAdvanceRef.current = true;
       setCurrentIndex(nextIndex);
       setCurrentTask(null);
       if (onSwitchTask) {

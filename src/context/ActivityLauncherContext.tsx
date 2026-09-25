@@ -58,6 +58,10 @@ export interface InitiateActivityOptions {
   defaultOutcome?: string;
   initialIsInternalOps?: boolean;
   e?: React.SyntheticEvent;
+  targetTaskId?: string;
+  targetCompanyId?: string;
+  initialTaskId?: string;
+  targetTask?: CallLogEntry | any | null;
 }
 
 export interface ActivityDrawerContextState {
@@ -77,6 +81,10 @@ export interface ActivityDrawerContextState {
   logToEdit?: CallLogEntry | null;
   drawerMode?: 'create' | 'edit' | 'execute';
   initialIsInternalOps?: boolean;
+  targetTaskId?: string;
+  targetCompanyId?: string;
+  initialTaskId?: string;
+  targetTask?: CallLogEntry | any | null;
 }
 
 export interface ActivityLauncherContextType {
@@ -85,6 +93,7 @@ export interface ActivityLauncherContextType {
   closeActivityDrawer: () => void;
   isActivityDrawerOpen: boolean;
   activityDrawerContext: ActivityDrawerContextState;
+  launchExecution?: (options: { taskId?: string; companyId?: string; task?: CallLogEntry | any }) => void;
 }
 
 const ActivityLauncherContext = createContext<ActivityLauncherContextType | null>(null);
@@ -178,6 +187,11 @@ export const ActivityLauncherProvider: React.FC<ActivityLauncherProviderProps> =
       // Resolve Normalized Channel
       const channel = normalizeActivityChannel(options.channel);
 
+      const targetTaskId = options.targetTaskId || options.initialTaskId || options.existingLog?.id || options.logToEdit?.id;
+      const targetCompanyId = options.targetCompanyId || compId;
+      const initialTaskId = options.initialTaskId || targetTaskId;
+      const targetTask = options.targetTask || options.existingLog || options.logToEdit || null;
+
       const nextContext: ActivityDrawerContextState = {
         companyId: compId,
         companyName: compName,
@@ -194,13 +208,37 @@ export const ActivityLauncherProvider: React.FC<ActivityLauncherProviderProps> =
         existingLog: options.existingLog || null,
         logToEdit: options.logToEdit || null,
         drawerMode: options.drawerMode || (options.logToEdit ? 'edit' : 'create'),
-        initialIsInternalOps: options.initialIsInternalOps ?? Boolean(options.existingLog?.isInternalOps || options.logToEdit?.isInternalOps)
+        initialIsInternalOps: options.initialIsInternalOps ?? Boolean(options.existingLog?.isInternalOps || options.logToEdit?.isInternalOps),
+        targetTaskId,
+        targetCompanyId,
+        initialTaskId,
+        targetTask
       };
 
       setActivityDrawerContext(nextContext);
       setIsActivityDrawerOpen(true);
     },
     [companies, contacts, setActivityDrawerContext, setIsActivityDrawerOpen]
+  );
+
+  const launchExecution = useCallback(
+    (options: { taskId?: string; companyId?: string; task?: CallLogEntry | any }) => {
+      const task = options.task;
+      const targetTaskId = options.taskId || task?.id;
+      const targetCompanyId = options.companyId || task?.company_id;
+
+      initiateActivity({
+        companyId: targetCompanyId,
+        existingLog: task || null,
+        logToEdit: task || null,
+        drawerMode: 'execute',
+        targetTaskId,
+        targetCompanyId,
+        initialTaskId: targetTaskId,
+        targetTask: task || null
+      });
+    },
+    [initiateActivity]
   );
 
   const openActivityDrawerWithContext = useCallback(
@@ -222,7 +260,8 @@ export const ActivityLauncherProvider: React.FC<ActivityLauncherProviderProps> =
         openActivityDrawerWithContext,
         closeActivityDrawer,
         isActivityDrawerOpen,
-        activityDrawerContext
+        activityDrawerContext,
+        launchExecution
       }}
     >
       {children}
@@ -239,7 +278,8 @@ export const useActivityLauncher = () => {
       openActivityDrawerWithContext: () => {},
       closeActivityDrawer: () => {},
       isActivityDrawerOpen: false,
-      activityDrawerContext: {}
+      activityDrawerContext: {},
+      launchExecution: () => {}
     };
   }
   return context;

@@ -1064,6 +1064,9 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
           isOpen={Boolean(activeExecutionTask)}
           onClose={() => setActiveExecutionTask(null)}
           task={activeExecutionTask}
+          targetTaskId={activeExecutionTask.id}
+          targetCompanyId={activeExecutionTask.company_id}
+          initialTaskId={activeExecutionTask.id}
           onSwitchTask={setActiveExecutionTask}
           user={user}
           callLogs={callLogs}

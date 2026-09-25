@@ -113,6 +113,9 @@ export interface QuickActivityDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   drawerMode?: 'create' | 'edit' | 'execute';
+  targetTaskId?: string;
+  targetCompanyId?: string;
+  initialTaskId?: string;
   existingLog?: CallLogEntry | null;
   logToEdit?: CallLogEntry | null;
   companyId?: string;
@@ -350,6 +353,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   isOpen,
   onClose,
   drawerMode,
+  targetTaskId,
+  targetCompanyId,
+  initialTaskId,
   existingLog,
   logToEdit,
   companyId,
