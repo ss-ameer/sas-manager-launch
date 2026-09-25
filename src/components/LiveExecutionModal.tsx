@@ -234,7 +234,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     label: 'Scheduled / Planned',
     sublabel: 'Outreach planned for future',
     status: 'Scheduled',
-    defaultOutcome: 'Follow-up Scheduled',
+    defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Scheduled outreach follow-up',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
@@ -246,7 +246,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     label: 'No Answer / Busy',
     sublabel: 'No reply, busy, or voicemail',
     status: 'No Answer',
-    defaultOutcome: 'No Response / Ghosted',
+    defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Retry call - No answer or line busy',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
@@ -258,7 +258,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     label: 'Call Dropped',
     sublabel: 'Line cut or abrupt disconnect',
     status: 'Follow-Up Required',
-    defaultOutcome: 'Call Dropped / Disconnected',
+    defaultOutcome: '',
     defaultPreset: 'laterToday',
     defaultIntent: 'Call dropped / disconnected - Retry callback',
     activeClass: 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/30',
@@ -270,7 +270,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     label: 'Invalid Number',
     sublabel: 'Dead line or wrong contact',
     status: 'Invalid Number',
-    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
@@ -1640,9 +1640,9 @@ export default function LiveExecutionModal({
   const showLogAndOpenWhatsApp = isWhatsAppChannel && hasAvailableMobile;
   const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const showOpenEmailClient = isEmailChannel && Boolean(effectiveContactEmail);
-  const isCompletedState = isSuccessStatus(callStatus);
+  const isCompletedState = isSuccessStatus(callStatus) || callStatus === 'Connected' || callStatus === 'Completed';
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
-  const showOutcomeSelector = isWhatsAppChannel || (isCompletedState && availableOutcomes.length > 0 && !isEmailChannel);
+  const showOutcomeSelector = isCompletedState && !isEmailChannel && !isWhatsAppChannel;
 
   // Identify when modal is executing a scheduled task from the queue
   const isExecutingTask = Boolean(
@@ -1777,7 +1777,11 @@ export default function LiveExecutionModal({
   const handleSelectDisposition = (disp: DispositionConfig) => {
     setActiveDispositionId(disp.id);
     setCallStatus(disp.status);
-    setCallOutcome(disp.defaultOutcome);
+    if (disp.id !== 'connected') {
+      setCallOutcome('');
+    } else {
+      setCallOutcome(disp.defaultOutcome || '');
+    }
 
     // Auto-select follow-up channel if disposition indicates info requested or channel-specific follow-up
     const dispText = `${disp.id} ${disp.label} ${disp.defaultOutcome} ${disp.defaultIntent || ''}`.toLowerCase();
