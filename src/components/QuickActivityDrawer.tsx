@@ -231,7 +231,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     label: 'Connected',
     sublabel: 'Spoke with contact',
     status: 'Completed' as CallStatus,
-    defaultOutcome: 'Information Gathered',
+    defaultOutcome: 'Lead Qualified',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Follow-up on discussion',
     activeClass: 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-500/30',
@@ -243,7 +243,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     label: 'Scheduled / Planned',
     sublabel: 'Outreach planned for future',
     status: 'Scheduled' as CallStatus,
-    defaultOutcome: 'Follow-up Scheduled',
+    defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Scheduled outreach follow-up',
     activeClass: 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/30',
@@ -255,7 +255,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     label: 'No Answer / Busy',
     sublabel: 'No reply, busy, or voicemail',
     status: 'No Answer' as CallStatus,
-    defaultOutcome: 'No Response / Ghosted',
+    defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Retry call - No answer or line busy',
     activeClass: 'bg-amber-500 text-white border-amber-400 shadow-md ring-2 ring-amber-400/30',
@@ -267,7 +267,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     label: 'Call Dropped',
     sublabel: 'Line cut or abrupt disconnect',
     status: 'Follow-Up Required' as CallStatus,
-    defaultOutcome: 'Call Dropped / Disconnected',
+    defaultOutcome: '',
     defaultPreset: 'laterToday',
     defaultIntent: 'Call dropped / disconnected - Retry callback',
     activeClass: 'bg-amber-600 text-white border-amber-500 shadow-md ring-2 ring-amber-500/30',
@@ -279,7 +279,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     label: 'Invalid Number',
     sublabel: 'Dead line or wrong contact',
     status: 'Invalid Number' as CallStatus,
-    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
     activeClass: 'bg-rose-600 text-white border-rose-500 shadow-md ring-2 ring-rose-500/30',
@@ -645,7 +645,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
   const handleSelectCallDisposition = (disp: QuickDispositionItem) => {
     setStatus(disp.status);
-    setOutcome(disp.defaultOutcome);
+    if (disp.id !== 'connected') {
+      setOutcome('');
+    } else {
+      setOutcome(disp.defaultOutcome || '');
+    }
 
     if (disp.id === 'call_dropped') {
       const retryDate = new Date(Date.now() + 15 * 60 * 1000);
@@ -4870,8 +4874,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Outcome & Purpose Grid */}
             {!isInternalTask && (
-              <div className={`grid gap-3 ${((isCompletedState || status === 'Follow-Up Required' || Boolean(outcome)) && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                {((isCompletedState || status === 'Follow-Up Required' || Boolean(outcome)) && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) && (
+              <div className={`grid gap-3 ${(isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {(isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) && (
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                       {interactionChannel.toUpperCase()} OUTCOME
