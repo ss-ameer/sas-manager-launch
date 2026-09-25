@@ -321,7 +321,7 @@ export default function CallLogDetailModal({
     : 'N/A';
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
+    <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-hidden animate-fade-in">
       <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden my-auto">
         {/* Modal Header */}
         <div className="p-6 bg-slate-950 text-white border-b border-slate-800/80 flex items-center justify-between shrink-0">
@@ -948,7 +948,7 @@ export default function CallLogDetailModal({
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-70 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
             <div className="flex items-center space-x-3 text-rose-400">
               <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">

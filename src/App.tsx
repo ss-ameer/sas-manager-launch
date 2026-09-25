@@ -2060,9 +2060,9 @@ export default function App() {
       <QuickActivityDrawer
         isOpen={isActivityDrawerOpen}
         onClose={() => setIsActivityDrawerOpen(false)}
-        drawerMode={activityDrawerContext.drawerMode}
-        existingLog={activityDrawerContext.existingLog}
-        logToEdit={activityDrawerContext.logToEdit}
+        drawerMode={activityDrawerContext.drawerMode || (activityDrawerContext.existingLog || activityDrawerContext.logToEdit ? 'edit' : undefined)}
+        existingLog={activityDrawerContext.existingLog || activityDrawerContext.logToEdit}
+        logToEdit={activityDrawerContext.logToEdit || activityDrawerContext.existingLog}
         companyId={activityDrawerContext.companyId}
         companyName={activityDrawerContext.companyName}
         contactId={activityDrawerContext.contactId}

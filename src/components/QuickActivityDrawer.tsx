@@ -415,13 +415,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [internalDeliverableUrl, setInternalDeliverableUrl] = useState<string>(
     existingLog?.deliverableUrl || logToEdit?.deliverableUrl || ''
   );
-  const [channel, setChannel] = useState<ActivityChannel>(
-    initialChannel || (initialIsInternalOps ? ('Internal Task' as any) : 'Call')
-  );
+  const [channel, setChannel] = useState<ActivityChannel>(() => {
+    const active = existingLog || logToEdit;
+    return (active?.channel as ActivityChannel) || initialChannel || (initialIsInternalOps ? ('Internal Task' as any) : 'Call');
+  });
   const interactionChannel = channel;
   const isInternalTask = isInternalTaskChannel(interactionChannel);
-  const [outcome, setOutcome] = useState<string>('');
-  const [status, setStatus] = useState<CallStatus>(initialStatus || 'Completed');
+  const [outcome, setOutcome] = useState<string>(() => {
+    const active = existingLog || logToEdit;
+    return active?.outcome || defaultOutcome || '';
+  });
+  const [status, setStatus] = useState<CallStatus>(() => {
+    const active = existingLog || logToEdit;
+    return active?.status || initialStatus || 'Completed';
+  });
   const availablePurposes = useMemo(() => {
     let list: string[] = [];
     if (callPurposes && callPurposes.length > 0) {
@@ -440,7 +447,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     return list;
   }, [callPurposes]);
 
-  const [purpose, setPurpose] = useState<string>('Discovery / Qualification');
+  const [purpose, setPurpose] = useState<string>(() => {
+    const active = existingLog || logToEdit;
+    const raw = active?.purpose;
+    if (raw === 'Discovery / Validation') return 'Discovery / Qualification';
+    if (raw === 'Inbound Enquiry') return 'Inbound';
+    return raw || 'Discovery / Qualification';
+  });
 
   const isCompletedState = isSuccessStatus(status);
 
@@ -533,18 +546,37 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
     const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
     const isInternal = isInternalTaskChannel(interactionChannel);
+    const isEditingRecord = Boolean(existingLog || logToEdit || drawerMode === 'edit');
 
-    if (isInternal || isAsyncChannel) {
-      if (outcome) setOutcome('');
-    } else if (isCall) {
-      // Retain phone call dispositions & outcomes (Call Dropped, No Response, Wrong Person, etc.)
-    } else if (outcome && !isSuccessStatus(activeStatus)) {
-      setOutcome('');
+    if (!isEditingRecord) {
+      if (isInternal || isAsyncChannel) {
+        if (outcome) setOutcome('');
+      } else if (isCall) {
+        // Retain phone call dispositions & outcomes (Call Dropped, No Response, Wrong Person, etc.)
+      } else if (outcome && !isSuccessStatus(activeStatus)) {
+        setOutcome('');
+      }
     }
-  }, [interactionChannel, status, purpose, outcome, availablePurposes]);
-  const [notes, setNotes] = useState<string>('');
-  const [activityDate, setActivityDate] = useState<string>(() => getLocalDateTimeString());
-  const [followupDate, setFollowupDate] = useState<string>('');
+  }, [interactionChannel, status, purpose, outcome, availablePurposes, existingLog, logToEdit, drawerMode]);
+  const [notes, setNotes] = useState<string>(() => {
+    const active = existingLog || logToEdit;
+    return active?.requirement_notes || (active as any)?.notes || '';
+  });
+  const [activityDate, setActivityDate] = useState<string>(() => {
+    const active = existingLog || logToEdit;
+    if (active?.date) {
+      const d = new Date(active.date);
+      if (!isNaN(d.getTime())) return getLocalDateTimeString(d);
+    }
+    return getLocalDateTimeString();
+  });
+  const [followupDate, setFollowupDate] = useState<string>(() => {
+    const active = existingLog || logToEdit;
+    if (!active) return '';
+    const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft', 'Rescheduled'].includes(active.status as string);
+    const dateVal = active.next_followup_date || active.scheduled_for || (isSched ? active.date : '');
+    return dateVal ? formatToDatetimeLocal(dateVal) : '';
+  });
   const [followUpChannel, setFollowUpChannel] = useState<MasterActivityChannel>('Phone Call');
   const [activeFollowUpPreset, setActiveFollowUpPreset] = useState<'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | null>(null);
   const [emailSubject, setEmailSubject] = useState<string>('');
@@ -921,7 +953,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
         setChannel((activeLog.channel as ActivityChannel) || initialChannel || 'Call');
         setStatus(activeLog.status || initialStatus || 'Completed');
-        setOutcome(activeLog.outcome || '');
+        setOutcome(activeLog.outcome || defaultOutcome || '');
         const normalizedPurp = activeLog.purpose === 'Discovery / Validation'
           ? 'Discovery / Qualification'
           : (activeLog.purpose === 'Inbound Enquiry' ? 'Inbound' : (activeLog.purpose || 'Discovery / Qualification'));
@@ -935,11 +967,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         const logDateObj = activeLog.date ? new Date(activeLog.date) : new Date();
         setActivityDate(getLocalDateTimeString(isNaN(logDateObj.getTime()) ? new Date() : logDateObj));
 
-        setFollowupDate(
-          activeLog.next_followup_date
-            ? formatToDatetimeLocal(activeLog.next_followup_date)
-            : ''
-        );
+        const isSched = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft', 'Rescheduled'].includes(activeLog.status as string);
+        const nextDateVal = activeLog.next_followup_date || activeLog.scheduled_for || (isSched ? activeLog.date : '');
+        setFollowupDate(nextDateVal ? formatToDatetimeLocal(nextDateVal) : '');
         setFollowUpChannel('Phone Call');
         setActiveFollowUpPreset(null);
         setIsDnc(Boolean((activeLog as any).dnc || activeLog.is_dnc || (activeLog as any).opt_out));
@@ -3090,7 +3120,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   return (
     <AnimatePresence>
       <div
-        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-50 overflow-hidden ${
+        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-[80] overflow-hidden ${
           isLayeredAboveModal
             ? 'bg-slate-950/20 backdrop-blur-[1px]'
             : 'bg-slate-900/50 backdrop-blur-xs'
@@ -3106,7 +3136,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-50 text-slate-100 transform-gpu will-change-transform`}
+          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[80] text-slate-100 transform-gpu will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}

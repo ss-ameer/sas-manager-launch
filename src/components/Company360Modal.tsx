@@ -122,6 +122,31 @@ export default function Company360Modal({
   const company = localCompanyOverride || rawCompany;
   const [temperatureVal, setTemperatureVal] = useState<'Cold' | 'Warm' | 'Hot' | 'DNC'>('Cold');
 
+  const handleOpenEditDrawer = (log: CallLogEntry) => {
+    setSelectedCallLogDetail(null);
+    const drawerPayload = {
+      companyId: log.company_id || company?.id,
+      companyName: log.company_name || company?.display_name,
+      contactId: log.contact_id,
+      contactName: log.contact_name,
+      contactPhone: log.contact_phone,
+      contactEmail: (log as any)?.contact_email || log.email_address || (log as any)?.target_email,
+      enquiryId: log.enquiry_id,
+      channel: log.channel || (log.isInternalOps ? 'Internal Task' : undefined),
+      initialStatus: log.status,
+      defaultOutcome: log.outcome,
+      existingLog: log,
+      logToEdit: log,
+      drawerMode: 'edit' as const,
+      initialIsInternalOps: Boolean(log.isInternalOps)
+    };
+    if (onOpenActivityDrawer) {
+      onOpenActivityDrawer(drawerPayload);
+    } else if (launcher && typeof launcher.openActivityDrawerWithContext === 'function') {
+      launcher.openActivityDrawerWithContext(drawerPayload);
+    }
+  };
+
   useEffect(() => {
     if (company) {
       setTemperatureVal((company.temperature as any) || (company.is_dnc ? 'DNC' : 'Cold'));
@@ -1183,22 +1208,10 @@ export default function Company360Modal({
                 }
               }}
               onEditCallLog={(log) => {
-                if (onOpenActivityDrawer) {
-                  onOpenActivityDrawer({
-                    companyId: company.id,
-                    companyName: company.display_name,
-                    logToEdit: log
-                  });
-                }
+                handleOpenEditDrawer(log);
               }}
               onSelectCallLog={(log) => {
-                if (onOpenActivityDrawer) {
-                  onOpenActivityDrawer({
-                    companyId: company.id,
-                    companyName: company.display_name,
-                    logToEdit: log
-                  });
-                }
+                handleOpenEditDrawer(log);
               }}
               onOpenActivityDrawer={onOpenActivityDrawer}
               onSelectEnquiry={(id) => {
@@ -1316,14 +1329,7 @@ export default function Company360Modal({
           onClose={() => setSelectedCallLogDetail(null)}
           onOpenCompany360={() => setSelectedCallLogDetail(null)}
           onEdit={(entry) => {
-            setSelectedCallLogDetail(null);
-            if (onOpenActivityDrawer) {
-              onOpenActivityDrawer({
-                companyId: company.id,
-                companyName: company.display_name,
-                logToEdit: entry
-              });
-            }
+            handleOpenEditDrawer(entry);
           }}
           onDelete={(id) => {
             if (setCallLogs) {

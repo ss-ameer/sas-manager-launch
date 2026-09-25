@@ -1424,7 +1424,18 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               onOpenActivityDrawer({
                 companyId: entry.company_id || companyId,
                 companyName: entry.company_name || companyName,
-                logToEdit: entry
+                contactId: entry.contact_id,
+                contactName: entry.contact_name,
+                contactPhone: entry.contact_phone,
+                contactEmail: (entry as any)?.contact_email || entry.email_address || (entry as any)?.target_email,
+                enquiryId: entry.enquiry_id,
+                channel: entry.channel || (entry.isInternalOps ? 'Internal Task' : undefined),
+                initialStatus: entry.status,
+                defaultOutcome: entry.outcome,
+                existingLog: entry,
+                logToEdit: entry,
+                drawerMode: 'edit',
+                initialIsInternalOps: Boolean(entry.isInternalOps)
               });
             }
           }}
