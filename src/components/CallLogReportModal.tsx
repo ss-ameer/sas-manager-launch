@@ -14,7 +14,8 @@ import {
   PhoneCall,
   CheckCircle2,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Briefcase
 } from 'lucide-react';
 
 interface CallLogReportModalProps {
@@ -115,6 +116,24 @@ export default function CallLogReportModal({
   const [includeStats, setIncludeStats] = useState(true);
   const [includeTable, setIncludeTable] = useState(true);
   const [includeFollowups, setIncludeFollowups] = useState(true);
+  const [includeInternalOps, setIncludeInternalOps] = useState(false);
+
+  // Helper to identify internal ops / administrative development tasks
+  const isInternalTaskLog = (l: Partial<CallLogEntry>): boolean => {
+    if (l.isInternalOps) return true;
+    const chanLower = (l.channel || '').toLowerCase().trim();
+    const compLower = (l.company_name || '').toLowerCase().trim();
+    return (
+      chanLower === 'internal task' ||
+      chanLower === 'internal ops' ||
+      chanLower === 'task' ||
+      chanLower.includes('internal') ||
+      chanLower === 'internal task / admin' ||
+      chanLower === 'admin' ||
+      compLower === 'internal / operations' ||
+      compLower === 'internal operations'
+    );
+  };
 
   const availableStatuses = useMemo(() => {
     let raw: string[] = [];
@@ -189,17 +208,8 @@ export default function CallLogReportModal({
 
   // Filter logs based on selection
   const filteredLogs = callLogs.filter((l) => {
-    // Strictly exclude internal operations / development tasks from sales outreach Call Operations Activity Log & metrics
-    if (l.isInternalOps) return false;
-    const chanLower = (l.channel || '').toLowerCase().trim();
-    if (
-      chanLower === 'internal task' ||
-      chanLower === 'internal ops' ||
-      chanLower === 'task' ||
-      chanLower.includes('internal') ||
-      chanLower === 'internal task / admin' ||
-      chanLower === 'admin'
-    ) {
+    // Strictly exclude internal operations / development tasks unless includeInternalOps is enabled
+    if (!includeInternalOps && isInternalTaskLog(l)) {
       return false;
     }
 
@@ -231,7 +241,7 @@ export default function CallLogReportModal({
 
   // Completed Activities: counter MUST increment if log.status represents a completed/successful interaction.
   const completedCalls = filteredLogs.filter((l) => {
-    return isSuccessStatus(l.status);
+    return isSuccessStatus(l.status) || (isInternalTaskLog(l) && (l.status === 'Completed' || l.status === 'Done' || !l.status));
   }).length;
 
   const scheduledQueue = filteredLogs.filter((l) => {
@@ -302,6 +312,9 @@ export default function CallLogReportModal({
   // Sort logs strictly newest first
   const sortedFilteredLogs = [...filteredLogs].sort((a, b) => getLogTimestamp(b) - getLogTimestamp(a));
 
+  const salesOutreachLogs = sortedFilteredLogs.filter((l) => !isInternalTaskLog(l));
+  const internalOpsLogs = sortedFilteredLogs.filter((l) => isInternalTaskLog(l));
+
   const pendingFollowupsList = sortedFilteredLogs.filter((l) => l.next_followup_date);
 
   // Generate CSV Data and Download
@@ -323,10 +336,13 @@ export default function CallLogReportModal({
 
     const rows = sortedFilteredLogs.map((l) => {
       let channelLabel = 'Phone Call';
+      const isOps = isInternalTaskLog(l);
       const rawInteraction = (l.interaction_type as string) || '';
-      const ch = (l.channel || (rawInteraction === 'email' ? 'Email' : rawInteraction === 'message' ? (l.message_platform || 'WhatsApp') : rawInteraction === 'task' ? 'Internal Task / Admin' : 'Phone Call')).trim();
+      const ch = (l.channel || (rawInteraction === 'email' ? 'Email' : rawInteraction === 'message' ? (l.message_platform || 'WhatsApp') : rawInteraction === 'task' || isOps ? 'Internal Task' : 'Phone Call')).trim();
       const normCh = ch.toLowerCase();
-      if (normCh.includes('email')) {
+      if (isOps || normCh.includes('task') || normCh.includes('admin')) {
+        channelLabel = 'Internal Task';
+      } else if (normCh.includes('email')) {
         channelLabel = 'Email';
       } else if (normCh.includes('whatsapp') || normCh.includes('message') || normCh.includes('sms')) {
         channelLabel = 'Message (WhatsApp/SMS)';
@@ -334,18 +350,31 @@ export default function CallLogReportModal({
         channelLabel = 'Meeting (Virtual/In-Person)';
       } else if (normCh.includes('visit') || normCh.includes('site')) {
         channelLabel = 'Site Visit';
-      } else if (normCh.includes('task') || normCh.includes('admin')) {
-        channelLabel = 'Internal Task / Admin';
       } else {
         channelLabel = 'Phone Call';
       }
 
       const contactInfo = l.interaction_type === 'email' ? (l.email_address || l.contact_phone || '') : (l.contact_phone || '');
       const dateFormatted = formatReportDate(l.date || l.createdAt);
-      const companyDisplayName = l.company_name || l.unlinked_name || (normCh.includes('task') || normCh.includes('admin') ? 'Internal Admin / Team' : 'Direct Client');
-      const contactDisplayName = l.contact_name || '—';
+      const companyDisplayName = isOps
+        ? (l.company_name || 'Internal / Operations')
+        : (l.company_name || l.unlinked_name || 'Direct Client');
+      const contactDisplayName = isOps
+        ? (l.requester ? `Requester: ${l.requester}` : (l.internalCategory ? `Category: ${l.internalCategory}` : 'Internal Task'))
+        : (l.contact_name || '—');
       const followupDateFormatted = l.next_followup_date ? formatReportDate(l.next_followup_date) : '';
       const loggedByName = normalizeAgentName(l.logged_by || (l as any).sales_person || (l as any).handled_by_team_member_name);
+
+      const rawNotes = l.requirement_notes || l.notes || '';
+      let notesCombined = rawNotes;
+      if (isOps) {
+        const parts: string[] = [];
+        if (l.title) parts.push(`[${l.title}]`);
+        if (l.internalCategory) parts.push(`Category: ${l.internalCategory}`);
+        if (rawNotes) parts.push(rawNotes);
+        if (l.deliverableUrl) parts.push(`Deliverable: ${l.deliverableUrl}`);
+        notesCombined = parts.join(' | ');
+      }
 
       return [
         `"${dateFormatted}"`,
@@ -359,7 +388,7 @@ export default function CallLogReportModal({
         `"${loggedByName}"`,
         `"${followupDateFormatted}"`,
         `"${l.enquiry_quote_ref || ''}"`,
-        `"${(l.requirement_notes || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
+        `"${notesCombined.replace(/"/g, '""').replace(/\n/g, ' ')}"`
       ];
     });
 
@@ -458,22 +487,32 @@ export default function CallLogReportModal({
           ${
             includeStats
               ? `
-          <div className="grid">
-            <div className="card">
-              <div className="card-label">Total Activity Logged</div>
-              <div className="card-val">${totalCalls}</div>
+          <div class="grid" style="grid-template-columns: repeat(${includeInternalOps && internalOpsLogs.length > 0 ? 5 : 4}, 1fr);">
+            <div class="card">
+              <div class="card-label">Total Activity Logged</div>
+              <div class="card-val">${totalCalls}</div>
             </div>
-            <div className="card">
-              <div className="card-label">Completed Activities</div>
-              <div className="card-val" style="color: #059669;">${completedCalls}</div>
+            <div class="card">
+              <div class="card-label">Completed Activities</div>
+              <div class="card-val" style="color: #059669;">${completedCalls}</div>
             </div>
-            <div className="card">
-              <div className="card-label">Interested / Quotes</div>
-              <div className="card-val" style="color: #2563eb;">${interestedCount}</div>
+            ${
+              includeInternalOps && internalOpsLogs.length > 0
+                ? `
+            <div class="card">
+              <div class="card-label">Internal Ops Tasks</div>
+              <div class="card-val" style="color: #4338ca;">${internalOpsLogs.length}</div>
             </div>
-            <div className="card">
-              <div className="card-label">No Answer / Voicemail</div>
-              <div className="card-val" style="color: #d97706;">${noAnswerCount}</div>
+            `
+                : ''
+            }
+            <div class="card">
+              <div class="card-label">Interested / Quotes</div>
+              <div class="card-val" style="color: #2563eb;">${interestedCount}</div>
+            </div>
+            <div class="card">
+              <div class="card-label">No Answer / Voicemail</div>
+              <div class="card-val" style="color: #d97706;">${noAnswerCount}</div>
             </div>
           </div>
           `
@@ -483,7 +522,7 @@ export default function CallLogReportModal({
           ${
             includeTable
               ? `
-          <h3 style="font-size: 14px; margin-bottom: 8px; color: #0f172a;">Call Operations Activity Log</h3>
+          <h3 style="font-size: 14px; margin-bottom: 8px; color: #0f172a;">Call Operations & Outreach Activity Log (${salesOutreachLogs.length})</h3>
           <table>
             <thead>
               <tr>
@@ -499,9 +538,9 @@ export default function CallLogReportModal({
             </thead>
             <tbody>
               ${
-                sortedFilteredLogs.length === 0
-                  ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8; vertical-align: middle;">No records found for this period.</td></tr>`
-                  : sortedFilteredLogs
+                salesOutreachLogs.length === 0
+                  ? `<tr><td colspan="8" style="text-align:center; padding: 16px; color:#94a3b8; vertical-align: middle;">No sales outreach records found for this period.</td></tr>`
+                  : salesOutreachLogs
                       .map((l) => {
                         const rawInt = (l.interaction_type as string) || '';
                         const channel = (l.channel || (rawInt === 'email' ? 'Email' : rawInt === 'message' ? (l.message_platform || 'WhatsApp') : rawInt === 'task' ? 'Internal Task / Admin' : 'Call')).toLowerCase();
@@ -618,6 +657,82 @@ export default function CallLogReportModal({
                       })
                       .join('')
               }
+            </tbody>
+          </table>
+          `
+              : ''
+          }
+
+          ${
+            includeTable && includeInternalOps && internalOpsLogs.length > 0
+              ? `
+          <h3 style="font-size: 14px; margin-top: 24px; margin-bottom: 8px; color: #4338ca;">Internal Operations & Administrative Tasks (${internalOpsLogs.length})</h3>
+          <table>
+            <thead>
+              <tr style="background:#3730a3;">
+                <th style="vertical-align: top; padding: 6px 8px; width: 13%;">Date</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 22%;">Task Summary / Title</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 14%;">Category</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 11%;">Status</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 14%;">Owner / Agent</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 10%;">Requester</th>
+                <th style="vertical-align: top; padding: 6px 8px; width: 16%;">Deliverable & Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${internalOpsLogs
+                .map((l) => {
+                  const dateFormatted = formatReportDate(l.date || l.createdAt);
+                  const title = l.title || 'Internal Operations Task';
+                  const category = l.internalCategory || l.category || 'General Operations';
+                  const rawStatus = l.status || 'Completed';
+                  const owner = normalizeAgentName(l.logged_by || (l as any).sales_person || (l as any).handled_by_team_member_name);
+                  const requester = l.requester || '—';
+                  const duration = l.durationMinutes ? `${l.durationMinutes} min` : '';
+                  const notes = l.requirement_notes || l.notes || '';
+                  const deliverable = l.deliverableUrl ? l.deliverableUrl.trim() : '';
+
+                  let statusBadgeHtml = `<span style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">${rawStatus}</span>`;
+                  if (rawStatus.toLowerCase() === 'in progress') {
+                    statusBadgeHtml = `<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">In Progress</span>`;
+                  } else if (rawStatus.toLowerCase() === 'scheduled') {
+                    statusBadgeHtml = `<span style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px; display:inline-block;">Scheduled</span>`;
+                  }
+
+                  let deliverableHtml = '';
+                  if (deliverable) {
+                    const displayUrl = deliverable.length > 35 ? deliverable.substring(0, 32) + '...' : deliverable;
+                    deliverableHtml = `<div style="margin-top:4px; font-size:10px;"><strong>Deliverable:</strong> <a href="${deliverable}" target="_blank" style="color:#2563eb; text-decoration:underline;">${displayUrl}</a></div>`;
+                  }
+
+                  return `
+                <tr>
+                  <td style="white-space:nowrap; font-weight:600; vertical-align: top; padding: 6px 8px;">${dateFormatted}</td>
+                  <td style="vertical-align: top; padding: 6px 8px; font-weight:700; color:#1e1b4b;">
+                    <div>${title}</div>
+                    <div style="font-size:10px; font-weight:normal; color:#64748b; margin-top:2px;">Channel: Internal Task</div>
+                  </td>
+                  <td style="vertical-align: top; padding: 6px 8px;">
+                    <span style="background:#eef2ff; color:#4338ca; border:1px solid #c7d2fe; padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px;">
+                      ${category}
+                    </span>
+                  </td>
+                  <td style="vertical-align: top; padding: 6px 8px;">${statusBadgeHtml}</td>
+                  <td style="vertical-align: top; padding: 6px 8px;">
+                    <div style="font-weight:600;">${owner}</div>
+                  </td>
+                  <td style="vertical-align: top; padding: 6px 8px; font-size:10px; color:#475569;">
+                    <div><strong>Req:</strong> ${requester}</div>
+                    ${duration ? `<div style="color:#64748b; margin-top:2px;">⏱ ${duration}</div>` : ''}
+                  </td>
+                  <td class="notes-cell" style="vertical-align: top; padding: 6px 8px; max-width: 220px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; max-height: 4em; word-break: break-word;">
+                    <div>${notes || '—'}</div>
+                    ${deliverableHtml}
+                  </td>
+                </tr>
+              `;
+                })
+                .join('')}
             </tbody>
           </table>
           `
@@ -850,6 +965,18 @@ export default function CallLogReportModal({
                   Include Scheduled Action Items & Follow-ups Table
                 </span>
               </label>
+
+              <label className="flex items-center space-x-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeInternalOps}
+                  onChange={(e) => setIncludeInternalOps(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <span className="text-xs font-bold text-slate-800">
+                  Include Internal Operations & Administrative Tasks
+                </span>
+              </label>
             </div>
           </div>
 
@@ -860,6 +987,11 @@ export default function CallLogReportModal({
               <span>
                 Report scope: <strong>{filteredLogs.length}</strong> activity records matched for period (
                 {effectiveStart} to {effectiveEnd})
+                {includeInternalOps && internalOpsLogs.length > 0 && (
+                  <span className="ml-2 text-indigo-700 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-md text-[11px] font-bold">
+                    incl. {internalOpsLogs.length} internal {internalOpsLogs.length === 1 ? 'task' : 'tasks'}
+                  </span>
+                )}
               </span>
             </div>
           </div>
