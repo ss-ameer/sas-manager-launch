@@ -66,7 +66,7 @@ import { CreatableCombobox } from './CreatableCombobox';
 import { generateNextRefId } from '../utils/refId';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
 import GeminiKeyModal from './GeminiKeyModal';
-import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
+import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber, UNIFIED_OUTCOME_GROUPS } from '../utils/defaults';
 import { normalizeActivityChannel } from '../context/ActivityLauncherContext';
 import {
   CHANNELS,
@@ -4882,37 +4882,23 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         Select an outcome...
                       </option>
                       {(() => {
-                        const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
-                        const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
-                        const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
-                        const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
-                        
-                        const allNames = dynamicOutcomes.map(o => o.name);
-                        const legacyOption = outcome && !allNames.includes(outcome) ? outcome : null;
+                        const allKnownOptions = new Set(UNIFIED_OUTCOME_GROUPS.flatMap((g) => g.options));
+                        const legacyOption = outcome && !allKnownOptions.has(outcome) ? outcome : null;
 
                         return (
                           <>
-                            <optgroup label="🟢 POSITIVE / WINS">
-                              {pos.map((o) => (
-                                <option key={o.name} value={o.name}>
-                                  {o.name}
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                              {neu.map((o) => (
-                                <option key={o.name} value={o.name}>
-                                  {o.name}
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🔴 NEGATIVE / LOSSES">
-                              {neg.map((o) => (
-                                <option key={o.name} value={o.name}>
-                                  {o.name}
-                                </option>
-                              ))}
-                            </optgroup>
+                            {UNIFIED_OUTCOME_GROUPS.map((group) => {
+                              const emoji = group.sentiment === 'positive' ? '🟢' : group.sentiment === 'neutral' ? '🟡' : '🔴';
+                              return (
+                                <optgroup key={group.label} label={`${emoji} ${group.label}`}>
+                                  {group.options.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                             {legacyOption && (
                               <optgroup label="⚪ LEGACY OUTCOME">
                                 <option value={legacyOption}>{legacyOption}</option>

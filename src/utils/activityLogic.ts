@@ -1,5 +1,7 @@
 import { ActivityChannel, CallLogEntry, CallStatus, Company, Contact, Workspace, getContactPhones, isSamePhoneNumber } from '../types';
-import { SYSTEM_CALL_PURPOSES } from './defaults';
+import { SYSTEM_CALL_PURPOSES, UNIFIED_OUTCOME_GROUPS, ALL_UNIFIED_OUTCOMES, UnifiedOutcomeGroup } from './defaults';
+
+export { UNIFIED_OUTCOME_GROUPS, ALL_UNIFIED_OUTCOMES, type UnifiedOutcomeGroup };
 
 export const CHANNELS = [
   'Phone Call',

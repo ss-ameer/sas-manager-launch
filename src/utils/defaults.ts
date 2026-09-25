@@ -28,6 +28,50 @@ export const SYSTEM_CALL_OUTCOMES: any[] = [
   { id: 'co_neg_4', name: 'Not Qualified', sentiment: 'negative' },
 ];
 
+export interface UnifiedOutcomeGroup {
+  label: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  options: string[];
+}
+
+export const UNIFIED_OUTCOME_GROUPS: UnifiedOutcomeGroup[] = [
+  {
+    label: 'POSITIVE / WINS',
+    sentiment: 'positive',
+    options: [
+      'Lead Qualified',
+      'Meeting Booked',
+      'Quote Requested',
+      'Deal Won'
+    ]
+  },
+  {
+    label: 'NEUTRAL / IN-PROGRESS',
+    sentiment: 'neutral',
+    options: [
+      'Info Requested',
+      'Pending Review',
+      'Active Negotiation',
+      'Requested Call Back',
+      'Status Update',
+      'Gathered Info',
+      'No Current Need'
+    ]
+  },
+  {
+    label: 'NEGATIVE / LOSSES',
+    sentiment: 'negative',
+    options: [
+      'Not Interested',
+      'Lost to Competitor',
+      'Pricing / Timing Issue',
+      'Not Qualified'
+    ]
+  }
+];
+
+export const ALL_UNIFIED_OUTCOMES: string[] = UNIFIED_OUTCOME_GROUPS.flatMap((g) => g.options);
+
 export const SYSTEM_CALL_PURPOSES = [
   'Inbound',
   'Introduction / Pitch',

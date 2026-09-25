@@ -88,7 +88,7 @@ import CallLogDetailModal from './CallLogDetailModal';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
 import { IndustryBadge } from '../utils/taxonomy';
-import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber } from '../utils/defaults';
+import { SYSTEM_CALL_PURPOSES, getWhatsAppUrl, sanitizeWhatsAppNumber, UNIFIED_OUTCOME_GROUPS } from '../utils/defaults';
 
 export interface LiveExecutionModalProps {
   isOpen: boolean;
@@ -3927,30 +3927,23 @@ export default function LiveExecutionModal({
                       >
                         <option value="" disabled>Select conversation outcome...</option>
                         {(() => {
-                          const dynamicOutcomes = callOutcomes?.length ? callOutcomes : OUTCOMES.map(o => ({ name: o, sentiment: POSITIVE_OUTCOMES.includes(o as any) ? 'positive' : NEUTRAL_OUTCOMES.includes(o as any) ? 'neutral' : 'negative' }));
-                          const pos = dynamicOutcomes.filter(o => o.sentiment === 'positive');
-                          const neu = dynamicOutcomes.filter(o => o.sentiment === 'neutral' || !o.sentiment);
-                          const neg = dynamicOutcomes.filter(o => o.sentiment === 'negative');
-                          const allNames = dynamicOutcomes.map(o => o.name);
-                          const legacyOption = callOutcome && !allNames.includes(callOutcome) ? callOutcome : null;
+                          const allKnownOptions = new Set(UNIFIED_OUTCOME_GROUPS.flatMap((g) => g.options));
+                          const legacyOption = callOutcome && !allKnownOptions.has(callOutcome) ? callOutcome : null;
 
                           return (
                             <>
-                              <optgroup label="🟢 POSITIVE / PROGRESS">
-                                {pos.map((o) => (
-                                  <option key={o.name} value={o.name}>{o.name}</option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="🟡 NEUTRAL / IN-PROGRESS">
-                                {neu.map((o) => (
-                                  <option key={o.name} value={o.name}>{o.name}</option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="🔴 OBJECTION / LOSS">
-                                {neg.map((o) => (
-                                  <option key={o.name} value={o.name}>{o.name}</option>
-                                ))}
-                              </optgroup>
+                              {UNIFIED_OUTCOME_GROUPS.map((group) => {
+                                const emoji = group.sentiment === 'positive' ? '🟢' : group.sentiment === 'neutral' ? '🟡' : '🔴';
+                                return (
+                                  <optgroup key={group.label} label={`${emoji} ${group.label}`}>
+                                    {group.options.map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                );
+                              })}
                               {legacyOption && (
                                 <optgroup label="⚪ CURRENT OUTCOME">
                                   <option value={legacyOption}>{legacyOption}</option>
