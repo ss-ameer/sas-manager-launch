@@ -957,8 +957,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           setSelectedContactId(activeLog.contact_id || contactId || '');
           setSelectedContactName(activeLog.contact_name || contactName || '');
           setSelectedContactPhone(activeLog.contact_phone || contactPhone || '');
+          setSelectedContactEmail(activeLog.contact_email || activeLog.email_address || (activeLog as any).recipient_email || contactEmail || '');
           setSelectedEnquiryId(activeLog.enquiry_id || enquiryId || '');
           setSelectedEnquiryQuoteRef(activeLog.enquiry_quote_ref || '');
+
+          const isMainline =
+            (activeLog as any).target_type === 'company_mainline' ||
+            (activeLog as any).targetType === 'company_mainline' ||
+            (!activeLog.contact_id && (activeLog.contact_phone || (activeLog as any).contact_email || activeLog.email_address) && (!activeLog.contact_name || isContactUnassigned(activeLog.contact_id, activeLog.contact_name))) ||
+            (!activeLog.contact_id && !activeLog.contact_name && (activeLog.contact_phone || (activeLog as any).contact_email || activeLog.email_address));
+          if (isMainline) {
+            setCrmTargetType('company_mainline');
+          } else {
+            setCrmTargetType('contact');
+          }
         }
 
         setChannel((activeLog.channel as ActivityChannel) || initialChannel || 'Call');
@@ -1294,7 +1306,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       }
     } else {
       // Company has no contacts: strictly clear zombie contact selection!
-      if (!isAddingNewContact && !contactName && !contactId) {
+      const isEditing = Boolean(existingLog || logToEdit);
+      if (!isEditing && !isAddingNewContact && !contactName && !contactId) {
         setSelectedContactId('');
         setSelectedContactName('');
         setSelectedContactPhone('');
@@ -1313,7 +1326,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     contactPhone,
     contactEmail,
     contact,
-    contacts
+    contacts,
+    existingLog,
+    logToEdit
   ]);
 
   // Automatic Quote Reference Resolution
