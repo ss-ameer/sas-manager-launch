@@ -59,6 +59,28 @@ export default function DocsSystemHub() {
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.75.0',
+      date: '2026-09-28',
+      type: 'MINOR',
+      changes: [
+        "Sequence Gap Engine & Reservation Workflow: Implemented first-class 'Gap / Reserved' enquiry status with automatic sales pipeline value exclusion, preventing legacy missing folders from distorting CRM totals.",
+        "Automated In-Table Gap Detector: Built smart sequence jump detection rendering slim dashed banners ('Missing Sequence: #X - #Y') equipped with 1-click '[+ Fill Gap]' modal launchers.",
+        "S/N Collision Guard & Zero-Cascade Placement: Replaced blind cascading auto-shifts with smart gap filling. Editing an unoccupied S/N updates only that record, while occupied numbers require explicit operator confirmation before shifting.",
+        "1080p Table Density Overhaul: Tightened table padding from px-6 down to px-3 and bounded company widths, allowing full 9-column viewing on standard 1080p desktop displays at 100% zoom without horizontal scrolling.",
+        "Split-Screen & Form Responsiveness: Eliminated contact button overlaps in split-screen PDF preview mode and repositioned sequence warning banners full-width beneath metadata grids."
+      ]
+    },
+    {
+      version: '0.74.0',
+      date: '2026-09-24',
+      type: 'MINOR',
+      changes: [
+        "Async Omnichannel Outcome Parity: Streamlined outreach logging across WhatsApp and Email by hiding redundant outcome dropdowns for outbound 'Sent' messages while contextually showing outcomes for inbound 'Received' inquiries.",
+        "Taxonomy & Payload Sanitization: Officially integrated 'Enquiry Received' into system outcome taxonomies and enforced strict payload sanitization to prevent stale outcomes on scheduled or failed tasks.",
+        "Internal Ops Task Delegation: Refactored task requester selection to a clean 'Self' vs 'Assigned' toggle with dynamic dropdown population directly from the active team roster."
+      ]
+    },
+    {
       version: '0.73.0',
       date: '2026-09-14',
       type: 'MINOR',
@@ -595,7 +617,9 @@ export default function DocsSystemHub() {
                   
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <span className="text-sm font-bold text-slate-900 font-mono">v{entry.version}</span>
+                      <span className="text-sm font-bold text-slate-900 font-mono">
+                        {entry.version.startsWith('v') ? entry.version : `v${entry.version}`}
+                      </span>
                       <span className={`text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border ${
                         entry.type === 'MAJOR' ? 'bg-red-50 border-red-200 text-red-600' :
                         entry.type === 'MINOR' ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-slate-50 border-slate-200 text-slate-600'
