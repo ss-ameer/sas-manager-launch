@@ -469,20 +469,57 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     const isCall = isPhoneChannel(newChanStr);
     const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(newChannel);
     let activeStatus = status;
-    if (available.length > 0 && !available.includes(status)) {
-      activeStatus = available[0] as CallStatus;
-      setStatus(activeStatus);
+
+    const isAsync = isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('email');
+    const isInternal = isInternalTaskChannel(newChanStr);
+    
+    // Check if current status is valid in new channel or map to equivalent
+    let isValidInNew = available.includes(status);
+    if (!isValidInNew) {
+      if (isAsync) {
+        if (status === 'Completed' || status === 'Completed / Connected' || status === 'Connected') {
+          activeStatus = purpose === 'Inbound' ? ('Received' as CallStatus) : ('Sent' as CallStatus);
+          isValidInNew = true;
+        } else if (status === 'Scheduled' || status === 'Scheduled / Planned') {
+          activeStatus = 'Scheduled / Planned' as CallStatus;
+          isValidInNew = true;
+        } else if (status === 'Failed' || status === 'Failed / Bounced' || status === 'Invalid Number') {
+          activeStatus = 'Failed / Bounced' as CallStatus;
+          isValidInNew = true;
+        }
+      } else if (isCall) {
+        if (status === 'Sent' || status === 'Received') {
+          activeStatus = 'Completed' as CallStatus;
+          isValidInNew = true;
+        } else if (status === 'Scheduled / Planned') {
+          activeStatus = 'Scheduled' as CallStatus;
+          isValidInNew = true;
+        } else if (status === 'Failed / Bounced') {
+          activeStatus = 'Invalid Number' as CallStatus;
+          isValidInNew = true;
+        }
+      } else if (isInternal) {
+        if (status === 'Sent' || status === 'Received' || status === 'Connected') {
+          activeStatus = 'Completed' as CallStatus;
+          isValidInNew = true;
+        } else if (status === 'Scheduled / Planned') {
+          activeStatus = 'Scheduled / Planned' as CallStatus;
+          isValidInNew = true;
+        }
+      }
     }
+
+    if (!isValidInNew && available.length > 0) {
+      activeStatus = available[0] as CallStatus;
+    }
+    setStatus(activeStatus);
 
     if (!availablePurposes.includes(purpose)) {
       setPurpose(availablePurposes[0] || 'Discovery / Qualification');
     }
 
-    const isAsync = isMessageChannel(newChanStr) || newChanStr.toLowerCase().includes('email');
-    const isInternal = isInternalTaskChannel(newChanStr);
-    
     const validOutcomes = callOutcomes?.length ? callOutcomes.map(o => o.name) : OUTCOMES;
-    if (isInternal || isAsync || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
+    if (isInternal || (outcome && (!isSuccessStatus(activeStatus) || !validOutcomes.includes(outcome as any)))) {
       setOutcome('');
     }
 
@@ -531,39 +568,23 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   };
 
   useEffect(() => {
-    const interChanStr = interactionChannel as string;
-    const isCall = isPhoneChannel(interChanStr);
-    const available = (isCall && callStatuses?.length) ? callStatuses.map(s => s.name) : getStatusesForChannel(interactionChannel);
-    let activeStatus = status;
-    if (isCall) {
-      const validCallStatuses = ['Completed', 'Completed / Connected', 'Scheduled', 'Scheduled / Planned', 'No Answer', 'Busy', 'Follow-Up Required', 'Invalid Number', 'Invalid'];
-      if (!validCallStatuses.includes(status) && available.length > 0 && !available.includes(status)) {
-        activeStatus = available[0] as CallStatus;
-        setStatus(activeStatus);
-      }
-    } else if (available.length > 0 && !available.includes(status)) {
-      activeStatus = available[0] as CallStatus;
-      setStatus(activeStatus);
-    }
-
     if (purpose === 'Discovery / Validation') {
       setPurpose('Discovery / Qualification');
     }
 
-    const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
     const isInternal = isInternalTaskChannel(interactionChannel);
     const isEditingRecord = Boolean(existingLog || logToEdit || drawerMode === 'edit');
 
     if (!isEditingRecord) {
-      if (isInternal || isAsyncChannel) {
+      if (isInternal) {
         if (outcome) setOutcome('');
-      } else if (isCall) {
+      } else if (isPhoneChannel(interactionChannel)) {
         // Retain phone call dispositions & outcomes (Call Dropped, No Response, Wrong Person, etc.)
-      } else if (outcome && !isSuccessStatus(activeStatus)) {
+      } else if (outcome && !isSuccessStatus(status)) {
         setOutcome('');
       }
     }
-  }, [interactionChannel, status, purpose, outcome, availablePurposes, existingLog, logToEdit, drawerMode]);
+  }, [interactionChannel, purpose, existingLog, logToEdit, drawerMode]);
   const [notes, setNotes] = useState<string>(() => {
     const active = existingLog || logToEdit;
     return active?.requirement_notes || (active as any)?.notes || '';
@@ -4861,22 +4882,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         key={st}
                         type="button"
                         onClick={() => {
-                          let newStatus: CallStatus = st as CallStatus;
-                          if (st === 'Sent') {
-                            newStatus = 'Completed';
-                          } else if (st === 'Scheduled / Planned') {
-                            newStatus = 'Scheduled';
-                          } else if (st === 'Failed / Bounced') {
-                            newStatus = 'Failed';
-                          } else if (st === 'Received') {
-                            newStatus = 'Received';
-                          }
+                          const newStatus: CallStatus = st as CallStatus;
                           setStatus(newStatus);
                           if (!isSuccessStatus(newStatus)) {
                             setOutcome('');
                           } else if (newStatus === 'Received' && (!outcome || outcome === 'Message Sent / Awaiting Reply')) {
                             setOutcome('Enquiry Received');
-                          } else if ((newStatus === 'Completed' || newStatus === 'Sent') && (!outcome || outcome === 'Enquiry Received')) {
+                          } else if (newStatus === 'Sent' && (!outcome || outcome === 'Enquiry Received')) {
                             setOutcome('Message Sent / Awaiting Reply');
                           }
                           if (st === 'Scheduled / Planned') {
