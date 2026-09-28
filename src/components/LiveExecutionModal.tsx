@@ -1666,7 +1666,12 @@ export default function LiveExecutionModal({
   const showOpenEmailClient = isEmailChannel && Boolean(effectiveContactEmail);
   const isCompletedState = isSuccessStatus(callStatus) || callStatus === 'Connected' || callStatus === 'Completed' || callStatus === 'Received';
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
-  const showOutcomeSelector = isCompletedState;
+  const isAsyncChannel = isEmailChannel || isWhatsAppChannel;
+  const showOutcomeSelector = isPhoneChannel
+    ? (isSuccessStatus(callStatus) && callStatus !== 'Scheduled / Planned' && callStatus !== 'Scheduled')
+    : (isAsyncChannel
+        ? callStatus === 'Received'
+        : isCompletedState);
 
   // Identify when modal is executing a scheduled task from the queue
   const isExecutingTask = Boolean(
@@ -2091,10 +2096,16 @@ export default function LiveExecutionModal({
       const isCompleted = (isSuccessStatus(updatedStatus) || updatedStatus === 'Completed' || updatedStatus === 'Connected' || updatedStatus === 'Received') && activeDispositionId !== 'scheduled';
 
       if (isCompleted || isCallDropped) {
-        finalOutcome = callOutcome;
-        if (!finalOutcome && activeDispositionId) {
-          const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
-          finalOutcome = activeDispObj?.defaultOutcome || (updatedStatus === 'Received' ? 'Enquiry Received' : 'Information Gathered');
+        if ((isEmailChannel || isWhatsAppChannel) && (updatedStatus === 'Sent' || activeDispositionId === 'email_sent' || activeDispositionId === 'wa_sent')) {
+          finalOutcome = 'Message Sent / Awaiting Reply';
+        } else if ((isEmailChannel || isWhatsAppChannel) && updatedStatus === 'Received') {
+          finalOutcome = callOutcome || 'Enquiry Received';
+        } else {
+          finalOutcome = callOutcome;
+          if (!finalOutcome && activeDispositionId) {
+            const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
+            finalOutcome = activeDispObj?.defaultOutcome || (updatedStatus === 'Received' ? 'Enquiry Received' : 'Information Gathered');
+          }
         }
       } else {
         // Force empty/undefined when status is not a success/completed state or is scheduled dispatch
@@ -3990,7 +4001,20 @@ export default function LiveExecutionModal({
                     <select
                       id="live-execution-purpose-select"
                       value={purpose}
-                      onChange={(e) => setPurpose(e.target.value)}
+                      onChange={(e) => {
+                        const newP = e.target.value;
+                        setPurpose(newP);
+                        if (newP === 'Inbound' && (isEmailChannel || isWhatsAppChannel) && (callStatus === 'Sent' || callStatus === 'Completed')) {
+                          setCallStatus('Received');
+                          const recDisp = activeDispositions.find(d => d.id.includes('received'));
+                          if (recDisp) {
+                            setActiveDispositionId(recDisp.id);
+                          }
+                          if (!callOutcome || callOutcome === 'Message Sent / Awaiting Reply') {
+                            setCallOutcome('Enquiry Received');
+                          }
+                        }
+                      }}
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium transition cursor-pointer"
                     >
                       {(() => {

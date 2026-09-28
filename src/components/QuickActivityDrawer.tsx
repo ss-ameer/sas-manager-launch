@@ -462,6 +462,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   });
 
   const isCompletedState = isSuccessStatus(status);
+  const isCallChannel = isPhoneChannel(interactionChannel);
+  const isAsyncChannel = isMessageChannel(interactionChannel) || interactionChannel.toLowerCase().includes('email');
+  const showOutcomeSelector = !isInternalTask && (
+    isCallChannel
+      ? (isSuccessStatus(status) && status !== 'Scheduled / Planned' && status !== 'Scheduled')
+      : (isAsyncChannel
+          ? status === 'Received'
+          : isSuccessStatus(status))
+  );
 
   const handleChannelSelect = (newChannel: ActivityChannel) => {
     setChannel(newChannel);
@@ -2816,11 +2825,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           ? undefined
           : (isCallDropped
               ? (finalOutcome || 'Call Dropped / Disconnected')
-              : (finalStatus === 'Received'
-                  ? (finalOutcome || 'Enquiry Received')
-                  : (finalStatus === 'Sent'
-                      ? (finalOutcome || 'Message Sent / Awaiting Reply')
-                      : (finalOutcome || '')))),
+              : ((channel === 'Email' || isMessageChannel(channel)) && finalStatus === 'Sent'
+                  ? 'Message Sent / Awaiting Reply'
+                  : (finalStatus === 'Received'
+                      ? (finalOutcome || 'Enquiry Received')
+                      : (finalStatus === 'Sent'
+                          ? (finalOutcome || 'Message Sent / Awaiting Reply')
+                          : (finalOutcome || ''))))),
         channel: channel,
         category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
         department: isInternalTask ? 'Administration' : undefined,
@@ -2873,11 +2884,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             ? undefined
             : (isCallDropped
                 ? (finalOutcome || 'Call Dropped / Disconnected')
-                : (finalStatus === 'Received'
-                    ? (finalOutcome || 'Enquiry Received')
-                    : (finalStatus === 'Sent'
-                        ? (finalOutcome || 'Message Sent / Awaiting Reply')
-                        : (finalOutcome || outcome || '')))),
+                : ((channel === 'Email' || isMessageChannel(channel)) && finalStatus === 'Sent'
+                    ? 'Message Sent / Awaiting Reply'
+                    : (finalStatus === 'Received'
+                        ? (finalOutcome || 'Enquiry Received')
+                        : (finalStatus === 'Sent'
+                            ? (finalOutcome || 'Message Sent / Awaiting Reply')
+                            : (finalOutcome || outcome || ''))))),
           purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || (activeLog.purpose === 'Discovery / Validation' ? 'Discovery / Qualification' : activeLog.purpose) || 'Discovery / Qualification'),
           category: isInternalTask ? 'Internal Task / Admin' : (channel || activeLog.category || 'General'),
           department: isInternalTask ? 'Administration' : (activeLog.department || undefined),
@@ -2978,7 +2991,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           status: finalStatus as any,
           outcome: (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled')
             ? undefined
-            : (outcome || activeLog.outcome || undefined),
+            : ((channel === 'Email' || isMessageChannel(channel)) && finalStatus === 'Sent'
+                ? 'Message Sent / Awaiting Reply'
+                : (finalStatus === 'Received'
+                    ? (outcome || activeLog.outcome || 'Enquiry Received')
+                    : (outcome || activeLog.outcome || undefined))),
           purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || activeLog.purpose || undefined),
           category: isInternalTask ? 'Internal Task / Admin' : (channel || activeLog.category || 'General'),
           department: isInternalTask ? 'Administration' : (activeLog.department || undefined),
@@ -4887,7 +4904,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             setOutcome('');
                           } else if (newStatus === 'Received' && (!outcome || outcome === 'Message Sent / Awaiting Reply')) {
                             setOutcome('Enquiry Received');
-                          } else if (newStatus === 'Sent' && (!outcome || outcome === 'Enquiry Received')) {
+                          } else if (newStatus === 'Sent') {
                             setOutcome('Message Sent / Awaiting Reply');
                           }
                           if (st === 'Scheduled / Planned') {
@@ -4921,8 +4938,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Outcome & Purpose Grid */}
             {!isInternalTask && (
-              <div className={`grid gap-3 ${isCompletedState ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                {isCompletedState && (
+              <div className={`grid gap-3 ${showOutcomeSelector ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {showOutcomeSelector && (
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                       {interactionChannel.toUpperCase()} OUTCOME
