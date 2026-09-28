@@ -1,6 +1,7 @@
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
+import { safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
+import { where, doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
 import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult } from '../types';
+import { getFromLocalStore } from './db';
 
 /**
  * Format string patterns using tokens:
@@ -290,6 +291,48 @@ export async function claimNextEnquirySequence(
   const options = dateOrOptions instanceof Date ? explicitOptions : dateOrOptions;
   const now = options?.date || date;
 
+  // Pre-query highest existing S/N and check targetSn collision from enquiries
+  let highestExistingSn = 0;
+  let isTargetSnTaken = false;
+
+  try {
+    if (options?.targetSn && options.targetSn > 0) {
+      const snapTarget = await safeGetDocs(
+        'enquiries',
+        where('workspace_id', '==', workspaceId),
+        where('sn', '==', options.targetSn)
+      );
+      if (snapTarget && !snapTarget.empty) {
+        const activeMatches = snapTarget.docs.filter((d: any) => !d.data()?.is_deleted);
+        if (activeMatches.length > 0) {
+          isTargetSnTaken = true;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[claimNextEnquirySequence] Could not check targetSn collision from Firestore:', err);
+  }
+
+  try {
+    // Check local store to find highestExistingSn across cached records
+    const localEnquiries = await getFromLocalStore<any>('enquiries');
+    if (localEnquiries && localEnquiries.length > 0) {
+      for (const e of localEnquiries) {
+        if (e.is_deleted) continue;
+        const eWs = e.workspace_id || e.workspaceId;
+        if (eWs && eWs !== workspaceId) continue;
+        if (typeof e.sn === 'number') {
+          if (e.sn > highestExistingSn) highestExistingSn = e.sn;
+          if (options?.targetSn && e.sn === options.targetSn) {
+            isTargetSnTaken = true;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[claimNextEnquirySequence] Could not check local store for highest S/N:', err);
+  }
+
   try {
     return await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(docRef);
@@ -321,11 +364,21 @@ export async function claimNextEnquirySequence(
       const periodKey = getSequencePeriodKey(counters.resetCadence, now);
       const currentSeq = counters.sequences?.[periodKey] || 0;
       let nextSeq = currentSeq + 1;
-      let nextSn = (counters.lastSnNumber || 0) + 1;
 
-      // Honor high-water mark if explicit target S/N was passed
-      if (options?.targetSn && options.targetSn >= nextSn) {
-        nextSn = options.targetSn;
+      // Determine baseline S/N based on counters and known highest existing S/N
+      const currentMaxSn = Math.max(counters.lastSnNumber || 0, highestExistingSn);
+      let nextSn = currentMaxSn + 1;
+
+      // When evaluating options.targetSn, ensure that if targetSn already exists in the
+      // workspace's active sequence map or Firestore enquiries, do NOT reuse it.
+      if (options?.targetSn && options.targetSn > 0) {
+        if (!isTargetSnTaken && options.targetSn > currentMaxSn) {
+          // Valid high-water mark that is not taken
+          nextSn = options.targetSn;
+        } else if (isTargetSnTaken || options.targetSn <= currentMaxSn) {
+          // Force the new S/N to Math.max(lastSnNumber, highestExistingSn) + 1 to guarantee uniqueness
+          nextSn = currentMaxSn + 1;
+        }
       }
 
       let quoteRef: string;

@@ -218,7 +218,7 @@ export default function EnquiryList({
   };
 
   // Cycle lists and helpers
-  const statuses = ['All', 'Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO'];
+  const statuses = ['All', 'Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO', 'Gap / Reserved'];
   const salespersonOptions = React.useMemo(() => {
     return ['All', ...(salespersons || []).map((s) => s?.initials).filter(Boolean) as string[]];
   }, [salespersons]);
@@ -563,7 +563,8 @@ export default function EnquiryList({
     { value: 'Lost / Cancelled', label: 'Lost / Cancelled' },
     { value: 'Hold', label: 'Hold' },
     { value: 'Delayed', label: 'Delayed' },
-    { value: 'Dead', label: 'Dead' }
+    { value: 'Dead', label: 'Dead' },
+    { value: 'Gap / Reserved', label: 'Gap / Reserved' }
   ];
 
   const formatRelativeTime = (isoString?: string): string => {
@@ -646,6 +647,9 @@ export default function EnquiryList({
 
   const getStatusBadgeClass = (status: string) => {
     const s = (status || '').trim().toLowerCase();
+    if (s.includes('gap') || s.includes('reserved')) {
+      return 'border-dashed border-amber-400/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 font-semibold';
+    }
     if (s.includes('draft')) {
       return 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700';
     }
@@ -773,6 +777,7 @@ export default function EnquiryList({
                 <option value="Lost">Lost</option>
                 <option value="Cancelled">Cancelled</option>
                 <option value="Invoiced">Invoiced</option>
+                <option value="Gap / Reserved">Gap / Reserved</option>
               </select>
               <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
@@ -939,11 +944,14 @@ export default function EnquiryList({
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
                   const isChecked = Boolean(e.id && selectedEnquiryIds.includes(e.id));
+                  const isGapReserved = e.status === 'Gap / Reserved';
 
                   return (
                     <tr
                       key={e.id}
                       className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
+                        isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
+                      } ${
                         isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
                       }`}
                     >
@@ -1119,14 +1127,25 @@ export default function EnquiryList({
                             Details
                           </button>
                           {canEditEnquiry(user, activeWorkspace, e) && (
-                            <button
-                              type="button"
-                              onClick={() => onEditEnquiry(e)}
-                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
-                              title="Edit enquiry"
-                            >
-                              Edit
-                            </button>
+                            isGapReserved ? (
+                              <button
+                                type="button"
+                                onClick={() => onEditEnquiry(e)}
+                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                                title="Claim and populate details for this reserved gap sequence"
+                              >
+                                <span>Claim Gap</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onEditEnquiry(e)}
+                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
+                                title="Edit enquiry"
+                              >
+                                Edit
+                              </button>
+                            )
                           )}
                           {canDeleteEnquiry(user, activeWorkspace, e) && (
                             <button

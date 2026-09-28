@@ -369,6 +369,7 @@ export type EnquiryStatus =
   | 'Revision Requested'
   | 'Won / Approved'
   | 'Lost / Cancelled'
+  | 'Gap / Reserved'
   | string;
 
 export interface EnquiryStatusHistoryEntry {
@@ -407,6 +408,8 @@ export interface Enquiry extends SoftDeleteFields {
   assigned_to_id?: string;
   assigned_to?: string;
   company_id: string;
+  company_name?: string;
+  client_company?: string;
   contact_id?: string;
   country: string;
   project_location: string;

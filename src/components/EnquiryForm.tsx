@@ -2359,7 +2359,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
     }
 
-    if (!companyId) {
+    const isGapReserved = status === 'Gap / Reserved';
+
+    if (!companyId && !isGapReserved) {
       alert('Please search and select a valid client company first.');
       return;
     }
@@ -2421,7 +2423,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       shared_with_names: enquiryToEdit?.shared_with_names || [],
       additional_team: enquiryToEdit?.additional_team || [],
       concerned_persons: concernedPersons,
-      company_id: companyId,
+      company_id: companyId || '',
+      company_name: !companyId && isGapReserved ? (companySearch?.trim() || '[Reserved Sequence / Missing File]') : ((enquiryToEdit as any)?.company_name || undefined),
       contact_id: contactId || undefined,
       country,
       project_location: projectLocation,
@@ -3152,6 +3155,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                       status === 'Active' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400' :
                       status === 'Order Received' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-400' :
+                      status === 'Gap / Reserved' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400 border border-dashed border-amber-400/60' :
                       'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                     }`}>
                       {status}
@@ -3727,8 +3731,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <div className="flex space-x-2">
                   <input
                     type="text"
-                    required
-                    placeholder={BRAND_CONFIG.placeholderSearchText}
+                    required={status !== 'Gap / Reserved'}
+                    placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
                     value={companySearch}
                     onChange={(e) => {
                       setCompanySearch(e.target.value);
@@ -4472,7 +4476,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
                 >
-                  {['Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO'].map((st) => (
+                  {['Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO', 'Gap / Reserved'].map((st) => (
                     <option key={st} value={st}>{st}</option>
                   ))}
                 </select>
