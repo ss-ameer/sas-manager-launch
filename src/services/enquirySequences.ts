@@ -371,12 +371,13 @@ export async function claimNextEnquirySequence(
 
       // When evaluating options.targetSn, ensure that if targetSn already exists in the
       // workspace's active sequence map or Firestore enquiries, do NOT reuse it.
+      // If targetSn is unoccupied (including an open gap), honor targetSn.
       if (options?.targetSn && options.targetSn > 0) {
-        if (!isTargetSnTaken && options.targetSn > currentMaxSn) {
-          // Valid high-water mark that is not taken
+        if (!isTargetSnTaken) {
+          // Unoccupied S/N (either high-water mark or filling an open gap)
           nextSn = options.targetSn;
-        } else if (isTargetSnTaken || options.targetSn <= currentMaxSn) {
-          // Force the new S/N to Math.max(lastSnNumber, highestExistingSn) + 1 to guarantee uniqueness
+        } else {
+          // Collision: force the new S/N to Math.max(lastSnNumber, highestExistingSn) + 1
           nextSn = currentMaxSn + 1;
         }
       }
@@ -402,13 +403,16 @@ export async function claimNextEnquirySequence(
         [periodKey]: nextSeq
       };
 
+      // Only increment or maintain highest lastSnNumber so filling a gap does not regress counters
+      const committedLastSn = Math.max(counters.lastSnNumber || 0, nextSn);
+
       transaction.set(
         docRef,
         {
           prefix: counters.prefix,
           pattern: counters.pattern,
           resetCadence: counters.resetCadence,
-          lastSnNumber: nextSn,
+          lastSnNumber: committedLastSn,
           sequences: updatedSequences,
           updatedAt: now.toISOString(),
           updatedBy: userId

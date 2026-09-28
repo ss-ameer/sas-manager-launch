@@ -112,6 +112,11 @@ export default function EnquiryList({
   const handleInitiate = onInitiateActivity || launcher.initiateActivity;
   const [showExportModal, setShowExportModal] = useState(false);
   const [showQuickClaimModal, setShowQuickClaimModal] = useState(false);
+  const [showReserveGapModal, setShowReserveGapModal] = useState(false);
+  const [reserveGapSn, setReserveGapSn] = useState('');
+  const [reserveGapMemo, setReserveGapMemo] = useState('');
+  const [reserveGapDate, setReserveGapDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [isSubmittingGap, setIsSubmittingGap] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -554,6 +559,87 @@ export default function EnquiryList({
     }
   };
 
+  const handleReserveGapSubmit = async (evt: React.FormEvent) => {
+    evt.preventDefault();
+    if (isSubmittingGap) return;
+
+    const snNum = Number(reserveGapSn);
+    if (isNaN(snNum) || snNum <= 0) {
+      alert('Please enter a valid numeric S/N greater than 0.');
+      return;
+    }
+
+    const currentWorkspaceId = activeWorkspace?.id;
+    const isOccupied = (enquiries || []).some(
+      (e) =>
+        !e.is_deleted &&
+        (e.workspace_id === currentWorkspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
+        e.sn === snNum
+    );
+
+    if (isOccupied) {
+      alert(`S/N #${snNum} is already assigned to an existing enquiry in this workspace. Please specify an open sequence gap.`);
+      return;
+    }
+
+    try {
+      setIsSubmittingGap(true);
+      const activeWorkspaceId = activeWorkspace?.id || 'default';
+      const now = new Date().toISOString();
+      const recordDate = reserveGapDate || now.split('T')[0];
+
+      const newGapDoc: any = {
+        sn: snNum,
+        status: 'Gap / Reserved',
+        company_name: '[Reserved Sequence / Missing File]',
+        quote_ref: (reserveGapMemo || '').trim(),
+        quote_ref_no: (reserveGapMemo || '').trim(),
+        value_aed: 0,
+        currency: 'AED',
+        workspace_id: activeWorkspaceId,
+        workspaceId: activeWorkspaceId,
+        created_at: now,
+        createdAt: now,
+        received_date: recordDate,
+        enquiry_date: recordDate,
+        logged_date: recordDate,
+        is_deleted: false,
+        company_id: '',
+        country: 'United Arab Emirates',
+        project_location: 'Dubai',
+        enquiry_source: 'Direct',
+        remarks: (reserveGapMemo || '').trim() ? `[Reserved Gap] ${reserveGapMemo.trim()}` : 'Reserved sequence gap / missing record',
+        line_items: [],
+        sales_person: 'SYSTEM',
+        createdBy: user?.displayName || user?.name || user?.email || 'User',
+        created_by_uid: user?.uid || user?.id || 'system',
+        updatedAt: now
+      };
+
+      const colRef = collection(db, 'enquiries');
+      const newDocRef = doc(colRef);
+      newGapDoc.id = newDocRef.id;
+      await safeSetDoc('enquiries', newDocRef.id, newGapDoc);
+
+      if (setEnquiries) {
+        setEnquiries((prev) => [newGapDoc as Enquiry, ...prev]);
+      }
+
+      if (triggerToast) {
+        triggerToast(`Reserved sequence gap #${snNum} created.`, 'success');
+      }
+
+      setShowReserveGapModal(false);
+      setReserveGapSn('');
+      setReserveGapMemo('');
+    } catch (err: any) {
+      console.error('Failed to reserve gap:', err);
+      alert('Failed to reserve gap: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsSubmittingGap(false);
+    }
+  };
+
   const PROPOSAL_STATUS_OPTIONS = [
     { value: 'Draft', label: 'Draft' },
     { value: 'Active', label: 'Active' },
@@ -711,6 +797,16 @@ export default function EnquiryList({
           },
           ...(isEditable
             ? [
+                {
+                  label: '+ Reserve Gap',
+                  icon: Plus,
+                  onClick: () => {
+                    setReserveGapSn('');
+                    setReserveGapMemo('');
+                    setReserveGapDate(new Date().toISOString().split('T')[0]);
+                    setShowReserveGapModal(true);
+                  }
+                },
                 {
                   label: 'Claim Quote Ref',
                   icon: Hash,
@@ -940,16 +1036,74 @@ export default function EnquiryList({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
-                {paginatedEnquiries.map((e) => {
+                {paginatedEnquiries.map((e, index) => {
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
                   const isChecked = Boolean(e.id && selectedEnquiryIds.includes(e.id));
                   const isGapReserved = e.status === 'Gap / Reserved';
 
+                  // In-Table Gap Detector: Compare S/N of current row with previous row
+                  let gapRow: React.ReactNode = null;
+                  if (sortField === 'sn' && index > 0) {
+                    const prevRow = paginatedEnquiries[index - 1];
+                    const prevSn = typeof prevRow?.sn === 'number' ? prevRow.sn : null;
+                    const curSn = typeof e.sn === 'number' ? e.sn : null;
+
+                    if (prevSn !== null && curSn !== null) {
+                      let gapMin: number | null = null;
+                      let gapMax: number | null = null;
+
+                      if (!sortAsc && prevSn - curSn > 1) {
+                        // Descending: e.g. prev=30, cur=28 -> missing 29; prev=28, cur=24 -> missing 25..27
+                        gapMin = curSn + 1;
+                        gapMax = prevSn - 1;
+                      } else if (sortAsc && curSn - prevSn > 1) {
+                        // Ascending: e.g. prev=24, cur=28 -> missing 25..27
+                        gapMin = prevSn + 1;
+                        gapMax = curSn - 1;
+                      }
+
+                      if (gapMin !== null && gapMax !== null && gapMin <= gapMax) {
+                        const gapLabel = gapMin === gapMax ? `#${gapMin}` : `#${gapMin} - #${gapMax}`;
+                        const fillSn = gapMin;
+
+                        gapRow = (
+                          <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
+                            <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-4">
+                              <div className="flex items-center justify-between text-xs text-amber-600/90 dark:text-amber-400 font-mono">
+                                <div className="flex items-center space-x-2">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block animate-pulse" />
+                                  <span className="font-semibold">Missing Sequence: {gapLabel}</span>
+                                </div>
+                                {isEditable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReserveGapSn(String(fillSn));
+                                      setReserveGapMemo('');
+                                      setReserveGapDate(new Date().toISOString().split('T')[0]);
+                                      setShowReserveGapModal(true);
+                                    }}
+                                    className="px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1 font-sans"
+                                    title={`Reserve sequence gap #${fillSn}`}
+                                  >
+                                    <span>+ Fill Gap</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                    }
+                  }
+
                   return (
-                    <tr
-                      key={e.id}
-                      className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
+                    <React.Fragment key={e.id || index}>
+                      {gapRow}
+                      <tr
+                        key={e.id}
+                        className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
                         isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
                       } ${
                         isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
@@ -1175,9 +1329,10 @@ export default function EnquiryList({
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
             </table>
           </div>
           {/* Pagination Controls */}
@@ -1641,6 +1796,115 @@ export default function EnquiryList({
           }
         }}
       />
+
+      {/* Reserve Gap Modal */}
+      {showReserveGapModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                  #
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    Reserve Sequence Gap
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Hold an unused sequential S/N or mark missing file folders
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReserveGapModal(false);
+                  setReserveGapSn('');
+                  setReserveGapMemo('');
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReserveGapSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  S/N Number <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={reserveGapSn}
+                  onChange={(e) => setReserveGapSn(e.target.value)}
+                  placeholder="e.g. 25"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Quote Ref / Memo <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={reserveGapMemo}
+                  onChange={(e) => setReserveGapMemo(e.target.value)}
+                  placeholder="e.g. 2798 or Missing physical folder"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-sans text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={reserveGapDate}
+                  onChange={(e) => setReserveGapDate(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <span className="text-base leading-none">ℹ️</span>
+                <span className="leading-relaxed">
+                  This will register S/N #{reserveGapSn || '—'} with status <strong>Gap / Reserved</strong>. No automatic S/N counter jumps will be triggered. You can claim or update this record anytime.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmittingGap}
+                  onClick={() => {
+                    setShowReserveGapModal(false);
+                    setReserveGapSn('');
+                    setReserveGapMemo('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingGap || !reserveGapSn}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSubmittingGap ? (
+                    <span>Reserving...</span>
+                  ) : (
+                    <span>+ Reserve Gap</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </PageBody>
   </>
 );

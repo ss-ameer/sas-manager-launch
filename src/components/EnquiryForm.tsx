@@ -419,6 +419,7 @@ export default function EnquiryForm({
   const [proposalOption, setProposalOption] = useState('');
 
   // Submit and form sequence states
+  const [shiftExistingOnCollision, setShiftExistingOnCollision] = useState<boolean>(false);
   const [submitMode, setSubmitMode] = useState<'close' | 'another'>('close');
   const submitModeRef = React.useRef<'close' | 'another'>('close');
   const updateSubmitMode = (mode: 'close' | 'another') => {
@@ -1013,21 +1014,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     }
   }, [enquiryToEdit, activeWorkspace?.id]);
 
+  // Check if target S/N is already assigned to an existing, non-deleted enquiry
+  const occupiedEnquiry = React.useMemo(() => {
+    if (!enquiries || enquiries.length === 0 || isNaN(sn) || sn <= 0) return null;
+    const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+    if (isEditing && enquiryToEdit?.sn === sn) return null;
+    const currentWorkspaceId = activeWorkspace?.id;
+    return enquiries.find((e) => {
+      if (e.is_deleted) return false;
+      if (isEditing && (e.id === enquiryToEdit?.id || (e as any)._id === enquiryToEdit?.id)) return false;
+      const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
+      const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
+      if (!sameWorkspace) return false;
+      return typeof e.sn === 'number' && e.sn === sn;
+    }) || null;
+  }, [enquiries, sn, enquiryToEdit, activeWorkspace]);
+
+  const isTargetSnOccupied = Boolean(occupiedEnquiry);
+
   // Compute how many existing enquiries would need to shift if this S/N is submitted
   const collidingShiftCount = React.useMemo(() => {
-    if (!enquiries || enquiries.length === 0 || isNaN(sn) || sn <= 0) return 0;
-    const isEditing = Boolean(enquiryToEdit && enquiryToEdit.id);
-    if (isEditing && enquiryToEdit?.sn === sn) return 0;
+    if (!isTargetSnOccupied || !enquiries || enquiries.length === 0 || isNaN(sn) || sn <= 0) return 0;
+    const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
     const currentWorkspaceId = activeWorkspace?.id;
     return enquiries.filter((e) => {
       if (e.is_deleted) return false;
-      if (isEditing && e.id === enquiryToEdit?.id) return false;
+      if (isEditing && (e.id === enquiryToEdit?.id || (e as any)._id === enquiryToEdit?.id)) return false;
       const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
       const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
       if (!sameWorkspace) return false;
       return typeof e.sn === 'number' && e.sn >= sn;
     }).length;
-  }, [enquiries, sn, enquiryToEdit, activeWorkspace]);
+  }, [isTargetSnOccupied, enquiries, sn, enquiryToEdit, activeWorkspace]);
 
   // Read-only state for users without edit permissions on this enquiry
   const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
@@ -2468,17 +2486,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const targetSn = Number(sn);
       const isEditing = Boolean(enquiryToEdit && enquiryToEdit.id);
       const isSnChanged = !isEditing || (enquiryToEdit?.sn !== targetSn);
+      const currentWorkspaceId = activeWorkspace?.id;
 
-      // Smart S/N auto-adjustment: if user specifies an S/N that collides or fits before existing records,
-      // shift all subsequent records with S/N >= targetSn by +1 so that order is strictly preserved.
+      // Check if targetSn is occupied by an existing, non-deleted enquiry
+      const occupiedRecord = (isSnChanged && enquiries && enquiries.length > 0 && !isNaN(targetSn) && targetSn > 0)
+        ? enquiries.find((e) => {
+            if (e.is_deleted) return false;
+            if (isEditing && (e.id === enquiryToEdit?.id || (e as any)._id === enquiryToEdit?.id)) return false;
+            const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
+            const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
+            if (!sameWorkspace) return false;
+            return typeof e.sn === 'number' && e.sn === targetSn;
+          })
+        : null;
+
+      const isTargetOccupied = Boolean(occupiedRecord);
+
+      // If targetSn is OCCUPIED: do not shift silently. Confirm or require toggle.
+      if (isTargetOccupied && !shiftExistingOnCollision) {
+        const compLabel = occupiedRecord ? ((occupiedRecord as any).company_name || (occupiedRecord as any).client_company || 'existing enquiry') : 'an existing enquiry';
+        const confirmed = window.confirm(
+          `S/N #${targetSn} is already assigned to "${compLabel}".\n\nDo you want to shift S/N #${targetSn} and subsequent records down by +1? Click OK to shift existing records down, or Cancel to abort saving so you can choose a different S/N.`
+        );
+        if (!confirmed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Smart S/N auto-adjustment:
+      // If targetSn is UNOCCUPIED (filling an open gap), SKIP the cascade shift entirely (toShift = []).
+      // Only shift when targetSn is OCCUPIED and confirmed/toggled.
       const shiftedMap = new Map<string, number>();
-      if (isSnChanged && enquiries && enquiries.length > 0 && !isNaN(targetSn) && targetSn > 0) {
+      if (isTargetOccupied && isSnChanged && enquiries && enquiries.length > 0 && !isNaN(targetSn) && targetSn > 0) {
         try {
-          const currentWorkspaceId = activeWorkspace?.id;
           const toShift = enquiries
             .filter((e) => {
               if (e.is_deleted) return false;
-              if (isEditing && e.id === enquiryToEdit?.id) return false;
+              if (isEditing && (e.id === enquiryToEdit?.id || (e as any)._id === enquiryToEdit?.id)) return false;
               const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
               const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
               if (!sameWorkspace) return false;
@@ -3251,12 +3296,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       onChange={(e) => setSn(Number(e.target.value))}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                     />
-                    {collidingShiftCount > 0 && (
-                      <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800/70 animate-in fade-in duration-150">
-                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                        <span className="leading-tight">
-                          <strong>Smart S/N:</strong> #{sn} is occupied. Saving will automatically shift {collidingShiftCount} existing {collidingShiftCount === 1 ? 'enquiry' : 'enquiries'} (#{sn} and above) by +1.
-                        </span>
+                    {isTargetSnOccupied && (
+                      <div className="mt-2 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in duration-150">
+                        <div className="flex items-start gap-1.5 font-semibold text-[11px]">
+                          <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                          <span>S/N #{sn} is occupied by {occupiedEnquiry?.company_name || (occupiedEnquiry as any)?.client_company || 'an existing enquiry'}.</span>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300 pt-1 border-t border-amber-200 dark:border-amber-800/60">
+                          <input
+                            type="checkbox"
+                            checked={shiftExistingOnCollision}
+                            onChange={(e) => setShiftExistingOnCollision(e.target.checked)}
+                            className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <span>Shift existing records down (#{sn} and above by +1)</span>
+                        </label>
                       </div>
                     )}
                   </div>
