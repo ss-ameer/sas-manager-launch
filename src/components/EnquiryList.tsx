@@ -886,7 +886,7 @@ export default function EnquiryList({
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/70 dark:bg-slate-950/60 uppercase">
                   {isMarkingMode && (
-                    <th className="py-3.5 px-6 w-12 text-center">
+                    <th className="py-2.5 px-2 w-10 text-center">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -909,29 +909,29 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
-                    <div className="flex items-center space-x-1">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-3 w-16 text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
+                    <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3.5 px-6 min-w-[200px] max-w-[320px]">Company Account</th>
-                  <th className="py-3.5 px-6">Quote Ref No</th>
-                  <th className="py-3.5 px-6">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
+                  <th className="py-2.5 px-3 min-w-[160px] max-w-[220px]">Company Account</th>
+                  <th className="py-2.5 px-3">Quote Ref No</th>
+                  <th className="py-2.5 px-3">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
                     <div className="flex items-center space-x-1">
                       <span>Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3.5 px-6">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-3.5 px-6 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right">
+                  <th className="py-2.5 px-3">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3.5 px-6 text-center">Actions</th>
+                  <th className="py-2.5 px-3 w-24 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
@@ -948,7 +948,7 @@ export default function EnquiryList({
                       }`}
                     >
                       {isMarkingMode && (
-                        <td className="py-3.5 px-6 text-center">
+                        <td className="py-2.5 px-2 text-center">
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -963,10 +963,10 @@ export default function EnquiryList({
                           />
                         </td>
                       )}
-                      <td className="py-3.5 px-6 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center">
                         #{e.sn}
                       </td>
-                      <td className="py-3.5 px-6 font-semibold text-slate-900 dark:text-slate-100 min-w-[200px] max-w-[320px]">
+                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[160px] max-w-[220px]">
                         {(() => {
                           const resolvedComp = resolveCompanyForEnquiry(e);
                           const targetCompanyId = resolvedComp?.id || e.company_id;
@@ -1013,12 +1013,12 @@ export default function EnquiryList({
                           );
                         })()}
                       </td>
-                      <td className="py-3.5 px-6 whitespace-nowrap">
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
                           {e.quote_ref_no || '—'}
                         </span>
                       </td>
-                      <td className="py-3.5 px-6 whitespace-nowrap">
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         {(() => {
                           const sp = (salespersons || []).find((s) => s && (s.id === e.sales_person || s.initials === e.sales_person));
                           const initials = sp ? (sp.initials || getInitials(sp.full_name || '')) : (e.sales_person || '—');
@@ -1032,12 +1032,12 @@ export default function EnquiryList({
                           );
                         })()}
                       </td>
-                      <td className="py-3.5 px-6 whitespace-nowrap">
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="font-mono text-xs text-slate-600 dark:text-slate-400 font-medium">
                           {formatEnquiryDate(e.enquiry_date)}
                         </span>
                       </td>
-                      <td className="py-3.5 px-6 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+                      <td className="py-2.5 px-3 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
                         {(() => {
                           const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
                           const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
@@ -1097,7 +1097,7 @@ export default function EnquiryList({
                           );
                         })()}
                       </td>
-                      <td className="py-3.5 px-6 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
                         {(() => {
                           const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
                           return (
@@ -1108,7 +1108,7 @@ export default function EnquiryList({
                           );
                         })()}
                       </td>
-                      <td className="py-3.5 px-6 text-center whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center space-x-1.5">
                           <button
                             type="button"
