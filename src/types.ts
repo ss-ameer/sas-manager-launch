@@ -582,9 +582,13 @@ export type InternalOpsCategory =
   | 'Operations / Coordination';
 
 export type InternalOpsRequester =
+  | 'Self'
+  | 'Assigned'
+  | 'Management / Team'
   | 'Management / Boss'
   | 'Team Member'
-  | 'Self-Directed';
+  | 'Self-Directed'
+  | string;
 
 export interface ActivityLogEntry extends SoftDeleteFields {
   id?: string;

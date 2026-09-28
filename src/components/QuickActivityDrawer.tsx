@@ -412,9 +412,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [internalCategory, setInternalCategory] = useState<InternalOpsCategory>(
     existingLog?.internalCategory || logToEdit?.internalCategory || 'Development'
   );
-  const [internalRequester, setInternalRequester] = useState<InternalOpsRequester>(
-    existingLog?.requester || logToEdit?.requester || 'Management / Boss'
-  );
+  const [internalRequester, setInternalRequester] = useState<InternalOpsRequester>(() => {
+    const raw = existingLog?.requester || logToEdit?.requester;
+    if (raw === 'Self-Directed') return 'Self';
+    if (raw === 'Management / Boss' || raw === 'Team Member') return 'Management / Team';
+    return raw || 'Self';
+  });
+  const isSelf = internalRequester === 'Self' || internalRequester === 'Self-Directed';
   const [internalDurationMinutes, setInternalDurationMinutes] = useState<number>(
     existingLog?.durationMinutes ?? logToEdit?.durationMinutes ?? 30
   );
@@ -802,7 +806,16 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         }
         setInternalTitle(activeLog.title || '');
         if (activeLog.internalCategory) setInternalCategory(activeLog.internalCategory);
-        if (activeLog.requester) setInternalRequester(activeLog.requester);
+        if (activeLog.requester) {
+          const req = activeLog.requester;
+          if (req === 'Self-Directed') {
+            setInternalRequester('Self');
+          } else if (req === 'Management / Boss' || req === 'Team Member') {
+            setInternalRequester('Management / Team');
+          } else {
+            setInternalRequester(req);
+          }
+        }
         if (activeLog.durationMinutes !== undefined) setInternalDurationMinutes(activeLog.durationMinutes);
         if (activeLog.deliverableUrl) setInternalDeliverableUrl(activeLog.deliverableUrl);
       } else {
@@ -813,7 +826,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         }
         setInternalTitle('');
         setInternalCategory('Development');
-        setInternalRequester('Management / Boss');
+        setInternalRequester('Self');
         setInternalDurationMinutes(30);
         setInternalDeliverableUrl('');
       }
@@ -1905,7 +1918,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     setNewContactPhoneTag('Mobile');
     setInternalTitle('');
     setInternalCategory('Development');
-    setInternalRequester('Management / Boss');
+    setInternalRequester('Self');
     setInternalDurationMinutes(30);
     setInternalDeliverableUrl('');
 
@@ -3362,26 +3375,60 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     </select>
                   </div>
 
-                  {/* Requester Selector Pills */}
+                  {/* Requester Selector Pills & Team Member Dropdown */}
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                       Requester <span className="text-rose-400">*</span>
                     </label>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {(['Management / Boss', 'Team Member', 'Self-Directed'] as InternalOpsRequester[]).map((req) => (
-                        <button
-                          key={req}
-                          type="button"
-                          onClick={() => setInternalRequester(req)}
-                          className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
-                            internalRequester === req
-                              ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                              : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
-                          }`}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setInternalRequester('Self')}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                          isSelf
+                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        Self
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isSelf) {
+                            setInternalRequester('Management / Team');
+                          }
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                          !isSelf
+                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        Assigned
+                      </button>
+
+                      {!isSelf && (
+                        <select
+                          value={['Management / Team', 'Management / Boss', 'Team Member', 'Assigned'].includes(internalRequester) ? 'Management / Team' : internalRequester}
+                          onChange={(e) => setInternalRequester(e.target.value)}
+                          className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:border-indigo-500 focus:outline-none cursor-pointer flex-1 min-w-[180px]"
                         >
-                          {req}
-                        </button>
-                      ))}
+                          <option value="Management / Team">Management / Team (General)</option>
+                          {salespersons && salespersons.length > 0 && (
+                            <optgroup label="Team Members">
+                              {salespersons.map((sp) => {
+                                const name = sp.name || sp.full_name || sp.email;
+                                return (
+                                  <option key={sp.id || name} value={name}>
+                                    {name}
+                                  </option>
+                                );
+                              })}
+                            </optgroup>
+                          )}
+                        </select>
+                      )}
                     </div>
                   </div>
                 </div>
