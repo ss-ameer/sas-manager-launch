@@ -571,6 +571,7 @@ export type CallOutcome =
   | 'DNC Request'
   | 'Closed - Deal Made'
   | 'General Inquiry / Support'
+  | 'Enquiry Received'
   | string;
 
 export type InternalOpsCategory =

@@ -474,7 +474,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     label: 'Bounced / Invalid Email',
     sublabel: 'Delivery failed',
     status: 'Failed / Bounced',
-    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
@@ -537,7 +537,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     label: 'Invalid Number / Not on WhatsApp',
     sublabel: 'Failed to reach number',
     status: 'Failed / Bounced',
-    defaultOutcome: 'Wrong Person / Unqualified',
+    defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
@@ -908,17 +908,17 @@ export default function LiveExecutionModal({
       if (currentTask.status === 'Invalid Number' && chanDisps.some(d => d.id === 'invalid_number')) {
         setActiveDispositionId('invalid_number');
         setCallStatus('Invalid Number');
-        setCallOutcome('Wrong Person / Unqualified');
+        setCallOutcome('');
         setNextFollowUpDate('');
         setActivePreset(null);
       } else if (currentTask.status === 'No Answer' && chanDisps.some(d => d.id === 'no_answer')) {
         setActiveDispositionId('no_answer');
         setCallStatus('No Answer');
-        setCallOutcome(currentTask.outcome || 'No Response / Ghosted');
+        setCallOutcome('');
       } else if (currentTask.status === 'Busy' && chanDisps.some(d => d.id === 'gatekeeper_busy')) {
         setActiveDispositionId('gatekeeper_busy');
         setCallStatus('Busy');
-        setCallOutcome(currentTask.outcome || 'Gatekeeper Blocked');
+        setCallOutcome('');
       } else if (currentTask.outcome === 'Follow-up Scheduled' || currentTask.followup_intent) {
         const followupDisp = chanDisps.find(d => d.id.includes('followup')) || matchedDisp;
         setActiveDispositionId(followupDisp.id);
@@ -1803,10 +1803,8 @@ export default function LiveExecutionModal({
     setCallStatus(disp.status);
     if (disp.defaultOutcome && isSuccessStatus(disp.status)) {
       setCallOutcome(disp.defaultOutcome);
-    } else if (disp.id !== 'connected') {
-      setCallOutcome('');
     } else {
-      setCallOutcome(disp.defaultOutcome || '');
+      setCallOutcome('');
     }
 
     // Auto-select follow-up channel if disposition indicates info requested or channel-specific follow-up
@@ -2064,13 +2062,6 @@ export default function LiveExecutionModal({
     setRescheduleReason('');
     setCancelReason('');
 
-    // Default outcome safeguard for completed tasks across channels
-    let finalOutcome = callOutcome;
-    if (!finalOutcome && activeDispositionId) {
-      const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
-      finalOutcome = activeDispObj?.defaultOutcome || 'Information Gathered';
-    }
-
     setIsSubmitting(true);
     try {
       const nowIso = new Date().toISOString();
@@ -2084,6 +2075,8 @@ export default function LiveExecutionModal({
       const isDateCleared = !nextFollowUpDate || nextFollowUpDate.trim() === '';
 
       let updatedStatus: string;
+      let finalOutcome: string | undefined = undefined;
+
       if (isCallDropped && isDateCleared) {
         updatedStatus = 'Completed';
         finalOutcome = 'Call Dropped / Disconnected';
@@ -2092,6 +2085,20 @@ export default function LiveExecutionModal({
         updatedStatus = isScheduledStatus
           ? 'Completed'
           : (callStatus || 'Completed');
+      }
+
+      // Guard outcome strictly by completed/success state
+      const isCompleted = (isSuccessStatus(updatedStatus) || updatedStatus === 'Completed' || updatedStatus === 'Connected' || updatedStatus === 'Received') && activeDispositionId !== 'scheduled';
+
+      if (isCompleted || isCallDropped) {
+        finalOutcome = callOutcome;
+        if (!finalOutcome && activeDispositionId) {
+          const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
+          finalOutcome = activeDispObj?.defaultOutcome || (updatedStatus === 'Received' ? 'Enquiry Received' : 'Information Gathered');
+        }
+      } else {
+        // Force empty/undefined when status is not a success/completed state or is scheduled dispatch
+        finalOutcome = undefined;
       }
       const finalNotes: string = combineInteractionNotes(currentTask.requirement_notes, notes);
 
@@ -2204,6 +2211,10 @@ export default function LiveExecutionModal({
         currentTask.geography || (currentTask as any)?.geography
       );
 
+      const cleanOutcome = isCompleted
+        ? (pivotToWhatsApp ? (finalOutcome || 'Message Sent / Awaiting Reply') : (finalOutcome || undefined))
+        : undefined;
+
       // Step 1: Update the CURRENT task's database record
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
@@ -2216,7 +2227,7 @@ export default function LiveExecutionModal({
         geography: resolvedGeography,
         ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
         status: (pivotToWhatsApp ? 'Completed' : updatedStatus) as CallStatus,
-        outcome: pivotToWhatsApp ? (finalOutcome || 'Message Sent / Awaiting Reply') : finalOutcome,
+        outcome: cleanOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
         requirement_notes: finalNotes,
         date: nowIso,
@@ -2231,6 +2242,10 @@ export default function LiveExecutionModal({
         enquiry_quote_ref: currentTask.enquiry_quote_ref || (currentTask as any)?.linked_proposal_id || (currentTask as any)?.quote_ref_no || canonicalEnquiryRef || undefined,
         ...(nextFollowUpDate ? { next_followup_date: nextFollowUpDate } : {})
       };
+
+      if (!isCompleted || !cleanOutcome) {
+        delete (updatedTaskRecord as any).outcome;
+      }
 
       // Step 2: Spawn Follow-Up task if nextFollowUpDate is specified
       let spawnedFollowUpTask: CallLogEntry | undefined = undefined;
@@ -2441,6 +2456,7 @@ export default function LiveExecutionModal({
         next_followup_date: finalRescheduleDate,
         scheduled_for: finalRescheduleDate,
         status: 'Scheduled' as CallStatus,
+        outcome: undefined,
         requirement_notes: updatedNotes,
         updatedAt: nowIso,
         rescheduled_at: nowIso,
@@ -2449,6 +2465,7 @@ export default function LiveExecutionModal({
         last_modified_by_uid: userUid,
         last_modified_by_name: userName
       };
+      delete (updatedTaskRecord as any).outcome;
 
       await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
       await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
@@ -2516,6 +2533,7 @@ export default function LiveExecutionModal({
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
         status: 'Cancelled' as CallStatus,
+        outcome: undefined,
         cancelled_at: nowIso,
         cancelled_by_uid: userUid,
         cancelled_by_name: userName,
@@ -2525,6 +2543,7 @@ export default function LiveExecutionModal({
         last_modified_by_uid: userUid,
         last_modified_by_name: userName
       };
+      delete (updatedTaskRecord as any).outcome;
 
       await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
       await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);

@@ -26,6 +26,7 @@ export const POSITIVE_OUTCOMES = [
 ] as const;
 
 export const NEUTRAL_OUTCOMES = [
+  'Enquiry Received',
   'Active Negotiation',
   'Quote / Info Sent',
   'Message Sent / Awaiting Reply',

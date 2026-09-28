@@ -9,6 +9,7 @@ export const SYSTEM_CALL_STATUSES = [
 ];
 
 export const SYSTEM_CALL_OUTCOMES: any[] = [
+  { id: 'co_neu_0', name: 'Enquiry Received', sentiment: 'neutral' },
   { id: 'co_pos_1', name: 'Lead Qualified', sentiment: 'positive' },
   { id: 'co_pos_2', name: 'Meeting Booked', sentiment: 'positive' },
   { id: 'co_pos_3', name: 'Quote Requested', sentiment: 'positive' },
@@ -49,6 +50,7 @@ export const UNIFIED_OUTCOME_GROUPS: UnifiedOutcomeGroup[] = [
     label: 'NEUTRAL / IN-PROGRESS',
     sentiment: 'neutral',
     options: [
+      'Enquiry Received',
       'Info Requested',
       'Pending Review',
       'Active Negotiation',
@@ -98,6 +100,7 @@ export const SYSTEM_CALL_STATUS_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const SYSTEM_CALL_OUTCOME_DESCRIPTIONS: Record<string, string> = {
+  'Enquiry Received': 'New inbound customer enquiry received',
   'Connected': 'Call connected successfully with recipient',
   'Reached – Decision Maker': 'Spoke with the correct / concerned person',
   'Reached – Wrong Person': 'Spoke with someone, but not the decision maker or concerned party',

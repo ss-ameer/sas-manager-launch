@@ -2806,11 +2806,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         (activeLog as any)?.geography
       );
 
+      const isCompleted = isSuccessStatus(finalStatus || status);
+
       const payload: Omit<CallLogEntry, 'id'> = {
         workspace_id: activeWorkspaceId,
         date: activityIsoDate,
         status: finalStatus,
-        outcome: isInternalTask
+        outcome: (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled' || isCurScheduled)
           ? undefined
           : (isCallDropped
               ? (finalOutcome || 'Call Dropped / Disconnected')
@@ -2867,7 +2869,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           id: activeLog.id,
           date: activityIsoDate,
           status: finalStatus as any,
-          outcome: isInternalTask
+          outcome: (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled')
             ? undefined
             : (isCallDropped
                 ? (finalOutcome || 'Call Dropped / Disconnected')
@@ -2889,7 +2891,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           last_modified_by_name: userName
         };
 
-        if (isInternalTask) {
+        if (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled') {
           delete (updatedExistingLog as any).outcome;
         }
 
@@ -2974,7 +2976,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           id: activeLog.id,
           date: activityIsoDate || activeLog.date,
           status: finalStatus as any,
-          outcome: isInternalTask
+          outcome: (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled')
             ? undefined
             : (outcome || activeLog.outcome || undefined),
           purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || activeLog.purpose || undefined),
@@ -2987,7 +2989,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           last_modified_by_name: userName
         };
 
-        if (isInternalTask) {
+        if (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled') {
           delete (updatedEntry as any).outcome;
         }
 
@@ -3014,7 +3016,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             id: newId,
             date: followupIsoDate || activityIsoDate,
             status: 'Scheduled / Planned',
-            outcome: isInternalTask ? undefined : (outcome || undefined),
+            outcome: undefined,
             purpose: isInternalTask ? (purpose || 'Administration') : (purpose || 'Follow-up / Check-in'),
             category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
             department: isInternalTask ? 'Administration' : undefined,
@@ -3029,10 +3031,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           delete (scheduledTaskEntry as any).completed_at;
           delete (scheduledTaskEntry as any).executed_at;
           delete (scheduledTaskEntry as any).completedAtIso;
-
-          if (isInternalTask) {
-            delete (scheduledTaskEntry as any).outcome;
-          }
+          delete (scheduledTaskEntry as any).outcome;
 
           // Single atomic consolidated write path
           await CallLogRepository.logInteractionWithTask({
@@ -3056,7 +3055,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             id: newId
           };
 
-          if (isInternalTask) {
+          if (isInternalTask || !isCompleted || finalStatus === 'Scheduled / Planned' || finalStatus === 'Scheduled') {
             delete (newEntry as any).outcome;
           }
 
