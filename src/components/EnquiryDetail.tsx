@@ -663,7 +663,7 @@ export default function EnquiryDetail({
           </div>
 
           {/* Right Action & Control Buttons */}
-          <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
             {/* Primary Action Buttons (condense labels cleanly on compact viewports) */}
             <button
               type="button"
@@ -801,7 +801,7 @@ export default function EnquiryDetail({
         </div>
 
         {/* Panel Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 pb-16 space-y-6">
           
           {revertSuccess && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-emerald-800 flex items-center space-x-3 font-sans text-sm animate-pulse">

@@ -139,7 +139,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
 
         {/* Right Action Bar Column */}
         {(primaryAction || (secondaryActions && secondaryActions.length > 0) || children) && (
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap shrink-0">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {secondaryActions?.map((act, index) => {
               const SecIcon = act.icon;
               const isGhost = act.variant === 'ghost';

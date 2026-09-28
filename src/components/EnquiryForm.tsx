@@ -3296,23 +3296,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       onChange={(e) => setSn(Number(e.target.value))}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                     />
-                    {isTargetSnOccupied && (
-                      <div className="mt-2 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in duration-150">
-                        <div className="flex items-start gap-1.5 font-semibold text-[11px]">
-                          <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                          <span>S/N #{sn} is occupied by {occupiedEnquiry?.company_name || (occupiedEnquiry as any)?.client_company || 'an existing enquiry'}.</span>
-                        </div>
-                        <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300 pt-1 border-t border-amber-200 dark:border-amber-800/60">
-                          <input
-                            type="checkbox"
-                            checked={shiftExistingOnCollision}
-                            onChange={(e) => setShiftExistingOnCollision(e.target.checked)}
-                            className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                          />
-                          <span>Shift existing records down (#{sn} and above by +1)</span>
-                        </label>
-                      </div>
-                    )}
                   </div>
 
                   <div id="field-received_date">
@@ -3340,6 +3323,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                     />
                   </div>
+
+                  {isTargetSnOccupied && (
+                    <div className="col-span-full p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in duration-150">
+                      <div className="flex items-start gap-1.5 font-semibold text-[11px]">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        <span>S/N #{sn} is occupied by {occupiedEnquiry?.company_name || (occupiedEnquiry as any)?.client_company || 'an existing enquiry'}.</span>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300 pt-1 border-t border-amber-200 dark:border-amber-800/60">
+                        <input
+                          type="checkbox"
+                          checked={shiftExistingOnCollision}
+                          onChange={(e) => setShiftExistingOnCollision(e.target.checked)}
+                          className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span>Shift existing records down (#{sn} and above by +1)</span>
+                      </label>
+                    </div>
+                  )}
 
                   <div>
                     <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Salesperson</MarqueeLabel>
@@ -3860,14 +3861,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Contact lookup */}
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
-                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <MarqueeLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0 flex items-center gap-1">
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
                   </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={() => {

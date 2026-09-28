@@ -846,9 +846,9 @@ export default function EnquiryList({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="flex flex-wrap items-center gap-2 w-full">
           {/* Text search */}
-          <div className="relative md:col-span-4">
+          <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -860,7 +860,7 @@ export default function EnquiryList({
           </div>
 
           {/* Status selector */}
-          <div className="md:col-span-3">
+          <div className="flex-1 min-w-[140px]">
             <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
               <select
                 value={statusFilter}
@@ -880,7 +880,7 @@ export default function EnquiryList({
           </div>
 
           {/* Salesperson selector */}
-          <div className="md:col-span-3">
+          <div className="flex-1 min-w-[140px]">
             <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
               <select
                 value={salesPersonFilter}
@@ -899,7 +899,7 @@ export default function EnquiryList({
           </div>
 
           {/* Urgency follow-up toggle (Interactive Pill Toggle) */}
-          <div className="md:col-span-2">
+          <div className="flex-1 min-w-[140px]">
             <button
               type="button"
               onClick={() => setUrgencyFilter(urgencyFilter === 'All' ? 'Overdue' : 'All')}
