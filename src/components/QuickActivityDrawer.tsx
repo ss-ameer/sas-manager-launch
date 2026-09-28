@@ -2791,7 +2791,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         status: finalStatus,
         outcome: isInternalTask
           ? undefined
-          : (isCallDropped ? (finalOutcome || 'Call Dropped / Disconnected') : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (finalOutcome || ''))),
+          : (isCallDropped
+              ? (finalOutcome || 'Call Dropped / Disconnected')
+              : (finalStatus === 'Received'
+                  ? (finalOutcome || 'Enquiry Received')
+                  : (finalStatus === 'Sent'
+                      ? (finalOutcome || 'Message Sent / Awaiting Reply')
+                      : (finalOutcome || '')))),
         channel: channel,
         category: isInternalTask ? 'Internal Task / Admin' : (channel || 'General'),
         department: isInternalTask ? 'Administration' : undefined,
@@ -2840,7 +2846,15 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           id: activeLog.id,
           date: activityIsoDate,
           status: finalStatus as any,
-          outcome: isInternalTask ? undefined : (isAsyncChannel ? 'Message Sent / Awaiting Reply' : (outcome || activeLog.outcome || 'Completed')),
+          outcome: isInternalTask
+            ? undefined
+            : (isCallDropped
+                ? (finalOutcome || 'Call Dropped / Disconnected')
+                : (finalStatus === 'Received'
+                    ? (finalOutcome || 'Enquiry Received')
+                    : (finalStatus === 'Sent'
+                        ? (finalOutcome || 'Message Sent / Awaiting Reply')
+                        : (finalOutcome || outcome || '')))),
           purpose: isInternalTask ? (purpose || activeLog.purpose || 'Administration') : (purpose || (activeLog.purpose === 'Discovery / Validation' ? 'Discovery / Qualification' : activeLog.purpose) || 'Discovery / Qualification'),
           category: isInternalTask ? 'Internal Task / Admin' : (channel || activeLog.category || 'General'),
           department: isInternalTask ? 'Administration' : (activeLog.department || undefined),
@@ -4834,6 +4848,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   {getStatusesForChannel(interactionChannel).map((st) => {
                     const isActive =
                       status === st ||
+                      (st === 'Received' && (status === 'Received' || status === 'Received / Inbound')) ||
                       (st === 'Sent' && (status === 'Completed' || status === 'Sent' || status === 'Sent / Completed')) ||
                       (st === 'Completed' && (status === 'Completed' || status === 'Completed / Conducted' || status === 'Completed / Connected')) ||
                       (st === 'Scheduled / Planned' && (status === 'Scheduled' || status === 'Scheduled / Planned' || status === 'Scheduled / Draft')) ||
@@ -4853,10 +4868,16 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             newStatus = 'Scheduled';
                           } else if (st === 'Failed / Bounced') {
                             newStatus = 'Failed';
+                          } else if (st === 'Received') {
+                            newStatus = 'Received';
                           }
                           setStatus(newStatus);
                           if (!isSuccessStatus(newStatus)) {
                             setOutcome('');
+                          } else if (newStatus === 'Received' && (!outcome || outcome === 'Message Sent / Awaiting Reply')) {
+                            setOutcome('Enquiry Received');
+                          } else if ((newStatus === 'Completed' || newStatus === 'Sent') && (!outcome || outcome === 'Enquiry Received')) {
+                            setOutcome('Message Sent / Awaiting Reply');
                           }
                           if (st === 'Scheduled / Planned') {
                             if (!followupDate) {
@@ -4889,8 +4910,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Outcome & Purpose Grid */}
             {!isInternalTask && (
-              <div className={`grid gap-3 ${(isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                {(isCompletedState && !interactionChannel.toLowerCase().match(/email|message|whatsapp|sms/)) && (
+              <div className={`grid gap-3 ${isCompletedState ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                {isCompletedState && (
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                       {interactionChannel.toUpperCase()} OUTCOME
@@ -4943,7 +4964,18 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   <select
                     id="quick-activity-purpose-select"
                     value={purpose}
-                    onChange={(e) => setPurpose(e.target.value)}
+                    onChange={(e) => {
+                      const newPurpose = e.target.value;
+                      setPurpose(newPurpose);
+                      const normChan = interactionChannel.toLowerCase();
+                      const isAsync = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
+                      if (newPurpose === 'Inbound' && isAsync && (status === 'Sent' || status === 'Completed')) {
+                        setStatus('Received');
+                        if (!outcome || outcome === 'Message Sent / Awaiting Reply') {
+                          setOutcome('Enquiry Received');
+                        }
+                      }
+                    }}
                     className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
                   >
                     {(() => {

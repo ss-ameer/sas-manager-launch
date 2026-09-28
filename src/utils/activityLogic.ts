@@ -75,7 +75,7 @@ export function getStatusesForChannel(channel?: string): string[] {
     norm.includes('whatsapp') ||
     norm.includes('sms')
   ) {
-    return ['Sent', 'Scheduled / Planned', 'Failed / Bounced'];
+    return ['Received', 'Sent', 'Scheduled / Planned', 'Failed / Bounced'];
   }
 
   // Meeting / Site Visit
@@ -122,6 +122,9 @@ export function normalizeStatusBadgeLabel(status?: string, channel?: string): st
   const isMeetingOrSite = chanLower.includes('meeting') || chanLower.includes('site') || chanLower.includes('visit');
 
   if (isMsgOrEmail) {
+    if (lower === 'received' || lower.includes('received') || lower.includes('inbound')) {
+      return 'Received';
+    }
     if (lower === 'completed' || lower.includes('sent') || lower.includes('delivered')) {
       return 'Sent';
     }
@@ -190,6 +193,7 @@ export function isSuccessStatus(status?: string): boolean {
   if (!status) return false;
   const s = status.trim().toLowerCase();
   return (
+    s === 'received' ||
     s === 'completed / connected' ||
     s === 'sent / delivered' ||
     s === 'completed / attended' ||
@@ -198,6 +202,7 @@ export function isSuccessStatus(status?: string): boolean {
     s === 'conducted' ||
     s === 'message sent' ||
     s === 'email sent' ||
+    s.startsWith('received') ||
     s.startsWith('completed') ||
     s.startsWith('sent') ||
     s.includes('conducted') ||

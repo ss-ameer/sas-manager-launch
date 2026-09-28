@@ -397,7 +397,8 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
       s.includes('completed') ||
       s.includes('conducted') ||
       s.includes('connected') ||
-      s.includes('sent');
+      s.includes('sent') ||
+      s.includes('received');
 
     const isFailed =
       s.includes('invalid') ||
@@ -466,6 +467,9 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     const isMeetingOrSite = chanLower.includes('meeting') || chanLower.includes('site') || chanLower.includes('visit');
 
     if (isMsgOrEmail) {
+      if (lower === 'received' || lower.includes('received') || lower.includes('inbound')) {
+        return 'Received';
+      }
       if (lower === 'completed' || lower.includes('sent') || lower.includes('delivered')) {
         return 'Sent';
       }

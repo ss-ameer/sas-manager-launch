@@ -422,6 +422,18 @@ export const INTERNAL_TASK_DISPOSITIONS: DispositionConfig[] = [
 
 export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
   {
+    id: 'email_received',
+    label: 'Received',
+    sublabel: 'Inbound customer email',
+    status: 'Received',
+    defaultOutcome: 'Enquiry Received',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Reply to customer email inquiry',
+    activeClass: 'bg-teal-600 text-white border-teal-600 shadow-md ring-2 ring-teal-500/30',
+    inactiveClass: 'bg-teal-50/80 dark:bg-teal-950/30 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 hover:bg-teal-100/80',
+    icon: CheckCircle2
+  },
+  {
     id: 'email_sent',
     label: 'Email Sent / Delivered',
     sublabel: 'Dispatched to contact',
@@ -472,6 +484,18 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
 ];
 
 export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
+  {
+    id: 'wa_received',
+    label: 'Received',
+    sublabel: 'Inbound customer message',
+    status: 'Received',
+    defaultOutcome: 'Enquiry Received',
+    defaultPreset: 'tomorrow',
+    defaultIntent: 'Reply to customer WhatsApp message',
+    activeClass: 'bg-teal-600 text-white border-teal-600 shadow-md ring-2 ring-teal-500/30',
+    inactiveClass: 'bg-teal-50/80 dark:bg-teal-950/30 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 hover:bg-teal-100/80',
+    icon: CheckCircle2
+  },
   {
     id: 'wa_sent',
     label: 'Message Sent / Awaiting Reply',
@@ -1046,7 +1070,7 @@ export default function LiveExecutionModal({
       const isAsyncChannel = normChan.includes('email') || normChan.includes('message') || normChan.includes('whatsapp') || normChan.includes('sms');
       const isSentStatus = callStatus.toLowerCase().includes('sent') || callStatus.toLowerCase().includes('delivered');
 
-      if (isAsyncChannel && isSentStatus && callOutcome !== 'Message Sent / Awaiting Reply') {
+      if (isAsyncChannel && isSentStatus && !callOutcome) {
         setCallOutcome('Message Sent / Awaiting Reply');
       }
     }
@@ -1640,9 +1664,9 @@ export default function LiveExecutionModal({
   const showLogAndOpenWhatsApp = isWhatsAppChannel && hasAvailableMobile;
   const effectiveContactEmail = activeTarget === 'mainline' ? (companyMainEmail || directEmail) : (directEmail || companyMainEmail);
   const showOpenEmailClient = isEmailChannel && Boolean(effectiveContactEmail);
-  const isCompletedState = isSuccessStatus(callStatus) || callStatus === 'Connected' || callStatus === 'Completed';
+  const isCompletedState = isSuccessStatus(callStatus) || callStatus === 'Connected' || callStatus === 'Completed' || callStatus === 'Received';
   const availableOutcomes = getOutcomesForStatus(activeChannel, callStatus);
-  const showOutcomeSelector = isCompletedState && !isEmailChannel && !isWhatsAppChannel;
+  const showOutcomeSelector = isCompletedState;
 
   // Identify when modal is executing a scheduled task from the queue
   const isExecutingTask = Boolean(
@@ -1777,7 +1801,9 @@ export default function LiveExecutionModal({
   const handleSelectDisposition = (disp: DispositionConfig) => {
     setActiveDispositionId(disp.id);
     setCallStatus(disp.status);
-    if (disp.id !== 'connected') {
+    if (disp.defaultOutcome && isSuccessStatus(disp.status)) {
+      setCallOutcome(disp.defaultOutcome);
+    } else if (disp.id !== 'connected') {
       setCallOutcome('');
     } else {
       setCallOutcome(disp.defaultOutcome || '');
