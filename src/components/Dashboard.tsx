@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Enquiry, Company, Salesperson, CallLogEntry, Contact, UserProfile } from '../types';
+import { isTaskPending } from '../services/taskService';
+import LiveExecutionModal from './LiveExecutionModal';
 import {
   BarChart,
   Bar,
@@ -57,6 +59,7 @@ interface DashboardProps {
   contacts?: Contact[];
   user?: UserProfile | null;
   onOpenMobileMenu?: () => void;
+  onNavigate?: (tab: string) => void;
   onOpenActivityDrawer?: (context: {
     companyId?: string;
     companyName?: string;
@@ -97,17 +100,52 @@ const parseLogTime = (log: any): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-export default function Dashboard({
-  enquiries,
-  companies,
-  salespersons,
-  onSelectEnquiry,
-  callLogs = [],
-  contacts = [],
-  user,
-  onOpenActivityDrawer,
-  onOpenMobileMenu
-}: DashboardProps) {
+function formatDisplayDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  try {
+    const cleanStr = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+    const parts = cleanStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return cleanStr;
+  } catch {
+    return dateStr.split('T')[0] || '';
+  }
+}
+
+function parseTaskScheduledDate(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+export default function Dashboard(props: DashboardProps) {
+  const {
+    enquiries,
+    companies,
+    salespersons,
+    onSelectEnquiry,
+    callLogs = [],
+    contacts = [],
+    user,
+    onOpenActivityDrawer,
+    onOpenMobileMenu,
+    onNavigate
+  } = props;
+
+  const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
   // Filter out deleted items and reserved gaps for general analytics
   const validEnquiries = useMemo(() => {
     return enquiries.filter((e) => !e.is_deleted && e.status !== 'Gap / Reserved');
@@ -142,8 +180,52 @@ export default function Dashboard({
     return new Map(companies.map((c) => [c.id, c.display_name]));
   }, [companies]);
 
-  // Follow-Up Data Processing
+  // Follow-Up Data Processing (Synchronized with Call Center Strict Queue Invariants)
   const followUpItems = useMemo(() => {
+    // 1. Filter only active pending tasks
+    const pendingTasks = (callLogs || []).filter((entry) => {
+      if (entry.is_deleted) return false;
+      const s = (entry.status || '').toLowerCase().trim();
+      if (
+        s === 'superseded' ||
+        s === 'cancelled' ||
+        s === 'canceled' ||
+        s === 'completed' ||
+        s === 'completed log' ||
+        s.startsWith('completed')
+      ) {
+        return false;
+      }
+      if (!isTaskPending(entry)) return false;
+      const fDate = entry.next_followup_date || (entry as any).next_follow_up || (entry as any).follow_up_date || entry.date;
+      return Boolean(fDate);
+    });
+
+    // 2. Enforce Single Active Pending Task per company invariant (mirroring CallLogManager.tsx)
+    const companyPendingMap = new Map<string, CallLogEntry>();
+    const unlinkedTasks: CallLogEntry[] = [];
+
+    for (const task of pendingTasks) {
+      const companyKey = task.company_id?.trim() || task.company_name?.trim();
+      if (!companyKey) {
+        unlinkedTasks.push(task);
+        continue;
+      }
+      const existing = companyPendingMap.get(companyKey);
+      if (!existing) {
+        companyPendingMap.set(companyKey, task);
+      } else {
+        // Deterministic deduplication: pick the primary pending task (earliest scheduled date)
+        const dateExisting = parseTaskScheduledDate(existing.next_followup_date || existing.date)?.getTime() || 0;
+        const dateNew = parseTaskScheduledDate(task.next_followup_date || task.date)?.getTime() || 0;
+        if (dateNew > 0 && (dateExisting === 0 || dateNew < dateExisting)) {
+          companyPendingMap.set(companyKey, task);
+        }
+      }
+    }
+
+    const deduplicatedTasks = [...Array.from(companyPendingMap.values()), ...unlinkedTasks];
+
     const items: Array<{
       id: string;
       company_id?: string;
@@ -160,15 +242,12 @@ export default function Dashboard({
       originalLog?: CallLogEntry;
     }> = [];
 
-    const seenKeys = new Set<string>();
-
-    (callLogs || []).forEach((l) => {
+    deduplicatedTasks.forEach((l) => {
       const isCurScheduled = ['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(l.status);
       const fDate = l.next_followup_date || (l as any).next_follow_up || (l as any).follow_up_date || (isCurScheduled ? l.date : null);
       if (!fDate) return;
-      const isClosed = ['Completed', 'Cancelled', 'Closed', 'Closed - Deal Made'].includes(l.status);
-      if (isClosed && !isCurScheduled) return;
 
+      const compKey = l.company_id || l.company_name || 'Direct Client';
       let compName = l.company_id ? (companyMap.get(l.company_id) || l.company_name) : l.company_name;
 
       let contName = l.contact_name;
@@ -191,11 +270,8 @@ export default function Dashboard({
         }
       }
 
-      const key = `log_${l.id || l.date}_${fDate}`;
-      seenKeys.add(key);
-
       items.push({
-        id: l.id || key,
+        id: l.id || `task_${compKey}_${fDate}`,
         company_id: l.company_id,
         company_name: compName || 'Direct Client',
         contact_id: l.contact_id,
@@ -211,61 +287,31 @@ export default function Dashboard({
       });
     });
 
-    (enquiries || []).forEach((e) => {
-      if (e.status === 'Active' && e.next_followup_date) {
-        const key = `enq_${e.id || e.sn}_${e.next_followup_date}`;
-        if (!seenKeys.has(key)) {
-          let compName = companyMap.get(e.company_id);
-          let contName = '';
-          let phone = '';
-          if (e.contact_id && contacts) {
-            const matchedC = contacts.find((c) => c.id === e.contact_id);
-            if (matchedC) {
-              contName = matchedC.full_name;
-              phone = matchedC.mobile || matchedC.landline || (matchedC.phones && matchedC.phones[0]?.number) || '';
-            }
-          }
-          if (!phone && e.company_id && companies) {
-            const matchedComp = companies.find((c) => c.id === e.company_id);
-            if (matchedComp) {
-              phone = matchedComp.general_phone || (matchedComp.phones && matchedComp.phones[0]?.number) || '';
-            }
-          }
-
-          items.push({
-            id: key,
-            company_id: e.company_id,
-            company_name: compName || 'Direct Client',
-            contact_id: e.contact_id,
-            contact_name: contName,
-            enquiry_id: e.id,
-            enquiry_quote_ref: e.quote_ref_no,
-            followup_date: e.next_followup_date,
-            status: 'Active Enquiry',
-            notes: e.subject || e.remarks || `Proposal #${e.quote_ref_no} - AED ${e.value_aed.toLocaleString()}`,
-            sales_person: e.sales_person,
-            phone
-          });
-        }
-      }
-    });
-
     return items;
-  }, [callLogs, enquiries, companyMap, contacts, companies]);
+  }, [callLogs, companyMap, contacts, companies]);
 
   const overdueList = useMemo(() => {
     return followUpItems
-      .filter((item) => item.followup_date < today)
+      .filter((item) => {
+        const itemDate = item.followup_date.includes('T') ? item.followup_date.split('T')[0] : item.followup_date;
+        return itemDate < today;
+      })
       .sort((a, b) => a.followup_date.localeCompare(b.followup_date));
   }, [followUpItems, today]);
 
   const todayList = useMemo(() => {
-    return followUpItems.filter((item) => item.followup_date === today);
+    return followUpItems.filter((item) => {
+      const itemDate = item.followup_date.includes('T') ? item.followup_date.split('T')[0] : item.followup_date;
+      return itemDate === today;
+    });
   }, [followUpItems, today]);
 
   const upcomingList = useMemo(() => {
     return followUpItems
-      .filter((item) => item.followup_date > today)
+      .filter((item) => {
+        const itemDate = item.followup_date.includes('T') ? item.followup_date.split('T')[0] : item.followup_date;
+        return itemDate > today;
+      })
       .sort((a, b) => a.followup_date.localeCompare(b.followup_date));
   }, [followUpItems, today]);
 
@@ -282,9 +328,11 @@ export default function Dashboard({
   }, [overdueList.length, todayList.length, upcomingList.length]);
 
   const activeTabItems = activeRadarTab === 'overdue' ? overdueList : activeRadarTab === 'today' ? todayList : upcomingList;
+  const displayedRadarTasks = activeTabItems.slice(0, 3);
 
   const getRelativeTimeBadge = (dateStr: string) => {
-    const targetDate = new Date(dateStr);
+    const cleanStr = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+    const targetDate = new Date(cleanStr);
     const todayDate = new Date(today);
     const diffTime = targetDate.getTime() - todayDate.getTime();
     const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
@@ -631,147 +679,165 @@ export default function Dashboard({
 
         {/* Tab Items Cards */}
         {activeTabItems.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {activeTabItems.map((item) => {
-              const relBadge = getRelativeTimeBadge(item.followup_date);
-              return (
-                <div
-                  key={item.id}
-                  className="bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-slate-300 p-4 rounded-xl space-y-3 transition duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between"
-                >
-                  <div className="space-y-2">
-                    {/* Header Row */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-bold text-slate-900 truncate font-sans" title={item.company_name}>
-                          {item.company_name}
-                        </h3>
-                        {item.contact_name && (
-                          <div className="flex items-center space-x-1 text-xs text-slate-500 font-sans mt-0.5">
-                            <User className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate">{item.contact_name}</span>
-                          </div>
-                        )}
+          <div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {displayedRadarTasks.map((item) => {
+                const relBadge = getRelativeTimeBadge(item.followup_date);
+                const hasContact = item.contact_name && item.contact_name.trim() !== '' && item.contact_name.trim() !== '-';
+                return (
+                  <div
+                    key={item.id}
+                    className="bg-slate-50/70 hover:bg-white dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/80 hover:border-slate-300 dark:hover:border-slate-600 p-4 rounded-xl space-y-3 transition duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between"
+                  >
+                    <div className="space-y-2">
+                      {/* Header Row */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate font-sans" title={item.company_name}>
+                            {item.company_name}
+                          </h3>
+                          {hasContact && (
+                            <div className="flex items-center space-x-1 text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
+                              <User className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{item.contact_name}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${relBadge.className}`}>
+                          {relBadge.text}
+                        </span>
                       </div>
 
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 ${relBadge.className}`}>
-                        {relBadge.text}
-                      </span>
+                      {/* Meta info */}
+                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono pt-1">
+                        {item.enquiry_quote_ref ? (
+                          <span className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                            #{item.enquiry_quote_ref}
+                          </span>
+                        ) : (
+                          <span className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded text-[11px] text-slate-500 dark:text-slate-400">
+                            Scheduled Task
+                          </span>
+                        )}
+
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                          Date: {formatDisplayDate(item.followup_date)}
+                        </span>
+                      </div>
+
+                      {/* Note Snippet */}
+                      <p className="text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/80 line-clamp-2 italic font-sans">
+                        "{item.notes}"
+                      </p>
                     </div>
 
-                    {/* Meta info */}
-                    <div className="flex items-center justify-between text-xs text-slate-500 font-mono pt-1">
-                      {item.enquiry_quote_ref ? (
-                        <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px] font-bold text-slate-700">
-                          #{item.enquiry_quote_ref}
-                        </span>
+                    {/* Action Buttons */}
+                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/80 flex items-center gap-1.5">
+                      {item.phone ? (
+                        <a
+                          href={`tel:${item.phone}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
+                          title={`Call ${item.phone}`}
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>Call</span>
+                        </a>
                       ) : (
-                        <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px] text-slate-500">
-                          Scheduled Task
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenActivityDrawer) {
+                              onOpenActivityDrawer({
+                                existingLog: item.originalLog,
+                                companyId: item.company_id,
+                                companyName: item.company_name,
+                                contactId: item.contact_id,
+                                enquiryId: item.enquiry_id
+                              });
+                            }
+                          }}
+                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
+                          title="Log call (No phone on file)"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Call</span>
+                        </button>
                       )}
 
-                      <span className="text-[11px] text-slate-400">
-                        Date: {item.followup_date}
-                      </span>
+                      {item.phone ? (
+                        <a
+                          href={getWhatsAppUrl(item.phone)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 py-1.5 px-2 bg-green-50 hover:bg-green-100 dark:bg-green-950/40 dark:hover:bg-green-900/60 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
+                          title={`WhatsApp ${item.phone}`}
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                          <span>WhatsApp</span>
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenActivityDrawer) {
+                              onOpenActivityDrawer({
+                                existingLog: item.originalLog,
+                                companyId: item.company_id,
+                                companyName: item.company_name,
+                                contactId: item.contact_id,
+                                enquiryId: item.enquiry_id
+                              });
+                            }
+                          }}
+                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
+                          title="Log WhatsApp (No phone on file)"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
+                          <span>WhatsApp</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setExecutionModalTask(item.originalLog || item)}
+                        className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
+                        title="Execute Task in Live Execution Center"
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-current text-amber-300" />
+                        <span>Execute Task</span>
+                      </button>
                     </div>
-
-                    {/* Note Snippet */}
-                    <p className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200/80 line-clamp-2 italic font-sans">
-                      "{item.notes}"
-                    </p>
                   </div>
+                );
+              })}
+            </div>
 
-                  {/* Action Buttons */}
-                  <div className="pt-2 border-t border-slate-200/60 flex items-center gap-1.5">
-                    {item.phone ? (
-                      <a
-                        href={`tel:${item.phone}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
-                        title={`Call ${item.phone}`}
-                      >
-                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Call</span>
-                      </a>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (onOpenActivityDrawer) {
-                            onOpenActivityDrawer({
-                              existingLog: item.originalLog,
-                              companyId: item.company_id,
-                              companyName: item.company_name,
-                              contactId: item.contact_id,
-                              enquiryId: item.enquiry_id
-                            });
-                          }
-                        }}
-                        className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
-                        title="Log call (No phone on file)"
-                      >
-                        <Phone className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Call</span>
-                      </button>
-                    )}
-
-                    {item.phone ? (
-                      <a
-                        href={getWhatsAppUrl(item.phone)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex-1 py-1.5 px-2 bg-green-50 hover:bg-green-100 border border-green-200 text-green-800 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
-                        title={`WhatsApp ${item.phone}`}
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-green-600" />
-                        <span>WhatsApp</span>
-                      </a>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (onOpenActivityDrawer) {
-                            onOpenActivityDrawer({
-                              existingLog: item.originalLog,
-                              companyId: item.company_id,
-                              companyName: item.company_name,
-                              contactId: item.contact_id,
-                              enquiryId: item.enquiry_id
-                            });
-                          }
-                        }}
-                        className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
-                        title="Log WhatsApp (No phone on file)"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-                        <span>WhatsApp</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => {
-                        if (onOpenActivityDrawer) {
-                          onOpenActivityDrawer({
-                            existingLog: item.originalLog,
-                            companyId: item.company_id,
-                            companyName: item.company_name,
-                            contactId: item.contact_id,
-                            enquiryId: item.enquiry_id
-                          });
-                        }
-                      }}
-                      className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
-                      title="Log Activity"
-                    >
-                      <Zap className="w-3.5 h-3.5 fill-current" />
-                      <span>Log</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {/* Footer Bar when queue has more than 3 items */}
+            {activeTabItems.length > 3 && (
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                  Showing top 3 of {activeTabItems.length} tasks in this queue
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof onNavigate === 'function') {
+                      onNavigate('call_center');
+                    } else if (typeof (props as any)?.onNavigate === 'function') {
+                      (props as any).onNavigate('call_center');
+                    }
+                  }}
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  View all {activeTabItems.length} in Call Center & Logs →
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="py-8 text-center text-slate-400 font-sans text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
@@ -1292,6 +1358,32 @@ export default function Dashboard({
           </div>
         )}
       </div>
+
+      {/* Live Execution Center Direct Modal */}
+      {executionModalTask && (
+        <LiveExecutionModal
+          isOpen={Boolean(executionModalTask)}
+          onClose={() => setExecutionModalTask(null)}
+          task={executionModalTask}
+          targetTaskId={executionModalTask?.id}
+          targetCompanyId={executionModalTask?.company_id}
+          initialTaskId={executionModalTask?.id}
+          user={user}
+          callLogs={callLogs}
+          contacts={contacts}
+          companies={companies}
+          enquiries={enquiries}
+          onCompleteTask={() => {
+            setExecutionModalTask(null);
+          }}
+          onRescheduleTask={() => {
+            setExecutionModalTask(null);
+          }}
+          onCancelTask={() => {
+            setExecutionModalTask(null);
+          }}
+        />
+      )}
     </PageBody>
   </>
 );
