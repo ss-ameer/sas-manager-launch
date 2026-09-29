@@ -1083,6 +1083,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   // Read-only state for users without edit permissions on this enquiry
   const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+  const isClaimingGap = Boolean(enquiryToEdit && enquiryToEdit.status === 'Gap / Reserved');
   const isReadOnly = React.useMemo(() => {
     if (!isEditing || !enquiryToEdit) return false;
     return !canEditEnquiry(user, activeWorkspace, enquiryToEdit);
@@ -1096,12 +1097,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setLoggedDate(enquiryToEdit.logged_date || new Date().toISOString().split('T')[0]);
       setSalesPerson(enquiryToEdit.sales_person_id || enquiryToEdit.sales_person || '');
       setConcernedPersons(enquiryToEdit.concerned_persons || (enquiryToEdit.concerned_person ? [enquiryToEdit.concerned_person] : []));
-      setCompanyId(enquiryToEdit.company_id);
+      setCompanyId(enquiryToEdit.company_id || '');
       setContactId(enquiryToEdit.contact_id || '');
-      setCountry(enquiryToEdit.country);
-      setProjectLocation(enquiryToEdit.project_location);
+      setCountry(enquiryToEdit.country || 'UAE');
+      setProjectLocation(enquiryToEdit.project_location || '');
       setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
-      setStatus(enquiryToEdit.status);
+
+      if (enquiryToEdit.status === 'Gap / Reserved') {
+        setStatus('Active');
+        if (enquiryToEdit.remarks?.startsWith('[Reserved Gap]') || enquiryToEdit.remarks?.includes('missing record')) {
+          setRemarks('');
+        } else {
+          setRemarks(enquiryToEdit.remarks || '');
+        }
+      } else {
+        setStatus(enquiryToEdit.status);
+        setRemarks(enquiryToEdit.remarks || '');
+      }
+
       setPastedSourceText(enquiryToEdit.raw_source_text || null);
       setQuoteRefNo(enquiryToEdit.quote_ref_no);
       setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
@@ -1110,7 +1123,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setFormCurrency(editCurrency);
       setIsLumpSum(enquiryToEdit.is_lump_sum || false);
       setManualValue(editCurrency === 'USD' ? enquiryToEdit.value_aed / 3.6725 : enquiryToEdit.value_aed);
-      setRemarks(enquiryToEdit.remarks || '');
       setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
       setPaymentStatus(enquiryToEdit.payment_status || '');
       setSubject(enquiryToEdit.subject || '');
@@ -1159,6 +1171,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
       if (matchedComp) {
         setCompanySearch(matchedComp.display_name);
+      } else if (enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
+        setCompanySearch('');
+        setCompanyId('');
       }
     } else {
       // Default Salesperson to the first initials/ID in the list
@@ -2474,6 +2489,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const currentUserId = user?.uid || user?.id || 'system';
     const repIdOrInitials = spInitialsOrName || spId || selectedSp?.initials || '';
 
+    const selectedCompany = companies.find((c) => c.id === companyId);
+    const resolvedCompanyName = selectedCompany?.display_name || (selectedCompany as any)?.name || companySearch?.trim();
+
     const payload: any = {
       workspace_id: activeWorkspace.id,
       workspaceId: activeWorkspace.id,
@@ -2492,7 +2510,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       additional_team: enquiryToEdit?.additional_team || [],
       concerned_persons: concernedPersons,
       company_id: companyId || '',
-      company_name: !companyId && isGapReserved ? (companySearch?.trim() || '[Reserved Sequence / Missing File]') : ((enquiryToEdit as any)?.company_name || undefined),
+      company_name: selectedCompany?.display_name || (selectedCompany as any)?.name || (!companyId && isGapReserved ? (companySearch?.trim() || '[Reserved Sequence / Missing File]') : (companySearch?.trim() || ((enquiryToEdit as any)?.company_name && !(enquiryToEdit as any)?.company_name.includes('[Reserved Sequence') ? (enquiryToEdit as any)?.company_name : undefined))),
       contact_id: contactId || undefined,
       country,
       project_location: projectLocation,
@@ -3240,7 +3258,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <div>
                   <div className="flex items-center space-x-2">
                     <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans flex items-center gap-1.5">
-                      <span>{enquiryToEdit ? `Edit Enquiry #${enquiryToEdit.sn}` : '📋 Register New Enquiry'}</span>
+                      <span>{enquiryToEdit ? (isClaimingGap ? `Claim Reserved Gap #${enquiryToEdit.sn}` : `Edit Enquiry #${enquiryToEdit.sn}`) : '📋 Register New Enquiry'}</span>
                     </h3>
                     {quoteRefNo && (
                       <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
@@ -3257,7 +3275,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
-                    {enquiryToEdit ? 'Modify proposal specifications, line items, and pricing' : 'Create a new commercial enquiry record with multi-product breakdown'}
+                    {isClaimingGap
+                      ? 'Populate details and convert this reserved sequence gap into an active proposal'
+                      : (enquiryToEdit ? 'Modify proposal specifications, line items, and pricing' : 'Create a new commercial enquiry record with multi-product breakdown')}
                   </p>
                 </div>
               </div>
@@ -3338,13 +3358,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div className="w-full">
                 <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">S/N</MarqueeLabel>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                      <span>S/N</span>
+                      {isClaimingGap && (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold lowercase tracking-normal">
+                          (locked to gap #{sn})
+                        </span>
+                      )}
+                    </MarqueeLabel>
                     <input
                       type="number"
                       required
                       value={sn}
+                      disabled={isClaimingGap}
                       onChange={(e) => setSn(Number(e.target.value))}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                      className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${
+                        isClaimingGap ? 'opacity-70 bg-slate-100 dark:bg-slate-800 cursor-not-allowed select-none' : ''
+                      }`}
+                      title={isClaimingGap ? `Sequence S/N #${sn} is locked to this reserved gap` : 'Serial Number'}
                     />
                   </div>
 

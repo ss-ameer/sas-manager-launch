@@ -587,11 +587,15 @@ export default function EnquiryList({
       (e) =>
         !e.is_deleted &&
         (e.workspace_id === currentWorkspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
-        e.sn === snNum
+        Number(e.sn) === snNum
     );
 
     if (isOccupied) {
-      alert(`S/N #${snNum} is already assigned to an existing enquiry in this workspace. Please specify an open sequence gap.`);
+      if (triggerToast) {
+        triggerToast(`S/N #${snNum} is already occupied or reserved.`, 'error');
+      } else {
+        alert(`S/N #${snNum} is already occupied or reserved in this workspace.`);
+      }
       return;
     }
 
@@ -1330,8 +1334,10 @@ export default function EnquiryList({
                                 }
                                 setConfirmDialog({
                                   isOpen: true,
-                                  title: 'Delete Enquiry',
-                                  message: `Are you sure you want to delete Enquiry #${e.sn}? This is irreversible.`,
+                                  title: isGapReserved ? 'Delete Reserved Gap' : 'Delete Enquiry',
+                                  message: isGapReserved
+                                    ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will become an open gap.`
+                                    : `Are you sure you want to delete Enquiry #${e.sn}? This is irreversible.`,
                                   confirmText: 'Delete',
                                   cancelText: 'Cancel',
                                   isDestructive: true,
@@ -1339,7 +1345,7 @@ export default function EnquiryList({
                                 });
                               }}
                               className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
-                              title="Delete Record"
+                              title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
                             >
                               <Trash className="w-3.5 h-3.5" />
                             </button>
