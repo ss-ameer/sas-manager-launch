@@ -3362,8 +3362,8 @@ export default function CallLogManager({
                   className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
                 >
                   <option value="all">All Agents / Operators</option>
-                  {availableAgents.map((ag) => (
-                    <option key={ag} value={ag}>
+                  {availableAgents.map((ag, idx) => (
+                    <option key={`agent-${ag || idx}`} value={ag}>
                       👤 {ag}
                     </option>
                   ))}
@@ -5001,8 +5001,8 @@ export default function CallLogManager({
                   className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl font-semibold bg-white focus:ring-2 focus:ring-blue-500"
                 >
                   <option value={user.username}>[Current Logged-in User] {user.full_name || user.username}</option>
-                  {(salespersons || []).map((sp) => (
-                    <option key={sp.id || sp.initials} value={sp.id || sp.initials}>
+                  {(salespersons || []).map((sp, index) => (
+                    <option key={sp.id ? `sp-${sp.id}` : (sp.initials ? `sp-${sp.initials}` : `sp-${index}`)} value={sp.id || sp.initials}>
                       Team Member: {sp.full_name} ({sp.initials}) - {sp.role}
                     </option>
                   ))}

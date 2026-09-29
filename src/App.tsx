@@ -615,10 +615,18 @@ export default function App() {
   }, [enquiries, activeWorkspace.id, isDefaultWorkspace]);
 
   const workspaceSalespersons = useMemo(() => {
-    return salespersons.filter((s) => {
-      const wId = s.workspace_id || (s as any).workspaceId;
+    const raw = salespersons.filter((sp) => {
+      const wId = sp.workspace_id || (sp as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
+    // Deduplicate by ID to prevent React duplicate key collisions
+    const uniqueMap = new Map<string, typeof raw[0]>();
+    raw.forEach((sp) => {
+      if (sp.id && !uniqueMap.has(sp.id)) {
+        uniqueMap.set(sp.id, sp);
+      }
+    });
+    return Array.from(uniqueMap.values());
   }, [salespersons, activeWorkspace.id, isDefaultWorkspace]);
 
   const workspaceProducts = useMemo(() => {
