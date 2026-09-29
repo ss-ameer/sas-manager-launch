@@ -113,10 +113,12 @@ export default function EnquiryDetail({
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [activeOptionTab, setActiveOptionTab] = useState<string>('ALL');
 
   // Synchronize local enquiry when prop updates
   useEffect(() => {
     setCurrentEnquiry(enquiry);
+    setActiveOptionTab('ALL');
   }, [enquiry]);
 
   const currentWsId = activeWorkspaceId || activeWorkspace?.id || currentEnquiry.workspace_id;
@@ -394,14 +396,31 @@ export default function EnquiryDetail({
   };
 
   const toggleExpandAllItems = () => {
-    if (!enquiry.line_items || enquiry.line_items.length === 0) return;
-    const allExpanded = enquiry.line_items.every((_, idx) => expandedItemIndices[idx]);
+    const targetItems = filteredLineItems.length > 0 ? filteredLineItems : (enquiry.line_items || []);
+    if (targetItems.length === 0) return;
+    const allExpanded = targetItems.every((item) => {
+      const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+      return origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
+    });
+
     if (allExpanded) {
-      setExpandedItemIndices({});
+      setExpandedItemIndices((prev) => {
+        const next = { ...prev };
+        targetItems.forEach((item) => {
+          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+          if (origIdx >= 0) delete next[origIdx];
+        });
+        return next;
+      });
     } else {
-      const nextState: Record<number, boolean> = {};
-      enquiry.line_items.forEach((_, idx) => { nextState[idx] = true; });
-      setExpandedItemIndices(nextState);
+      setExpandedItemIndices((prev) => {
+        const next = { ...prev };
+        targetItems.forEach((item) => {
+          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+          if (origIdx >= 0) next[origIdx] = true;
+        });
+        return next;
+      });
     }
   };
 
@@ -526,6 +545,93 @@ export default function EnquiryDetail({
     const symbol = isUSD ? '$' : 'AED ';
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
+
+  // Dynamic Option Extraction & Aggregation
+  const optionAnalysis = React.useMemo(() => {
+    const items = enquiry.line_items || [];
+    const groupMap: Record<string, { count: number; total: number; items: typeof items }> = {};
+    let baselineTotal = 0;
+    let baselineCount = 0;
+    const alternativeTotals: Record<string, { count: number; total: number }> = {};
+    let optionalTotal = 0;
+    let optionalCount = 0;
+
+    items.forEach((item) => {
+      const rawOpt = ((item as any).option_designation || item.option || '').trim();
+      const optKey = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
+      const price = Number(item.total_price !== undefined ? item.total_price : ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))) || 0;
+
+      if (!groupMap[optKey]) {
+        groupMap[optKey] = { count: 0, total: 0, items: [] };
+      }
+      groupMap[optKey].count += 1;
+      groupMap[optKey].total += price;
+      groupMap[optKey].items.push(item);
+
+      const isOptional = optKey === 'Optional / Add-On' || optKey.toLowerCase().includes('optional') || optKey.toLowerCase().includes('add-on');
+      const isBaseline = optKey === 'Default / Included' || optKey === 'Option A' || optKey.startsWith('Option A ');
+
+      if (isOptional) {
+        optionalTotal += price;
+        optionalCount += 1;
+      } else if (isBaseline) {
+        baselineTotal += price;
+        baselineCount += 1;
+      } else {
+        if (!alternativeTotals[optKey]) {
+          alternativeTotals[optKey] = { count: 0, total: 0 };
+        }
+        alternativeTotals[optKey].count += 1;
+        alternativeTotals[optKey].total += price;
+      }
+    });
+
+    const detectedOptions = Object.keys(groupMap);
+    const hasMultipleOptions = Object.keys(alternativeTotals).length > 0 || optionalTotal > 0 || detectedOptions.length > 1;
+
+    return {
+      groupMap,
+      detectedOptions,
+      baselineTotal,
+      baselineCount,
+      alternativeTotals,
+      optionalTotal,
+      optionalCount,
+      hasMultipleOptions,
+    };
+  }, [enquiry.line_items]);
+
+  const filteredLineItems = React.useMemo(() => {
+    const items = enquiry.line_items || [];
+    if (activeOptionTab !== 'ALL') {
+      return items.filter((item) => {
+        const rawOpt = ((item as any).option_designation || item.option || '').trim();
+        const optKey = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
+        return optKey === activeOptionTab;
+      });
+    }
+
+    if (!optionAnalysis.hasMultipleOptions) {
+      return items;
+    }
+
+    // Stable sort by option group for clean contiguous sections in 'ALL' view
+    const optionPriority = (opt: string) => {
+      if (opt === 'Default / Included') return 1;
+      if (opt.startsWith('Option A')) return 2;
+      if (opt.startsWith('Option B')) return 3;
+      if (opt.startsWith('Option C')) return 4;
+      if (opt.startsWith('Option D')) return 5;
+      if (opt.toLowerCase().includes('optional')) return 99;
+      return 10;
+    };
+
+    return [...items].sort((a, b) => {
+      const optA = ((a as any).option_designation || a.option || 'Default / Included').trim();
+      const optB = ((b as any).option_designation || b.option || 'Default / Included').trim();
+      return optionPriority(optA) - optionPriority(optB);
+    });
+  }, [enquiry.line_items, activeOptionTab, optionAnalysis.hasMultipleOptions]);
 
   const handleRevert = async (log: AuditLog) => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
@@ -1332,127 +1438,271 @@ export default function EnquiryDetail({
 
           {activeTab === 'items' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
-                <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono">
-                  <ListOrdered className="w-4 h-4" />
-                  <span>Multi-Product proposal line item breakdown</span>
+              {/* Commercial Option Comparison Banner */}
+              {optionAnalysis.hasMultipleOptions && (
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3 mb-4 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* Left side: Baseline Package Total badge with item count */}
+                    <div className="flex items-center space-x-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      <div>
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-400 block font-bold">
+                          Baseline Package Total ({optionAnalysis.baselineCount} items)
+                        </span>
+                        <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
+                          {formatCurrency(optionAnalysis.baselineTotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right side: Responsive flex showing chips for each alternative option and elective add-ons */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(Object.entries(optionAnalysis.alternativeTotals) as [string, { count: number; total: number }][]).map(([optName, optData]) => (
+                        <span
+                          key={optName}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shadow-2xs"
+                          title={`${optName} Alternative Subtotal`}
+                        >
+                          <span className="font-bold">{optName}:</span>
+                          <span>{formatCurrency(optData.total)}</span>
+                          <span className="text-[10px] opacity-75">({optData.count} items)</span>
+                        </span>
+                      ))}
+
+                      {optionAnalysis.optionalTotal > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs"
+                          title="Optional / Add-On Electives Total"
+                        >
+                          <span className="font-bold">Optionals:</span>
+                          <span>+{formatCurrency(optionAnalysis.optionalTotal)}</span>
+                          <span className="text-[10px] opacity-75">({optionAnalysis.optionalCount} items)</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                {enquiry.line_items && enquiry.line_items.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={toggleExpandAllItems}
-                    className="text-[11px] font-mono text-blue-600 hover:text-blue-800 font-semibold flex items-center space-x-1 py-1 px-2.5 bg-blue-50/60 hover:bg-blue-50 rounded-lg border border-blue-100 transition"
-                  >
-                    <ChevronsUpDown className="w-3.5 h-3.5" />
-                    <span>
-                      {enquiry.line_items.every((_, idx) => expandedItemIndices[idx])
-                        ? 'Collapse All'
-                        : 'Expand All'}
-                    </span>
-                  </button>
+              )}
+
+              {/* Line Items Header & Option Filter Navigation */}
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-2 mb-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-xs text-slate-400 dark:text-slate-500 font-mono">
+                    <ListOrdered className="w-4 h-4" />
+                    <span>Multi-Product proposal line item breakdown</span>
+                  </div>
+                  {filteredLineItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={toggleExpandAllItems}
+                      className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold flex items-center space-x-1 py-1 px-2.5 bg-blue-50/60 dark:bg-blue-950/40 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg border border-blue-100 dark:border-blue-900/60 transition cursor-pointer"
+                    >
+                      <ChevronsUpDown className="w-3.5 h-3.5" />
+                      <span>
+                        {filteredLineItems.every((item) => {
+                          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+                          return origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
+                        })
+                          ? 'Collapse All'
+                          : 'Expand All'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Option Filter Pill Navigation */}
+                {optionAnalysis.detectedOptions.length > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setActiveOptionTab('ALL')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                        activeOptionTab === 'ALL'
+                          ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <span>All Items</span>
+                      <span className={`font-mono text-[10px] ${activeOptionTab === 'ALL' ? 'text-blue-100' : 'text-slate-400'}`}>
+                        ({enquiry.line_items?.length || 0})
+                      </span>
+                    </button>
+
+                    {optionAnalysis.detectedOptions.map((optName) => {
+                      const count = optionAnalysis.groupMap[optName]?.count || 0;
+                      const isActive = activeOptionTab === optName;
+                      return (
+                        <button
+                          key={optName}
+                          type="button"
+                          onClick={() => setActiveOptionTab(optName)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                            isActive
+                              ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span>{optName}</span>
+                          <span className={`font-mono text-[10px] ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                            ({count})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
-              {enquiry.line_items && enquiry.line_items.length > 0 ? (
+              {filteredLineItems && filteredLineItems.length > 0 ? (
                 <div className="space-y-3">
-                  {enquiry.line_items.map((item, idx) => {
-                    const isExpanded = !!expandedItemIndices[idx];
+                  {filteredLineItems.map((item, idx) => {
+                    const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : idx;
+                    const isExpanded = origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
                     const hasAttrs = item.attributes && item.attributes.length > 0;
+
+                    const rawOpt = ((item as any).option_designation || item.option || '').trim();
+                    const currentOpt = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
+
+                    const prevItem = idx > 0 ? filteredLineItems[idx - 1] : null;
+                    const prevRawOpt = prevItem ? (((prevItem as any).option_designation || prevItem.option || '').trim()) : null;
+                    const prevOpt = prevItem ? ((!prevRawOpt || prevRawOpt === 'Default / Included') ? 'Default / Included' : prevRawOpt) : null;
+                    const isFirstOfGroup = activeOptionTab === 'ALL' && optionAnalysis.hasMultipleOptions && (idx === 0 || currentOpt !== prevOpt);
+
                     return (
-                      <div
-                        key={idx}
-                        className={`bg-slate-50 border transition-all duration-200 rounded-xl overflow-hidden ${
-                          isExpanded ? 'border-blue-300 shadow-xs bg-slate-50/90' : 'border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        {/* Collapsed Header Bar - Clickable to toggle */}
-                        <div
-                          onClick={() => toggleLineItem(idx)}
-                          className="p-4 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition"
-                        >
-                          <div className="flex items-center space-x-3 truncate pr-2">
-                            <div className="text-slate-400 hover:text-slate-600 shrink-0">
-                              {isExpanded ? (
-                                <ChevronDown className="w-4 h-4 text-blue-600" />
+                      <React.Fragment key={origIdx >= 0 ? origIdx : idx}>
+                        {/* Group Section Divider in "ALL" View */}
+                        {isFirstOfGroup && (
+                          <div className="flex items-center justify-between pt-3 pb-1 border-b border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                {currentOpt}
+                              </span>
+                              {currentOpt === 'Default / Included' || currentOpt === 'Option A' || currentOpt.startsWith('Option A ') ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-mono font-semibold">
+                                  Baseline Scope
+                                </span>
+                              ) : currentOpt.toLowerCase().includes('optional') ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono font-semibold">
+                                  Elective Add-On
+                                </span>
                               ) : (
-                                <ChevronRight className="w-4 h-4" />
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-mono font-semibold">
+                                  Alternative Option
+                                </span>
                               )}
                             </div>
-                            <span className="text-xs bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded font-mono font-bold shrink-0">
-                              Line #{idx + 1}
-                            </span>
-                            {item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge' ? (
-                              <span className="text-xs bg-amber-50 border border-amber-200 text-amber-800 font-bold px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0">
-                                <span>Charge:</span> {item.charge_type || item.product_type}
+                            {optionAnalysis.groupMap[currentOpt] && (
+                              <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                                Subtotal: {formatCurrency(optionAnalysis.groupMap[currentOpt].total)} ({optionAnalysis.groupMap[currentOpt].count} items)
                               </span>
-                            ) : (
-                              <span className="text-sm font-bold text-slate-800 font-sans truncate">{item.product_type}</span>
-                            )}
-                            {item.option && (
-                              <span className="text-[10px] bg-blue-50 border border-blue-200 text-blue-700 font-mono font-bold px-1.5 py-0.5 rounded shrink-0">
-                                {item.option}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center space-x-4 shrink-0 font-mono">
-                            <span className="text-xs text-slate-500 hidden sm:inline-block">
-                              {item.quantity} {item.unit} x {formatCurrency(item.unit_price)}
-                            </span>
-                            <span className="text-sm font-bold text-blue-600">
-                              {formatCurrency(item.total_price)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Inline Expanded View */}
-                        {isExpanded && (
-                          <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-200/80 bg-white">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans pt-1">
-                              <div>
-                                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Quantity & Pricing</span>
-                                <span className="font-semibold text-slate-800 font-mono">
-                                  {item.quantity} {item.unit} @ {formatCurrency(item.unit_price)} = {formatCurrency(item.total_price)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Delivery / Lead Time</span>
-                                <span className="font-semibold text-slate-700 font-mono">
-                                  {item.lead_time_note || 'Immediate / Stock'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {item.description && (
-                              <div>
-                                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Description / Spec Notes</span>
-                                <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-150">
-                                  {item.description}
-                                </p>
-                              </div>
-                            )}
-
-                            {hasAttrs && (
-                              <div>
-                                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Specification Attributes</span>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {item.attributes.map((attr, attrIdx) => (
-                                    <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
-                                      <span className="font-semibold text-slate-900">{attr.key}:</span> {attr.value || '—'}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
                             )}
                           </div>
                         )}
-                      </div>
+
+                        <div
+                          className={`bg-slate-50 dark:bg-slate-800/40 border transition-all duration-200 rounded-xl overflow-hidden ${
+                            isExpanded ? 'border-blue-300 dark:border-blue-700 shadow-xs bg-slate-50/90 dark:bg-slate-800/70' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          {/* Collapsed Header Bar - Clickable to toggle */}
+                          <div
+                            onClick={() => toggleLineItem(origIdx >= 0 ? origIdx : idx)}
+                            className="p-4 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 dark:hover:bg-slate-800/80 transition"
+                          >
+                            <div className="flex items-center space-x-3 truncate pr-2">
+                              <div className="text-slate-400 hover:text-slate-600 shrink-0">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-blue-600" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4" />
+                                )}
+                              </div>
+                              <span className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded font-mono font-bold shrink-0">
+                                Line #{origIdx >= 0 ? origIdx + 1 : idx + 1}
+                              </span>
+                              {item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge' ? (
+                                <span className="text-xs bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-bold px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0">
+                                  <span>Charge:</span> {item.charge_type || item.product_type}
+                                </span>
+                              ) : (
+                                <span className="text-sm font-bold text-slate-800 dark:text-slate-100 font-sans truncate">{item.product_type}</span>
+                              )}
+                              {((item as any).option_designation || item.option) && (
+                                <span
+                                  className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                    (((item as any).option_designation || item.option) || '').toLowerCase().includes('optional')
+                                      ? 'bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300'
+                                      : (((item as any).option_designation || item.option) || '').startsWith('Option ') && !(((item as any).option_designation || item.option) || '').startsWith('Option A')
+                                      ? 'bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+                                      : 'bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                                  }`}
+                                >
+                                  {(item as any).option_designation || item.option}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center space-x-4 shrink-0 font-mono">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline-block">
+                                {item.quantity} {item.unit} x {formatCurrency(item.unit_price)}
+                              </span>
+                              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                                {formatCurrency(item.total_price)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Inline Expanded View */}
+                          {isExpanded && (
+                            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans pt-1">
+                                <div>
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Quantity & Pricing</span>
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                                    {item.quantity} {item.unit} @ {formatCurrency(item.unit_price)} = {formatCurrency(item.total_price)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Delivery / Lead Time</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-300 font-mono">
+                                    {item.lead_time_note || 'Immediate / Stock'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {item.description && (
+                                <div>
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Description / Spec Notes</span>
+                                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 p-3 rounded-lg border border-slate-150 dark:border-slate-700">
+                                    {item.description}
+                                  </p>
+                                </div>
+                              )}
+
+                              {hasAttrs && (
+                                <div>
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Specification Attributes</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {item.attributes.map((attr, attrIdx) => (
+                                      <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-md shadow-2xs">
+                                        <span className="font-semibold text-slate-900 dark:text-slate-100">{attr.key}:</span> {attr.value || '—'}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </React.Fragment>
                     );
                   })}
                 </div>
               ) : (
                 <div className="py-12 text-center text-slate-400 font-sans text-sm">
-                  This enquiry does not have any declared line item details.
+                  {enquiry.line_items && enquiry.line_items.length > 0
+                    ? `No line items declared under "${activeOptionTab}".`
+                    : 'This enquiry does not have any declared line item details.'}
                 </div>
               )}
             </div>
