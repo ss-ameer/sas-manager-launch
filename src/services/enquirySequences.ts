@@ -189,13 +189,23 @@ export async function updateWorkspaceSequenceSettings(
 export async function previewNextEnquirySequence(
   workspaceId: string,
   repInitials: string = '',
-  date: Date = new Date()
+  date: Date = new Date(),
+  activeEnquiries?: Array<{ sn?: number; is_deleted?: boolean }>
 ): Promise<ClaimedSequenceResult> {
   const counters = await getWorkspaceSequenceCounters(workspaceId);
   const periodKey = getSequencePeriodKey(counters.resetCadence, date);
   const currentSeq = counters.sequences?.[periodKey] || 0;
   const nextSeq = currentSeq + 1;
-  const nextSn = (counters.lastSnNumber || 0) + 1;
+
+  let nextSn = (counters.lastSnNumber || 0) + 1;
+  if (activeEnquiries && activeEnquiries.length > 0) {
+    const maxSn = activeEnquiries
+      .filter((e) => !e.is_deleted)
+      .reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
+    if (maxSn > 0) {
+      nextSn = maxSn + 1;
+    }
+  }
 
   const quoteRef = formatPattern(counters.pattern, {
     seq: nextSeq,

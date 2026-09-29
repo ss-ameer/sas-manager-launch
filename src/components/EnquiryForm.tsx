@@ -424,8 +424,23 @@ export default function EnquiryForm({
     );
   };
 
+  // Calibrate default S/N based strictly on non-deleted active/reserved workspace enquiries
+  const calibratedDefaultSn = React.useMemo(() => {
+    if (enquiries && enquiries.length > 0) {
+      const currentWorkspaceId = activeWorkspace?.id;
+      const workspaceEnqs = enquiries.filter((e) => {
+        if (e.is_deleted) return false;
+        const eWid = e.workspace_id || (e as any).workspaceId;
+        return eWid === currentWorkspaceId || (!eWid && activeWorkspace?.is_default);
+      });
+      const maxSn = workspaceEnqs.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
+      return maxSn > 0 ? maxSn + 1 : (nextSn || 1001);
+    }
+    return nextSn || 1001;
+  }, [enquiries, activeWorkspace, nextSn]);
+
   // Parent state fields
-  const [sn, setSn] = useState(nextSn);
+  const [sn, setSn] = useState(calibratedDefaultSn);
   const [enquiryDate, setEnquiryDate] = useState(new Date().toISOString().split('T')[0]);
   const [loggedDate, setLoggedDate] = useState(new Date().toISOString().split('T')[0]);
   const [salesPerson, setSalesPerson] = useState('');
@@ -557,10 +572,7 @@ export default function EnquiryForm({
       ? enquiryToEdit.revision_number
       : (enquiryToEdit?.parent_id ? 1 : 0)
   );
-  const [customProjectDetails, setCustomProjectDetails] = useState<Array<{ key: string; value: string }>>([
-    { key: 'Consultant', value: '' },
-    { key: 'Main Contractor', value: '' }
-  ]);
+  const [customProjectDetails, setCustomProjectDetails] = useState<Array<{ key: string; value: string }>>([]);
 
   // Detected Unregistered Entities State (Company, Contact, Sales Person)
   const [unregisteredEntities, setUnregisteredEntities] = useState<{
@@ -986,7 +998,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const parts = enquiryDate.split('-');
         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
 
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj)
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries)
           .then((res) => {
             if (res.quoteRef) {
               setQuoteRefNo(res.quoteRef);
@@ -1006,7 +1018,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
       }
     }
-  }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons]);
+  }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries]);
 
   // Live Next Sequence Resolution: On mount for new enquiries, fetch fresh counters from Firestore
   useEffect(() => {
@@ -1018,11 +1030,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
           const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
           const periodKey = getSequencePeriodKey(counters.resetCadence, dateObj);
-          const calculatedNextSn = (counters.lastSnNumber || 0) + 1;
+
+          // Calculate maxSn strictly based on non-deleted workspace enquiries
+          const currentWorkspaceId = activeWorkspace?.id;
+          const workspaceEnqs = (enquiries || []).filter(e => {
+            if (e.is_deleted) return false;
+            const eWid = e.workspace_id || (e as any).workspaceId;
+            return eWid === currentWorkspaceId || (!eWid && activeWorkspace?.is_default);
+          });
+          const maxWorkspaceSn = workspaceEnqs.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
+          const calculatedNextSn = maxWorkspaceSn > 0 ? maxWorkspaceSn + 1 : ((counters.lastSnNumber || 0) + 1);
           const calculatedNextSeq = (counters.sequences?.[periodKey] || 0) + 1;
 
           // If S/N is unset or default, update to live nextSn
-          setSn((prev) => (prev <= 1 || prev === nextSn ? calculatedNextSn : prev));
+          setSn((prev) => (prev <= 1 || prev === nextSn || prev === calibratedDefaultSn ? calculatedNextSn : prev));
 
           if (!isQuoteRefCustom) {
             const selectedSp = salespersons.find(
@@ -1046,7 +1067,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         isMounted = false;
       };
     }
-  }, [enquiryToEdit, activeWorkspace?.id]);
+  }, [enquiryToEdit, activeWorkspace?.id, enquiries, calibratedDefaultSn, nextSn]);
 
   // Check if target S/N is already assigned to an existing, non-deleted enquiry
   const occupiedEnquiry = React.useMemo(() => {
@@ -3942,83 +3963,83 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Contact lookup */}
               <div>
-                <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5 min-h-[28px]">
-                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <MarqueeLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0 flex items-center gap-1">
+                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1 shrink-0">
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
-                  </div>
 
-                  {/* Contact Action Menu Dropdown */}
-                  <div className="relative inline-block z-20 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setShowContactMenu(!showContactMenu)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
-                      title="Contact Actions"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                    {showContactMenu && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setShowContactMenu(false)}
-                        />
-                        <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
-                          {companyId && contactId && (
+                    {/* Contact Action Menu Dropdown */}
+                    <div className="relative inline-block z-20 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowContactMenu(!showContactMenu)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                        title="Contact Actions"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+                      {showContactMenu && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setShowContactMenu(false)}
+                          />
+                          <div className="absolute left-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
+                            {companyId && contactId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowContactMenu(false);
+                                  const ct = contacts.find((c) => c.id === contactId);
+                                  if (ct) {
+                                    setSubContactName(ct.full_name);
+                                    setSubContactDesignation(ct.designation || '');
+                                    setSubContactMobile(ct.mobile || '');
+                                    setSubContactEmail(ct.email || '');
+                                    setSubContactIsPrimary(ct.is_primary || false);
+                                    setIsEditingContact(true);
+                                    setShowNewContactModal(true);
+                                  }
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
+                                title="Edit selected contact"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span>Edit Contact Details</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => {
                                 setShowContactMenu(false);
-                                const ct = contacts.find((c) => c.id === contactId);
-                                if (ct) {
-                                  setSubContactName(ct.full_name);
-                                  setSubContactDesignation(ct.designation || '');
-                                  setSubContactMobile(ct.mobile || '');
-                                  setSubContactEmail(ct.email || '');
-                                  setSubContactIsPrimary(ct.is_primary || false);
-                                  setIsEditingContact(true);
-                                  setShowNewContactModal(true);
+                                if (!companyId) {
+                                  if (triggerToast) {
+                                    triggerToast('Please search or select a Company first before adding a contact person.', 'info');
+                                  } else {
+                                    alert('Please search or select a Company first before adding a contact person.');
+                                  }
+                                  return;
                                 }
+                                setSubContactName('');
+                                setSubContactDesignation('');
+                                setSubContactMobile('');
+                                setSubContactEmail('');
+                                setSubContactIsPrimary(false);
+                                setIsEditingContact(false);
+                                setShowNewContactModal(true);
                               }}
-                              className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                              title="Edit selected contact"
+                              className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
+                              title="Add a new contact person for this account"
                             >
-                              <Pencil className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Edit Contact Details</span>
+                              <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              <span>+ Add New Contact</span>
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowContactMenu(false);
-                              if (!companyId) {
-                                if (triggerToast) {
-                                  triggerToast('Please search or select a Company first before adding a contact person.', 'info');
-                                } else {
-                                  alert('Please search or select a Company first before adding a contact person.');
-                                }
-                                return;
-                              }
-                              setSubContactName('');
-                              setSubContactDesignation('');
-                              setSubContactMobile('');
-                              setSubContactEmail('');
-                              setSubContactIsPrimary(false);
-                              setIsEditingContact(false);
-                              setShowNewContactModal(true);
-                            }}
-                            className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                            title="Add a new contact person for this account"
-                          >
-                            <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                            <span>+ Add New Contact</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <select
@@ -4090,7 +4111,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
                         const parts = enquiryDate.split('-');
                         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
-                        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj).then(res => {
+                        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries).then(res => {
                           if (res.quoteRef) setQuoteRefNo(res.quoteRef);
                         });
                       }}
@@ -4114,8 +4135,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
-              <div id="field-subject" className="col-span-1 md:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+              <div id="field-subject" className="col-span-1 md:col-span-5">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Subject (Optional)</MarqueeLabel>
                 <input
                   type="text"
@@ -4126,7 +4147,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div className="col-span-1">
+              <div className="col-span-1 md:col-span-3">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Client Ref</MarqueeLabel>
                 <input
                   type="text"
@@ -4137,12 +4158,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div className="col-span-1">
+              <div className="col-span-1 md:col-span-4 min-w-[160px]">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Option</MarqueeLabel>
                 <select
                   value={proposalOption}
                   onChange={(e) => setProposalOption(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                  className="w-full min-w-[160px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
                 >
                   <option value="">None / Single Option</option>
                   <option value="Option A">Option A</option>
@@ -4199,41 +4220,47 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Active Key-Value Specs List */}
               <div className="space-y-2 pt-1">
-                {customProjectDetails.map((detail, idx) => (
-                  <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
-                    <input
-                      type="text"
-                      placeholder="Attribute (e.g. Consultant)"
-                      value={detail.key}
-                      onChange={(e) => {
-                        const next = [...customProjectDetails];
-                        next[idx].key = e.target.value;
-                        setCustomProjectDetails(next);
-                      }}
-                      className="w-1/3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
-                    />
-                    <span className="text-slate-400 font-bold">:</span>
-                    <input
-                      type="text"
-                      placeholder="Value (e.g. Khatib & Alami / Site Ref)"
-                      value={detail.value}
-                      onChange={(e) => {
-                        const next = [...customProjectDetails];
-                        next[idx].value = e.target.value;
-                        setCustomProjectDetails(next);
-                      }}
-                      className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCustomProjectDetails(customProjectDetails.filter((_, i) => i !== idx))}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition shrink-0 cursor-pointer"
-                      title="Remove Spec"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                {customProjectDetails.length === 0 ? (
+                  <div className="text-center py-3 px-2 border border-dashed border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-400 dark:text-slate-500 text-xs italic">
+                    No custom project specifications defined. Click a preset above (e.g. Consultant, Main Contractor) or click + Add Project Spec to add one.
                   </div>
-                ))}
+                ) : (
+                  customProjectDetails.map((detail, idx) => (
+                    <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                      <input
+                        type="text"
+                        placeholder="Attribute (e.g. Consultant)"
+                        value={detail.key}
+                        onChange={(e) => {
+                          const next = [...customProjectDetails];
+                          next[idx].key = e.target.value;
+                          setCustomProjectDetails(next);
+                        }}
+                        className="w-1/3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
+                      />
+                      <span className="text-slate-400 font-bold">:</span>
+                      <input
+                        type="text"
+                        placeholder="Value (e.g. Khatib & Alami / Site Ref)"
+                        value={detail.value}
+                        onChange={(e) => {
+                          const next = [...customProjectDetails];
+                          next[idx].value = e.target.value;
+                          setCustomProjectDetails(next);
+                        }}
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCustomProjectDetails(customProjectDetails.filter((_, i) => i !== idx))}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition shrink-0 cursor-pointer"
+                        title="Remove Spec"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -4299,7 +4326,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_1.2fr_1.5fr] gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(165px,1.2fr)_minmax(160px,1.4fr)_minmax(70px,0.7fr)_minmax(110px,1fr)_minmax(130px,1.2fr)] gap-3">
                       <div>
                         <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                           CLASSIFICATION
@@ -4307,16 +4334,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <select
                           value={item.item_type || 'product'}
                           onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                          className="w-full min-w-[155px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
-                          <option value="product">Product (Equipment)</option>
+                          <option value="product">Product (Hardware / Component)</option>
                           <option value="charge">Charge / Fee (Service)</option>
                           <option value="discount">Discount / Rebate</option>
                         </select>
                       </div>
 
                       {item.item_type === 'charge' || item.item_type === 'discount' ? (
-                        <div>
+                        <div className="flex-1 min-w-[140px]">
                           <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                             Charge Type
                           </label>
@@ -4334,7 +4361,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </select>
                         </div>
                       ) : (
-                        <div>
+                        <div className="flex-1 min-w-[140px]">
                           <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
                             <span>Product Type</span>
                             {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
@@ -4665,16 +4692,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               {/* Package total value */}
-              <div id="field-value">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" badge={
-                  formCurrency === 'USD' ? (
-                    <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ AED {((isLumpSum ? manualValue : computedValue) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+              <div id="field-value" className="flex flex-col min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-0.5 mb-1.5 min-w-0">
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                    Package Total ({formCurrency})
+                  </span>
+                  {formCurrency === 'USD' ? (
+                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
+                      ≈ AED {((isLumpSum ? manualValue : computedValue) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                   ) : (
-                    <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ ${((isLumpSum ? manualValue : computedValue) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
-                  )
-                }>
-                  {`Package Value (${formCurrency})`}
-                </MarqueeLabel>
+                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
+                      ≈ ${((isLumpSum ? manualValue : computedValue) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    </span>
+                  )}
+                </div>
                 <div className={`p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 font-mono ${getHighlightClasses('value')}`}>
                   {isLumpSum ? (
                     <FormattedNumberInput
