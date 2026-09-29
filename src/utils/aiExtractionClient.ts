@@ -17,6 +17,7 @@ REQUIRED JSON OUTPUT FORMAT:
   "subject": null,
   "received_date": null,
   "proposal_option": null,
+  "option": null,
   "company_name": null,
   "legal_suffix": null,
   "contact_name": null,
@@ -39,6 +40,7 @@ REQUIRED JSON OUTPUT FORMAT:
       "charge_type": null,
       "product_type": null,
       "description": null,
+      "option_designation": "Default / Included",
       "quantity": null,
       "unit": null,
       "unit_price_aed": null,
@@ -111,7 +113,14 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 6. DATES & RECEIVED DATE LOGIC:
    - received_date: Explicitly prioritize the ACTUAL date the enquiry was submitted or sent by the client (e.g., extract "2026-08-07" from the phrase "email enquiry dated 07/08/2026"). DO NOT default to the document's generation or print date unless absolutely no other submitted/sent date exists.
 
-7. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
+7. DYNAMIC OPTION & ADD-ON DETECTION RULES:
+   - Detect table section headings, banners, or subheadings such as "OPTION A", "OPTION B", "OPTION C", "ALTERNATIVE 1", "OPTION 1", etc.
+   - For all products appearing under an option heading, set item "option_designation" dynamically to that exact option label (e.g., "Option A", "Option B", "Option C").
+   - If an item description contains "OPTIONAL", "ADD-ON", "RECOMMENDED SPARES", "STANDBY UNIT (OPTIONAL)", or is clearly presented as an elective extra rather than a core deliverable, set "option_designation" to "Optional / Add-On".
+   - For standard components without an explicit option section, set "option_designation" to "Default / Included".
+   - Set document-level commercial scope "option" field: if multiple options (Option A, B, etc.) are detected, set to "Multi-Option (A/B/C)"; otherwise set to "None / Single Option".
+
+8. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
    Example Input:
    "2792\\t2751-300626AA\\tJul-2026\\t29/06/2026\\tPV\\tAquaEnviro Solutions\\tMukesh Katara\\tmukesh.katara@aquaenvirosolutions.com\\t\\t+971 55 267 0574\\tUAE\\tDubai\\tEMAIL\\tFRP Filter Vessels...\\t\\"PRICE & COMMERCIAL TERMS\\n1 FRP Filter Vessel 63”x67” 05 Nos. 12,500.00 62,500.00\\n2 Transportation 01 LS 100.00 100.00\\"\\t195,500.00"
    Output Mapping:

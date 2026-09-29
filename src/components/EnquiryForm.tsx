@@ -1167,6 +1167,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
       const parsedItems = (enquiryToEdit.line_items || []).map(item => ({
         ...item,
+        option: item.option || (item as any).option_designation || 'Default / Included',
         attributes: item.attributes || []
       }));
       setLineItems(parsedItems);
@@ -1210,8 +1211,45 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     return activeSources.includes(val) ? val : (activeSources[0] || 'Email');
   };
 
-  // Auto-sum value calculation
-  const computedValue = lineItems.reduce((sum, item) => sum + item.total_price, 0);
+  // Option-Aware Package Total Math:
+  // Baseline items include 'Default / Included' and 'Option A'
+  const calculateOptionAwareTotals = (items: LineItem[]) => {
+    const baselineItems = items.filter((item) => {
+      const des = ((item as any).option_designation || item.option || '').trim();
+      return des === 'Default / Included' || des === 'Option A' || des === '' || (!item.option && !(item as any).option_designation);
+    });
+
+    const baseTotal = baselineItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unit_price) || 0;
+      return sum + (item.total_price !== undefined ? item.total_price : (qty * unitPrice));
+    }, 0);
+
+    const optionTotals: Record<string, number> = {};
+    let optionalAddonsTotal = 0;
+
+    items.forEach((item) => {
+      const des = ((item as any).option_designation || item.option || '').trim();
+      const qty = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unit_price) || 0;
+      const lineVal = item.total_price !== undefined ? item.total_price : (qty * unitPrice);
+
+      if (des === 'Optional / Add-On' || des.toLowerCase().includes('optional') || des.toLowerCase().includes('add-on')) {
+        optionalAddonsTotal += lineVal;
+      } else if (des.startsWith('Option ') && des !== 'Option A') {
+        optionTotals[des] = (optionTotals[des] || 0) + lineVal;
+      }
+    });
+
+    return {
+      baseTotal: Number(baseTotal.toFixed(2)),
+      optionTotals,
+      optionalAddonsTotal: Number(optionalAddonsTotal.toFixed(2)),
+    };
+  };
+
+  const optionBreakdown = React.useMemo(() => calculateOptionAwareTotals(lineItems), [lineItems]);
+  const computedValue = optionBreakdown.baseTotal;
   const finalValue = isLumpSum ? manualValue : computedValue;
   const priceDiscrepancyAmount = Math.abs(manualValue - computedValue);
 
@@ -1228,6 +1266,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       unit_price: 0,
       total_price: 0,
       lead_time_note: '',
+      option: 'Default / Included',
       attributes: defaultAttributes
     };
     setLineItems([...lineItems, newItem]);
@@ -1248,6 +1287,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       unit_price: price,
       total_price: price,
       lead_time_note: item.lead_time_note || '',
+      option: 'Default / Included',
       attributes: item.attributes || []
     };
 
@@ -1675,8 +1715,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         setEnquiryDate(dateStr);
       }
     }
-    if (data.proposal_option) {
-      setProposalOption(String(data.proposal_option));
+    if (data.proposal_option || data.option) {
+      setProposalOption(String(data.proposal_option || data.option).trim());
     }
     if (data.enquiry_source) {
       const matchedSource = activeSources.find(s => s.toLowerCase() === String(data.enquiry_source).toLowerCase());
@@ -1886,6 +1926,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           productType = 'Service / Charge';
         }
 
+        const rawOpt = String(item.option_designation || item.option || 'Default / Included').trim();
         return {
           item_type: itemType,
           charge_type: chargeType,
@@ -1895,6 +1936,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           unit: item.unit || 'Pcs',
           unit_price: Number(price.toFixed(2)),
           total_price: Number((qty * price).toFixed(2)),
+          option: rawOpt,
           attributes: mergedAttributes
         };
       });
@@ -2492,8 +2534,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const cleanAttr: ProductAttribute[] = (item.attributes || [])
         .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
         .filter((a) => a.key !== '' && a.value !== '');
+      const optDes = ((item as any).option_designation || item.option || 'Default / Included').trim();
       return {
         ...item,
+        option: optDes,
+        option_designation: optDes,
         attributes: cleanAttr,
       };
     });
@@ -4172,6 +4217,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <option value="Option B">Option B</option>
                   <option value="Option C">Option C</option>
                   <option value="Option D">Option D</option>
+                  <option value="Multi-Option (A/B/C)">Multi-Option (A/B/C)</option>
+                  {proposalOption && !['', 'Option A', 'Option B', 'Option C', 'Option D', 'Multi-Option (A/B/C)'].includes(proposalOption) && (
+                    <option value={proposalOption}>{proposalOption}</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -4491,15 +4540,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <div>
                         <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">OPTION DESIGNATION</MarqueeLabel>
                         <select
-                          value={item.option || ''}
-                          onChange={(e) => handleLineItemChange(index, 'option', e.target.value)}
+                          value={(item as any).option_designation || item.option || 'Default / Included'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            handleLineItemChange(index, 'option', val);
+                            handleLineItemChange(index, 'option_designation' as any, val);
+                          }}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
-                          <option value="">Default / Included</option>
-                          <option value="Option A">Option A</option>
-                          <option value="Option B">Option B</option>
-                          <option value="Option C">Option C</option>
-                          <option value="Option D">Option D</option>
+                          <option value="Default / Included">Default / Included</option>
+                          <option value="Option A">Option A (Baseline)</option>
+                          <option value="Option B">Option B (Alternative)</option>
+                          <option value="Option C">Option C (Alternative)</option>
+                          <option value="Option D">Option D (Alternative)</option>
+                          <option value="Optional / Add-On">Optional / Add-On</option>
+                          {((item as any).option_designation || item.option) &&
+                            !['Default / Included', 'Option A', 'Option B', 'Option C', 'Option D', 'Optional / Add-On', ''].includes((item as any).option_designation || item.option) && (
+                              <option value={(item as any).option_designation || item.option}>
+                                {(item as any).option_designation || item.option}
+                              </option>
+                            )}
                         </select>
                       </div>
                     </div>
@@ -4752,6 +4812,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     Manual Lump-sum Override
                   </label>
                 </div>
+
+                {/* Subtotal Breakdown Summary Pills */}
+                {(Object.keys(optionBreakdown.optionTotals).length > 0 || optionBreakdown.optionalAddonsTotal > 0) && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
+                    {Object.entries(optionBreakdown.optionTotals).map(([optName, optTotal]) => (
+                      <span
+                        key={optName}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
+                        title={`${optName} Alternative Subtotal`}
+                      >
+                        <span className="font-semibold">{optName}:</span>
+                        <span>{formCurrency} {(optTotal as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </span>
+                    ))}
+                    {optionBreakdown.optionalAddonsTotal > 0 && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
+                        title="Optional / Add-On Electives Total"
+                      >
+                        <span className="font-semibold">Optionals:</span>
+                        <span>+{formCurrency} {optionBreakdown.optionalAddonsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
