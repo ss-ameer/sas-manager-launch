@@ -131,11 +131,25 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}\n\n${JSON_FORMAT}`;
 };
 
-const DEFAULT_MODEL_CASCADE = [
+export const AVAILABLE_GEMINI_MODELS = [
+  { id: 'auto', label: '⚡ Auto-Cascade (Failover Pool)' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Flagship Default)' },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro (Deep Reasoning)' },
+];
+
+export const DEFAULT_MODEL_CASCADE = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
   'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-2.5-flash',
-  'gemini-flash-latest'
+  'gemini-3.1-pro'
 ];
 
 export async function extractEnquiryClientSide(
@@ -172,7 +186,7 @@ export async function extractEnquiryClientSide(
     responseMimeType: "application/json",
   };
 
-  const primaryModel = preferredModel || 'gemini-3.6-flash';
+  const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : 'gemini-3.8-flash';
   const modelSequence = [
     primaryModel,
     ...DEFAULT_MODEL_CASCADE.filter((m) => m !== primaryModel),
@@ -257,26 +271,31 @@ export async function extractEnquiryClientSide(
 
       const errMsg = String(err?.message || '');
       const errStatus = err?.status || err?.code;
-      const isTransient =
+      const isRecoverableError =
         errStatus === 503 ||
         errStatus === 429 ||
+        errStatus === 404 ||
         errMsg.includes('503') ||
         errMsg.includes('429') ||
+        errMsg.includes('404') ||
         errMsg.toLowerCase().includes('high demand') ||
+        errMsg.toLowerCase().includes('no longer available') ||
+        errMsg.toLowerCase().includes('not found') ||
+        errMsg.toLowerCase().includes('resourceexhausted') ||
+        errMsg.toLowerCase().includes('resource_exhausted') ||
         errMsg.toLowerCase().includes('temporarily unavailable') ||
         errMsg.toLowerCase().includes('overloaded') ||
-        errMsg.toLowerCase().includes('resource_exhausted') ||
         errMsg.toLowerCase().includes('rate limit');
 
       const hasNextModel = i < modelSequence.length - 1;
 
-      if (isTransient && hasNextModel) {
-        onStatusUpdate?.(`Model ${modelName} high demand. Auto-failing over to next model...`);
-        console.warn(`[aiExtractionClient] Transient error on ${modelName} (${errMsg}). Failing over to next model...`);
+      if (isRecoverableError && hasNextModel) {
+        onStatusUpdate?.(`${modelName} unavailable. Auto-failing over...`);
+        console.warn(`[aiExtractionClient] ${modelName} unavailable (${errMsg}). Auto-failing over to next model...`);
         continue;
       }
 
-      if (!hasNextModel || !isTransient) {
+      if (!hasNextModel || !isRecoverableError) {
         throw err;
       }
     }

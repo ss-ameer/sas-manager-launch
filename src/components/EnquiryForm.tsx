@@ -13,7 +13,7 @@ import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
-import { extractEnquiryClientSide } from '../utils/aiExtractionClient';
+import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import {
   FileText,
@@ -534,7 +534,9 @@ export default function EnquiryForm({
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
-    return localStorage.getItem('omni_gemini_model_preference') || 'auto';
+    const saved = localStorage.getItem('omni_gemini_model_preference');
+    if (!saved || saved === 'gemini-2.5-flash') return 'auto';
+    return saved;
   });
   const [aiConfidence, setAiConfidence] = useState<{
     company_name?: 'high' | 'medium' | 'low';
@@ -2139,7 +2141,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
       const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.6-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -2310,7 +2312,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.6-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -4817,10 +4819,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   aria-label="Select Gemini Engine"
                   className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                 >
-                  <option value="auto">⚡ Auto-Cascade (Failover)</option>
-                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (Fastest)</option>
-                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
-                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  {AVAILABLE_GEMINI_MODELS.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
                 </select>
                 <button
                   type="button"
