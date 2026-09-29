@@ -27,9 +27,9 @@ import {
   Hash
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
-import { db, safeSetDoc } from '../firebase';
+import { db, safeSetDoc, safeDeleteDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
-import { collection, writeBatch, doc } from 'firebase/firestore';
+import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import {
   isRecordOwner,
@@ -117,6 +117,7 @@ export default function EnquiryList({
   const [reserveGapMemo, setReserveGapMemo] = useState('');
   const [reserveGapDate, setReserveGapDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [isSubmittingGap, setIsSubmittingGap] = useState(false);
+  const [isReservingGap, setIsReservingGap] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
@@ -572,6 +573,78 @@ export default function EnquiryList({
     }
   };
 
+  const handleFillGap = async (targetSn: number) => {
+    if (isReservingGap === targetSn) return;
+    setIsReservingGap(targetSn);
+    try {
+      const workspaceId = activeWorkspace?.id || 'default';
+      const alreadyExists = (enquiries || []).some(
+        (e) =>
+          !e.is_deleted &&
+          (e.workspace_id === workspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
+          Number(e.sn) === targetSn
+      );
+      if (alreadyExists) {
+        if (triggerToast) {
+          triggerToast(`Sequence #${targetSn} is already occupied or reserved.`, 'error');
+        }
+        return;
+      }
+
+      const gapDocId = `${workspaceId || 'default'}_gap_${targetSn}`;
+      const gapRef = doc(db, 'enquiries', gapDocId);
+      const now = new Date().toISOString();
+      const today = now.split('T')[0];
+
+      const gapDocData: any = {
+        id: gapDocId,
+        sn: targetSn,
+        company_name: `[Reserved Sequence / #${targetSn}]`,
+        status: 'GAP / RESERVED',
+        workspace_id: workspaceId,
+        workspaceId: workspaceId,
+        created_at: now,
+        createdAt: now,
+        received_date: today,
+        enquiry_date: today,
+        logged_date: today,
+        is_deleted: false,
+        package_total: 0,
+        value_aed: 0,
+        currency: 'AED',
+        is_gap_placeholder: true,
+        line_items: [],
+        sales_person: 'SYSTEM',
+        createdBy: user?.displayName || user?.name || user?.email || 'User',
+        created_by_uid: user?.uid || user?.id || 'system',
+        remarks: 'Reserved sequence gap / missing record',
+        updatedAt: now
+      };
+
+      await setDoc(gapRef, gapDocData, { merge: true });
+
+      if (setEnquiries) {
+        setEnquiries((prev) => {
+          if (prev.some((e) => e.id === gapDocId || (Number(e.sn) === targetSn && !e.is_deleted))) {
+            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === targetSn ? (gapDocData as Enquiry) : e));
+          }
+          return [gapDocData as Enquiry, ...prev];
+        });
+      }
+
+      if (triggerToast) {
+        triggerToast(`Reserved sequence gap #${targetSn} created.`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to reserve gap:', err);
+      if (triggerToast) {
+        triggerToast('Failed to reserve gap: ' + (err?.message || 'Unknown error'), 'error');
+      }
+    } finally {
+      setIsReservingGap(null);
+    }
+  };
+
   const handleReserveGapSubmit = async (evt: React.FormEvent) => {
     evt.preventDefault();
     if (isSubmittingGap) return;
@@ -604,11 +677,13 @@ export default function EnquiryList({
       const activeWorkspaceId = activeWorkspace?.id || 'default';
       const now = new Date().toISOString();
       const recordDate = reserveGapDate || now.split('T')[0];
+      const gapDocId = `${activeWorkspaceId}_gap_${snNum}`;
 
       const newGapDoc: any = {
+        id: gapDocId,
         sn: snNum,
-        status: 'Gap / Reserved',
-        company_name: '[Reserved Sequence / Missing File]',
+        status: 'GAP / RESERVED',
+        company_name: (reserveGapMemo || '').trim() ? `[Reserved Sequence / #${snNum}] ${(reserveGapMemo || '').trim()}` : `[Reserved Sequence / #${snNum}]`,
         quote_ref: (reserveGapMemo || '').trim(),
         quote_ref_no: (reserveGapMemo || '').trim(),
         value_aed: 0,
@@ -621,6 +696,8 @@ export default function EnquiryList({
         enquiry_date: recordDate,
         logged_date: recordDate,
         is_deleted: false,
+        is_gap_placeholder: true,
+        package_total: 0,
         company_id: '',
         country: 'United Arab Emirates',
         project_location: 'Dubai',
@@ -633,13 +710,16 @@ export default function EnquiryList({
         updatedAt: now
       };
 
-      const colRef = collection(db, 'enquiries');
-      const newDocRef = doc(colRef);
-      newGapDoc.id = newDocRef.id;
-      await safeSetDoc('enquiries', newDocRef.id, newGapDoc);
+      const gapRef = doc(db, 'enquiries', gapDocId);
+      await setDoc(gapRef, newGapDoc, { merge: true });
 
       if (setEnquiries) {
-        setEnquiries((prev) => [newGapDoc as Enquiry, ...prev]);
+        setEnquiries((prev) => {
+          if (prev.some((e) => e.id === gapDocId || (Number(e.sn) === snNum && !e.is_deleted))) {
+            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === snNum ? (newGapDoc as Enquiry) : e));
+          }
+          return [newGapDoc as Enquiry, ...prev];
+        });
       }
 
       if (triggerToast) {
@@ -1062,7 +1142,11 @@ export default function EnquiryList({
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
                   const isChecked = Boolean(e.id && selectedEnquiryIds.includes(e.id));
-                  const isGapReserved = e.status === 'Gap / Reserved';
+                  const isGapReserved = Boolean(
+                    e.is_gap_placeholder ||
+                    (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
+                    (e.company_name && e.company_name.includes('[Reserved Sequence'))
+                  );
 
                   // In-Table Gap Detector: Compare S/N of current row with previous row
                   let gapRow: React.ReactNode = null;
@@ -1100,16 +1184,14 @@ export default function EnquiryList({
                                 {isEditable && (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setReserveGapSn(String(fillSn));
-                                      setReserveGapMemo('');
-                                      setReserveGapDate(new Date().toISOString().split('T')[0]);
-                                      setShowReserveGapModal(true);
-                                    }}
-                                    className="px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1 font-sans"
+                                    disabled={isReservingGap === fillSn}
+                                    onClick={() => handleFillGap(fillSn)}
+                                    className={`px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1 font-sans ${
+                                      isReservingGap === fillSn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                                    }`}
                                     title={`Reserve sequence gap #${fillSn}`}
                                   >
-                                    <span>+ Fill Gap</span>
+                                    <span>{isReservingGap === fillSn ? 'Reserving...' : '+ Fill Gap'}</span>
                                   </button>
                                 )}
                               </div>
@@ -1332,16 +1414,38 @@ export default function EnquiryList({
                                   alert('Error: Enquiry ID is missing. Cannot delete.');
                                   return;
                                 }
+                                const isPlaceholder = Boolean(
+                                  e.is_gap_placeholder === true ||
+                                  (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
+                                  (e.company_name && e.company_name.includes('[Reserved Sequence'))
+                                );
                                 setConfirmDialog({
                                   isOpen: true,
-                                  title: isGapReserved ? 'Delete Reserved Gap' : 'Delete Enquiry',
-                                  message: isGapReserved
-                                    ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will become an open gap.`
+                                  title: isPlaceholder ? 'Delete Reserved Gap' : 'Delete Enquiry',
+                                  message: isPlaceholder
+                                    ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will immediately revert back to an open missing sequence gap.`
                                     : `Are you sure you want to delete Enquiry #${e.sn}? This is irreversible.`,
                                   confirmText: 'Delete',
                                   cancelText: 'Cancel',
                                   isDestructive: true,
-                                  onConfirm: () => onDeleteEnquiry(targetId)
+                                  onConfirm: async () => {
+                                    if (isPlaceholder) {
+                                      try {
+                                        await deleteDoc(doc(db, 'enquiries', targetId));
+                                      } catch (delErr) {
+                                        console.warn('Direct deleteDoc failed, trying safeDeleteDoc:', delErr);
+                                        await safeDeleteDoc('enquiries', targetId);
+                                      }
+                                      if (setEnquiries) {
+                                        setEnquiries((prev) => prev.filter((item) => item.id !== targetId));
+                                      }
+                                      if (triggerToast) {
+                                        triggerToast(`Reserved sequence gap #${e.sn} deleted. Sequence slot reopened.`, 'info');
+                                      }
+                                    } else {
+                                      onDeleteEnquiry(targetId);
+                                    }
+                                  }
                                 });
                               }}
                               className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"

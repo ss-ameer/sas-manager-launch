@@ -6,7 +6,7 @@ import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
 import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquirySource, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, LegalSuffix, DropdownOption, Workspace } from '../types';
 import { db } from '../firebase';
-import { collection, writeBatch, doc } from 'firebase/firestore';
+import { collection, writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
 import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
@@ -1106,7 +1106,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   // Read-only state for users without edit permissions on this enquiry
   const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
-  const isClaimingGap = Boolean(enquiryToEdit && enquiryToEdit.status === 'Gap / Reserved');
+  const isClaimingGap = Boolean(
+    enquiryToEdit && (
+      Boolean((enquiryToEdit as any).is_gap_placeholder) ||
+      enquiryToEdit.status === 'Gap / Reserved' ||
+      enquiryToEdit.status === 'GAP / RESERVED' ||
+      (enquiryToEdit.company_name && enquiryToEdit.company_name.includes('[Reserved Sequence'))
+    )
+  );
   const isReadOnly = React.useMemo(() => {
     if (!isEditing || !enquiryToEdit) return false;
     return !canEditEnquiry(user, activeWorkspace, enquiryToEdit);
@@ -1126,7 +1133,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setProjectLocation(enquiryToEdit.project_location || '');
       setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
 
-      if (enquiryToEdit.status === 'Gap / Reserved') {
+      if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED') {
         setStatus('Active');
         if (enquiryToEdit.remarks?.startsWith('[Reserved Gap]') || enquiryToEdit.remarks?.includes('missing record')) {
           setRemarks('');
@@ -1195,7 +1202,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
       if (matchedComp) {
         setCompanySearch(matchedComp.display_name);
-      } else if (enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
+      } else if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
         setCompanySearch('');
         setCompanyId('');
       }
@@ -2507,7 +2514,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
     }
 
-    const isGapReserved = status === 'Gap / Reserved';
+    const isGapReserved = status === 'Gap / Reserved' || status === 'GAP / RESERVED';
 
     if (!companyId && !isGapReserved) {
       alert('Please search and select a valid client company first.');
@@ -2584,6 +2591,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       project_location: projectLocation,
       enquiry_source: enquirySource,
       status: status || 'Active',
+      is_gap_placeholder: isGapReserved ? true : false,
       raw_source_text: pastedSourceText && pastedSourceText.length > 500000 
         ? pastedSourceText.substring(0, 500000) + '\n\n[TEXT_TRUNCATED_DUE_TO_SIZE_LIMIT]' 
         : pastedSourceText || undefined,
@@ -2702,7 +2710,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         };
         // Log update audit trail
         const changes = getDiffs(enquiryToEdit, updatedDoc);
-        await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
+
+        if (isClaimingGap) {
+          try {
+            await updateDoc(doc(db, 'enquiries', enquiryToEdit.id), payload);
+          } catch (updateErr) {
+            console.warn('Direct updateDoc failed, falling back to safeUpdateDoc:', updateErr);
+            await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
+          }
+        } else {
+          await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
+        }
+
         await logAudit(enquiryToEdit.id, 'enquiry', 'update', enquiryToEdit, updatedDoc, changes);
 
         // Instant local state update with shifted S/Ns
@@ -2719,7 +2738,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
 
         if (triggerToast) {
-          triggerToast(`Enquiry #${targetSn} has been updated successfully${shiftNotice}.`, 'success');
+          triggerToast(
+            isClaimingGap
+              ? `Reserved sequence gap #${targetSn} has been successfully claimed and registered.`
+              : `Enquiry #${targetSn} has been updated successfully${shiftNotice}.`,
+            'success'
+          );
         }
         onClose();
       } else {
