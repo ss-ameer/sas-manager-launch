@@ -1735,6 +1735,13 @@ export default function App() {
               setIsActivityDrawerOpen(true);
             }}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            onNavigate={(targetTab: string) => {
+              if (targetTab === 'call_center' || targetTab === 'calls' || targetTab === 'call_logs' || targetTab === 'call_log') {
+                setCurrentTab('call_log');
+              } else {
+                setCurrentTab(targetTab);
+              }
+            }}
           />
         )}
 

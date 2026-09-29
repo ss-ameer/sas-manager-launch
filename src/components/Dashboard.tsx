@@ -828,11 +828,9 @@ export default function Dashboard(props: DashboardProps) {
                   onClick={() => {
                     if (typeof onNavigate === 'function') {
                       onNavigate('call_center');
-                    } else if (typeof (props as any)?.onNavigate === 'function') {
-                      (props as any).onNavigate('call_center');
                     }
                   }}
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold flex items-center gap-1 cursor-pointer"
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   View all {activeTabItems.length} in Call Center & Logs →
                 </button>
