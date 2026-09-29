@@ -71,6 +71,11 @@ interface DashboardProps {
   }) => void;
 }
 
+const ACTIVE_STATUSES = new Set(['Active', 'Sent / Pending Client', 'Revision Requested']);
+const WON_STATUSES = new Set(['Won / Approved', 'Order Received', 'Invoiced']);
+const LOST_STATUSES = new Set(['Lost / Cancelled', 'Lost', 'Dead', 'Cancelled PO', 'Cancelled']);
+const STALLED_STATUSES = new Set(['Hold', 'Delayed']);
+
 export default function Dashboard({
   enquiries,
   companies,
@@ -82,25 +87,31 @@ export default function Dashboard({
   onOpenActivityDrawer,
   onOpenMobileMenu
 }: DashboardProps) {
+  // Filter out deleted items and reserved gaps for general analytics
+  const validEnquiries = useMemo(() => {
+    return enquiries.filter((e) => !e.is_deleted && e.status !== 'Gap / Reserved');
+  }, [enquiries]);
+
   // 1. Pipeline value totals
-  const totalPipelineActive = enquiries
-    .filter((e) => e.status === 'Active')
-    .reduce((sum, e) => sum + e.value_aed, 0);
+  const totalPipelineActive = validEnquiries
+    .filter((e) => ACTIVE_STATUSES.has(e.status))
+    .reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-  const totalWon = enquiries
-    .filter((e) => e.status === 'Order Received')
-    .reduce((sum, e) => sum + e.value_aed, 0);
+  const totalWon = validEnquiries
+    .filter((e) => WON_STATUSES.has(e.status))
+    .reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-  const totalLost = enquiries
-    .filter((e) => e.status === 'Lost')
-    .reduce((sum, e) => sum + e.value_aed, 0);
+  const totalLost = validEnquiries
+    .filter((e) => LOST_STATUSES.has(e.status))
+    .reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-  const totalAll = enquiries.reduce((sum, e) => sum + e.value_aed, 0);
+  const totalAll = validEnquiries.reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
   // 2. Win rate calculation: Won / (Won + Lost)
-  const totalClosedCount = enquiries.filter((e) => ['Order Received', 'Lost'].includes(e.status)).length;
-  const wonCount = enquiries.filter((e) => e.status === 'Order Received').length;
-  const winRate = totalClosedCount > 0 ? (Math.round((wonCount / totalClosedCount) * 100) || 0) : 0;
+  const wonCount = validEnquiries.filter((e) => WON_STATUSES.has(e.status)).length;
+  const lostCount = validEnquiries.filter((e) => LOST_STATUSES.has(e.status)).length;
+  const closedCount = wonCount + lostCount;
+  const winRate = closedCount > 0 ? (Math.round((wonCount / closedCount) * 100) || 0) : 0;
 
   // 3. Overdue follow-ups
   const today = new Date().toISOString().split('T')[0];
@@ -276,23 +287,29 @@ export default function Dashboard({
     }
   };
 
-  const overdueFollowups = enquiries.filter(
-    (e) => e.status === 'Active' && e.next_followup_date && e.next_followup_date < today
+  const overdueFollowups = validEnquiries.filter(
+    (e) => ACTIVE_STATUSES.has(e.status) && e.next_followup_date && e.next_followup_date < today
   );
 
   // 4. Chart 1: Pipeline value by Status
   const statusColors: { [key: string]: string } = {
     Active: '#3b82f6', // blue
+    'Sent / Pending Client': '#0284c7',
+    'Revision Requested': '#8b5cf6',
+    'Won / Approved': '#10b981',
     'Order Received': '#10b981', // green
+    'Lost / Cancelled': '#ef4444',
     Lost: '#ef4444', // red
     Dead: '#6b7280', // gray
     Hold: '#f59e0b', // orange
     Delayed: '#8b5cf6', // purple
-    'Cancelled PO': '#ec4899' // pink
+    'Cancelled PO': '#ec4899', // pink
+    Draft: '#94a3b8',
+    'Gap / Reserved': '#f59e0b'
   };
 
-  const statusTotalsMap = enquiries.reduce((acc, e) => {
-    acc[e.status] = (acc[e.status] || 0) + e.value_aed;
+  const statusTotalsMap = validEnquiries.reduce((acc, e) => {
+    acc[e.status] = (acc[e.status] || 0) + (e.value_aed || 0);
     return acc;
   }, {} as { [key: string]: number });
 
@@ -464,20 +481,20 @@ export default function Dashboard({
   }, [filteredCallLogs, salespersons]);
 
   const funnelStats = useMemo(() => {
-    const totalCount = enquiries.length;
-    const totalVal = enquiries.reduce((sum, e) => sum + e.value_aed, 0);
+    const totalCount = validEnquiries.length;
+    const totalVal = validEnquiries.reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-    const activeCount = enquiries.filter((e) => e.status === 'Active').length;
-    const activeVal = enquiries.filter((e) => e.status === 'Active').reduce((sum, e) => sum + e.value_aed, 0);
+    const activeCount = validEnquiries.filter((e) => ACTIVE_STATUSES.has(e.status)).length;
+    const activeVal = validEnquiries.filter((e) => ACTIVE_STATUSES.has(e.status)).reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-    const wonCount = enquiries.filter((e) => e.status === 'Order Received').length;
-    const wonVal = enquiries.filter((e) => e.status === 'Order Received').reduce((sum, e) => sum + e.value_aed, 0);
+    const wonCount = validEnquiries.filter((e) => WON_STATUSES.has(e.status)).length;
+    const wonVal = validEnquiries.filter((e) => WON_STATUSES.has(e.status)).reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-    const lostCount = enquiries.filter((e) => e.status === 'Lost' || e.status === 'Dead' || e.status === 'Cancelled PO').length;
-    const lostVal = enquiries.filter((e) => e.status === 'Lost' || e.status === 'Dead' || e.status === 'Cancelled PO').reduce((sum, e) => sum + e.value_aed, 0);
+    const lostCount = validEnquiries.filter((e) => LOST_STATUSES.has(e.status)).length;
+    const lostVal = validEnquiries.filter((e) => LOST_STATUSES.has(e.status)).reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
-    const holdCount = enquiries.filter((e) => e.status === 'Hold' || e.status === 'Delayed').length;
-    const holdVal = enquiries.filter((e) => e.status === 'Hold' || e.status === 'Delayed').reduce((sum, e) => sum + e.value_aed, 0);
+    const holdCount = validEnquiries.filter((e) => STALLED_STATUSES.has(e.status)).length;
+    const holdVal = validEnquiries.filter((e) => STALLED_STATUSES.has(e.status)).reduce((sum, e) => sum + (e.value_aed || 0), 0);
 
     const conversionRate = totalCount > 0 ? Math.round((wonCount / totalCount) * 100) : 0;
 
@@ -494,7 +511,7 @@ export default function Dashboard({
       holdVal,
       conversionRate
     };
-  }, [enquiries]);
+  }, [validEnquiries]);
 
   return (
     <>

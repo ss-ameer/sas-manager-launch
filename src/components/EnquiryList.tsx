@@ -223,7 +223,20 @@ export default function EnquiryList({
   };
 
   // Cycle lists and helpers
-  const statuses = ['All', 'Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO', 'Gap / Reserved'];
+  const statuses = [
+    'All',
+    'Active',
+    'Draft',
+    'Sent / Pending Client',
+    'Revision Requested',
+    'Won / Approved',
+    'Lost / Cancelled',
+    'Hold',
+    'Delayed',
+    'Dead',
+    'Order Received',
+    'Gap / Reserved'
+  ];
   const salespersonOptions = React.useMemo(() => {
     return ['All', ...(salespersons || []).map((s) => s?.initials).filter(Boolean) as string[]];
   }, [salespersons]);
@@ -869,10 +882,15 @@ export default function EnquiryList({
               >
                 <option value="All">All Statuses</option>
                 <option value="Active">Active</option>
-                <option value="Order Received">Order Received</option>
-                <option value="Lost">Lost</option>
-                <option value="Cancelled">Cancelled</option>
-                <option value="Invoiced">Invoiced</option>
+                <option value="Draft">Draft</option>
+                <option value="Sent / Pending Client">Sent / Pending Client</option>
+                <option value="Revision Requested">Revision Requested</option>
+                <option value="Won / Approved">Won / Approved</option>
+                <option value="Lost / Cancelled">Lost / Cancelled</option>
+                <option value="Hold">Hold</option>
+                <option value="Delayed">Delayed</option>
+                <option value="Dead">Dead</option>
+                <option value="Order Received">Order Received (Legacy)</option>
                 <option value="Gap / Reserved">Gap / Reserved</option>
               </select>
               <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
