@@ -227,6 +227,37 @@ function getSafeBlobUrl(url: string): string {
   }
 }
 
+const CANONICAL_ATTRIBUTE_MAP: Record<string, string> = {
+  'brand': 'Brand / Make',
+  'make': 'Brand / Make',
+  'manufacturer': 'Brand / Make',
+  'brand / make': 'Brand / Make',
+  'model': 'Model',
+  'model no': 'Model',
+  'model number': 'Model',
+  'opening': 'Top/Bottom Opening',
+  'openings': 'Top/Bottom Opening',
+  'top/bottom opening': 'Top/Bottom Opening',
+  'top & bottom opening': 'Top/Bottom Opening',
+  'design pressure': 'Design Pressure',
+  'working pressure': 'Design Pressure',
+  'pressure': 'Design Pressure',
+  'standard': 'Standard',
+  'standards': 'Standard',
+  'dimensions': 'Dimensions',
+  'size': 'Dimensions',
+  'tank size': 'Dimensions',
+  'vessel size': 'Dimensions',
+  'volume': 'Volume',
+  'capacity': 'Volume',
+};
+
+const normalizeAttributeKey = (rawKey: string): string => {
+  if (!rawKey) return '';
+  const clean = rawKey.trim().toLowerCase();
+  return CANONICAL_ATTRIBUTE_MAP[clean] || rawKey.trim();
+};
+
 interface CatalogItem {
   name?: string;
   product_type: ProductType;
@@ -711,7 +742,7 @@ export default function EnquiryForm({
   // Admin New Product Category states
   const [newCategoryModal, setNewCategoryModal] = useState(false);
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
-  const [contactMenuOpen, setContactMenuOpen] = useState(false);
+  const [showContactMenu, setShowContactMenu] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [submittingCategory, setSubmittingCategory] = useState(false);
   const [initiatingLineItemIndex, setInitiatingLineItemIndex] = useState<number | null>(null);
@@ -1766,8 +1797,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const rawPrice = Number(item.unit_price_aed) || Number(item.unit_price) || Number(item.price) || Number(item.unitPrice) || 0;
         const price = formCurrency === 'USD' ? rawPrice / 3.6725 : rawPrice;
 
-        const extractedArray: ProductAttribute[] = Array.isArray(item.attributes) ? item.attributes : [];
-        const extractedKeys = new Set(extractedArray.map(a => a.key.trim().toLowerCase()));
+        const rawExtracted: any[] = Array.isArray(item.attributes) ? item.attributes : [];
+        const normalizedAttrMap = new Map<string, string>(); // canonicalKey -> value
+
+        rawExtracted.forEach((attr: any) => {
+          if (!attr || !attr.key) return;
+          const val = attr.value !== undefined && attr.value !== null ? String(attr.value).trim() : '';
+          if (!val) return;
+          const canonicalKey = normalizeAttributeKey(String(attr.key));
+          if (!canonicalKey) return;
+          if (!normalizedAttrMap.has(canonicalKey)) {
+            normalizedAttrMap.set(canonicalKey, val);
+          }
+        });
+
+        const mergedAttributes: ProductAttribute[] = Array.from(normalizedAttrMap.entries()).map(([key, value]) => ({
+          key,
+          value
+        }));
 
         let productType = item.product_type || 'Other';
         let itemType: 'product' | 'charge' | 'discount' = item.item_type || 'product';
@@ -1797,15 +1844,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         } else if (itemType === 'charge' || itemType === 'discount') {
           productType = 'Service / Charge';
         }
-
-        const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[productType] || [];
-        const mergedAttributes = [...extractedArray];
-
-        suggestedKeys.forEach(suggestedKey => {
-          if (!extractedKeys.has(suggestedKey.trim().toLowerCase())) {
-            mergedAttributes.push({ key: suggestedKey, value: '' });
-          }
-        });
 
         return {
           item_type: itemType,
@@ -1964,15 +2002,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           // Extract key attributes
           const attributes: { key: string; value: string }[] = [];
           const modelMatch = trimmed.match(/model\s*:?\s*([^\n,\r]+)/i);
-          if (modelMatch) attributes.push({ key: 'Model', value: modelMatch[1].trim() });
+          if (modelMatch) attributes.push({ key: normalizeAttributeKey('Model'), value: modelMatch[1].trim() });
 
           const makeMatch = trimmed.match(/make\s*:?\s*([^\n,\r]+)/i);
-          if (makeMatch) attributes.push({ key: 'Make', value: makeMatch[1].trim() });
+          if (makeMatch) attributes.push({ key: normalizeAttributeKey('Make'), value: makeMatch[1].trim() });
 
           const pressMatch = trimmed.match(/design pressure\s*:?\s*([^\n,\r]+)/i);
-          if (pressMatch) attributes.push({ key: 'Design Pressure', value: pressMatch[1].trim() });
+          if (pressMatch) attributes.push({ key: normalizeAttributeKey('Design Pressure'), value: pressMatch[1].trim() });
 
-          const firstLine = trimmed.split(/\r?\n/)[0].replace(/^["'\s\t]+/, '').slice(0, 100);
+          const firstLine = trimmed.split(/\r?\n/)[0].replace(/^["'\s\t]+/, '').slice(0, 500);
 
           lineItemsArr.push({
             product_type: productType,
@@ -2402,8 +2440,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     const cleanLineItems = lineItems.map((item) => {
       const cleanAttr: ProductAttribute[] = (item.attributes || [])
-        .map((a) => ({ key: a.key.trim(), value: a.value.trim() }))
-        .filter((a) => a.key !== '' || a.value !== '');
+        .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
+        .filter((a) => a.key !== '' && a.value !== '');
       return {
         ...item,
         attributes: cleanAttr,
@@ -3712,7 +3750,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
                   
                   {/* Action Menu Dropdown */}
-                  <div className="relative z-20 shrink-0">
+                  <div className="relative inline-block z-20 shrink-0">
                     <button
                       type="button"
                       onClick={() => setCompanyMenuOpen(!companyMenuOpen)}
@@ -3727,7 +3765,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           className="fixed inset-0 z-40" 
                           onClick={() => setCompanyMenuOpen(false)} 
                         />
-                        <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                        <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
                           {companyId && (
                             <button
                               type="button"
@@ -3861,60 +3899,82 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Contact lookup */}
               <div>
-                <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
-                  <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5 min-h-[28px]">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <MarqueeLabel className="text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0 flex items-center gap-1">
                       Account Contact Personnel
                     </MarqueeLabel>
                     {renderConfidenceBadge('contact_name')}
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+
+                  {/* Contact Action Menu Dropdown */}
+                  <div className="relative inline-block z-20 shrink-0">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (!companyId) {
-                          if (triggerToast) {
-                            triggerToast('Please search or select a Company first before adding a contact person.', 'info');
-                          } else {
-                            alert('Please search or select a Company first before adding a contact person.');
-                          }
-                          return;
-                        }
-                        setSubContactName('');
-                        setSubContactDesignation('');
-                        setSubContactMobile('');
-                        setSubContactEmail('');
-                        setSubContactIsPrimary(false);
-                        setIsEditingContact(false);
-                        setShowNewContactModal(true);
-                      }}
-                      className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition-colors flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer"
-                      title="Add a new contact person for this account"
+                      onClick={() => setShowContactMenu(!showContactMenu)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                      title="Contact Actions"
                     >
-                      <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      <span>+ Add Contact</span>
+                      <MoreVertical className="w-4 h-4" />
                     </button>
-                    {companyId && contactId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ct = contacts.find((c) => c.id === contactId);
-                          if (ct) {
-                            setSubContactName(ct.full_name);
-                            setSubContactDesignation(ct.designation || '');
-                            setSubContactMobile(ct.mobile || '');
-                            setSubContactEmail(ct.email || '');
-                            setSubContactIsPrimary(ct.is_primary || false);
-                            setIsEditingContact(true);
-                            setShowNewContactModal(true);
-                          }
-                        }}
-                        className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors flex items-center space-x-1 cursor-pointer"
-                        title="Edit details of selected contact"
-                      >
-                        <Pencil className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Edit</span>
-                      </button>
+                    {showContactMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowContactMenu(false)}
+                        />
+                        <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
+                          {companyId && contactId && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowContactMenu(false);
+                                const ct = contacts.find((c) => c.id === contactId);
+                                if (ct) {
+                                  setSubContactName(ct.full_name);
+                                  setSubContactDesignation(ct.designation || '');
+                                  setSubContactMobile(ct.mobile || '');
+                                  setSubContactEmail(ct.email || '');
+                                  setSubContactIsPrimary(ct.is_primary || false);
+                                  setIsEditingContact(true);
+                                  setShowNewContactModal(true);
+                                }
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
+                              title="Edit selected contact"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span>Edit Contact Details</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowContactMenu(false);
+                              if (!companyId) {
+                                if (triggerToast) {
+                                  triggerToast('Please search or select a Company first before adding a contact person.', 'info');
+                                } else {
+                                  alert('Please search or select a Company first before adding a contact person.');
+                                }
+                                return;
+                              }
+                              setSubContactName('');
+                              setSubContactDesignation('');
+                              setSubContactMobile('');
+                              setSubContactEmail('');
+                              setSubContactIsPrimary(false);
+                              setIsEditingContact(false);
+                              setShowNewContactModal(true);
+                            }}
+                            className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
+                            title="Add a new contact person for this account"
+                          >
+                            <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                            <span>+ Add New Contact</span>
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -3943,7 +4003,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               <div id="field-country">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
                 <input
@@ -4011,8 +4071,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
-              <div id="field-subject">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+              <div id="field-subject" className="col-span-1 md:col-span-2">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Subject (Optional)</MarqueeLabel>
                 <input
                   type="text"
@@ -4023,7 +4083,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div>
+              <div className="col-span-1">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Client Ref</MarqueeLabel>
                 <input
                   type="text"
@@ -4034,7 +4094,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div>
+              <div className="col-span-1">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Option</MarqueeLabel>
                 <select
                   value={proposalOption}
