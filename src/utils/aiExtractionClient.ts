@@ -203,6 +203,9 @@ export async function extractEnquiryClientSide(
 
     onStatusUpdate?.(`Querying ${modelName}...`);
 
+    let modelTimeoutTimer: any = null;
+    let abortListener: (() => void) | undefined;
+
     try {
       const modelWithSystemPrompt = genAI.getGenerativeModel({
         model: modelName,
@@ -224,9 +227,18 @@ export async function extractEnquiryClientSide(
         generationConfig,
       });
 
-      let response: any;
+      // Internal per-model timeout of 35 seconds (35000ms)
+      const perModelTimeoutPromise = new Promise<never>((_, reject) => {
+        modelTimeoutTimer = setTimeout(() => {
+          const timeoutErr: any = new Error(`Model ${modelName} call exceeded 35s latency threshold.`);
+          timeoutErr.isModelTimeout = true;
+          reject(timeoutErr);
+        }, 35000);
+      });
+
+      const racePromises: Promise<any>[] = [callPromise, perModelTimeoutPromise];
+
       if (signal) {
-        let abortListener: (() => void) | undefined;
         const abortPromise = new Promise<never>((_, reject) => {
           if (signal.aborted) {
             reject(new DOMException('Aborted', 'AbortError'));
@@ -237,17 +249,10 @@ export async function extractEnquiryClientSide(
           };
           signal.addEventListener('abort', abortListener, { once: true });
         });
-
-        try {
-          response = await Promise.race([callPromise, abortPromise]);
-        } finally {
-          if (abortListener) {
-            signal.removeEventListener('abort', abortListener);
-          }
-        }
-      } else {
-        response = await callPromise;
+        racePromises.push(abortPromise);
       }
+
+      const response: any = await Promise.race(racePromises);
 
       const text = response.response.text();
       try {
@@ -259,6 +264,18 @@ export async function extractEnquiryClientSide(
       }
     } catch (err: any) {
       lastError = err;
+
+      // Handle per-model 35s timeout
+      if (err?.isModelTimeout) {
+        console.warn(`[aiExtractionClient] ${modelName} latency threshold reached (35s).`);
+        const hasNextModel = i < modelSequence.length - 1;
+        if (hasNextModel) {
+          onStatusUpdate?.(`${modelName} latency threshold reached. Failing over to next engine...`);
+          continue;
+        } else {
+          throw new Error(`Model ${modelName} timed out (35s limit) and no more engines are available in pool.`);
+        }
+      }
 
       // If aborted, exit immediately without retrying other models
       if (
@@ -297,6 +314,13 @@ export async function extractEnquiryClientSide(
 
       if (!hasNextModel || !isRecoverableError) {
         throw err;
+      }
+    } finally {
+      if (modelTimeoutTimer) {
+        clearTimeout(modelTimeoutTimer);
+      }
+      if (signal && abortListener) {
+        signal.removeEventListener('abort', abortListener);
       }
     }
   }

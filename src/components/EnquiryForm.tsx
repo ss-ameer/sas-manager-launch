@@ -2131,11 +2131,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setExtractionStatusText('Refining extracted fields with AI...');
     const startTime = Date.now();
 
-    // 10 second fast timeout for text AI refinement so it never freezes
+    // 75 second safety timeout for text AI refinement so it never freezes
     const textController = new AbortController();
     const textTimeoutId = setTimeout(() => {
       textController.abort();
-    }, 10000);
+    }, 75000);
 
     try {
       const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
@@ -2222,11 +2222,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     let networkRequestTime = 0;
     let stateUpdateTime = 0;
 
-    // Set up AbortController for a safety limit of 25 seconds timeout
+    // Set up AbortController for a safety limit of 75 seconds timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 25000);
+    }, 75000);
 
     try {
       console.log(`%c[AI Client-Side Extraction Start] Processing: ${fileData.name}`, "color: #3b82f6; font-weight: bold; font-size: 11px;");
@@ -2397,7 +2397,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       let displayMsg = userMessage;
       if (isAbortError) {
-        displayMsg = "AI extraction timed out (25 seconds limit exceeded). The Gemini model or network is experiencing high latency. Please retry or use Smart Paste.";
+        displayMsg = "AI extraction timed out (75 seconds limit exceeded). The Gemini model or network is experiencing high latency. Please retry or use Smart Paste.";
       } else if (isQuotaError) {
         displayMsg = "Gemini API Quota or Prepayment Credits Depleted. Enter your personal Gemini API key below or use Smart Paste (100% offline).";
       } else if (isAuthError) {
@@ -2826,7 +2826,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       <div 
         className={`fixed inset-y-0 right-0 w-full ${
           isPreviewActive ? 'max-w-7xl' : 'max-w-4xl'
-        } z-50 bg-white dark:bg-slate-900 shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200/80 dark:border-slate-800`}
+        } z-50 bg-white dark:bg-slate-900 shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200/80 dark:border-slate-800 overflow-hidden`}
       >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
@@ -3368,7 +3368,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
 
             {/* Scrollable Form body */}
-            <fieldset disabled={isReadOnly} className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
+            <fieldset disabled={isReadOnly} className="flex-1 overflow-x-hidden overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
             
             {/* Section 1: Standard Metadata */}
             <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
@@ -4399,7 +4399,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                     {/* Tier 2: Qty, Unit, and Unit Price */}
                     <div className="grid grid-cols-12 gap-3 mb-3">
-                      <div className="col-span-12 sm:col-span-3">
+                      <div className="col-span-3">
                         <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                           Qty
                         </label>
@@ -4412,7 +4412,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="col-span-12 sm:col-span-3">
+                      <div className="col-span-3">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Unit
@@ -4441,7 +4441,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="col-span-12 sm:col-span-6">
+                      <div className="col-span-6">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Unit Price ({formCurrency})
