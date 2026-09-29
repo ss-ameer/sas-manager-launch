@@ -518,6 +518,9 @@ export default function EnquiryForm({
   const [extractionStatusText, setExtractionStatusText] = useState('Extracting...');
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
+  const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
+    return localStorage.getItem('omni_gemini_model_preference') || 'auto';
+  });
   const [aiConfidence, setAiConfidence] = useState<{
     company_name?: 'high' | 'medium' | 'low';
     contact_name?: 'high' | 'medium' | 'low';
@@ -2100,7 +2103,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
       const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = localStorage.getItem('omni_gemini_model_preference') || 'gemini-3.6-flash';
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.6-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -2271,7 +2274,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = localStorage.getItem('omni_gemini_model_preference') || 'gemini-3.6-flash';
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.6-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -4719,14 +4722,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
                 <span>📎 Source PDF Proposal & Excel AI Data</span>
               </span>
-              <button
-                type="button"
-                onClick={() => setRawTextModalOpen(true)}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Paste Excel Row / Raw Text</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedAiModel}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAiModel(val);
+                    localStorage.setItem('omni_gemini_model_preference', val);
+                  }}
+                  title="Select Gemini Engine"
+                  aria-label="Select Gemini Engine"
+                  className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="auto">⚡ Auto-Cascade (Failover)</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (Fastest)</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setRawTextModalOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Paste Excel Row / Raw Text</span>
+                </button>
+              </div>
             </div>
 
             <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-6 text-center transition duration-150 cursor-pointer relative bg-white/50 dark:bg-slate-900/50">
