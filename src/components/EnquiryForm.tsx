@@ -535,7 +535,7 @@ export default function EnquiryForm({
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
     const saved = localStorage.getItem('omni_gemini_model_preference');
-    if (!saved || saved === 'gemini-2.5-flash') return 'auto';
+    if (!saved || saved === 'gemini-2.5-flash' || saved === 'gemini-3.1-pro') return 'auto';
     return saved;
   });
   const [aiConfidence, setAiConfidence] = useState<{

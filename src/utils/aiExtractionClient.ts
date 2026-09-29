@@ -139,7 +139,6 @@ export const AVAILABLE_GEMINI_MODELS = [
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
   { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
   { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
-  { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro (Deep Reasoning)' },
 ];
 
 export const DEFAULT_MODEL_CASCADE = [
@@ -148,8 +147,7 @@ export const DEFAULT_MODEL_CASCADE = [
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-pro'
+  'gemini-3.1-flash-lite'
 ];
 
 export async function extractEnquiryClientSide(
