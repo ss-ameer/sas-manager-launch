@@ -3282,7 +3282,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <span>{enquiryToEdit ? (isClaimingGap ? `Claim Reserved Gap #${enquiryToEdit.sn}` : `Edit Enquiry #${enquiryToEdit.sn}`) : '📋 Register New Enquiry'}</span>
                     </h3>
                     {quoteRefNo && (
-                      <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 max-w-[260px] truncate" title={quoteRefNo}>
                         {quoteRefNo}
                       </span>
                     )}
@@ -3366,7 +3366,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
 
             {/* Scrollable Form body */}
-            <fieldset disabled={isReadOnly} className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
+            <fieldset disabled={isReadOnly} className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
             
             {/* Section 1: Standard Metadata */}
             <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
@@ -4326,15 +4326,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(165px,1.2fr)_minmax(160px,1.4fr)_minmax(70px,0.7fr)_minmax(110px,1fr)_minmax(130px,1.2fr)] gap-3">
+                    {/* Tier 1: Classification & Type */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <div>
-                        <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                          CLASSIFICATION
+                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                          Classification
                         </label>
                         <select
                           value={item.item_type || 'product'}
                           onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                          className="w-full min-w-[155px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
                           <option value="product">Product (Hardware / Component)</option>
                           <option value="charge">Charge / Fee (Service)</option>
@@ -4342,55 +4343,64 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </select>
                       </div>
 
-                      {item.item_type === 'charge' || item.item_type === 'discount' ? (
-                        <div className="flex-1 min-w-[140px]">
-                          <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                            Charge Type
-                          </label>
-                          <select
-                            value={item.charge_type || 'Transportation'}
-                            onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
-                            className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
-                          >
-                            <option value="Transportation">Transportation / Freight</option>
-                            <option value="Installation">Installation & Commissioning</option>
-                            <option value="Customs">Customs & Clearance</option>
-                            <option value="Testing">Testing & Inspection</option>
-                            <option value="Discount">Discount / Rebate</option>
-                            <option value="Other Charge">Other Non-Product Fee</option>
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="flex-1 min-w-[140px]">
-                          <label className="flex items-center h-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                            <span>Product Type</span>
-                            {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
-                          </label>
-                          <CreatableCombobox
-                            options={sortedCategories}
-                            value={item.product_type}
-                            onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                            onCreateOption={async (val: string) => {
-                              handleLineItemChange(index, 'product_type', val);
-                              if (setProductCategories) {
-                                try {
-                                  const docRef = await safeAddDoc('dropdown_product_categories', { name: val });
-                                  setProductCategories((prev) => {
-                                    if (prev.some(c => c.name.toLowerCase() === val.toLowerCase())) return prev;
-                                    return [...prev, { id: docRef?.id || ('cat_' + Date.now()), name: val }];
-                                  });
-                                } catch (e) {
-                                  console.warn('Failed to save new category', e);
-                                }
-                              }
-                            }}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                          />
-                        </div>
-                      )}
-
                       <div>
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">QTY</MarqueeLabel>
+                        {item.item_type === 'charge' || item.item_type === 'discount' ? (
+                          <>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                              Charge Type
+                            </label>
+                            <select
+                              value={item.charge_type || 'Transportation'}
+                              onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
+                              className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
+                            >
+                              <option value="Transportation">Transportation / Freight</option>
+                              <option value="Installation">Installation & Commissioning</option>
+                              <option value="Customs">Customs & Clearance</option>
+                              <option value="Testing">Testing & Inspection</option>
+                              <option value="Discount">Discount / Rebate</option>
+                              <option value="Other Charge">Other Non-Product Fee</option>
+                            </select>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Product Type
+                              </label>
+                              {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
+                            </div>
+                            <CreatableCombobox
+                              options={sortedCategories}
+                              value={item.product_type}
+                              onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                              onCreateOption={async (val: string) => {
+                                handleLineItemChange(index, 'product_type', val);
+                                if (setProductCategories) {
+                                  try {
+                                    const docRef = await safeAddDoc('dropdown_product_categories', { name: val });
+                                    setProductCategories((prev) => {
+                                      if (prev.some(c => c.name.toLowerCase() === val.toLowerCase())) return prev;
+                                      return [...prev, { id: docRef?.id || ('cat_' + Date.now()), name: val }];
+                                    });
+                                  } catch (e) {
+                                    console.warn('Failed to save new category', e);
+                                  }
+                                }
+                              }}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                            />
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Tier 2: Qty, Unit, and Unit Price */}
+                    <div className="grid grid-cols-12 gap-3 mb-3">
+                      <div className="col-span-12 sm:col-span-3">
+                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                          Qty
+                        </label>
                         <input
                           type="number"
                           required
@@ -4400,8 +4410,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div>
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1" badge={renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}>UNIT</MarqueeLabel>
+                      <div className="col-span-12 sm:col-span-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            Unit
+                          </label>
+                          {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
+                        </div>
                         <CreatableCombobox
                           options={sortedUnits}
                           value={item.unit}
@@ -4424,16 +4439,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div>
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1" badge={
-                          formCurrency === 'USD' ? (
-                            <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ {(item.unit_price * 3.6725).toFixed(2)} AED)</span>
+                      <div className="col-span-12 sm:col-span-6">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            Unit Price ({formCurrency})
+                          </label>
+                          {formCurrency === 'USD' ? (
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono">
+                              ≈ {(item.unit_price * 3.6725).toFixed(2)} AED
+                            </span>
                           ) : (
-                            <span className="text-blue-500 font-semibold text-[9px] shrink-0">(≈ ${(item.unit_price / 3.6725).toFixed(2)} USD)</span>
-                          )
-                        }>
-                          {`Unit Price (${formCurrency})`}
-                        </MarqueeLabel>
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono">
+                              ≈ ${(item.unit_price / 3.6725).toFixed(2)} USD
+                            </span>
+                          )}
+                        </div>
                         <FormattedNumberInput
                           required
                           value={item.unit_price}
