@@ -131,21 +131,30 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}\n\n${JSON_FORMAT}`;
 };
 
-export const extractEnquiryClientSide = async (
+const DEFAULT_MODEL_CASCADE = [
+  'gemini-3.6-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-flash-latest'
+];
+
+export async function extractEnquiryClientSide(
   apiKey: string,
   content: string,
   isBase64: boolean,
   mimeType: string,
   fileName: string,
-  salespersons: any[]
-) => {
+  salespersons?: any[],
+  signal?: AbortSignal,
+  preferredModel?: string,
+  onStatusUpdate?: (status: string) => void
+): Promise<any> {
   if (!apiKey) {
     throw new Error('No active Gemini API Key found. Please enter your personal API key in Settings or AI Studio.');
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-  const systemInstruction = getExtractionSystemPrompt(salespersons);
+  const systemInstruction = getExtractionSystemPrompt(salespersons || []);
 
   const filePart = isBase64
     ? {
@@ -163,24 +172,115 @@ export const extractEnquiryClientSide = async (
     responseMimeType: "application/json",
   };
 
-  const modelWithSystemPrompt = genAI.getGenerativeModel({
-    model: 'gemini-3.6-flash',
-    systemInstruction,
-  });
+  const primaryModel = preferredModel || 'gemini-3.6-flash';
+  const modelSequence = [
+    primaryModel,
+    ...DEFAULT_MODEL_CASCADE.filter((m) => m !== primaryModel),
+  ];
 
-  const response = await modelWithSystemPrompt.generateContent({
-    contents: [
-      { role: 'user', parts: [filePart as any, { text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details into the requested JSON format." }] }
-    ],
-    generationConfig,
-  });
+  let lastError: any = null;
 
-  const text = response.response.text();
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    // Strip backticks just in case
-    const stripped = text.replace(/^```json\n/, '').replace(/\n```$/, '');
-    return JSON.parse(stripped);
+  for (let i = 0; i < modelSequence.length; i++) {
+    const modelName = modelSequence[i];
+
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    onStatusUpdate?.(`Querying ${modelName}...`);
+
+    try {
+      const modelWithSystemPrompt = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction,
+      });
+
+      const callPromise = modelWithSystemPrompt.generateContent({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              filePart as any,
+              {
+                text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details into the requested JSON format.",
+              },
+            ],
+          },
+        ],
+        generationConfig,
+      });
+
+      let response: any;
+      if (signal) {
+        let abortListener: (() => void) | undefined;
+        const abortPromise = new Promise<never>((_, reject) => {
+          if (signal.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          abortListener = () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          };
+          signal.addEventListener('abort', abortListener, { once: true });
+        });
+
+        try {
+          response = await Promise.race([callPromise, abortPromise]);
+        } finally {
+          if (abortListener) {
+            signal.removeEventListener('abort', abortListener);
+          }
+        }
+      } else {
+        response = await callPromise;
+      }
+
+      const text = response.response.text();
+      try {
+        return JSON.parse(text);
+      } catch (parseErr) {
+        // Strip backticks just in case
+        const stripped = text.replace(/^```json\n/, '').replace(/\n```$/, '').trim();
+        return JSON.parse(stripped);
+      }
+    } catch (err: any) {
+      lastError = err;
+
+      // If aborted, exit immediately without retrying other models
+      if (
+        err?.name === 'AbortError' ||
+        err?.message?.toLowerCase().includes('abort') ||
+        signal?.aborted
+      ) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      const errMsg = String(err?.message || '');
+      const errStatus = err?.status || err?.code;
+      const isTransient =
+        errStatus === 503 ||
+        errStatus === 429 ||
+        errMsg.includes('503') ||
+        errMsg.includes('429') ||
+        errMsg.toLowerCase().includes('high demand') ||
+        errMsg.toLowerCase().includes('temporarily unavailable') ||
+        errMsg.toLowerCase().includes('overloaded') ||
+        errMsg.toLowerCase().includes('resource_exhausted') ||
+        errMsg.toLowerCase().includes('rate limit');
+
+      const hasNextModel = i < modelSequence.length - 1;
+
+      if (isTransient && hasNextModel) {
+        onStatusUpdate?.(`Model ${modelName} high demand. Auto-failing over to next model...`);
+        console.warn(`[aiExtractionClient] Transient error on ${modelName} (${errMsg}). Failing over to next model...`);
+        continue;
+      }
+
+      if (!hasNextModel || !isTransient) {
+        throw err;
+      }
+    }
   }
-};
+
+  throw lastError || new Error('All models in fallback cascade failed to extract enquiry.');
+}

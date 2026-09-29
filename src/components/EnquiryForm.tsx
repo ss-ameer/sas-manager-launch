@@ -2100,6 +2100,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
       const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
+      const preferredModel = localStorage.getItem('omni_gemini_model_preference') || 'gemini-3.6-flash';
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -2107,7 +2108,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         false, // isBase64
         'text/plain',
         'Pasted_Excel_Row.txt',
-        salespersons
+        salespersons,
+        textController.signal,
+        preferredModel,
+        (statusText) => setExtractionStatusText(statusText)
       );
 
       clearTimeout(textTimeoutId);
@@ -2177,11 +2181,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     let networkRequestTime = 0;
     let stateUpdateTime = 0;
 
-    // Set up AbortController for a robust 180 seconds (3 minutes) timeout
+    // Set up AbortController for a safety limit of 25 seconds timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 180000);
+    }, 25000);
 
     try {
       console.log(`%c[AI Client-Side Extraction Start] Processing: ${fileData.name}`, "color: #3b82f6; font-weight: bold; font-size: 11px;");
@@ -2267,6 +2271,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
+      const preferredModel = localStorage.getItem('omni_gemini_model_preference') || 'gemini-3.6-flash';
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -2274,7 +2279,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         requestPayload.isBase64,
         requestPayload.mimeType,
         requestPayload.fileName,
-        salespersons
+        salespersons,
+        controller.signal,
+        preferredModel,
+        (statusText) => setExtractionStatusText(statusText)
       );
 
       clearTimeout(timeoutId); // Successful request, clear the timeout timer!
@@ -2348,7 +2356,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       let displayMsg = userMessage;
       if (isAbortError) {
-        displayMsg = "AI extraction timed out (180 seconds limit exceeded). The Gemini model or network is experiencing high latency. Please retry or use Smart Paste.";
+        displayMsg = "AI extraction timed out (25 seconds limit exceeded). The Gemini model or network is experiencing high latency. Please retry or use Smart Paste.";
       } else if (isQuotaError) {
         displayMsg = "Gemini API Quota or Prepayment Credits Depleted. Enter your personal Gemini API key below or use Smart Paste (100% offline).";
       } else if (isAuthError) {
@@ -2363,6 +2371,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         alert(displayMsg);
       }
     } finally {
+      clearTimeout(timeoutId);
       setIsExtracting(false);
     }
   };
@@ -4834,7 +4843,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     Status: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText}</span>
                   </p>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                    Sending optimized context-aware payload to Gemini. Under high load, this may take up to 20s. A safety abort trigger is set for 40s.
+                    {extractionStatusText || "Calibrating context-aware payload with automated model failover..."}
                   </p>
                 </div>
                 <div className="w-full bg-blue-100 dark:bg-blue-900 h-1 rounded-full overflow-hidden">
