@@ -76,6 +76,27 @@ const WON_STATUSES = new Set(['Won / Approved', 'Order Received', 'Invoiced']);
 const LOST_STATUSES = new Set(['Lost / Cancelled', 'Lost', 'Dead', 'Cancelled PO', 'Cancelled']);
 const STALLED_STATUSES = new Set(['Hold', 'Delayed']);
 
+// Helpers for Activity Velocity & Performance Analytics
+const normalizeChannel = (log: any): 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Site Visit' | null => {
+  const raw = (log.channel || log.interaction_type || '').toLowerCase();
+  if (raw.includes('phone') || raw === 'call') return 'Call';
+  if (raw.includes('whatsapp') || raw.includes('sms') || raw === 'message') return 'WhatsApp';
+  if (raw.includes('email') || raw.includes('mail')) return 'Email';
+  if (raw.includes('meeting') || raw.includes('virtual')) return 'Meeting';
+  if (raw.includes('site') || raw.includes('visit')) return 'Site Visit';
+  if (raw.includes('internal')) return null; // Exclude internal tasks from client touchpoints
+  return 'Call'; // Fallback
+};
+
+const parseLogTime = (log: any): number => {
+  const val = log.date || log.createdAt || log.timestamp;
+  if (!val) return 0;
+  if (val?.seconds) return val.seconds * 1000; // Firestore Timestamp
+  if (val instanceof Date) return val.getTime();
+  const parsed = new Date(val).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 export default function Dashboard({
   enquiries,
   companies,
@@ -375,22 +396,26 @@ export default function Dashboard({
   const [activityTimeFilter, setActivityTimeFilter] = useState<'this_week' | 'this_month' | 'last_30_days' | 'all'>('this_month');
 
   const filteredCallLogs = useMemo(() => {
-    if (activityTimeFilter === 'all') return callLogs;
+    const nonDeleted = (callLogs || []).filter((l) => !l.is_deleted);
+    if (activityTimeFilter === 'all') return nonDeleted;
+
     const now = new Date();
     let cutoff = new Date();
     if (activityTimeFilter === 'this_week') {
       cutoff.setDate(now.getDate() - 7);
+      cutoff.setHours(0, 0, 0, 0);
     } else if (activityTimeFilter === 'this_month') {
-      cutoff.setDate(1); // 1st of current month
+      cutoff = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     } else if (activityTimeFilter === 'last_30_days') {
       cutoff.setDate(now.getDate() - 30);
+      cutoff.setHours(0, 0, 0, 0);
     }
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffTime = cutoff.getTime();
 
-    return callLogs.filter((l) => {
-      const logDate = l.date || (l as any).createdAt || (l as any).timestamp;
-      if (!logDate) return true;
-      return logDate >= cutoffStr;
+    return nonDeleted.filter((l) => {
+      const logTime = parseLogTime(l);
+      if (!logTime) return true;
+      return logTime >= cutoffTime;
     });
   }, [callLogs, activityTimeFilter]);
 
@@ -412,12 +437,9 @@ export default function Dashboard({
     };
 
     filteredCallLogs.forEach((l) => {
-      const ch = l.channel || 'Call';
-      if (counts[ch] !== undefined) {
-        counts[ch]++;
-      } else {
-        counts['Call']++;
-      }
+      const ch = normalizeChannel(l);
+      if (!ch) return; // Skip internal tasks from client touchpoint totals
+      counts[ch]++;
     });
 
     const total = Object.values(counts).reduce((s, v) => s + v, 0);
@@ -441,12 +463,14 @@ export default function Dashboard({
       ['Completed', 'Completed Log', 'Closed', 'Closed - Deal Made'].includes(l.status)
     ).length;
 
-    const rate = totalScheduled > 0 ? Math.round((completedScheduled / totalScheduled) * 100) : (filteredCallLogs.length > 0 ? 100 : 0);
+    const isClean = totalScheduled === 0;
+    const rate = isClean ? 100 : Math.round((completedScheduled / totalScheduled) * 100);
 
     return {
       totalScheduled,
       completedScheduled,
-      rate
+      rate,
+      isClean
     };
   }, [filteredCallLogs]);
 
@@ -881,14 +905,14 @@ export default function Dashboard({
 
               <div className="text-right shrink-0">
                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold border inline-flex items-center gap-1 ${
-                  complianceMetrics.rate >= 80
+                  complianceMetrics.isClean || complianceMetrics.rate >= 80
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                     : complianceMetrics.rate >= 50
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                     : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                 }`}>
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  {complianceMetrics.rate >= 80 ? 'Optimal' : complianceMetrics.rate >= 50 ? 'Moderate' : 'Needs Focus'}
+                  {complianceMetrics.isClean ? 'All Caught Up' : complianceMetrics.rate >= 80 ? 'Optimal' : complianceMetrics.rate >= 50 ? 'Moderate' : 'Needs Focus'}
                 </span>
               </div>
             </div>

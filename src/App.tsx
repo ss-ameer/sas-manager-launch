@@ -1717,9 +1717,15 @@ export default function App() {
           <Dashboard
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
+            contacts={workspaceContacts || contacts}
             salespersons={workspaceSalespersons}
+            callLogs={workspaceCallLogs}
             onSelectEnquiry={setSelectedEnquiryId}
             user={user}
+            onOpenActivityDrawer={(ctx) => {
+              setActivityDrawerContext(ctx || {});
+              setIsActivityDrawerOpen(true);
+            }}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}
