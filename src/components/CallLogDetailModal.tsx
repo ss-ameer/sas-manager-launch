@@ -8,6 +8,8 @@ import { getReferenceId } from '../utils/refId';
 import { canEditOrDeleteRecord, canAccessActivityDetail } from '../utils/permissions';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
+import { doc, deleteDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { db, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import {
   PhoneCall,
@@ -123,14 +125,60 @@ export default function CallLogDetailModal({
         ? { uid: currentUser.uid, name: currentUser.full_name || currentUser.username || currentUser.email || 'User' }
         : undefined;
 
-      await CallLogRepository.deleteLog(entry.id, userMeta);
+      const isAlreadyDeleted =
+        (entry as any).is_deleted === true ||
+        (entry as any).isDeleted === true ||
+        entry.status === 'DELETED' ||
+        (typeof entry.status === 'string' && entry.status.trim().toUpperCase() === 'DELETED');
+
+      const isTestOrPlaceholder = Boolean(
+        (entry as any).is_placeholder === true ||
+        (entry as any).is_gap_placeholder === true ||
+        (entry as any).company_name?.includes('[Reserved') ||
+        (entry as any).title?.includes('[Test') ||
+        (entry as any).note?.includes('[Test')
+      );
+
+      const shouldHardDelete = isAlreadyDeleted || isTestOrPlaceholder;
+
+      if (shouldHardDelete) {
+        try {
+          await deleteDoc(doc(db, 'activity_logs', entry.id));
+        } catch (e) {
+          await safeDeleteDoc('activity_logs', entry.id).catch(() => {});
+        }
+        try {
+          await deleteDoc(doc(db, 'call_logs', entry.id));
+        } catch (e) {}
+        await CallLogRepository.purgePermanent(entry.id).catch(() => {});
+      } else {
+        const nowIso = new Date().toISOString();
+        const deletePayload = {
+          is_deleted: true,
+          deleted_at: nowIso,
+          deleted_by_uid: currentUser?.uid || null,
+          deleted_by_name: currentUser?.full_name || currentUser?.username || 'User',
+          updatedAt: nowIso
+        };
+        try {
+          await updateDoc(doc(db, 'activity_logs', entry.id), deletePayload).catch(async () => {
+            await setDoc(doc(db, 'activity_logs', entry.id), deletePayload, { merge: true });
+          });
+        } catch (e) {
+          await safeUpdateDoc('activity_logs', entry.id, deletePayload).catch(() => {});
+        }
+        try {
+          await updateDoc(doc(db, 'call_logs', entry.id), deletePayload).catch(() => {});
+        } catch (e) {}
+        await CallLogRepository.deleteLog(entry.id, userMeta);
+      }
 
       if (onDelete) {
         onDelete(entry.id);
       }
 
       if (triggerToast) {
-        triggerToast('Activity log deleted successfully', 'info');
+        triggerToast(shouldHardDelete ? 'Activity log permanently deleted' : 'Activity log deleted successfully', 'info');
       }
 
       setShowDeleteConfirm(false);

@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { CallLogEntry, Company, Contact, Enquiry, Workspace, UserProfile, LegalSuffix, Salesperson, getCompanyPhones, getContactPhones, getCompanyEmails, isSamePhoneNumber, CallStatus } from '../types';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
-import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
+import { doc, deleteDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { db, safeAddDoc, safeUpdateDoc, safeDeleteDoc, safeSetDoc } from '../firebase';
 import { recordAuditLog } from '../utils/auditLogger';
 import { getReferenceId } from '../utils/refId';
 import { isRecordOwner, canEditOrDeleteRecord, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, getWorkspaceInitials, isAdmin, isSuperAdmin, isActivityAttributedToUser, canUserViewActivity } from '../utils/permissions';
@@ -320,12 +321,29 @@ export default function CallLogManager({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<number | 'All'>(25);
 
+  // Local component log feed state with instant update capabilities
+  const [logs, setLogs] = useState<CallLogEntry[]>(() => callLogs || []);
+
+  // Synchronize local state whenever the parent callLogs array updates
+  useEffect(() => {
+    setLogs(callLogs || []);
+  }, [callLogs]);
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
     CallLogRepository.saveLocalOnly(savedLog).catch((err) => console.warn('[CallLogManager] Failed to cache savedLog:', err));
     if (spawnedLog) {
       CallLogRepository.saveLocalOnly(spawnedLog).catch((err) => console.warn('[CallLogManager] Failed to cache spawnedLog:', err));
     }
+    setLogs((prev) => {
+      let updatedList = prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
+      if (!prev.some((l) => l.id === savedLog.id)) {
+        updatedList = [savedLog, ...updatedList];
+      }
+      if (spawnedLog) {
+        updatedList = [spawnedLog, ...updatedList.filter((l) => l.id !== spawnedLog.id)];
+      }
+      return updatedList;
+    });
     if (setCallLogs) {
       setCallLogs((prev) => {
         let updatedList = prev.map((l) => (l.id === savedLog.id ? { ...l, ...savedLog } : l));
@@ -396,6 +414,7 @@ export default function CallLogManager({
           );
         }
       }
+      setLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === completedTask.id ? { ...l, ...completedTask } : l)));
       }
@@ -431,6 +450,7 @@ export default function CallLogManager({
           );
         }
       }
+      setLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === rescheduledTask.id ? { ...l, ...rescheduledTask } : l)));
       }
@@ -461,6 +481,7 @@ export default function CallLogManager({
           );
         }
       }
+      setLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
       if (setCallLogs) {
         setCallLogs((prev) => prev.map((l) => (l.id === cancelledTask.id ? { ...l, ...cancelledTask } : l)));
       }
@@ -500,6 +521,105 @@ export default function CallLogManager({
     return new Promise<boolean>((resolve) => {
       setConfirmResolver(() => resolve);
     });
+  };
+
+  // Centralized log deletion handler supporting immediate UI removal, Firestore soft-delete, and hard purge
+  const handleDeleteLog = async (
+    targetLog: CallLogEntry | { id?: string; is_deleted?: boolean; isDeleted?: boolean; status?: string; company_name?: string; note?: string; title?: string },
+    options?: { hardDelete?: boolean; skipConfirm?: boolean; confirmTitle?: string; confirmMessage?: string; silentToast?: boolean }
+  ) => {
+    const targetLogId = targetLog?.id;
+    if (!targetLogId) return;
+
+    const isAlreadyDeleted =
+      (targetLog as any).is_deleted === true ||
+      (targetLog as any).isDeleted === true ||
+      targetLog.status === 'DELETED' ||
+      (typeof targetLog.status === 'string' && targetLog.status.trim().toUpperCase() === 'DELETED');
+
+    const isTestOrPlaceholder = Boolean(
+      (targetLog as any).is_placeholder === true ||
+      (targetLog as any).is_gap_placeholder === true ||
+      (targetLog as any).company_name?.includes('[Reserved') ||
+      (targetLog as any).title?.includes('[Test') ||
+      (targetLog as any).note?.includes('[Test')
+    );
+
+    const shouldHardDelete = Boolean(options?.hardDelete || isAlreadyDeleted || isTestOrPlaceholder);
+
+    if (!options?.skipConfirm) {
+      const title = options?.confirmTitle || (shouldHardDelete ? 'Permanently Delete Log' : 'Delete Interaction Log');
+      const message =
+        options?.confirmMessage ||
+        (shouldHardDelete
+          ? 'Are you sure you want to permanently delete this log? This action cannot be undone.'
+          : 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.');
+      const confirmDelete = await askConfirm(title, message, true, 'Delete', 'Cancel');
+      if (!confirmDelete) return;
+    }
+
+    try {
+      if (shouldHardDelete) {
+        // Direct hard-deletion via Firestore deleteDoc on 'activity_logs'
+        try {
+          await deleteDoc(doc(db, 'activity_logs', targetLogId));
+        } catch (actErr) {
+          console.warn('[handleDeleteLog] Direct activity_logs deleteDoc error:', actErr);
+          await safeDeleteDoc('activity_logs', targetLogId).catch(() => {});
+        }
+        try {
+          await deleteDoc(doc(db, 'call_logs', targetLogId));
+        } catch (callErr) {
+          // Optional collection mirror
+        }
+        await CallLogRepository.purgePermanent(targetLogId).catch(() => {});
+      } else {
+        // Soft delete: update Firestore with { is_deleted: true, deleted_at: new Date().toISOString() }
+        const nowIso = new Date().toISOString();
+        const deletePayload = {
+          is_deleted: true,
+          deleted_at: nowIso,
+          deleted_by_uid: user?.uid || null,
+          deleted_by_name: user?.full_name || user?.username || 'User',
+          updatedAt: nowIso
+        };
+
+        try {
+          const actRef = doc(db, 'activity_logs', targetLogId);
+          await updateDoc(actRef, deletePayload).catch(async () => {
+            await setDoc(actRef, deletePayload, { merge: true });
+          });
+        } catch (err) {
+          console.warn('[handleDeleteLog] Direct activity_logs update error, using safeUpdateDoc:', err);
+          await safeUpdateDoc('activity_logs', targetLogId, deletePayload).catch(async () => {
+            await safeSetDoc('activity_logs', targetLogId, deletePayload, { merge: true });
+          });
+        }
+
+        try {
+          const callRef = doc(db, 'call_logs', targetLogId);
+          await updateDoc(callRef, deletePayload).catch(() => {});
+        } catch {
+          // Optional collection mirror
+        }
+
+        // Align local repository and sync engine
+        await CallLogRepository.deleteLog(targetLogId, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined).catch(() => {});
+      }
+
+      // Update local component state immediately so the row removes without waiting for network refresh:
+      setLogs((prev) => prev.filter((l) => l.id !== targetLogId));
+      if (setCallLogs) {
+        setCallLogs((prev) => prev.filter((l) => l.id !== targetLogId));
+      }
+
+      if (!options?.silentToast) {
+        triggerToast(shouldHardDelete ? 'Log permanently deleted' : 'Log entry deleted successfully', 'success');
+      }
+    } catch (err: any) {
+      console.error('[handleDeleteLog] Failed to delete log:', err);
+      triggerToast('Failed to delete log entry: ' + (err?.message || err), 'error');
+    }
   };
 
   // Dynamic Statuses and Outcomes
@@ -995,13 +1115,24 @@ export default function CallLogManager({
     );
   }, [enquiries, activeWorkspace.id]);
 
+  // 1. Strict exclusion of soft-deleted logs from active display (Instruction 1)
+  const activeLogs = useMemo(() => {
+    return logs.filter((log) => {
+      const isDeleted =
+        log.is_deleted === true ||
+        (log as any).isDeleted === true ||
+        log.status === 'DELETED' ||
+        (typeof log.status === 'string' && log.status.trim().toUpperCase() === 'DELETED');
+      return !isDeleted;
+    });
+  }, [logs]);
+
   const workspaceCallLogs = useMemo(() => {
     // Super Admins and Admins ALWAYS bypass attribution filters and see all workspace logs
     const isUserAdmin = Boolean(user && (isSuperAdmin(user) || isAdmin(user, activeWorkspace?.id, activeWorkspace)));
 
-    return (callLogs || [])
+    return activeLogs
       .filter((l) => {
-        if (l.is_deleted) return false;
         const matchesWs = l.workspace_id === activeWorkspace.id || (!l.workspace_id && activeWorkspace.id === 'ws_default');
         if (!matchesWs) return false;
 
@@ -1016,7 +1147,7 @@ export default function CallLogManager({
         const timeB = new Date(b.createdAt || b.date || 0).getTime();
         return timeB - timeA;
       });
-  }, [callLogs, activeWorkspace, user, salespersons]);
+  }, [activeLogs, activeWorkspace, user, salespersons]);
 
   // Company and Contact Maps for DNC check
   const companyMap = useMemo(() => {
@@ -1143,7 +1274,12 @@ export default function CallLogManager({
   const allScheduledQueueItems = useMemo(() => {
     // 1. Filter only active pending tasks (excluding superseded, cancelled, completed)
     const pendingTasks = workspaceCallLogs.filter((entry) => {
-      if (entry.is_deleted) return false;
+      const isDeleted =
+        entry.is_deleted === true ||
+        (entry as any).isDeleted === true ||
+        entry.status === 'DELETED' ||
+        (typeof entry.status === 'string' && entry.status.trim().toUpperCase() === 'DELETED');
+      if (isDeleted) return false;
       const s = (entry.status || '').toLowerCase().trim();
       if (
         s === 'superseded' ||
@@ -1230,7 +1366,7 @@ export default function CallLogManager({
       const comp = item.company_id ? companyMap.get(item.company_id) : null;
       const companyName = (item.company_name || comp?.display_name || item.unlinked_name || '').toLowerCase();
       const compRef = (comp?.ref_id || '').toLowerCase();
-      const canonicalRef = getReferenceId('CL', item, callLogs).toLowerCase();
+      const canonicalRef = getReferenceId('CL', item, logs).toLowerCase();
       const logId = (item.id || '').toLowerCase();
 
       // 2. Target Contact Name
@@ -1272,7 +1408,7 @@ export default function CallLogManager({
         notes.includes(q)
       );
     });
-  }, [queueTimeframeItems, queueSearchTerm, companyMap, contactMap, callLogs]);
+  }, [queueTimeframeItems, queueSearchTerm, companyMap, contactMap, logs]);
 
   // Stats Counters
   const stats = useMemo(() => {
@@ -1998,7 +2134,12 @@ export default function CallLogManager({
   const nonScheduledHistoryLogs = useMemo(() => {
     const now = Date.now();
     return workspaceCallLogs.filter((l) => {
-      if (l.is_deleted) return false;
+      const isDeleted =
+        l.is_deleted === true ||
+        (l as any).isDeleted === true ||
+        l.status === 'DELETED' ||
+        (typeof l.status === 'string' && l.status.trim().toUpperCase() === 'DELETED');
+      if (isDeleted) return false;
 
       const normStatus = (l.status || '').toLowerCase().trim();
       const normOutcome = (l.outcome || '').toLowerCase().trim();
@@ -2305,7 +2446,7 @@ export default function CallLogManager({
       // Search Input: Fast text filtering across company name, contact person, phone number, and interaction notes
       if (searchTerm) {
         const q = searchTerm.toLowerCase().trim();
-        const callRefId = getReferenceId('CL', l, callLogs).toLowerCase();
+        const callRefId = getReferenceId('CL', l, logs).toLowerCase();
         const compRefId = l.company_id ? getReferenceId('CMP', { id: l.company_id }, companies).toLowerCase() : '';
         const contRefId = l.contact_id ? getReferenceId('CT', { id: l.contact_id }, contacts).toLowerCase() : '';
         const enqRefId = l.enquiry_id ? getReferenceId('EQ', { id: l.enquiry_id }, enquiries).toLowerCase() : '';
@@ -2366,7 +2507,7 @@ export default function CallLogManager({
     searchTerm,
     historySortOrder,
     companies,
-    callLogs,
+    logs,
     contacts,
     enquiries
   ]);
@@ -2695,7 +2836,7 @@ export default function CallLogManager({
                   <div className="space-y-1 flex-1 min-w-0">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700">
-                        {getReferenceId('CL', item, callLogs)}
+                        {getReferenceId('CL', item, logs)}
                       </span>
                       {renderChannelBadge(item.channel || item.interaction_type)}
                       <span 
@@ -2972,22 +3113,11 @@ export default function CallLogManager({
                         {canEditOrDeleteRecord(user, item) && (
                           <button
                             type="button"
-                            onClick={async () => {
-                              if (item.id) {
-                                const confirmDelete = await askConfirm(
-                                  'Delete Scheduled Call',
-                                  'Are you sure you want to delete this scheduled call? This action cannot be undone.',
-                                  true,
-                                  'Delete Call'
-                                );
-                                if (confirmDelete) {
-                                  await CallLogRepository.deleteLog(item.id, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
-                                  if (setCallLogs) {
-                                    setCallLogs((prev) => prev.filter((x) => x.id !== item.id));
-                                  }
-                                  triggerToast('Scheduled call deleted', 'info');
-                                }
-                              }
+                            onClick={() => {
+                              handleDeleteLog(item, {
+                                confirmTitle: 'Delete Scheduled Call',
+                                confirmMessage: 'Are you sure you want to delete this scheduled call? This action cannot be undone.'
+                              });
                             }}
                             className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
                             title="Delete Scheduled Call"
@@ -3518,13 +3648,11 @@ export default function CallLogManager({
 
                       try {
                         for (const id of selectedLogIds) {
-                          await CallLogRepository.deleteLog(id, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
+                          const targetItem = logs.find((l) => l.id === id) || { id };
+                          await handleDeleteLog(targetItem, { hardDelete: true, skipConfirm: true, silentToast: true });
                         }
-                        if (setCallLogs) {
-                          setCallLogs((prev) => prev.filter((l) => !selectedLogIds.includes(l.id!)));
-                        }
-                        triggerToast(`Successfully deleted ${selectedLogIds.length} interaction log(s)`, 'success');
                         setSelectedLogIds([]);
+                        triggerToast(`Successfully deleted ${selectedLogIds.length} interaction log(s)`, 'success');
                       } catch (err: any) {
                         console.error('Error in batch delete:', err);
                         triggerToast('Failed to delete selected logs: ' + (err?.message || err), 'error');
@@ -3732,19 +3860,11 @@ export default function CallLogManager({
                               {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    const confirmDelete = await askConfirm('Delete Internal Task', 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
-                                    if (confirmDelete) {
-                                      try {
-                                        await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
-                                        if (setCallLogs) {
-                                          setCallLogs(prev => prev.filter(l => l.id !== log.id));
-                                        }
-                                        triggerToast('Internal task deleted successfully', 'success');
-                                      } catch (err) {
-                                        triggerToast('Failed to delete task', 'error');
-                                      }
-                                    }
+                                  onClick={() => {
+                                    handleDeleteLog(log, {
+                                      confirmTitle: 'Delete Internal Task',
+                                      confirmMessage: 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.'
+                                    });
                                   }}
                                   title="Delete"
                                   className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
@@ -3904,19 +4024,11 @@ export default function CallLogManager({
                             {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
                               <button
                                 type="button"
-                                 onClick={async () => {
-                                  const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
-                                  if (confirmDelete) {
-                                    try {
-                                      await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
-                                      if (setCallLogs) {
-                                        setCallLogs(prev => prev.filter(l => l.id !== log.id));
-                                      }
-                                      triggerToast('Log entry deleted successfully', 'success');
-                                    } catch (err) {
-                                      triggerToast('Failed to delete log entry', 'error');
-                                    }
-                                  }
+                                onClick={() => {
+                                  handleDeleteLog(log, {
+                                    confirmTitle: 'Delete Interaction Log',
+                                    confirmMessage: 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.'
+                                  });
                                 }}
                                 title="Delete"
                                 className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
@@ -4225,19 +4337,11 @@ export default function CallLogManager({
                                   </button>
                                   {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
                                     <button
-                                      onClick={async () => {
-                                        const confirmDelete = await askConfirm('Delete Internal Task', 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
-                                        if (confirmDelete) {
-                                          try {
-                                            await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
-                                            if (setCallLogs) {
-                                              setCallLogs(prev => prev.filter(l => l.id !== log.id));
-                                            }
-                                            triggerToast('Internal task deleted successfully', 'success');
-                                          } catch (err) {
-                                            triggerToast('Failed to delete task', 'error');
-                                          }
-                                        }
+                                      onClick={() => {
+                                        handleDeleteLog(log, {
+                                          confirmTitle: 'Delete Internal Task',
+                                          confirmMessage: 'Are you sure you want to delete this internal task? It will be moved to the Trash Bin.'
+                                        });
                                       }}
                                       title="Delete"
                                       className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 rounded-lg cursor-pointer"
@@ -4404,19 +4508,11 @@ export default function CallLogManager({
                                 </button>
                                 {canEditOrDeleteRecord(user, log, activeWorkspace?.id) && (
                                   <button
-                                    onClick={async () => {
-                                      const confirmDelete = await askConfirm('Delete Interaction Log', 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.', true, 'Delete', 'Cancel');
-                                      if (confirmDelete) {
-                                        try {
-                                          await CallLogRepository.deleteLog(log.id!, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
-                                          if (setCallLogs) {
-                                            setCallLogs(prev => prev.filter(l => l.id !== log.id));
-                                          }
-                                          triggerToast('Log entry deleted successfully', 'success');
-                                        } catch (err) {
-                                          triggerToast('Failed to delete log entry', 'error');
-                                        }
-                                      }
+                                    onClick={() => {
+                                      handleDeleteLog(log, {
+                                        confirmTitle: 'Delete Interaction Log',
+                                        confirmMessage: 'Are you sure you want to delete this interaction log? It will be moved to the Trash Bin.'
+                                      });
                                     }}
                                     title="Delete"
                                     className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
@@ -4577,13 +4673,11 @@ export default function CallLogManager({
 
                 try {
                   for (const id of selectedLogIds) {
-                    await CallLogRepository.deleteLog(id, user ? { uid: user.uid, name: user.full_name || user.username || 'Unknown' } : undefined);
+                    const targetItem = logs.find((l) => l.id === id) || { id };
+                    await handleDeleteLog(targetItem, { skipConfirm: true, silentToast: true });
                   }
-                  if (setCallLogs) {
-                    setCallLogs((prev) => prev.filter((l) => !selectedLogIds.includes(l.id!)));
-                  }
-                  triggerToast(`Successfully deleted ${selectedLogIds.length} records`, 'success');
                   setSelectedLogIds([]);
+                  triggerToast(`Successfully deleted ${selectedLogIds.length} records`, 'success');
                 } catch (err: any) {
                   triggerToast(`Bulk delete failed: ${err.message}`, 'error');
                 }
@@ -5659,7 +5753,7 @@ export default function CallLogManager({
             setIsActivityDrawerOpen(true);
           }
         }}
-        callLogs={callLogs}
+        callLogs={logs}
         activeWorkspace={activeWorkspace}
         triggerToast={triggerToast}
         onLeadConverted={(updatedEntry, newCompany, newContact) => {
@@ -5693,6 +5787,7 @@ export default function CallLogManager({
           }
         }}
         onDelete={(id) => {
+          setLogs((prev) => prev.filter((x) => x.id !== id));
           if (setCallLogs) {
             setCallLogs((prev) => prev.filter((x) => x.id !== id));
           }
