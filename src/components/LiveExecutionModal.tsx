@@ -639,7 +639,7 @@ export default function LiveExecutionModal({
   const effectiveTargetCompanyId = targetCompanyId || (task ? (task.company_id || (task as any).companyId) : undefined);
   const targetKey = `${effectiveTargetTaskId || ''}::${effectiveTargetCompanyId || ''}`;
 
-  // Initialize or re-sync active queue strictly when modal opens or execution target changes
+  // Initialize local queue strictly when modal opens (isOpen transitions from false to true)
   useEffect(() => {
     if (!isOpen) {
       wasOpenRef.current = false;
@@ -651,21 +651,14 @@ export default function LiveExecutionModal({
       return;
     }
 
-    // Skip re-syncing if the task change is caused by internal linear advancement (e.g. Next / Complete & Next)
-    if (internalAdvanceRef.current) {
-      internalAdvanceRef.current = false;
+    // While modal remains open, DO NOT re-assign the queue from props or reset currentIndex to 0
+    if (wasOpenRef.current) {
       return;
     }
+    wasOpenRef.current = true;
+    lastTargetKeyRef.current = targetKey;
 
-    const isInitialMount = !wasOpenRef.current;
-    const isTargetChange = Boolean(targetKey && targetKey !== lastTargetKeyRef.current);
-
-    // Ensure this targeted jump executes only on initial mount or when a new execution target is requested
-    if (isInitialMount || isTargetChange) {
-      wasOpenRef.current = true;
-      lastTargetKeyRef.current = targetKey;
-
-      let resolved: CallLogEntry[] = [];
+    let resolved: CallLogEntry[] = [];
 
       if (queueProp && queueProp.length > 0) {
         resolved = queueProp.filter((entry) => {
@@ -781,13 +774,12 @@ export default function LiveExecutionModal({
         currentQueueIndex = initialIndex;
       }
 
-      setActiveQueue(resolved);
-      setCurrentIndex(currentQueueIndex);
-      if (resolved[currentQueueIndex]) {
-        setCurrentTask(resolved[currentQueueIndex]);
-      } else if (targetTask) {
-        setCurrentTask(targetTask);
-      }
+    setActiveQueue(resolved);
+    setCurrentIndex(currentQueueIndex);
+    if (resolved[currentQueueIndex]) {
+      setCurrentTask(resolved[currentQueueIndex]);
+    } else if (targetTask) {
+      setCurrentTask(targetTask);
     }
   }, [isOpen, queueProp, initialIndex, task, targetTaskId, targetCompanyId, initialTaskId, targetTaskProp, callLogs, targetKey]);
 
@@ -1142,27 +1134,69 @@ export default function LiveExecutionModal({
     };
   }, [isOpen, currentTask, callLogs]);
 
-  // Derive recent company history (completed / executed interactions only)
-  const recentHistoryLogs = useMemo(() => {
-    if (!currentTask || !currentTask.company_id) return [];
+  // Local timeline state for optimistic history updates (0 extra Firestore reads)
+  const [timelineLogs, setTimelineLogs] = useState<CallLogEntry[]>([]);
+
+  // Synchronize base company history into timelineLogs
+  useEffect(() => {
+    if (!isOpen || (!currentTask?.company_id && !currentTask?.company_name && !currentTask?.unlinked_name)) {
+      setTimelineLogs([]);
+      return;
+    }
+    const compId = currentTask.company_id;
+    const compName = (currentTask.company_name || currentTask.unlinked_name || '').trim().toLowerCase();
+    let base: CallLogEntry[] = [];
     if (callLogs && callLogs.length > 0) {
-      return callLogs
-        .filter((l) => l.company_id === currentTask.company_id && l.id !== currentTask.id && !isScheduledTask(l))
+      base = callLogs
+        .filter((l) => {
+          if (l.id === currentTask.id || isScheduledTask(l)) return false;
+          if (compId && l.company_id === compId) return true;
+          if (compName && (l.company_name || l.unlinked_name || '').trim().toLowerCase() === compName) return true;
+          return false;
+        })
+        .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
+        .slice(0, 100);
+    } else if (fetchedCompanyLogs && fetchedCompanyLogs.length > 0) {
+      base = fetchedCompanyLogs
+        .filter((l) => {
+          if (l.id === currentTask.id || isScheduledTask(l)) return false;
+          if (compId && l.company_id === compId) return true;
+          if (compName && (l.company_name || l.unlinked_name || '').trim().toLowerCase() === compName) return true;
+          return false;
+        })
         .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
         .slice(0, 100);
     }
-    return fetchedCompanyLogs;
-  }, [currentTask, callLogs, fetchedCompanyLogs]);
+
+    setTimelineLogs((prev) => {
+      const optimisticForThisCompany = prev.filter((p) => {
+        if (!p.id?.startsWith('temp_')) return false;
+        if (compId && p.company_id === compId) return true;
+        if (compName && (p.company_name || p.unlinked_name || '').trim().toLowerCase() === compName) return true;
+        return false;
+      });
+      const combined = [...optimisticForThisCompany];
+      for (const log of base) {
+        if (!combined.some((item) => item.id === log.id)) {
+          combined.push(log);
+        }
+      }
+      return combined;
+    });
+  }, [isOpen, currentTask?.company_id, currentTask?.company_name, currentTask?.unlinked_name, callLogs, fetchedCompanyLogs]);
+
+  // Derive recent company history (completed / executed interactions only)
+  const recentHistoryLogs = timelineLogs;
 
   // Derive remaining unvisited leads in queue strictly forward
   const pendingLeads = useMemo(() => {
     if (!activeQueue || activeQueue.length <= 1) return [];
-    return activeQueue.slice(currentIndex + 1);
+    return activeQueue.filter((_, idx) => idx !== currentIndex);
   }, [activeQueue, currentIndex]);
 
-  // Linear advancement helper: cleanly resets state and advances strictly to (currentIndex + 1)
-  // Never decrements, never loops backward, cleanly exits if queue reaches the end
-  const advanceToNextTask = () => {
+  // In-Memory Queue Eviction & Pointer Advancement helper:
+  // Evicts active task from local in-memory queue upon completion, rescheduling, or save
+  const evictActiveTaskAndAdvance = (advanceToNext: boolean = true) => {
     // Reset active drawer and temporary action drawer states
     setActiveDrawer('none');
     setRescheduleReason('');
@@ -1178,25 +1212,38 @@ export default function LiveExecutionModal({
     setNextFollowUpDate('');
     setActivePreset(null);
 
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < activeQueue.length) {
+    setActiveQueue((prev) => {
+      const nextQueue = prev.filter((_, idx) => idx !== currentIndex);
+
+      if (!advanceToNext || nextQueue.length === 0) {
+        internalAdvanceRef.current = true;
+        setCurrentIndex(0);
+        setCurrentTask(null);
+        if (onSwitchTask) {
+          onSwitchTask(null);
+        }
+        onClose();
+        return nextQueue;
+      }
+
       internalAdvanceRef.current = true;
-      setCurrentIndex(nextIndex);
-      const nextTask = activeQueue[nextIndex];
+      let nextIdx = currentIndex;
+      if (currentIndex >= nextQueue.length && nextQueue.length > 0) {
+        nextIdx = 0;
+      }
+      setCurrentIndex(nextIdx);
+      const nextTask = nextQueue[nextIdx] || null;
       setCurrentTask(nextTask);
       if (onSwitchTask) {
         onSwitchTask(nextTask);
       }
-    } else {
-      // Reached the end of queue - cleanly exit
-      internalAdvanceRef.current = true;
-      setCurrentIndex(nextIndex);
-      setCurrentTask(null);
-      if (onSwitchTask) {
-        onSwitchTask(null);
-      }
-      onClose();
-    }
+
+      return nextQueue;
+    });
+  };
+
+  const advanceToNextTask = () => {
+    evictActiveTaskAndAdvance(true);
   };
 
   // Linked Company entity
@@ -2047,10 +2094,35 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Skip / Pass Action (Muted ghost button) - strictly advances forward
+  // Skip / Pass Action: simply increments currentIndex without mutating or resetting queue
   const handleSkipLead = () => {
-    advanceToNextTask();
+    setActiveDrawer('none');
+    setRescheduleReason('');
+    setCancelReason('');
+    setIsCompletionMode(false);
+    setSelectedCompanyPhoneOverride(null);
+    setIsAddingInlinePhone(false);
+    setInlinePhoneNumber('');
+    setNotes('');
+    setFollowUpIntent('');
+    setNextFollowUpDate('');
+    setActivePreset(null);
+
+    if (activeQueue.length > 0) {
+      setCurrentIndex((prev) => {
+        const nextIdx = (prev + 1) % activeQueue.length;
+        const nextTask = activeQueue[nextIdx];
+        setCurrentTask(nextTask);
+        if (onSwitchTask) {
+          onSwitchTask(nextTask);
+        }
+        return nextIdx;
+      });
+    }
   };
+
+  const handleSaveAndClose = () => executeSubmission(false, isCompletionMode || isExecutingTask);
+  const handleCompleteAndNext = () => executeSubmission(true, isCompletionMode || isExecutingTask);
 
   // Refined [✓ Complete Task] Action:
   // 1st click: Focuses scratchpad with subtle indicator so operator can enter final details
@@ -2379,7 +2451,71 @@ export default function LiveExecutionModal({
         );
       }
 
-      // Step 3: Trigger onCompleteTask and onSuccess callbacks
+      // Step 3: Optimistic in-memory timeline update (0 extra Firestore reads)
+      const activeDispObj = activeDispositions.find((d) => d.id === activeDispositionId);
+      const optimisticContactName = activeContactName || currentTask.contact_name || displayContactName || 'Contact';
+      const optimisticContactPhone = directPhone || currentTask.contact_phone;
+      const optimisticCompanyName = linkedCompany?.canonical_name || linkedCompany?.display_name || currentTask.company_name || currentTask.unlinked_name || 'Account';
+      const channelInteractionType: 'call' | 'email' | 'message' =
+        (currentChannel === 'Email' ? 'email' : isMessageChannel(currentChannel) || currentChannel.toLowerCase().includes('whatsapp') ? 'message' : 'call');
+
+      const optimisticLog: CallLogEntry = {
+        id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        company_id: currentTask.company_id,
+        company_name: optimisticCompanyName,
+        contact_id: currentTask.contact_id,
+        contact_name: optimisticContactName,
+        contact_phone: optimisticContactPhone,
+        channel: (currentChannel as ActivityChannel) || currentTask.channel || 'Phone Call',
+        interaction_type: channelInteractionType,
+        status: (updatedStatus as CallStatus) || 'Completed',
+        outcome: finalOutcome,
+        notes: finalNotes || liveNotes || notes,
+        requirement_notes: finalNotes || liveNotes || notes,
+        createdAt: nowIso,
+        date: nowIso,
+        logged_by: userName,
+        sales_person: userName,
+        workspace_id: activeWorkspace?.id || currentTask.workspace_id,
+        is_deleted: false
+      };
+      (optimisticLog as any).created_at = nowIso;
+      (optimisticLog as any).logged_date = nowIso;
+      (optimisticLog as any).interaction_type_label = activeDispObj?.label || activeDispositionId || 'Outreach';
+      setTimelineLogs((prev) => [optimisticLog, ...prev]);
+
+      // Resolve source follow-up document in Firestore
+      const sourceLogId = currentTask.sourceLogId || currentTask.source_log_id || currentTask.parent_log_id || currentTask.id;
+      if (sourceLogId) {
+        try {
+          await updateDoc(doc(db, 'activity_logs', sourceLogId), {
+            next_followup_date: null,
+            followup_resolved: true,
+            followup_resolved_at: nowIso
+          }).catch(async () => {
+            await safeUpdateDoc('activity_logs', sourceLogId, {
+              next_followup_date: null,
+              followup_resolved: true,
+              followup_resolved_at: nowIso
+            }).catch(() => {});
+          });
+          await updateDoc(doc(db, 'call_logs', sourceLogId), {
+            next_followup_date: null,
+            followup_resolved: true,
+            followup_resolved_at: nowIso
+          }).catch(async () => {
+            await safeUpdateDoc('call_logs', sourceLogId, {
+              next_followup_date: null,
+              followup_resolved: true,
+              followup_resolved_at: nowIso
+            }).catch(() => {});
+          });
+        } catch (e) {
+          console.warn('[LiveExecutionModal] Failed to resolve source log:', e);
+        }
+      }
+
+      // Step 4: Trigger onCompleteTask and onSuccess callbacks
       if (onCompleteTask) {
         onCompleteTask(updatedTaskRecord, advanceToNext);
       }
@@ -2387,7 +2523,7 @@ export default function LiveExecutionModal({
         onSuccess(updatedTaskRecord, spawnedFollowUpTask);
       }
 
-      // Step 4: Advance to next lead, close modal, or pivot in-place to WhatsApp
+      // Step 5: Advance to next lead, close modal, or pivot in-place to WhatsApp
       if (pivotToWhatsApp) {
         // Immediate Pivot to WhatsApp:
         // Launch WhatsApp web/app preserving any drafted notes
@@ -2414,13 +2550,8 @@ export default function LiveExecutionModal({
         if (waDisps.length > 0) {
           setActiveDispositionId(waDisps[0].id);
         }
-      } else if (advanceToNext) {
-        advanceToNextTask();
       } else {
-        if (onSwitchTask) {
-          onSwitchTask(null);
-        }
-        onClose();
+        evictActiveTaskAndAdvance(advanceToNext);
       }
     } catch (err) {
       console.error('Failed to execute resolution:', err);
@@ -2533,6 +2664,69 @@ export default function LiveExecutionModal({
       if (onSuccess) {
         onSuccess(updatedTaskRecord);
       }
+
+      // Resolve source follow-up document in Firestore if distinct
+      const sourceLogId = currentTask.sourceLogId || currentTask.source_log_id || currentTask.parent_log_id;
+      if (sourceLogId && sourceLogId !== currentTask.id) {
+        try {
+          await updateDoc(doc(db, 'activity_logs', sourceLogId), {
+            next_followup_date: null,
+            followup_resolved: true,
+            followup_resolved_at: nowIso
+          }).catch(async () => {
+            await safeUpdateDoc('activity_logs', sourceLogId, {
+              next_followup_date: null,
+              followup_resolved: true,
+              followup_resolved_at: nowIso
+            }).catch(() => {});
+          });
+          await updateDoc(doc(db, 'call_logs', sourceLogId), {
+            next_followup_date: null,
+            followup_resolved: true,
+            followup_resolved_at: nowIso
+          }).catch(async () => {
+            await safeUpdateDoc('call_logs', sourceLogId, {
+              next_followup_date: null,
+              followup_resolved: true,
+              followup_resolved_at: nowIso
+            }).catch(() => {});
+          });
+        } catch (e) {
+          console.warn('[LiveExecutionModal] Failed to resolve source log on reschedule:', e);
+        }
+      }
+
+      // Optimistic in-memory timeline update (0 extra Firestore reads)
+      const optimisticRescheduleContactName = activeContactName || currentTask.contact_name || displayContactName || 'Contact';
+      const optimisticRescheduleContactPhone = directPhone || currentTask.contact_phone;
+      const optimisticRescheduleCompanyName = linkedCompany?.canonical_name || linkedCompany?.display_name || currentTask.company_name || currentTask.unlinked_name || 'Account';
+      const rescheduleInteractionType: 'call' | 'email' | 'message' =
+        (currentChannel === 'Email' ? 'email' : isMessageChannel(currentChannel) || currentChannel.toLowerCase().includes('whatsapp') ? 'message' : 'call');
+
+      const optimisticRescheduleLog: CallLogEntry = {
+        id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        company_id: currentTask.company_id,
+        company_name: optimisticRescheduleCompanyName,
+        contact_id: currentTask.contact_id,
+        contact_name: optimisticRescheduleContactName,
+        contact_phone: optimisticRescheduleContactPhone,
+        channel: (currentChannel as ActivityChannel) || currentTask.channel || 'Phone Call',
+        interaction_type: rescheduleInteractionType,
+        status: 'Rescheduled' as CallStatus,
+        outcome: 'Follow-up Scheduled',
+        notes: rescheduleNoteText,
+        requirement_notes: rescheduleNoteText,
+        createdAt: nowIso,
+        date: nowIso,
+        logged_by: userName,
+        sales_person: userName,
+        workspace_id: activeWorkspace?.id || currentTask.workspace_id,
+        is_deleted: false
+      };
+      (optimisticRescheduleLog as any).created_at = nowIso;
+      (optimisticRescheduleLog as any).logged_date = nowIso;
+      (optimisticRescheduleLog as any).interaction_type_label = 'Task Rescheduled';
+      setTimelineLogs((prev) => [optimisticRescheduleLog, ...prev]);
 
       // Reset drawer & reason before advancing
       setActiveDrawer('none');
@@ -4823,7 +5017,7 @@ export default function LiveExecutionModal({
                   type="button"
                   id="save-and-close-button"
                   disabled={isSubmitting}
-                  onClick={() => executeSubmission(false, isCompletionMode || isExecutingTask)}
+                  onClick={handleSaveAndClose}
                   className="px-4 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-2xs disabled:opacity-50"
                 >
                   {isSubmitting ? (
@@ -4840,7 +5034,7 @@ export default function LiveExecutionModal({
                   type="button"
                   id="save-and-next-lead-button"
                   disabled={isSubmitting}
-                  onClick={() => executeSubmission(true, isCompletionMode || isExecutingTask)}
+                  onClick={handleCompleteAndNext}
                   className={`px-4.5 py-2 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-xs ${
                     isCompletionMode || isExecutingTask
                       ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/50'
