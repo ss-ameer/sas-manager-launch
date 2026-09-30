@@ -39,6 +39,9 @@ import {
   Briefcase
 } from 'lucide-react';
 
+export type ActivityLog = CallLogEntry;
+export type CallLog = CallLogEntry;
+
 interface CallLogDetailModalProps {
   entry: CallLogEntry | null;
   currentUser?: UserProfile | null;
@@ -46,7 +49,7 @@ interface CallLogDetailModalProps {
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
   onLeadConverted?: (updatedEntry: CallLogEntry, newCompany: Company, newContact: Contact) => void;
   onClose: () => void;
-  onEdit: (entry: CallLogEntry) => void;
+  onEdit?: (log: CallLog | ActivityLog) => void;
   onDelete?: (id: string) => void;
   onOpenCompany360: (companyId: string) => void;
   onOpenEnquiry?: (enquiryId: string) => void;
@@ -960,37 +963,39 @@ export default function CallLogDetailModal({
             )}
           </div>
 
-          {canEditOrDelete && (
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2">
+            {(Boolean(onEdit) || canEditOrDelete) && (
               <button
                 type="button"
                 onClick={() => {
+                  if (onEdit) {
+                    onEdit(entry);
+                  }
                   onClose();
-                  onEdit(entry);
                 }}
                 className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
               >
                 <Edit2 className="w-3.5 h-3.5 text-slate-400" />
                 <span>{entry.isInternalOps ? 'Edit Task' : 'Edit Log'}</span>
               </button>
+            )}
 
-              {entry.id && (
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="px-3 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 text-xs font-bold rounded-xl flex items-center space-x-1 transition cursor-pointer disabled:opacity-50"
-                >
-                  {isDeleting ? (
-                    <Loader2 className="w-3.5 h-3.5 text-rose-400 animate-spin" />
-                  ) : (
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                  )}
-                  <span>Delete</span>
-                </button>
-              )}
-            </div>
-          )}
+            {canEditOrDelete && entry.id && (
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-3 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 text-xs font-bold rounded-xl flex items-center space-x-1 transition cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-3.5 h-3.5 text-rose-400 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                )}
+                <span>Delete</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

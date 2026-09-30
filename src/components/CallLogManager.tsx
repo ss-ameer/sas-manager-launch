@@ -259,9 +259,13 @@ interface CallLogManagerProps {
     contactId?: string;
     contactName?: string;
     contactPhone?: string;
+    contactEmail?: string;
+    targetType?: 'contact' | 'company_mainline';
+    defaultOutcome?: string;
     enquiryId?: string;
     channel?: 'Call' | 'WhatsApp' | 'Email' | 'Meeting' | 'Site Visit' | string;
     initialStatus?: string;
+    initialChannel?: string;
     existingLog?: any;
     logToEdit?: any;
     drawerMode?: 'create' | 'edit' | 'execute';
@@ -330,6 +334,22 @@ export default function CallLogManager({
   }, [callLogs]);
 
   const handleLogSaved = (savedLog: CallLogEntry, spawnedLog?: CallLogEntry) => {
+    if (savedLog?.id) {
+      try {
+        const payload: Record<string, any> = {};
+        for (const [k, v] of Object.entries(savedLog)) {
+          if (v !== undefined) payload[k] = v;
+        }
+        updateDoc(doc(db, 'activity_logs', savedLog.id), payload).catch(() => {
+          safeUpdateDoc('activity_logs', savedLog.id, payload).catch(() => {});
+        });
+        updateDoc(doc(db, 'call_logs', savedLog.id), payload).catch(() => {
+          safeUpdateDoc('call_logs', savedLog.id, payload).catch(() => {});
+        });
+      } catch (err) {
+        console.warn('[CallLogManager] updateDoc failed on save:', err);
+      }
+    }
     CallLogRepository.saveLocalOnly(savedLog).catch((err) => console.warn('[CallLogManager] Failed to cache savedLog:', err));
     if (spawnedLog) {
       CallLogRepository.saveLocalOnly(spawnedLog).catch((err) => console.warn('[CallLogManager] Failed to cache spawnedLog:', err));
@@ -5831,12 +5851,21 @@ export default function CallLogManager({
               existingLog: entry,
               logToEdit: entry,
               drawerMode: 'edit',
-              initialIsInternalOps: Boolean(entry.isInternalOps),
-              channel: entry.channel || (entry.isInternalOps ? 'Internal Task' : undefined)
+              companyId: entry.company_id,
+              companyName: entry.company_name || entry.unlinked_name,
+              contactId: entry.contact_id,
+              contactName: entry.contact_name,
+              contactPhone: entry.contact_phone,
+              contactEmail: (entry as any).contact_email || (entry as any).email_address || (entry as any).recipient_email,
+              enquiryId: entry.enquiry_id,
+              initialChannel: entry.channel || (entry.isInternalOps ? 'Internal Task' : 'Call'),
+              channel: entry.channel || (entry.isInternalOps ? 'Internal Task' : 'Call'),
+              initialStatus: entry.status,
+              defaultOutcome: (entry as any).call_outcome || entry.outcome,
+              initialIsInternalOps: Boolean(entry.isInternalOps)
             });
-          } else {
-            setIsActivityDrawerOpen(true);
           }
+          setIsActivityDrawerOpen(true);
         }}
         onDelete={(id) => {
           setLogs((prev) => prev.filter((x) => x.id !== id));
@@ -5955,10 +5984,12 @@ export default function CallLogManager({
         contactId={editingLog?.contact_id}
         contactName={editingLog?.contact_name}
         contactPhone={editingLog?.contact_phone}
+        contactEmail={editingLog?.contact_email || (editingLog as any)?.email_address}
         enquiryId={editingLog?.enquiry_id}
         initialChannel={editingLog?.channel || (historyActivityType === 'internal' ? 'Internal Task' : undefined)}
         initialIsInternalOps={Boolean(editingLog?.isInternalOps || historyActivityType === 'internal')}
         initialStatus={editingLog?.status}
+        defaultOutcome={(editingLog as any)?.call_outcome || editingLog?.outcome}
         activeWorkspaceId={activeWorkspace.id}
         currentSalespersonId={user?.uid || user?.username || ''}
         currentUserInitials={user?.username?.slice(0, 2).toUpperCase() || 'OP'}

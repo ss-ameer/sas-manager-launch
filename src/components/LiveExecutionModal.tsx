@@ -212,6 +212,7 @@ interface DispositionConfig {
   defaultOutcome: string;
   defaultPreset: 'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'clear';
   defaultIntent: string;
+  defaultNotes?: string;
   activeClass: string;
   inactiveClass: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -226,6 +227,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Information Gathered',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Follow-up on discussion',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -238,6 +240,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Scheduled outreach follow-up',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
@@ -250,6 +253,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Retry call - No answer or line busy',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: PhoneMissed
@@ -262,6 +266,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'laterToday',
     defaultIntent: 'Call dropped / disconnected - Retry callback',
+    defaultNotes: '',
     activeClass: 'bg-amber-600 text-white border-amber-600 shadow-md ring-2 ring-amber-500/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: PhoneOff
@@ -274,6 +279,7 @@ export const CALL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
+    defaultNotes: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
     inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
     icon: Ban
@@ -289,6 +295,7 @@ export const MEETING_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Meeting Booked',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Send meeting recap & agreed action items',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -301,6 +308,7 @@ export const MEETING_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: '3days',
     defaultIntent: 'Follow-up on meeting action items',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
@@ -313,6 +321,7 @@ export const MEETING_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'No Response / Ghosted',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Reach out to reschedule missed meeting',
+    defaultNotes: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
     inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
     icon: CalendarX
@@ -325,6 +334,7 @@ export const MEETING_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: '3days',
     defaultIntent: 'Confirm rescheduled meeting timing',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: Clock
@@ -340,6 +350,7 @@ export const SITE_VISIT_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Information Gathered',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Compile site audit report & proposal',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -352,6 +363,7 @@ export const SITE_VISIT_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Quote / Proposal Requested',
     defaultPreset: '3days',
     defaultIntent: 'Submit quote based on site inspection',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
@@ -364,6 +376,7 @@ export const SITE_VISIT_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Gatekeeper Blocked',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Contact client to obtain site access / reschedule',
+    defaultNotes: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
     inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
     icon: Ban
@@ -376,6 +389,7 @@ export const SITE_VISIT_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: '3days',
     defaultIntent: 'Confirm revised site visit schedule',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: Clock
@@ -391,6 +405,7 @@ export const INTERNAL_TASK_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Information Gathered',
     defaultPreset: 'clear',
     defaultIntent: '',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -403,6 +418,7 @@ export const INTERNAL_TASK_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Active Negotiation',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Continue internal task execution',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: Clock
@@ -415,6 +431,7 @@ export const INTERNAL_TASK_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'No Response / Ghosted',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Unblock task - request required inputs',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: AlertTriangle
@@ -430,6 +447,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Enquiry Received',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Reply to customer email inquiry',
+    defaultNotes: '',
     activeClass: 'bg-teal-600 text-white border-teal-600 shadow-md ring-2 ring-teal-500/30',
     inactiveClass: 'bg-teal-50/80 dark:bg-teal-950/30 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 hover:bg-teal-100/80',
     icon: CheckCircle2
@@ -442,6 +460,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Quote / Info Sent',
     defaultPreset: '3days',
     defaultIntent: 'Check for reply / follow up on email',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -454,6 +473,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Send follow-up email',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
@@ -466,6 +486,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Message Sent / Awaiting Reply',
     defaultPreset: '3days',
     defaultIntent: 'Follow-up on unanswered email',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: Clock
@@ -478,6 +499,7 @@ export const EMAIL_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
+    defaultNotes: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
     inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
     icon: Ban
@@ -493,6 +515,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Enquiry Received',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Reply to customer WhatsApp message',
+    defaultNotes: '',
     activeClass: 'bg-teal-600 text-white border-teal-600 shadow-md ring-2 ring-teal-500/30',
     inactiveClass: 'bg-teal-50/80 dark:bg-teal-950/30 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800/60 hover:bg-teal-100/80',
     icon: CheckCircle2
@@ -505,6 +528,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Message Sent / Awaiting Reply',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Check for WhatsApp reply',
+    defaultNotes: '',
     activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-500/30',
     inactiveClass: 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100/80',
     icon: CheckCircle2
@@ -517,6 +541,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'Follow-up Scheduled',
     defaultPreset: 'tomorrow',
     defaultIntent: 'Follow-up on WhatsApp chat',
+    defaultNotes: '',
     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-500/30',
     inactiveClass: 'bg-blue-50/80 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/60 hover:bg-blue-100/80',
     icon: CalendarClock
@@ -529,6 +554,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: 'No Response / Ghosted',
     defaultPreset: '3days',
     defaultIntent: 'Follow-up on unreplied WhatsApp message',
+    defaultNotes: '',
     activeClass: 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400/30',
     inactiveClass: 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100/80',
     icon: Clock
@@ -541,6 +567,7 @@ export const WHATSAPP_DISPOSITIONS: DispositionConfig[] = [
     defaultOutcome: '',
     defaultPreset: 'clear',
     defaultIntent: '',
+    defaultNotes: '',
     activeClass: 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-500/30',
     inactiveClass: 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100/80',
     icon: Ban
@@ -806,6 +833,8 @@ export default function LiveExecutionModal({
   const [purpose, setPurpose] = useState<string>('');
   const [isDnc, setIsDnc] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
+  const liveNotes = notes;
+  const setLiveNotes = setNotes;
   const [followUpIntent, setFollowUpIntent] = useState<string>('');
   const [followUpChannel, setFollowUpChannel] = useState<MasterActivityChannel>('Phone Call');
   const [activePreset, setActivePreset] = useState<'laterToday' | 'thisAfternoon' | 'tomorrow' | '3days' | '1week' | 'custom' | null>('tomorrow');
@@ -1831,9 +1860,6 @@ export default function LiveExecutionModal({
       setNextFollowUpDate(localIso);
       setActivePreset(null);
       setFollowUpIntent('Call dropped / disconnected - Retry callback');
-      if (!notes.trim()) {
-        setNotes('Call dropped / disconnected mid-conversation. Follow-up retry scheduled for 15 minutes.');
-      }
     } else if (disp.id === 'scheduled') {
       if (disp.defaultPreset) {
         applyFollowUpPreset(disp.defaultPreset, disp.defaultIntent);
@@ -4211,15 +4237,15 @@ export default function LiveExecutionModal({
                   id="execution-notes-textarea"
                   ref={notesTextareaRef}
                   rows={4}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  value={liveNotes}
+                  onChange={(e) => setLiveNotes(e.target.value)}
                   onKeyDown={(e) => {
                     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                       e.preventDefault();
                       executeSubmission(true, isCompletionMode || isExecutingTask);
                     }
                   }}
-                  placeholder="Notes on this interaction (saved to activity history)..."
+                  placeholder="Type call notes, discussion points, or next steps here..."
                   className={`w-full px-3.5 py-2.5 text-xs rounded-xl border transition placeholder:text-slate-400 resize-none font-sans leading-relaxed ${
                     isCompletionMode
                       ? 'border-emerald-400 dark:border-emerald-600 ring-2 ring-emerald-500/20 bg-emerald-50/20 dark:bg-emerald-950/10 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500'
