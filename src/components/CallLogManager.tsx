@@ -1196,11 +1196,33 @@ export default function CallLogManager({
     return map;
   }, [workspaceContacts]);
 
-  // DNC suppression helper
+  // DNC suppression helper: strictly excludes contacts or companies where is_dnc is true or opted-out
   const isEntrySuppressedByDNC = (entry: CallLogEntry): boolean => {
     const comp = entry.company_id ? companyMap.get(entry.company_id) : null;
     const cont = entry.contact_id ? contactMap.get(entry.contact_id) : null;
-    return Boolean(comp?.is_dnc || cont?.is_dnc);
+
+    const isDirectDnc = Boolean(
+      (entry as any).is_dnc === true ||
+      (entry as any).dnc === true ||
+      (entry as any).dnc_status === 'OPTED_OUT' ||
+      (entry as any).company_is_dnc === true ||
+      (entry as any).contact_is_dnc === true
+    );
+
+    const isCompDnc = Boolean(
+      comp?.is_dnc === true ||
+      (comp as any)?.dnc === true ||
+      (comp as any)?.dnc_status === 'OPTED_OUT' ||
+      comp?.temperature === 'DNC'
+    );
+
+    const isContDnc = Boolean(
+      cont?.is_dnc === true ||
+      (cont as any)?.dnc === true ||
+      (cont as any)?.dnc_status === 'OPTED_OUT'
+    );
+
+    return isDirectDnc || isCompDnc || isContDnc;
   };
 
   // Helper to identify internal ops / development tasks
@@ -1498,6 +1520,7 @@ export default function CallLogManager({
   // Sorted deterministically: Overdue tasks first (oldest to newest), followed by Today's tasks chronologically
   const getStrictExecutionQueue = useCallback((): CallLogEntry[] => {
     const eligible = allScheduledQueueItems.filter((entry) => {
+      if (isEntrySuppressedByDNC(entry)) return false;
       const dateStr = entry.next_followup_date || entry.date;
       // Exclude all items where scheduled date is in the future
       if (isTaskUpcoming(dateStr)) return false;
@@ -1534,6 +1557,10 @@ export default function CallLogManager({
   }, [allScheduledQueueItems]);
 
   const openFastQueueLogger = (entry: CallLogEntry) => {
+    if (isEntrySuppressedByDNC(entry)) {
+      triggerToast('Cannot launch execution: Contact or Company is marked as Do Not Call (DNC).', 'error');
+      return;
+    }
     const strictQueue = getStrictExecutionQueue();
     const entryIdx = strictQueue.findIndex((item) => item.id === entry.id);
 

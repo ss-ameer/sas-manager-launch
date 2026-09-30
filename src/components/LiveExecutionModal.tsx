@@ -833,16 +833,18 @@ export default function LiveExecutionModal({
   const [nextFollowUpDate, setNextFollowUpDate] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Dedicated Task Lifecycle Action States (Mutually Exclusive Drawer)
+  // Dedicated Task Lifecycle Action States
   const [activeDrawer, setActiveDrawer] = useState<'none' | 'cancel' | 'reschedule'>('none');
   const [reschedulePreset, setReschedulePreset] = useState<'tomorrow' | '3days' | '1week' | 'custom'>('tomorrow');
   const [rescheduleDate, setRescheduleDate] = useState<string>('');
   const [rescheduleReason, setRescheduleReason] = useState<string>('');
 
   const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
 
   // Complete Task Direct Action & Scratchpad Focus State
   const [isCompletionMode, setIsCompletionMode] = useState<boolean>(false);
+  const [isCurrentTaskCompleted, setIsCurrentTaskCompleted] = useState<boolean>(false);
 
   // Dynamic Contact details override (for Add Contact binding & contact selector)
   const [activeContactId, setActiveContactId] = useState<string>('');
@@ -906,6 +908,7 @@ export default function LiveExecutionModal({
   useEffect(() => {
     if (currentTask && isOpen) {
       setIsCompletionMode(false);
+      setIsCurrentTaskCompleted(Boolean(currentTask.status === 'Completed' && (currentTask as any).isCompleted));
       const taskChan = currentTask.channel || 'Phone Call';
       setCurrentChannel(taskChan);
 
@@ -1201,7 +1204,9 @@ export default function LiveExecutionModal({
     setActiveDrawer('none');
     setRescheduleReason('');
     setCancelReason('');
+    setIsCancelModalOpen(false);
     setIsCompletionMode(false);
+    setIsCurrentTaskCompleted(false);
     setSelectedCompanyPhoneOverride(null);
     setIsAddingInlinePhone(false);
     setInlinePhoneNumber('');
@@ -2121,29 +2126,32 @@ export default function LiveExecutionModal({
     }
   };
 
-  const handleSaveAndClose = () => executeSubmission(false, isCompletionMode || isExecutingTask);
-  const handleCompleteAndNext = () => executeSubmission(true, isCompletionMode || isExecutingTask);
-
-  // Refined [✓ Complete Task] Action:
-  // 1st click: Focuses scratchpad with subtle indicator so operator can enter final details
-  // 2nd click: Commits status, archives task, and strictly advances queue
-  const handleCompleteTaskClick = () => {
-    if (!isCompletionMode) {
-      setIsCompletionMode(true);
-
-      // Focus the Live Notes Scratchpad textarea so the user can quickly append final details
-      safeSetTimeout(() => {
-        if (notesTextareaRef.current) {
-          notesTextareaRef.current.focus();
-          const len = notesTextareaRef.current.value.length;
-          notesTextareaRef.current.setSelectionRange(len, len);
-          notesTextareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 50);
+  const handleSaveAndClose = async () => {
+    if (isSubmitting) return;
+    if (isCurrentTaskCompleted) {
+      onClose();
     } else {
-      // Second click: cleanly complete task and advance forward
-      executeSubmission(true, true);
+      await executeSubmission(false, isCompletionMode || isExecutingTask);
     }
+  };
+
+  const handleCompleteAndNext = async () => {
+    if (isSubmitting) return;
+    if (isCurrentTaskCompleted) {
+      evictActiveTaskAndAdvance(true);
+    } else {
+      await executeSubmission(true, isCompletionMode || isExecutingTask);
+    }
+  };
+
+  const handleCompleteTaskStay = async () => {
+    if (isSubmitting || isCurrentTaskCompleted) return;
+    await executeSubmission(false, true, false, true);
+  };
+
+  const handleOpenCancelDialog = () => {
+    setCancelReason(liveNotes || notes || '');
+    setIsCancelModalOpen(true);
   };
 
   // Immediate "Log Call & Message via WhatsApp" Pivot Handler
@@ -2156,7 +2164,8 @@ export default function LiveExecutionModal({
   const executeSubmission = async (
     advanceToNext: boolean,
     forceCompleted: boolean = false,
-    pivotToWhatsApp: boolean = false
+    pivotToWhatsApp: boolean = false,
+    stayOnCurrent: boolean = false
   ) => {
     if (!currentTask || isSubmitting) return;
     const taskId = currentTask.id || `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -2212,11 +2221,94 @@ export default function LiveExecutionModal({
       }
       const finalNotes: string = combineInteractionNotes(currentTask.requirement_notes, notes);
 
-      // Step 0: Upstream Contact Sync for 'Invalid Number' and DNC
-      const targetContactId = activeContactId || currentTask.contact_id;
-      const targetPhone = directPhone;
+      // Step 0: Accurate Dialed Target Tagging
+      // If "Company Mainline" is active, tag the channel as Mainline Switchboard.
+      // If "Target Contact Person" is active, tag the individual contact ID and direct phone number.
+      const isTargetMainline = activeTarget === 'mainline';
+      const effectiveChannel = isTargetMainline
+        ? 'Mainline Switchboard'
+        : ((pivotToWhatsApp ? 'Message' : currentChannel) as ActivityChannel);
+
+      let resolvedTargetContactId = isTargetMainline
+        ? undefined
+        : (targetContact?.id || activeContactId || currentTask.contact_id || undefined);
+      let resolvedTargetContactName = isTargetMainline
+        ? 'Company Mainline'
+        : (activeContactName || targetContact?.full_name || currentTask.contact_name || displayContactName || 'Contact');
+      let resolvedTargetContactPhone = isTargetMainline
+        ? (companyMainPhone || currentTask.company_phone || '')
+        : (activeContactPhone || directPhone || currentTask.contact_phone || '');
+      let resolvedTargetContactEmail = isTargetMainline
+        ? (companyMainEmail || currentTask.company_email || currentTask.email_address || '')
+        : (activeContactEmail || directEmail || (currentTask as any)?.contact_email || currentTask?.email_address || '');
+      let resolvedContactDesignation: string | undefined = undefined;
+
+      // Auto-resolve contact person from matched phone number if contact is unassigned or mainline
+      if (!isTargetMainline && isContactUnassigned(resolvedTargetContactId, resolvedTargetContactName) && resolvedTargetContactPhone) {
+        const autoMatch = resolveContactByPhoneNumber(
+          resolvedTargetContactPhone,
+          contacts,
+          currentTask.company_id
+        );
+        if (autoMatch) {
+          resolvedTargetContactId = autoMatch.contact_id;
+          resolvedTargetContactName = autoMatch.contact_name;
+          resolvedTargetContactPhone = autoMatch.contact_phone;
+          resolvedContactDesignation = autoMatch.contact_designation;
+          if (!resolvedTargetContactEmail && autoMatch.contact_email) {
+            resolvedTargetContactEmail = autoMatch.contact_email;
+          }
+        }
+      }
+
+      // Upstream Contact & Company Sync for 'Invalid Number' and DNC
+      const targetContactId = resolvedTargetContactId;
+      const targetPhone = resolvedTargetContactPhone || directPhone;
       const isInvalidStatus = updatedStatus === 'Invalid Number' || callStatus === 'Invalid Number';
       const isDncTriggered = isDnc || (finalOutcome && (finalOutcome.toLowerCase().includes('dnc') || finalOutcome.toLowerCase().includes('opt-out')));
+
+      if (isDncTriggered) {
+        const dncPayload = {
+          is_dnc: true,
+          dnc: true,
+          dnc_status: 'OPTED_OUT',
+          dnc_updated_at: nowIso,
+          dnc_reason: 'Opt-Out from Live Execution Command Center'
+        };
+
+        if (targetContactId) {
+          try {
+            await updateDoc(doc(db, 'contacts', targetContactId), dncPayload).catch(async () => {
+              await safeUpdateDoc('contacts', targetContactId, dncPayload).catch(() => {});
+            });
+            if (setContacts) {
+              setContacts((prev) =>
+                prev.map((c) => (c.id === targetContactId ? { ...c, ...dncPayload } as any : c))
+              );
+            }
+          } catch (ctDncErr) {
+            console.warn('[LiveExecutionModal] Failed to persist contact DNC:', ctDncErr);
+          }
+        }
+
+        if (isTargetMainline || !targetContactId || currentTask.company_id) {
+          const cId = currentTask.company_id || linkedCompany?.id;
+          if (cId) {
+            try {
+              await updateDoc(doc(db, 'companies', cId), dncPayload).catch(async () => {
+                await safeUpdateDoc('companies', cId, dncPayload).catch(() => {});
+              });
+              if (setCompanies) {
+                setCompanies((prev) =>
+                  prev.map((c) => (c.id === cId ? { ...c, ...dncPayload } as any : c))
+                );
+              }
+            } catch (compDncErr) {
+              console.warn('[LiveExecutionModal] Failed to persist company DNC:', compDncErr);
+            }
+          }
+        }
+      }
 
       if (targetContactId) {
         try {
@@ -2266,6 +2358,8 @@ export default function LiveExecutionModal({
             if (isDncTriggered) {
               updatedContact.is_dnc = true;
               updatedContact.dnc = true;
+              (updatedContact as any).dnc_status = 'OPTED_OUT';
+              (updatedContact as any).dnc_updated_at = nowIso;
               updatedContact.dnc_reason = updatedContact.dnc_reason || 'Opt-Out from Live Execution Command Center';
               hasContactChanges = true;
             }
@@ -2284,36 +2378,6 @@ export default function LiveExecutionModal({
         }
       }
 
-      // Resolve target contact details based on whether contact person or company mainline is selected
-      const isTargetMainline = activeTarget === 'mainline';
-      let resolvedTargetContactId = isTargetMainline ? undefined : (activeContactId || currentTask.contact_id || undefined);
-      let resolvedTargetContactName = isTargetMainline ? 'Company Mainline' : (activeContactName || currentTask.contact_name || displayContactName);
-      let resolvedTargetContactPhone = isTargetMainline
-        ? (companyMainPhone || currentTask.company_phone || '')
-        : (activeContactPhone || directPhone || currentTask.contact_phone || '');
-      let resolvedTargetContactEmail = isTargetMainline
-        ? (companyMainEmail || currentTask.company_email || currentTask.email_address || '')
-        : (activeContactEmail || directEmail || (currentTask as any)?.contact_email || currentTask?.email_address || '');
-      let resolvedContactDesignation: string | undefined = undefined;
-
-      // Auto-resolve contact person from matched phone number if contact is unassigned or mainline
-      if (isContactUnassigned(resolvedTargetContactId, resolvedTargetContactName) && resolvedTargetContactPhone) {
-        const autoMatch = resolveContactByPhoneNumber(
-          resolvedTargetContactPhone,
-          contacts,
-          currentTask.company_id
-        );
-        if (autoMatch) {
-          resolvedTargetContactId = autoMatch.contact_id;
-          resolvedTargetContactName = autoMatch.contact_name;
-          resolvedTargetContactPhone = autoMatch.contact_phone;
-          resolvedContactDesignation = autoMatch.contact_designation;
-          if (!resolvedTargetContactEmail && autoMatch.contact_email) {
-            resolvedTargetContactEmail = autoMatch.contact_email;
-          }
-        }
-      }
-
       // Geography / Region inheritance from company snapshot
       const resolvedGeography = resolveGeographyFromCompany(
         linkedCompany,
@@ -2329,14 +2393,14 @@ export default function LiveExecutionModal({
       const updatedTaskRecord: CallLogEntry = {
         ...currentTask,
         id: taskId,
-        channel: (pivotToWhatsApp ? 'Message' : currentChannel) as ActivityChannel,
+        channel: effectiveChannel,
         contact_id: resolvedTargetContactId,
         contact_name: resolvedTargetContactName,
         contact_phone: resolvedTargetContactPhone,
         ...((resolvedTargetContactEmail ? { contact_email: resolvedTargetContactEmail, target_email: resolvedTargetContactEmail } : {}) as any),
         geography: resolvedGeography,
         ...(resolvedContactDesignation ? { contact_designation: resolvedContactDesignation, designation: resolvedContactDesignation } : {}),
-        status: (pivotToWhatsApp ? 'Completed' : updatedStatus) as CallStatus,
+        status: (pivotToWhatsApp || forceCompleted ? 'Completed' : updatedStatus) as CallStatus,
         outcome: cleanOutcome,
         purpose: purpose || currentTask.purpose || 'Follow-up / Check-in',
         requirement_notes: finalNotes,
@@ -2550,6 +2614,11 @@ export default function LiveExecutionModal({
         if (waDisps.length > 0) {
           setActiveDispositionId(waDisps[0].id);
         }
+      } else if (stayOnCurrent) {
+        // Complete Task (Stay):
+        // Marks active task as completed in-place without advancing queue pointer or evicting card
+        setIsCurrentTaskCompleted(true);
+        setIsCompletionMode(false);
       } else {
         evictActiveTaskAndAdvance(advanceToNext);
       }
@@ -2828,6 +2897,31 @@ export default function LiveExecutionModal({
         id: auditDocId
       } as any;
 
+      // Optimistically append to local timelineLogs with status [Cancelled] (0 extra Firestore reads)
+      const optimisticCancelLog: CallLogEntry = {
+        id: auditDocId,
+        company_id: currentCompanyId,
+        company_name: currentCompanyName,
+        contact_id: currentTask.contact_id,
+        contact_name: currentContactName || 'General',
+        channel: currentChannel || 'Task',
+        interaction_type: 'call',
+        status: 'CANCELLED' as CallStatus,
+        outcome: 'Follow-Up Cancelled',
+        notes: cancelReason.trim() ? `[Cancelled] ${cancelReason.trim()}` : '[Cancelled] Scheduled follow-up cancelled by user.',
+        requirement_notes: cancelReason.trim() ? `[Cancelled] ${cancelReason.trim()}` : '[Cancelled] Scheduled follow-up cancelled by user.',
+        createdAt: nowIso,
+        date: nowIso,
+        logged_by: userName,
+        sales_person: userName,
+        workspace_id: currentWorkspaceId,
+        is_deleted: false
+      };
+      (optimisticCancelLog as any).created_at = nowIso;
+      (optimisticCancelLog as any).logged_date = nowIso;
+      (optimisticCancelLog as any).interaction_type_label = '[Cancelled]';
+      setTimelineLogs((prev) => [optimisticCancelLog, ...prev]);
+
       // Update local repository and company next follow-up
       await CallLogRepository.save(auditRecordWithId).catch(() => {});
       if (currentCompanyId) {
@@ -2842,12 +2936,6 @@ export default function LiveExecutionModal({
           );
         }
       }
-
-      // 3. Queue State Advance:
-      // Immediately remove the canceled item from the in-memory queue:
-      const activeItemId = currentTask.id;
-      setActiveQueue((prev) => prev.filter((item) => item.id !== activeItemId));
-      const remainingQueue = activeQueue.filter((item) => item.id !== activeItemId);
 
       if (setCallLogs) {
         setCallLogs((prev) => {
@@ -2874,38 +2962,11 @@ export default function LiveExecutionModal({
         onSuccess(auditRecordWithId);
       }
 
-      // Reset action drawers and inputs
-      setActiveDrawer('none');
-      setRescheduleReason('');
-      setCancelReason('');
-      setIsCompletionMode(false);
-      setSelectedCompanyPhoneOverride(null);
-      setIsAddingInlinePhone(false);
-      setInlinePhoneNumber('');
-      setNotes('');
-      setFollowUpIntent('');
-      setNextFollowUpDate('');
-      setActivePreset(null);
+      // Close cancellation dialog if open
+      setIsCancelModalOpen(false);
 
-      // Advance to the next task in the queue or close gracefully if 0 remain
-      if (remainingQueue.length === 0) {
-        internalAdvanceRef.current = true;
-        setCurrentIndex(0);
-        setCurrentTask(null);
-        if (onSwitchTask) {
-          onSwitchTask(null);
-        }
-        onClose();
-      } else {
-        internalAdvanceRef.current = true;
-        const nextIdx = Math.min(currentIndex, remainingQueue.length - 1);
-        setCurrentIndex(nextIdx);
-        const nextTask = remainingQueue[nextIdx];
-        setCurrentTask(nextTask);
-        if (onSwitchTask) {
-          onSwitchTask(nextTask);
-        }
-      }
+      // In-Memory Queue Eviction & Pointer Advancement helper: evicts active task from local queue
+      evictActiveTaskAndAdvance(true);
     } catch (err) {
       console.error('Failed to cancel task:', err);
       alert('Error cancelling task. Please retry.');
@@ -4899,9 +4960,9 @@ export default function LiveExecutionModal({
                     type="button"
                     id="lifecycle-cancel-task-btn"
                     disabled={isSubmitting}
-                    onClick={executeCancelTask}
+                    onClick={handleOpenCancelDialog}
                     className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs text-rose-700 dark:text-rose-400 hover:text-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border-rose-200 dark:border-rose-900/60"
-                    title="Cancel this scheduled task and remove it from the active queue immediately"
+                    title="Cancel this scheduled task"
                   >
                     {isSubmitting ? (
                       <>
@@ -4933,21 +4994,21 @@ export default function LiveExecutionModal({
                     <span>Reschedule</span>
                   </button>
 
-                  {/* Complete Task */}
+                  {/* Complete Task (Stay) */}
                   <button
                     type="button"
                     id="lifecycle-complete-task-btn"
-                    disabled={isSubmitting}
-                    onClick={handleCompleteTaskClick}
+                    disabled={isSubmitting || isCurrentTaskCompleted}
+                    onClick={handleCompleteTaskStay}
                     className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center space-x-1.5 ${
-                      isCompletionMode
-                        ? 'text-white bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/70 ring-offset-1 dark:ring-offset-slate-900 shadow-md'
+                      isCurrentTaskCompleted
+                        ? 'text-white bg-emerald-700 ring-2 ring-emerald-500 shadow-md cursor-default'
                         : 'text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400'
                     }`}
                     title={
-                      isCompletionMode
-                        ? 'Click again to confirm task completion and advance'
-                        : 'Pre-set completed disposition, focus scratchpad, and complete task'
+                      isCurrentTaskCompleted
+                        ? 'Task completed in-place'
+                        : 'Complete current task and stay on this account'
                     }
                   >
                     {isSubmitting ? (
@@ -4955,10 +5016,10 @@ export default function LiveExecutionModal({
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         <span>Completing...</span>
                       </>
-                    ) : isCompletionMode ? (
+                    ) : isCurrentTaskCompleted ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Confirm & Complete</span>
+                        <span>Completed</span>
                       </>
                     ) : (
                       <>
@@ -5205,6 +5266,63 @@ export default function LiveExecutionModal({
           setCallLogs={setCallLogs}
           onClose={() => setIsCompany360Open(false)}
         />
+      )}
+
+      {/* Cancellation Confirmation Dialog Modal */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center space-x-2.5 text-rose-600 dark:text-rose-400">
+              <Ban className="w-5 h-5 shrink-0" />
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                Cancel Scheduled Follow-Up
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Are you sure you want to cancel this scheduled follow-up? This will mark the follow-up as cancelled in history and remove it from the active queue.
+            </p>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Cancellation Reason / Notes
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g., Colleague already handled this account, client unresponsive..."
+                rows={3}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition resize-none"
+              />
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Back / Keep Task
+              </button>
+              <button
+                type="button"
+                id="confirm-cancellation-dialog-btn"
+                disabled={isSubmitting}
+                onClick={executeCancelTask}
+                className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 transition cursor-pointer flex items-center space-x-1.5 shadow-sm"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Cancelling...</span>
+                  </>
+                ) : (
+                  <>
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Confirm Cancellation</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
