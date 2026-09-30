@@ -55,7 +55,8 @@ import {
   getContactPhones,
   getContactEmails
 } from '../types';
-import { safeSetDoc } from '../firebase';
+import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { db, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { ActivityLogRepository, CallLogRepository } from '../services/repositories/CallLogRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { isTaskPending, TaskService } from '../services/taskService';
@@ -2521,51 +2522,100 @@ export default function LiveExecutionModal({
     }
   };
 
-  // Explicit Task Lifecycle Action: Cancellation
+  // Explicit Task Lifecycle Action: Immediate Cancellation, Source Follow-up Resolution, and Queue Advance
   const executeCancelTask = async () => {
     if (!currentTask || !currentTask.id || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
       const nowIso = new Date().toISOString();
-      const userUid = user?.uid || 'system_op';
+      const currentUserId = user?.uid || user?.id || user?.full_name || user?.username || 'User';
       const userName = user?.full_name || user?.username || user?.email || 'Operator';
+      const reasonText = cancelReason.trim() || 'Scheduled follow-up cancelled by user.';
 
-      const reasonText = cancelReason.trim() || 'Operator cancelled task';
-      const cancellationLogText = `[Cancelled]: ${reasonText}`;
+      // 1. Identify active queue item's source document
+      const sourceLogId =
+        (currentTask as any).source_log_id ||
+        (currentTask as any).sourceLogId ||
+        (currentTask as any).parent_log_id ||
+        (currentTask as any).parentLogId ||
+        (currentTask as any).source_id ||
+        currentTask.id;
 
-      const cleanScratchpad = cleanNotePrefix(notes);
-      let combinedNotes = currentTask.requirement_notes?.trim() || '';
-      combinedNotes = combinedNotes ? `${combinedNotes}\n${cancellationLogText}` : cancellationLogText;
-      if (cleanScratchpad) {
-        combinedNotes = `${combinedNotes}\n[Notes]: ${cleanScratchpad}`;
+      // Update the source log in Firestore
+      try {
+        await updateDoc(doc(db, 'activity_logs', sourceLogId), {
+          next_followup_date: null,
+          next_action_status: 'CANCELLED',
+          followup_resolved: true,
+          followup_resolved_at: nowIso
+        });
+      } catch (updErr) {
+        console.warn('[executeCancelTask] updateDoc direct error, fallback to safeUpdateDoc:', updErr);
+        await safeUpdateDoc('activity_logs', sourceLogId, {
+          next_followup_date: null,
+          next_action_status: 'CANCELLED',
+          followup_resolved: true,
+          followup_resolved_at: nowIso
+        }).catch(() => {});
       }
 
-      const updatedTaskRecord: CallLogEntry = {
-        ...currentTask,
-        status: 'Cancelled' as CallStatus,
-        outcome: undefined,
-        cancelled_at: nowIso,
-        cancelled_by_uid: userUid,
-        cancelled_by_name: userName,
-        cancellation_reason: reasonText,
-        requirement_notes: combinedNotes,
-        updatedAt: nowIso,
-        last_modified_by_uid: userUid,
-        last_modified_by_name: userName
+      // Also mirror update to call_logs collection if present
+      try {
+        await updateDoc(doc(db, 'call_logs', sourceLogId), {
+          next_followup_date: null,
+          next_action_status: 'CANCELLED',
+          followup_resolved: true,
+          followup_resolved_at: nowIso
+        }).catch(() => {});
+      } catch {
+        // Optional collection mirror
+      }
+
+      // 2. Create an auditable activity record so the cancellation is preserved in history
+      const currentCompanyId = currentTask.company_id || '';
+      const currentCompanyName = currentTask.company_name || linkedCompany?.name || 'General';
+      const currentContactName = currentTask.contact_name || (currentTask as any).contactPerson || activeContactName || 'General';
+      const currentChannel = currentTask.channel || currentTask.interaction_type || 'Task';
+      const currentWorkspaceId = currentTask.workspace_id || activeWorkspace?.id || 'ws_default';
+
+      const auditableActivity = {
+        company_id: currentCompanyId,
+        company_name: currentCompanyName,
+        contact_name: currentContactName || 'General',
+        channel: currentChannel || 'Task',
+        interaction_type: 'Task Cancelled',
+        status: 'CANCELLED' as CallStatus,
+        notes: cancelReason.trim() ? `Scheduled follow-up cancelled by user: ${cancelReason.trim()}` : 'Scheduled follow-up cancelled by user.',
+        logged_by: currentUserId || 'User',
+        created_at: nowIso,
+        date: nowIso,
+        workspace_id: currentWorkspaceId,
+        is_deleted: false
       };
-      delete (updatedTaskRecord as any).outcome;
 
-      await safeSetDoc('activity_logs', currentTask.id, updatedTaskRecord);
-      await safeSetDoc('call_logs', currentTask.id, updatedTaskRecord);
-      await CallLogRepository.save(updatedTaskRecord);
+      let auditDocId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      try {
+        const addedDoc = await addDoc(collection(db, 'activity_logs'), auditableActivity);
+        if (addedDoc?.id) auditDocId = addedDoc.id;
+      } catch (addErr) {
+        console.warn('[executeCancelTask] addDoc error, using safeSetDoc fallback:', addErr);
+        await safeSetDoc('activity_logs', auditDocId, { ...auditableActivity, id: auditDocId }).catch(() => {});
+      }
 
-      if (currentTask.company_id) {
-        await TaskService.clearCompanyNextFollowUp(currentTask.company_id);
+      const auditRecordWithId: CallLogEntry = {
+        ...auditableActivity,
+        id: auditDocId
+      } as any;
+
+      // Update local repository and company next follow-up
+      await CallLogRepository.save(auditRecordWithId).catch(() => {});
+      if (currentCompanyId) {
+        await TaskService.clearCompanyNextFollowUp(currentCompanyId).catch(() => {});
         if (setCompanies) {
           setCompanies((prev) =>
             prev.map((c) =>
-              c.id === currentTask.company_id
+              c.id === currentCompanyId
                 ? { ...c, nextFollowUpAt: null, next_followup_at: null, updatedAt: nowIso }
                 : c
             )
@@ -2573,16 +2623,69 @@ export default function LiveExecutionModal({
         }
       }
 
-      if (onCancelTask) {
-        onCancelTask(updatedTaskRecord, reasonText);
-      }
-      if (onSuccess) {
-        onSuccess(updatedTaskRecord);
+      // 3. Queue State Advance:
+      // Immediately remove the canceled item from the in-memory queue:
+      const activeItemId = currentTask.id;
+      setActiveQueue((prev) => prev.filter((item) => item.id !== activeItemId));
+      const remainingQueue = activeQueue.filter((item) => item.id !== activeItemId);
+
+      if (setCallLogs) {
+        setCallLogs((prev) => {
+          const updated = prev.map((l) =>
+            l.id === sourceLogId
+              ? {
+                  ...l,
+                  next_followup_date: null,
+                  next_action_status: 'CANCELLED',
+                  followup_resolved: true,
+                  followup_resolved_at: nowIso,
+                  status: 'CANCELLED' as CallStatus
+                }
+              : l
+          );
+          return [auditRecordWithId, ...updated];
+        });
       }
 
+      if (onCancelTask) {
+        onCancelTask(auditRecordWithId, auditableActivity.notes);
+      }
+      if (onSuccess) {
+        onSuccess(auditRecordWithId);
+      }
+
+      // Reset action drawers and inputs
       setActiveDrawer('none');
-      // Advance to next lead in queue strictly or close
-      advanceToNextTask();
+      setRescheduleReason('');
+      setCancelReason('');
+      setIsCompletionMode(false);
+      setSelectedCompanyPhoneOverride(null);
+      setIsAddingInlinePhone(false);
+      setInlinePhoneNumber('');
+      setNotes('');
+      setFollowUpIntent('');
+      setNextFollowUpDate('');
+      setActivePreset(null);
+
+      // Advance to the next task in the queue or close gracefully if 0 remain
+      if (remainingQueue.length === 0) {
+        internalAdvanceRef.current = true;
+        setCurrentIndex(0);
+        setCurrentTask(null);
+        if (onSwitchTask) {
+          onSwitchTask(null);
+        }
+        onClose();
+      } else {
+        internalAdvanceRef.current = true;
+        const nextIdx = Math.min(currentIndex, remainingQueue.length - 1);
+        setCurrentIndex(nextIdx);
+        const nextTask = remainingQueue[nextIdx];
+        setCurrentTask(nextTask);
+        if (onSwitchTask) {
+          onSwitchTask(nextTask);
+        }
+      }
     } catch (err) {
       console.error('Failed to cancel task:', err);
       alert('Error cancelling task. Please retry.');
@@ -4576,16 +4679,21 @@ export default function LiveExecutionModal({
                     type="button"
                     id="lifecycle-cancel-task-btn"
                     disabled={isSubmitting}
-                    onClick={() => setActiveDrawer((prev) => (prev === 'cancel' ? 'none' : 'cancel'))}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs ${
-                      activeDrawer === 'cancel'
-                        ? 'bg-rose-600 text-white border-rose-600'
-                        : 'text-rose-700 dark:text-rose-400 hover:text-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border-rose-200 dark:border-rose-900/60'
-                    }`}
-                    title="Cancel this scheduled task and remove it from the active queue"
+                    onClick={executeCancelTask}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border shadow-2xs text-rose-700 dark:text-rose-400 hover:text-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 border-rose-200 dark:border-rose-900/60"
+                    title="Cancel this scheduled task and remove it from the active queue immediately"
                   >
-                    <Ban className="w-3.5 h-3.5" />
-                    <span>Cancel Task</span>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Cancelling...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>Cancel Task</span>
+                      </>
+                    )}
                   </button>
 
                   {/* Reschedule */}

@@ -870,6 +870,17 @@ export default function CallLogManager({
       );
     } else if (
       normalized === 'Cancelled' ||
+      status === 'CANCELLED' ||
+      s.includes('cancel') ||
+      rawLower.includes('cancel')
+    ) {
+      return (
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs">
+          <XCircle className="w-3 h-3 text-rose-500" />
+          <span>[Cancelled]</span>
+        </span>
+      );
+    } else if (
       normalized === 'Invalid Number' ||
       normalized === 'Failed' ||
       s.includes('invalid') ||
@@ -879,8 +890,7 @@ export default function CallLogManager({
       s.includes('failed') ||
       s.includes('bounced') ||
       s.includes('dead') ||
-      s.includes('no show') ||
-      s.includes('cancel')
+      s.includes('no show')
     ) {
       return (
         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
@@ -2149,19 +2159,17 @@ export default function CallLogManager({
         return false;
       }
 
-      // 2. Exclude clear cancellation variants
-      if (
+      // 2. Ensure cancelled logs are strictly preserved in Activity History (Instruction 3)
+      const isCancelledLog =
+        l.status === 'CANCELLED' ||
         normStatus === 'cancelled' ||
         normStatus === 'canceled' ||
-        normStatus.includes('cancelled') ||
-        normStatus.includes('canceled') ||
-        normOutcome === 'cancelled' ||
-        normOutcome === 'canceled' ||
-        normOutcome.includes('cancelled') ||
-        normOutcome.includes('canceled') ||
-        Boolean((l as any).cancellation_reason)
-      ) {
-        return false;
+        l.interaction_type === 'Task Cancelled' ||
+        Boolean((l as any).cancellation_reason) ||
+        Boolean((l as any).cancelled_at);
+
+      if (isCancelledLog) {
+        return true;
       }
 
       // 3. Exclude pending and scheduled tasks (these belong exclusively in the Activity Queue)
@@ -3811,9 +3819,16 @@ export default function CallLogManager({
                               </div>
                             )}
 
-                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
-                              {formatActivityDate(log.date || log.createdAt)}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                                {formatActivityDate(log.date || log.createdAt)}
+                              </span>
+                              {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                                  [Cancelled]
+                                </span>
+                              )}
+                            </div>
 
                             {/* Rep badge */}
                             <div
@@ -3943,9 +3958,16 @@ export default function CallLogManager({
                             size="xs"
                           />
                         )}
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
-                          {formatActivityDate(log.date || log.createdAt)}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                            {formatActivityDate(log.date || log.createdAt)}
+                          </span>
+                          {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                              [Cancelled]
+                            </span>
+                          )}
+                        </div>
                         {isSuppressed && (
                           <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
                             <ShieldAlert className="w-2.5 h-2.5 mr-1" />
@@ -4119,8 +4141,16 @@ export default function CallLogManager({
                         {/* Disposition Pill */}
                         {(() => {
                           const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                          const isCancelled = log.status === 'CANCELLED' || normStatus === 'Cancelled' || normStatus === 'Canceled' || (log.status || '').toLowerCase() === 'cancelled';
+                          if (isCancelled) {
+                            return (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                                [Cancelled]
+                              </span>
+                            );
+                          }
                           const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
-                          const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed' || normStatus === 'Cancelled';
+                          const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed';
                           const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
 
                           let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
@@ -4241,7 +4271,14 @@ export default function CallLogManager({
                                 </td>
                               )}
                               <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
-                                {formatActivityDate(log.date || log.createdAt)}
+                                <div className="flex items-center gap-1.5">
+                                  <span>{formatActivityDate(log.date || log.createdAt)}</span>
+                                  {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                                      [Cancelled]
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex flex-col gap-0.5 max-w-sm">
@@ -4369,7 +4406,14 @@ export default function CallLogManager({
                             </td>
                           )}
                           <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
-                            {formatActivityDate(log.date || log.createdAt)}
+                            <div className="flex items-center gap-1.5">
+                              <span>{formatActivityDate(log.date || log.createdAt)}</span>
+                              {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                                  [Cancelled]
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td 
                             className={`px-4 py-3 font-semibold hover:text-blue-600 transition cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
@@ -4446,8 +4490,16 @@ export default function CallLogManager({
                             <div className="flex flex-col gap-1">
                               {(() => {
                                 const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                                const isCancelled = log.status === 'CANCELLED' || normStatus === 'Cancelled' || normStatus === 'Canceled' || (log.status || '').toLowerCase() === 'cancelled';
+                                if (isCancelled) {
+                                  return (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border w-fit bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                                      [Cancelled]
+                                    </span>
+                                  );
+                                }
                                 const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
-                                const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed' || normStatus === 'Cancelled';
+                                const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed';
                                 const isDroppedOrBusy = normStatus === 'Call Dropped' || normStatus === 'No Answer' || normStatus === 'Busy';
 
                                 let pillStyle = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';

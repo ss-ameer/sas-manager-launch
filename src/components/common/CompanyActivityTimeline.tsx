@@ -390,7 +390,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
   const getStatusBadgeStyle = (status?: string) => {
     const s = (status || '').toLowerCase().trim();
     if (s.includes('cancelled') || s.includes('canceled')) {
-      return 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700';
+      return 'bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 shadow-2xs';
     }
 
     const isSuccess =
@@ -1043,6 +1043,11 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
                       <span className="text-xs font-bold text-slate-900 dark:text-white" title={timeInfo.formatted}>
                         {timeInfo.relative}
                       </span>
+                      {isCancelled && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
+                          [Cancelled]
+                        </span>
+                      )}
                       {canAccess ? (
                         <button
                           type="button"
@@ -1075,7 +1080,7 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
 
                       {/* Status Badge */}
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeStyle}`}>
-                        {statusLabel}
+                        {isCancelled ? '[Cancelled]' : statusLabel}
                       </span>
 
                       {/* Independent Outcome Tag - Suppress follow-up badge if cancelled */}
