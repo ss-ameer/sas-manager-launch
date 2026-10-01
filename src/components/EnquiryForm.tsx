@@ -63,10 +63,11 @@ const FormattedNumberInput = ({ value, onChange, className, ...props }: any) => 
   const [displayValue, setDisplayValue] = React.useState('');
 
   React.useEffect(() => {
-    if (value !== undefined && value !== null) {
-      const parsedDisplay = parseFloat(displayValue.replace(/,/g, ''));
-      if (parsedDisplay !== value || isNaN(parsedDisplay)) {
-        setDisplayValue(Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+    if (value !== undefined && value !== null && value !== '') {
+      const parsedDisplay = parseFloat(String(displayValue).replace(/,/g, ''));
+      const numVal = Number(value);
+      if (parsedDisplay !== numVal || isNaN(parsedDisplay)) {
+        setDisplayValue(isNaN(numVal) ? '' : numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
       }
     } else {
       setDisplayValue('');
@@ -74,8 +75,9 @@ const FormattedNumberInput = ({ value, onChange, className, ...props }: any) => 
   }, [value]);
 
   const handleBlur = () => {
-    if (value !== undefined && value !== null) {
-      setDisplayValue(Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+    if (value !== undefined && value !== null && value !== '') {
+      const numVal = Number(value);
+      setDisplayValue(isNaN(numVal) ? '' : numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
     }
   };
 
@@ -1154,7 +1156,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const editCurrency = enquiryToEdit.currency || 'AED';
       setFormCurrency(editCurrency);
       setIsLumpSum(enquiryToEdit.is_lump_sum || false);
-      setManualValue(editCurrency === 'USD' ? enquiryToEdit.value_aed / 3.6725 : enquiryToEdit.value_aed);
+      const safeVal = Number(enquiryToEdit.value_aed) || 0;
+      setManualValue(editCurrency === 'USD' ? safeVal / 3.6725 : safeVal);
       setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
       setPaymentStatus(enquiryToEdit.payment_status || '');
       setSubject(enquiryToEdit.subject || '');
@@ -1223,25 +1226,37 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   // Option-Aware Package Total Math:
   // Baseline items include 'Default / Included' and 'Option A'
   const calculateOptionAwareTotals = (items: LineItem[]) => {
+    if (!Array.isArray(items)) {
+      return {
+        baseTotal: 0,
+        optionTotals: {},
+        optionalAddonsTotal: 0,
+      };
+    }
+
     const baselineItems = items.filter((item) => {
+      if (!item) return false;
       const des = ((item as any).option_designation || item.option || '').trim();
       return des === 'Default / Included' || des === 'Option A' || des === '' || (!item.option && !(item as any).option_designation);
     });
 
     const baseTotal = baselineItems.reduce((sum, item) => {
+      if (!item) return sum;
       const qty = Number(item.quantity) || 0;
       const unitPrice = Number(item.unit_price) || 0;
-      return sum + (item.total_price !== undefined ? item.total_price : (qty * unitPrice));
+      const lineVal = item.total_price !== undefined ? (Number(item.total_price) || 0) : (qty * unitPrice);
+      return sum + lineVal;
     }, 0);
 
     const optionTotals: Record<string, number> = {};
     let optionalAddonsTotal = 0;
 
     items.forEach((item) => {
+      if (!item) return;
       const des = ((item as any).option_designation || item.option || '').trim();
       const qty = Number(item.quantity) || 0;
       const unitPrice = Number(item.unit_price) || 0;
-      const lineVal = item.total_price !== undefined ? item.total_price : (qty * unitPrice);
+      const lineVal = item.total_price !== undefined ? (Number(item.total_price) || 0) : (qty * unitPrice);
 
       if (des === 'Optional / Add-On' || des.toLowerCase().includes('optional') || des.toLowerCase().includes('add-on')) {
         optionalAddonsTotal += lineVal;
@@ -1251,16 +1266,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     });
 
     return {
-      baseTotal: Number(baseTotal.toFixed(2)),
-      optionTotals,
-      optionalAddonsTotal: Number(optionalAddonsTotal.toFixed(2)),
+      baseTotal: Number((baseTotal || 0).toFixed(2)) || 0,
+      optionTotals: optionTotals || {},
+      optionalAddonsTotal: Number((optionalAddonsTotal || 0).toFixed(2)) || 0,
     };
   };
 
   const optionBreakdown = React.useMemo(() => calculateOptionAwareTotals(lineItems), [lineItems]);
-  const computedValue = optionBreakdown.baseTotal;
-  const finalValue = isLumpSum ? manualValue : computedValue;
-  const priceDiscrepancyAmount = Math.abs(manualValue - computedValue);
+  const computedValue = Number(optionBreakdown?.baseTotal || 0);
+  const finalValue = isLumpSum ? (Number(manualValue) || 0) : computedValue;
+  const priceDiscrepancyAmount = Math.abs((Number(manualValue) || 0) - computedValue);
 
   const handleAddLineItem = () => {
     const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES['Other'] || [];
@@ -1310,15 +1325,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const item = { ...updated[index] };
 
     if (field === 'quantity' || field === 'unit_price') {
-      const q = field === 'quantity' ? Number(val) : item.quantity;
-      const p = field === 'unit_price' ? Number(val) : item.unit_price;
-      item[field] = Number(val) as any;
+      const q = field === 'quantity' ? (Number(val) || 0) : (Number(item.quantity) || 0);
+      const p = field === 'unit_price' ? (Number(val) || 0) : (Number(item.unit_price) || 0);
+      item[field] = (Number(val) || 0) as any;
       item.total_price = Number((q * p).toFixed(2));
     } else if (field === 'total_price') {
-      const tot = Number(val);
+      const tot = Number(val) || 0;
       item.total_price = tot;
-      if (item.quantity > 0) {
-        item.unit_price = Number((tot / item.quantity).toFixed(2));
+      const q = Number(item.quantity) || 0;
+      if (q > 0) {
+        item.unit_price = Number((tot / q).toFixed(2));
       }
     } else if (field === 'item_type') {
       item.item_type = val;
@@ -3145,7 +3161,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           title="Click to scroll & glow Package Value field"
                         >
                           <DollarSign className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Value: <strong className="font-mono">AED {Number(pastedExtractedData.package_value).toLocaleString()}</strong></span>
+                          <span>Value: <strong className="font-mono">AED {Number(pastedExtractedData?.package_value || 0).toLocaleString()}</strong></span>
                         </button>
                       )}
 
@@ -3204,7 +3220,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       </div>
                                       <div className="flex items-center space-x-2 shrink-0">
                                         <span className="font-mono text-emerald-700 font-bold text-[11px]">
-                                          {item.total_price ? `AED ${Number(item.total_price).toLocaleString()}` : (item.quantity ? `Qty: ${item.quantity}` : 'Parsed')}
+                                          {item.total_price ? `AED ${Number(item.total_price || 0).toLocaleString()}` : (item.quantity ? `Qty: ${item.quantity}` : 'Parsed')}
                                         </span>
                                         <button
                                           type="button"
@@ -3256,7 +3272,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-2xs flex items-center justify-between text-slate-500 font-sans text-xs">
                       <div className="flex items-center gap-2">
                         <Info className="w-4 h-4 text-slate-400" />
-                        <span>Awaiting Line Items - Package Value: <strong className="text-slate-700">AED {manualValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                        <span>Awaiting Line Items - Package Value: <strong className="text-slate-700">AED {Number(manualValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                       </div>
                     </div>
                   ) : priceDiscrepancyAmount > 1.0 && (
@@ -3267,11 +3283,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <span>Price Discrepancy Alert</span>
                         </span>
                         <span className="font-mono text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-bold">
-                          Diff: AED {priceDiscrepancyAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          Diff: AED {Number(priceDiscrepancyAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <p className="text-xs text-rose-700 leading-relaxed font-sans">
-                        Package Value (AED {manualValue.toLocaleString()}) does not match calculated Line Items Sum (AED {computedValue.toLocaleString()}).
+                        Package Value (AED {Number(manualValue || 0).toLocaleString()}) does not match calculated Line Items Sum (AED {Number(computedValue || 0).toLocaleString()}).
                       </p>
                       <div className="flex flex-wrap gap-2 pt-1">
                         <button
@@ -3283,7 +3299,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           }}
                           className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition shadow-2xs"
                         >
-                          Sync Package Total to AED {computedValue.toLocaleString()}
+                          Sync Package Total to AED {Number(computedValue || 0).toLocaleString()}
                         </button>
                         <button
                           type="button"
@@ -4702,9 +4718,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
                       />
                       {formCurrency === 'USD' ? (
-                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {(item.total_price * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {Number((Number(item.total_price) || 0) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                       ) : (
-                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ ${(item.total_price / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ ${Number((Number(item.total_price) || 0) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
                       )}
                     </div>
                   </div>
@@ -4788,11 +4804,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </span>
                   {formCurrency === 'USD' ? (
                     <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
-                      ≈ AED {((isLumpSum ? manualValue : computedValue) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ≈ AED {Number((Number(isLumpSum ? manualValue : computedValue) || 0) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   ) : (
                     <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
-                      ≈ ${((isLumpSum ? manualValue : computedValue) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      ≈ ${Number((Number(isLumpSum ? manualValue : computedValue) || 0) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                     </span>
                   )}
                 </div>
@@ -4804,7 +4820,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       className="w-full bg-transparent border-none text-blue-600 dark:text-blue-400 focus:outline-none font-mono py-0.5 px-1"
                     />
                   ) : (
-                    <span>{formCurrency} {computedValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formCurrency} {Number(computedValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   )}
                 </div>
                 <div className="flex items-center space-x-1.5 mt-1.5">
@@ -4821,25 +4837,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
 
                 {/* Subtotal Breakdown Summary Pills */}
-                {(Object.keys(optionBreakdown.optionTotals).length > 0 || optionBreakdown.optionalAddonsTotal > 0) && (
+                {((optionBreakdown?.optionTotals && Object.keys(optionBreakdown.optionTotals).length > 0) || Number(optionBreakdown?.optionalAddonsTotal || 0) > 0) && (
                   <div className="mt-2 pt-1.5 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
-                    {Object.entries(optionBreakdown.optionTotals).map(([optName, optTotal]) => (
+                    {Object.entries(optionBreakdown?.optionTotals || {}).map(([optName, optTotal]) => (
                       <span
                         key={optName}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
                         title={`${optName} Alternative Subtotal`}
                       >
                         <span className="font-semibold">{optName}:</span>
-                        <span>{formCurrency} {(optTotal as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span>{formCurrency} {Number(optTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </span>
                     ))}
-                    {optionBreakdown.optionalAddonsTotal > 0 && (
+                    {Number(optionBreakdown?.optionalAddonsTotal || 0) > 0 && (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
                         title="Optional / Add-On Electives Total"
                       >
                         <span className="font-semibold">Optionals:</span>
-                        <span>+{formCurrency} {optionBreakdown.optionalAddonsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span>+{formCurrency} {Number(optionBreakdown?.optionalAddonsTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </span>
                     )}
                   </div>
@@ -5874,7 +5890,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               {filteredCatalog.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredCatalog.map((item) => {
-                    const convertedPrice = formCurrency === 'USD' ? item.unit_price_aed / 3.6725 : item.unit_price_aed;
+                    const priceAed = Number(item.unit_price_aed) || 0;
+                    const convertedPrice = formCurrency === 'USD' ? priceAed / 3.6725 : priceAed;
                     return (
                       <div
                         key={item.name}
@@ -5891,7 +5908,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             <div className="text-right font-mono">
                               <span className="text-xs text-slate-400 block">Prefilled Unit Price</span>
                               <span className="text-sm font-bold text-emerald-600 block">
-                                {formCurrency} {convertedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formCurrency} {Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
                             </div>
                           </div>
