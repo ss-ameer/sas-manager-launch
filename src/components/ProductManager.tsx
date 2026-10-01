@@ -198,8 +198,8 @@ export default function ProductManager({ products, productCategories: propCatego
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (!formDescription.trim()) {
-      alert('Specification sheet description is required.');
+    if (!formName.trim()) {
+      alert('Product name is required.');
       return;
     }
 
@@ -219,9 +219,9 @@ export default function ProductManager({ products, productCategories: propCatego
 
     const data: Partial<Product> = {
       workspace_id: activeWorkspace.id,
-      name: formName.trim() || undefined,
+      name: formName.trim(),
       product_type: formProductType,
-      description: formDescription.trim(),
+      description: formDescription.trim() || formName.trim(),
       unit: formUnit,
       unit_price: formUnitPrice !== undefined && formUnitPrice > 0 ? formUnitPrice : undefined,
       sku: formSku.trim() || undefined,
@@ -597,29 +597,31 @@ export default function ProductManager({ products, productCategories: propCatego
         <div id="product-form-modal" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
             onSubmit={handleSaveProduct}
-            className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-8 shadow-2xl relative space-y-6 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto"
+            className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[88vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
           >
-            <button
-              type="button"
-              onClick={() => setShowFormModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="pb-3 border-b border-slate-200">
+            {/* Pinned Modal Header */}
+            <div className="p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h3 className="text-xl font-bold text-slate-900 font-sans">
                 {editingProduct ? 'Edit Catalog Product' : 'Register New Product'}
               </h3>
+              <button
+                type="button"
+                onClick={() => setShowFormModal(false)}
+                className="text-slate-400 hover:text-slate-800 transition p-1 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="space-y-4">
+            {/* Scrollable Modal Body */}
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
               <div>
                 <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
-                  Product Name (Optional)
+                  Product Name *
                 </label>
                 <input
                   type="text"
+                  required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
@@ -661,11 +663,10 @@ export default function ProductManager({ products, productCategories: propCatego
 
               <div>
                 <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
-                  Specification Sheet Description *
+                  Specification Sheet Description (Optional)
                 </label>
                 <textarea
                   rows={3}
-                  required
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
                   className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3.5 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
@@ -725,11 +726,13 @@ export default function ProductManager({ products, productCategories: propCatego
                             <select
                               value={attr.key}
                               onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === '__custom__') {
-                                  setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: '__custom_editing__' } : a));
-                                } else {
-                                  setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: val } : a));
+                                freshSelectKey: {
+                                  const val = e.target.value;
+                                  if (val === '__custom__') {
+                                    setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: '__custom_editing__' } : a));
+                                  } else {
+                                    setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: val } : a));
+                                  }
                                 }
                               }}
                               className="w-1/3 bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs text-slate-800 focus:outline-none"
@@ -767,7 +770,8 @@ export default function ProductManager({ products, productCategories: propCatego
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 font-sans">
+              {/* Standard Unit & 2-Column Pricing Grid */}
+              <div className="space-y-4 font-sans">
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
                     Standard Unit *
@@ -785,46 +789,68 @@ export default function ProductManager({ products, productCategories: propCatego
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
-                    Standard Price (AED, Optional)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={formUnitPrice !== undefined ? formUnitPrice : ''}
-                    onChange={(e) => setFormUnitPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
-                    placeholder="Custom Price"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
+                      Standard Selling Price (AED)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={formUnitPrice !== undefined ? formUnitPrice : ''}
+                      onChange={(e) => setFormUnitPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
+                      Base Cost Price (AED)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={formCostPrice !== undefined ? formCostPrice : ''}
+                      onChange={(e) => setFormCostPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
+                      placeholder="0.00"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Warehouse Inventory Tracking Section */}
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 font-sans">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <div className="flex items-center space-x-2.5">
-                    <Boxes className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-                        Track Warehouse Stock
-                      </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Maintain live stock-on-hand count, reorder warnings, and storage bay locations.
-                      </span>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <Boxes className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                          Track Warehouse Stock
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Maintain live stock-on-hand count, reorder warnings, and storage bay locations.
+                        </span>
+                      </div>
                     </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        id="track-stock-checkbox"
+                        checked={formIsInventoried}
+                        onChange={(e) => setFormIsInventoried(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      id="track-stock-checkbox"
-                      checked={formIsInventoried}
-                      onChange={(e) => setFormIsInventoried(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 border-t border-slate-200/60 dark:border-slate-700/40 pt-2">
+                    Track physical inventory counts. Leave unchecked for job-procured equipment, drop-ship orders, or site services.
+                  </p>
                 </div>
 
                 {formIsInventoried && (
@@ -877,10 +903,10 @@ export default function ProductManager({ products, productCategories: propCatego
                 )}
               </div>
 
-              {/* Optional Logistics, Customs & Costing Section */}
+              {/* Optional Logistics & Customs Section */}
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 font-sans">
                 <span className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
-                  Logistics, Customs & Costing (Optional)
+                  Logistics & Customs (Optional)
                 </span>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -911,52 +937,36 @@ export default function ProductManager({ products, productCategories: propCatego
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
-                      Gross Weight (kg)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
-                      onChange={(e) => setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
-                      placeholder="e.g. 15.5"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
-                      Cost Price (AED)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={formCostPrice !== undefined ? formCostPrice : ''}
-                      onChange={(e) => setFormCostPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
-                      placeholder="Internal Cost"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+                    Gross Weight (kg)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
+                    onChange={(e) => setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                    placeholder="e.g. 15.5"
+                  />
                 </div>
               </div>
             </div>
 
-            <div className="flex space-x-3 pt-3 border-t border-slate-100">
+            {/* Pinned Modal Footer */}
+            <div className="p-4 px-6 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl flex items-center justify-end space-x-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowFormModal(false)}
-                className="w-1/2 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-500 font-semibold rounded-xl text-xs transition"
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !activeWorkspace?.id}
-                className="w-1/2 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center space-x-1.5"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer disabled:cursor-not-allowed"
               >
                 {isSubmitting && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 <span>{isSubmitting ? 'Saving...' : editingProduct ? 'Save Changes' : 'Register Product'}</span>
