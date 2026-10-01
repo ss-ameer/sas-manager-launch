@@ -496,6 +496,7 @@ export interface DropdownOption {
   name: string;
   color?: string;
   sentiment?: 'positive' | 'neutral' | 'negative';
+  workspace_id?: string;
 }
 
 export interface Invite {

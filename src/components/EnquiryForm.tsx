@@ -4452,19 +4452,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               options={sortedCategories}
                               value={item.product_type}
                               onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                              onCreateOption={async (val: string) => {
+                              onCreateOption={(val: string) => {
+                                // Strictly local to this line item; does not pollute master dropdowns
                                 handleLineItemChange(index, 'product_type', val);
-                                if (setProductCategories) {
-                                  try {
-                                    const docRef = await safeAddDoc('dropdown_product_categories', { name: val });
-                                    setProductCategories((prev) => {
-                                      if (prev.some(c => c.name.toLowerCase() === val.toLowerCase())) return prev;
-                                      return [...prev, { id: docRef?.id || ('cat_' + Date.now()), name: val }];
-                                    });
-                                  } catch (e) {
-                                    console.warn('Failed to save new category', e);
-                                  }
-                                }
                               }}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                             />
@@ -4499,19 +4489,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           options={sortedUnits}
                           value={item.unit}
                           onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
-                          onCreateOption={async (val: string) => {
+                          onCreateOption={(val: string) => {
+                            // Strictly local to this line item; does not pollute master dropdowns
                             handleLineItemChange(index, 'unit', val);
-                            if (setUnits) {
-                              try {
-                                const docRef = await safeAddDoc('dropdown_units', { name: val });
-                                setUnits((prev) => {
-                                  if (prev.some(u => u.name.toLowerCase() === val.toLowerCase())) return prev;
-                                  return [...prev, { id: docRef?.id || ('unit_' + Date.now()), name: val }];
-                                });
-                              } catch (e) {
-                                console.warn('Failed to save new unit', e);
-                              }
-                            }
                           }}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
                         />
@@ -5759,10 +5739,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   try {
                     setSubmittingCategory(true);
                     
-                    // Create in Firestore dropdown options
-                    const docRef = await safeAddDoc('dropdown_product_categories', { name: cleaned });
+                    // Create in Firestore dropdown options with workspace scoping
+                    const docRef = await safeAddDoc('dropdown_product_categories', {
+                      name: cleaned,
+                      workspace_id: activeWorkspace?.id || undefined
+                    });
                     const newOptId = docRef?.id || ('cat_' + Date.now());
-                    const newOpt: DropdownOption = { id: newOptId, name: cleaned };
+                    const newOpt: DropdownOption = {
+                      id: newOptId,
+                      name: cleaned,
+                      workspace_id: activeWorkspace?.id || undefined
+                    };
 
                     // Sync parent App state so Settings, Product Manager, etc. immediately reflect the new category
                     if (setProductCategories) {

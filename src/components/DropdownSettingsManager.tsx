@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { db, safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { DropdownOption, Enquiry, Product, UserProfile, CallLogEntry, Company, Contact, Salesperson } from '../types';
-import { ShieldCheck, Plus, Trash2, Edit2, Check, X, AlertTriangle, Info } from 'lucide-react';
+import { ShieldCheck, Plus, Trash2, Edit2, Check, X, AlertTriangle, Info, RotateCcw } from 'lucide-react';
 import { CardPanel } from './layout/UiContainer';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, normalizeOptionName, isCompanyUntagged } from '../utils/defaults';
+import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import { isWorkspaceAdmin } from '../utils/permissions';
 import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 
@@ -94,6 +95,12 @@ export default function DropdownSettingsManager({
 
   const isSystemOption = (optionName: string, tab: 'sources' | 'categories' | 'units' | 'statuses' | 'outcomes' | 'relationships' | 'temperatures' | 'purposes' | 'industry_types') => {
     const norm = normalizeOptionName(optionName);
+    if (tab === 'categories') {
+      return (UNIVERSAL_CATEGORIES as readonly string[]).some(c => normalizeOptionName(c) === norm);
+    }
+    if (tab === 'units') {
+      return (UNIVERSAL_UNITS as readonly string[]).some(u => normalizeOptionName(u) === norm);
+    }
     if (tab === 'statuses') {
       return SYSTEM_CALL_STATUSES.some(s => normalizeOptionName(s) === norm);
     }
@@ -201,9 +208,20 @@ export default function DropdownSettingsManager({
 
     setSubmitting(true);
     try {
-      const res = await safeAddDoc(collectionName, { name: trimmed, color: newOptionColor });
+      const payload: any = { name: trimmed, color: newOptionColor };
+      const currentWsId = activeWorkspaceId || activeWorkspace?.id;
+      if (activeSubTab === 'categories' && currentWsId) {
+        payload.workspace_id = currentWsId;
+      }
+
+      const res = await safeAddDoc(collectionName, payload);
       const newId = res?.id || ('opt_' + Date.now());
-      const newOpt = { id: newId, name: trimmed, color: newOptionColor };
+      const newOpt: DropdownOption = {
+        id: newId,
+        name: trimmed,
+        color: newOptionColor,
+        workspace_id: payload.workspace_id
+      };
 
       if (activeSubTab === 'sources' && setEnquirySources) {
         setEnquirySources((prev) => [...prev, newOpt]);
@@ -646,14 +664,86 @@ export default function DropdownSettingsManager({
     });
   };
 
+  const currentWsId = activeWorkspaceId || activeWorkspace?.id;
   const activeList = 
     activeSubTab === 'sources' ? enquirySources :
-    activeSubTab === 'categories' ? productCategories :
+    activeSubTab === 'categories' ? productCategories.filter(c => {
+      const l = (c.name || '').toLowerCase();
+      if (l === 'anthrecite' || l === 'anthresite') return false;
+      if (!c.workspace_id) return true; // System universal baseline
+      return c.workspace_id === currentWsId;
+    }) :
     activeSubTab === 'units' ? units :
     activeSubTab === 'statuses' ? callStatuses :
     activeSubTab === 'outcomes' ? callOutcomes :
     activeSubTab === 'relationships' ? companyRelationships :
     companyTemperatures;
+
+  const handleRestoreDefaults = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      if (activeSubTab === 'categories') {
+        const existingNames = new Set(productCategories.map(c => normalizeOptionName(c.name)));
+        const missing = (UNIVERSAL_CATEGORIES as readonly string[]).filter(c => !existingNames.has(normalizeOptionName(c)));
+        const newOpts: DropdownOption[] = [];
+
+        for (const catName of missing) {
+          const res = await safeAddDoc('dropdown_product_categories', { name: catName, color: '#64748b' });
+          newOpts.push({
+            id: res?.id || `cat_base_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            name: catName,
+            color: '#64748b'
+          });
+        }
+
+        if (setProductCategories) {
+          setProductCategories(prev => {
+            const clean = prev.filter(c => {
+              const l = (c.name || '').toLowerCase();
+              return l !== 'anthrecite' && l !== 'anthresite';
+            });
+            return [...clean, ...newOpts];
+          });
+        }
+        setAlertDialog({
+          isOpen: true,
+          title: 'Defaults Restored',
+          message: `Successfully verified and restored ${missing.length} baseline product categories.`
+        });
+      } else if (activeSubTab === 'units') {
+        const existingNames = new Set(units.map(u => normalizeOptionName(u.name)));
+        const missing = (UNIVERSAL_UNITS as readonly string[]).filter(u => !existingNames.has(normalizeOptionName(u)));
+        const newOpts: DropdownOption[] = [];
+
+        for (const unitName of missing) {
+          const res = await safeAddDoc('dropdown_units', { name: unitName, color: '#64748b' });
+          newOpts.push({
+            id: res?.id || `u_base_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            name: unitName,
+            color: '#64748b'
+          });
+        }
+
+        if (setUnits) {
+          setUnits(prev => [...prev, ...newOpts]);
+        }
+        setAlertDialog({
+          isOpen: true,
+          title: 'Defaults Restored',
+          message: `Successfully verified and restored ${missing.length} universal units of measure.`
+        });
+      }
+    } catch (err: any) {
+      setAlertDialog({
+        isOpen: true,
+        title: 'Restore Failed',
+        message: 'Failed to restore defaults: ' + err.message
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const getSubTabLabel = () => {
     if (activeSubTab === 'sources') return 'Enquiry Sources';
@@ -764,7 +854,21 @@ export default function DropdownSettingsManager({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Column: List of items */}
         <div className="space-y-4">
-          <h3 className="text-xs font-mono text-slate-400 uppercase tracking-widest block">Active Values ({activeList.length})</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-mono text-slate-400 uppercase tracking-widest block">Active Values ({activeList.length})</h3>
+            {(activeSubTab === 'categories' || activeSubTab === 'units') && isAdmin && (
+              <button
+                type="button"
+                onClick={handleRestoreDefaults}
+                disabled={submitting}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1 cursor-pointer hover:underline disabled:opacity-50"
+                title={`Re-seed missing universal default ${activeSubTab === 'categories' ? 'categories' : 'units'}`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restore Defaults</span>
+              </button>
+            )}
+          </div>
           
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 shadow-sm">
             {activeList.length === 0 ? (

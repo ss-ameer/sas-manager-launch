@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Product, ProductType, UnitType, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, Workspace } from '../types';
+import { Product, ProductType, UnitType, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, Workspace, DropdownOption } from '../types';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
+import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import {
   Package,
   Plus,
@@ -28,13 +29,31 @@ interface ProductManagerProps {
   units?: string[];
   user: any;
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
+  setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
+  setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   activeWorkspace?: Workspace;
   onOpenMobileMenu?: () => void;
 }
 
-export default function ProductManager({ products, productCategories: propCategories, units: propUnits, user, setProducts, activeWorkspace, onOpenMobileMenu }: ProductManagerProps) {
+export default function ProductManager({
+  products,
+  productCategories: propCategories,
+  units: propUnits,
+  user,
+  setProducts,
+  setProductCategories,
+  setUnits,
+  activeWorkspace,
+  onOpenMobileMenu
+}: ProductManagerProps) {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
+
+  // Inline Category & Unit Creation States
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [isCreatingUnit, setIsCreatingUnit] = useState(false);
+  const [newUnitInput, setNewUnitInput] = useState('');
 
   // Form Modal States
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,25 +114,88 @@ export default function ProductManager({ products, productCategories: propCatego
     });
   }, [formProductType]);
 
-  const productCategories: string[] = propCategories && propCategories.length > 0 ? propCategories : [
-    'FRP Tanks',
-    'FRP Vessels',
-    'Pressure Vessels',
-    'RO Membranes',
-    'RO Housing',
-    'Cartridge Filters',
-    'Dosing Pumps',
-    'MBBR Media',
-    'Filter Media',
-    'Tube Settler Media',
-    'Chemicals',
-    'Valves',
-    'Frames/Fabrication',
-    'Various',
-    'Other'
-  ];
+  const productCategories: string[] = React.useMemo(() => {
+    const list = propCategories && propCategories.length > 0 ? propCategories : [...UNIVERSAL_CATEGORIES];
+    return list.filter(c => {
+      const l = c.toLowerCase();
+      return l !== 'anthrecite' && l !== 'anthresite';
+    });
+  }, [propCategories]);
 
-  const units: string[] = propUnits && propUnits.length > 0 ? propUnits : ['Nos', 'M3', 'MT', 'Set', 'LS', 'Kg'];
+  const units: string[] = React.useMemo(() => {
+    return propUnits && propUnits.length > 0 ? propUnits : [...UNIVERSAL_UNITS];
+  }, [propUnits]);
+
+  const handleConfirmNewCategory = async () => {
+    const trimmed = newCategoryInput.trim();
+    if (!trimmed) {
+      setIsCreatingCategory(false);
+      return;
+    }
+    const match = productCategories.find(c => c.toLowerCase() === trimmed.toLowerCase());
+    if (match) {
+      setFormProductType(match);
+      setIsCreatingCategory(false);
+      setNewCategoryInput('');
+      return;
+    }
+
+    try {
+      const res = await safeAddDoc('dropdown_product_categories', {
+        name: trimmed,
+        workspace_id: activeWorkspace?.id || undefined
+      });
+      const newId = res?.id || `cat_${Date.now()}`;
+      if (setProductCategories) {
+        setProductCategories(prev => [
+          ...prev,
+          { id: newId, name: trimmed, workspace_id: activeWorkspace?.id }
+        ]);
+      }
+      setFormProductType(trimmed);
+    } catch (err) {
+      console.error('Failed to create category:', err);
+      setFormProductType(trimmed);
+    } finally {
+      setIsCreatingCategory(false);
+      setNewCategoryInput('');
+    }
+  };
+
+  const handleConfirmNewUnit = async () => {
+    const trimmed = newUnitInput.trim();
+    if (!trimmed) {
+      setIsCreatingUnit(false);
+      return;
+    }
+    const match = units.find(u => u.toLowerCase() === trimmed.toLowerCase());
+    if (match) {
+      setFormUnit(match);
+      setIsCreatingUnit(false);
+      setNewUnitInput('');
+      return;
+    }
+
+    try {
+      const res = await safeAddDoc('dropdown_units', {
+        name: trimmed
+      });
+      const newId = res?.id || `u_${Date.now()}`;
+      if (setUnits) {
+        setUnits(prev => [
+          ...prev,
+          { id: newId, name: trimmed }
+        ]);
+      }
+      setFormUnit(trimmed);
+    } catch (err) {
+      console.error('Failed to create unit:', err);
+      setFormUnit(trimmed);
+    } finally {
+      setIsCreatingUnit(false);
+      setNewUnitInput('');
+    }
+  };
 
   const filteredProducts = React.useMemo(() => {
     return products.filter((p) => {
@@ -631,20 +713,78 @@ export default function ProductManager({ products, productCategories: propCatego
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
-                    Category *
-                  </label>
-                  <select
-                    value={formProductType}
-                    onChange={(e) => setFormProductType(e.target.value as ProductType)}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
-                  >
-                    {productCategories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
+                      Category *
+                    </label>
+                    {!isCreatingCategory && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingCategory(true);
+                          setNewCategoryInput('');
+                        }}
+                        className="text-[10px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-0.5 cursor-pointer hover:underline"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>New</span>
+                      </button>
+                    )}
+                  </div>
+                  {isCreatingCategory ? (
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newCategoryInput}
+                        onChange={(e) => setNewCategoryInput(e.target.value)}
+                        placeholder="New Category..."
+                        className="w-full bg-white border border-blue-400 rounded-xl py-1.5 px-3 text-xs text-slate-800 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleConfirmNewCategory();
+                          } else if (e.key === 'Escape') {
+                            setIsCreatingCategory(false);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleConfirmNewCategory}
+                        className="px-2.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 shrink-0 cursor-pointer"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingCategory(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 shrink-0 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formProductType}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW_CATEGORY__') {
+                          setIsCreatingCategory(true);
+                          setNewCategoryInput('');
+                        } else {
+                          setFormProductType(e.target.value as ProductType);
+                        }
+                      }}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
+                    >
+                      {productCategories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__NEW_CATEGORY__">+ Add New Category...</option>
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -773,20 +913,78 @@ export default function ProductManager({ products, productCategories: propCatego
               {/* Standard Unit & 2-Column Pricing Grid */}
               <div className="space-y-4 font-sans">
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1 font-bold">
-                    Standard Unit *
-                  </label>
-                  <select
-                    value={formUnit}
-                    onChange={(e) => setFormUnit(e.target.value as UnitType)}
-                    className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
-                  >
-                    {units.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
+                      Standard Unit *
+                    </label>
+                    {!isCreatingUnit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingUnit(true);
+                          setNewUnitInput('');
+                        }}
+                        className="text-[10px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-0.5 cursor-pointer hover:underline"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>New</span>
+                      </button>
+                    )}
+                  </div>
+                  {isCreatingUnit ? (
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newUnitInput}
+                        onChange={(e) => setNewUnitInput(e.target.value)}
+                        placeholder="e.g. Barrel, Box..."
+                        className="w-full bg-white border border-blue-400 rounded-xl py-1.5 px-3 text-xs text-slate-800 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleConfirmNewUnit();
+                          } else if (e.key === 'Escape') {
+                            setIsCreatingUnit(false);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleConfirmNewUnit}
+                        className="px-2.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 shrink-0 cursor-pointer"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingUnit(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 shrink-0 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formUnit}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW_UNIT__') {
+                          setIsCreatingUnit(true);
+                          setNewUnitInput('');
+                        } else {
+                          setFormUnit(e.target.value as UnitType);
+                        }
+                      }}
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20"
+                    >
+                      {units.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                      <option value="__NEW_UNIT__">+ Add Custom Unit...</option>
+                    </select>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

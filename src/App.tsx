@@ -28,6 +28,7 @@ import CallLogManager from './components/CallLogManager';
 import UserProfileModal from './components/UserProfileModal';
 import TrashBinModal from './components/TrashBinModal';
 import Company360Modal from './components/Company360Modal';
+import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from './constants';
 import FreshAccountOnboardingModal from './components/FreshAccountOnboardingModal';
 import { SuperAdminConsoleModal } from './components/SuperAdminConsoleModal';
 import { QuickActivityDrawer } from './components/QuickActivityDrawer';
@@ -83,24 +84,8 @@ function setLocalCache<T>(key: string, value: T) {
 const FALLBACK_SALESPERSONS: Salesperson[] = [];
 
 const FALLBACK_SOURCES = ['Email', 'Phone', 'WhatsApp', 'Meeting', 'Verbal'];
-const FALLBACK_CATEGORIES = [
-  'FRP Tanks',
-  'FRP Vessels',
-  'Pressure Vessels',
-  'RO Membranes',
-  'RO Housing',
-  'Cartridge Filters',
-  'Dosing Pumps',
-  'MBBR Media',
-  'Filter Media',
-  'Tube Settler Media',
-  'Chemicals',
-  'Valves',
-  'Frames/Fabrication',
-  'Various',
-  'Other'
-];
-const FALLBACK_UNITS = ['Nos', 'M3', 'MT', 'Set', 'LS', 'Kg'];
+const FALLBACK_CATEGORIES = [...UNIVERSAL_CATEGORIES];
+const FALLBACK_UNITS = [...UNIVERSAL_UNITS];
 const FALLBACK_CALL_STATUSES = SYSTEM_CALL_STATUSES;
 const FALLBACK_CALL_OUTCOMES = SYSTEM_CALL_OUTCOMES;
 const FALLBACK_CALL_PURPOSES = [...SYSTEM_CALL_PURPOSES];
@@ -203,8 +188,20 @@ export default function App() {
   const [salespersons, setSalespersons] = useState<Salesperson[]>(() => getLocalCache('omni_salespersons', []));
   const [products, setProducts] = useState<Product[]>(() => getLocalCache('omni_products', []));
   const [enquirySources, setEnquirySources] = useState<DropdownOption[]>(() => getLocalCache('omni_sources', FALLBACK_SOURCES.map((s, i) => ({ id: 'src_' + i, name: s }))));
-  const [productCategories, setProductCategories] = useState<DropdownOption[]>(() => getLocalCache('omni_categories', FALLBACK_CATEGORIES.map((c, i) => ({ id: 'cat_' + i, name: c }))));
-  const [units, setUnits] = useState<DropdownOption[]>(() => getLocalCache('omni_units', FALLBACK_UNITS.map((u, i) => ({ id: 'u_' + i, name: u }))));
+  const [productCategories, setProductCategories] = useState<DropdownOption[]>(() => {
+    const cached = getLocalCache<DropdownOption[]>('omni_categories', []);
+    const scrubbed = cached.filter(c => {
+      const l = (c.name || '').toLowerCase();
+      return l !== 'anthrecite' && l !== 'anthresite';
+    });
+    const healed = healDropdownOptions(scrubbed, UNIVERSAL_CATEGORIES, 'cat');
+    return healed.mergedList;
+  });
+  const [units, setUnits] = useState<DropdownOption[]>(() => {
+    const cached = getLocalCache<DropdownOption[]>('omni_units', []);
+    const healed = healDropdownOptions(cached, UNIVERSAL_UNITS, 'u');
+    return healed.mergedList;
+  });
   const [callStatuses, setCallStatuses] = useState<DropdownOption[]>(() => {
     const cached = getLocalCache<DropdownOption[]>('omni_call_statuses', []);
     const healed = healDropdownOptions(cached, FALLBACK_CALL_STATUSES, 'cs');
@@ -636,6 +633,18 @@ export default function App() {
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
   }, [products, activeWorkspace.id, isDefaultWorkspace]);
+
+  const workspaceProductCategories = useMemo(() => {
+    return productCategories.filter((c) => {
+      const lower = (c.name || '').toLowerCase();
+      // Data Scrubbing: Never include rogue typos
+      if (lower === 'anthrecite' || lower === 'anthresite') return false;
+      // System baseline categories (without workspace_id) are universal across workspaces
+      if (!c.workspace_id) return true;
+      // Custom categories strictly scoped to active workspace
+      return c.workspace_id === activeWorkspace.id || (!c.workspace_id && isDefaultWorkspace);
+    });
+  }, [productCategories, activeWorkspace.id, isDefaultWorkspace]);
 
   const workspaceCallLogs = useMemo(() => {
     return callLogs.filter((l) => {
@@ -1090,19 +1099,45 @@ export default function App() {
 
       // Product Categories
       const catSnap = await safeGetDocs('dropdown_product_categories');
+      const loadedCategories: DropdownOption[] = [];
       if (catSnap && !catSnap.empty) {
-        const list = catSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        setProductCategories(list);
-        setLocalCache('omni_categories', list);
+        for (const d of catSnap.docs) {
+          const data = d.data();
+          const name = String(data.name || '').trim();
+          const lower = name.toLowerCase();
+          // Data Scrubbing: Explicitly delete or filter out rogue typo artifacts ('Anthrecite', 'Anthresite')
+          if (lower === 'anthrecite' || lower === 'anthresite') {
+            safeDeleteDoc('dropdown_product_categories', d.id).catch(() => {});
+            continue;
+          }
+          if (!name) continue;
+          loadedCategories.push({
+            id: d.id,
+            name,
+            color: data.color,
+            workspace_id: data.workspace_id || data.workspaceId || undefined
+          });
+        }
       }
+      const healedCategories = healDropdownOptions(loadedCategories, UNIVERSAL_CATEGORIES, 'cat');
+      setProductCategories(healedCategories.mergedList);
+      setLocalCache('omni_categories', healedCategories.mergedList);
 
       // Units
       const unitSnap = await safeGetDocs('dropdown_units');
+      let loadedUnits: DropdownOption[] = [];
       if (unitSnap && !unitSnap.empty) {
-        const list = unitSnap.docs.map((d) => ({ id: d.id, name: d.data().name, color: d.data().color } as DropdownOption));
-        setUnits(list);
-        setLocalCache('omni_units', list);
+        loadedUnits = unitSnap.docs
+          .map((d) => ({
+            id: d.id,
+            name: String(d.data().name || '').trim(),
+            color: d.data().color
+          } as DropdownOption))
+          .filter((u) => Boolean(u.name));
       }
+      const healedUnits = healDropdownOptions(loadedUnits, UNIVERSAL_UNITS, 'u');
+      setUnits(healedUnits.mergedList);
+      setLocalCache('omni_units', healedUnits.mergedList);
 
       // Call Statuses
       const csSnap = await safeGetDocs('dropdown_call_statuses');
@@ -1829,10 +1864,12 @@ export default function App() {
         {currentTab === 'products' && (
           <ProductManager 
             products={workspaceProducts} 
-            productCategories={productCategories.map(c => c.name)}
+            productCategories={workspaceProductCategories.map(c => c.name)}
             units={units.map(u => u.name)}
             user={user} 
             setProducts={setProducts}
+            setProductCategories={setProductCategories}
+            setUnits={setUnits}
             activeWorkspace={activeWorkspace}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
@@ -1843,7 +1880,7 @@ export default function App() {
             user={user}
             activeWorkspace={activeWorkspace}
             enquirySources={enquirySources}
-            productCategories={productCategories}
+            productCategories={workspaceProductCategories}
             units={units}
             callStatuses={callStatuses}
             callOutcomes={callOutcomes}
@@ -1952,7 +1989,7 @@ export default function App() {
           salespersons={workspaceSalespersons}
           products={workspaceProducts}
           enquirySources={enquirySources.map(s => s.name)}
-          productCategories={productCategories.map(c => c.name)}
+          productCategories={workspaceProductCategories.map(c => c.name)}
           units={units.map(u => u.name)}
           enquiryToEdit={enquiryToEdit}
           onClose={() => setShowEnquiryForm(false)}
