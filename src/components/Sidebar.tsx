@@ -18,7 +18,8 @@ import {
   Layers,
   ChevronDown,
   Trash2,
-  X
+  X,
+  Briefcase
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -86,6 +87,7 @@ export default function Sidebar({
       role: 'Viewer',
       moduleKey: 'enquiriesEnabled'
     },
+    { id: 'projects', label: 'Projects / Operations', icon: Briefcase, role: 'Viewer' },
     { id: 'companies', label: 'Companies & Contacts', icon: Building2, role: 'Viewer' },
     { id: 'salespersons', label: 'Team', icon: Users2, role: 'Viewer' },
     { id: 'products', label: 'Products Catalog', icon: Package, role: 'Viewer' },

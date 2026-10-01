@@ -1,4 +1,4 @@
-import { Enquiry, LineItem, Product, StockMovement, UserProfile } from '../types';
+import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project } from '../types';
 import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -247,6 +247,133 @@ export async function releaseEnquiryStock(
       stock_reserved: false,
       stock_reserved_at: null,
       updatedAt: nowIso
+    }).catch(() => {});
+  }
+
+  return result;
+}
+
+export interface DispatchResult {
+  success: boolean;
+  dispatchedCount: number;
+  skippedCount: number;
+  details: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    newOnHand: number;
+    newReserved: number;
+  }[];
+}
+
+/**
+ * Dispatches a project's stock:
+ * Decrements both stock_on_hand and stock_reserved for inventoried line items,
+ * and appends immutable STOCK_OUT audit records in stock_movements.
+ */
+export async function dispatchProjectStock(
+  project: Project,
+  user?: any
+): Promise<DispatchResult> {
+  const lineItems: LineItem[] = project.line_items || [];
+  const result: DispatchResult = {
+    success: true,
+    dispatchedCount: 0,
+    skippedCount: 0,
+    details: []
+  };
+
+  const wsId = project.workspace_id || (project as any).workspaceId || 'default';
+  const nowIso = new Date().toISOString();
+  const userName =
+    user?.displayName ||
+    user?.full_name ||
+    user?.name ||
+    user?.username ||
+    user?.email ||
+    'System';
+  const userUid = user?.uid;
+
+  for (const item of lineItems) {
+    if (!item.product_id) {
+      result.skippedCount++;
+      continue;
+    }
+
+    try {
+      const prodRef = doc(db, 'products', item.product_id);
+      const prodSnap = await getDoc(prodRef);
+
+      if (!prodSnap.exists()) {
+        result.skippedCount++;
+        continue;
+      }
+
+      const prodData = prodSnap.data() as Product;
+      if (!prodData.is_inventoried) {
+        result.skippedCount++;
+        continue;
+      }
+
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) {
+        result.skippedCount++;
+        continue;
+      }
+
+      const currentOnHand = Number(prodData.stock_on_hand) || 0;
+      const currentReserved = Number(prodData.stock_reserved) || 0;
+
+      // Safe Inventory Deduction: decrement both stock_on_hand and stock_reserved
+      const newOnHand = Math.max(0, currentOnHand - qty);
+      const newReserved = Math.max(0, currentReserved - qty);
+
+      // Update Firestore product document
+      await safeUpdateDoc('products', item.product_id, {
+        stock_on_hand: newOnHand,
+        stock_reserved: newReserved,
+        updatedAt: nowIso
+      });
+
+      // Immutable audit record in stock_movements
+      const movement: StockMovement = {
+        workspace_id: wsId,
+        product_id: item.product_id,
+        product_name: prodData.name || item.description || 'Product',
+        movement_type: 'STOCK_OUT',
+        quantity: qty,
+        previous_on_hand: currentOnHand,
+        new_on_hand: newOnHand,
+        reference_type: 'PROJECT',
+        reference_id: project.id,
+        reference_number: project.project_number,
+        reason_notes: `Stock dispatched and delivered for project: ${project.project_number}`,
+        created_at: nowIso,
+        created_by_uid: userUid,
+        created_by_name: userName
+      };
+      await safeAddDoc('stock_movements', movement);
+
+      result.dispatchedCount++;
+      result.details.push({
+        productId: item.product_id,
+        productName: prodData.name || item.description || 'Product',
+        quantity: qty,
+        newOnHand,
+        newReserved
+      });
+    } catch (err) {
+      console.warn(`[dispatchProjectStock] Failed dispatching product ${item.product_id}:`, err);
+    }
+  }
+
+  // Update project in Firestore
+  if (project.id) {
+    await safeUpdateDoc('projects', project.id, {
+      status: 'Delivered',
+      dispatched_at: nowIso,
+      stock_deducted: true,
+      updated_at: nowIso
     }).catch(() => {});
   }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDocs } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
-import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
+import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
 export { WORKSPACE_STORAGE_KEY };
 import {
   ActivityLauncherProvider,
@@ -21,6 +21,7 @@ import InviteManager from './components/InviteManager';
 import EnquiryForm from './components/EnquiryForm';
 import EnquiryDetail from './components/EnquiryDetail';
 import ProductManager from './components/ProductManager';
+import ProjectRegistry from './components/ProjectRegistry';
 import SettingsHub from './components/SettingsHub';
 import CloudSyncHub from './components/CloudSyncHub';
 import WorkspaceManagerModal from './components/WorkspaceManagerModal';
@@ -187,6 +188,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => getLocalCache('omni_audit_logs', []));
   const [salespersons, setSalespersons] = useState<Salesperson[]>(() => getLocalCache('omni_salespersons', []));
   const [products, setProducts] = useState<Product[]>(() => getLocalCache('omni_products', []));
+  const [projects, setProjects] = useState<Project[]>(() => getLocalCache('omni_projects', []));
   const [enquirySources, setEnquirySources] = useState<DropdownOption[]>(() => getLocalCache('omni_sources', FALLBACK_SOURCES.map((s, i) => ({ id: 'src_' + i, name: s }))));
   const [productCategories, setProductCategories] = useState<DropdownOption[]>(() => {
     const cached = getLocalCache<DropdownOption[]>('omni_categories', []);
@@ -634,6 +636,13 @@ export default function App() {
     });
   }, [products, activeWorkspace.id, isDefaultWorkspace]);
 
+  const workspaceProjects = useMemo(() => {
+    return projects.filter((p) => {
+      const wId = p.workspace_id || (p as any).workspaceId;
+      return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
+    });
+  }, [projects, activeWorkspace.id, isDefaultWorkspace]);
+
   const workspaceProductCategories = useMemo(() => {
     return productCategories.filter((c) => {
       const lower = (c.name || '').toLowerCase();
@@ -748,6 +757,7 @@ export default function App() {
   useEffect(() => { setLocalCache('omni_audit_logs', auditLogs); }, [auditLogs]);
   useEffect(() => { setLocalCache('omni_salespersons', salespersons); }, [salespersons]);
   useEffect(() => { setLocalCache('omni_products', products); }, [products]);
+  useEffect(() => { setLocalCache('omni_projects', projects); }, [projects]);
   useEffect(() => { setLocalCache('omni_sources', enquirySources); }, [enquirySources]);
   useEffect(() => { setLocalCache('omni_categories', productCategories); }, [productCategories]);
   useEffect(() => { setLocalCache('omni_units', units); }, [units]);
@@ -904,6 +914,7 @@ export default function App() {
     auditLogs: (() => void) | null;
     salespersons: (() => void) | null;
     products: (() => void) | null;
+    projects: (() => void) | null;
     enquirySources: (() => void) | null;
     productCategories: (() => void) | null;
     units: (() => void) | null;
@@ -921,11 +932,13 @@ export default function App() {
     auditLogs: null,
     salespersons: null,
     products: null,
+    projects: null,
     enquirySources: null,
     productCategories: null,
     units: null,
     callStatuses: null,
-    callOutcomes: null
+    callOutcomes: null,
+    callPurposes: null
   });
 
   const cleanupAllListeners = () => {
@@ -940,6 +953,7 @@ export default function App() {
     if (refs.auditLogs) { refs.auditLogs(); refs.auditLogs = null; }
     if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
     if (refs.products) { refs.products(); refs.products = null; }
+    if (refs.projects) { refs.projects(); refs.projects = null; }
     if (refs.enquirySources) { refs.enquirySources(); refs.enquirySources = null; }
     if (refs.productCategories) { refs.productCategories(); refs.productCategories = null; }
     if (refs.units) { refs.units(); refs.units = null; }
@@ -1345,6 +1359,7 @@ export default function App() {
     if (refs.enquiries) { refs.enquiries(); refs.enquiries = null; }
     if (refs.invites) { refs.invites(); refs.invites = null; }
     if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
+    if (refs.projects) { refs.projects(); refs.projects = null; }
 
     if (!user?.uid || !realtimeSyncEnabled || !activeWorkspaceId) {
       return;
@@ -1431,6 +1446,21 @@ export default function App() {
       setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
     });
 
+    // Projects - Partitioned by active workspace
+    const prjQuery = query(collection(db, 'projects'), where('workspace_id', '==', currentWsId));
+    refs.projects = onSnapshot(prjQuery, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Project));
+      list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      setProjects((prev) => {
+        const clean = deduplicateList(list, prev);
+        setLocalCache('omni_projects', clean);
+        return clean;
+      });
+    }, (error) => {
+      console.warn("Projects snapshot listener error (Quota/Offline):", error);
+      setProjects(getLocalCache<Project[]>('omni_projects', []));
+    });
+
     return () => {
       if (refs.callLogs) { refs.callLogs(); refs.callLogs = null; }
       if (refs.companies) { refs.companies(); refs.companies = null; }
@@ -1438,6 +1468,7 @@ export default function App() {
       if (refs.enquiries) { refs.enquiries(); refs.enquiries = null; }
       if (refs.invites) { refs.invites(); refs.invites = null; }
       if (refs.salespersons) { refs.salespersons(); refs.salespersons = null; }
+      if (refs.projects) { refs.projects(); refs.projects = null; }
     };
   }, [user?.uid, activeWorkspaceId, realtimeSyncEnabled]);
 
@@ -1664,7 +1695,7 @@ export default function App() {
                 );
               })()}
               <span>/</span>
-              <span className="text-slate-900 capitalize font-sans">{currentTab === 'salespersons' ? 'Team Roster' : currentTab === 'call_log' ? 'Call Center & Logs' : currentTab.replace('_', ' ')}</span>
+              <span className="text-slate-900 capitalize font-sans">{currentTab === 'salespersons' ? 'Team Roster' : currentTab === 'call_log' ? 'Call Center & Logs' : currentTab === 'projects' ? 'Projects / Operations' : currentTab.replace('_', ' ')}</span>
             </span>
           </div>
 
@@ -1808,6 +1839,19 @@ export default function App() {
               setIsActivityDrawerOpen(true);
             }}
             onInitiateActivity={initiateActivity}
+            onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          />
+        )}
+
+        {currentTab === 'projects' && (
+          <ProjectRegistry
+            projects={workspaceProjects}
+            setProjects={setProjects}
+            products={workspaceProducts}
+            setProducts={setProducts}
+            activeWorkspace={activeWorkspace}
+            user={user}
+            triggerToast={triggerToast}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           />
         )}

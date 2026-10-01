@@ -93,3 +93,49 @@ export async function getProjectForEnquiry(enquiryId: string): Promise<Project |
   }
   return null;
 }
+
+export async function getWorkspaceProjects(workspaceId: string): Promise<Project[]> {
+  if (!workspaceId) return [];
+  try {
+    const snap = await safeGetDocs('projects');
+    if (snap && !snap.empty) {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Project))
+        .filter((p) => {
+          const wId = p.workspace_id || (p as any).workspaceId;
+          return wId === workspaceId || (!wId && (workspaceId === 'default' || workspaceId === 'ws_default'));
+        })
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      return list;
+    }
+  } catch (err) {
+    console.warn('Error fetching workspace projects:', err);
+  }
+  return [];
+}
+
+export async function updateProjectStatus(
+  projectId: string,
+  status: Project['status'],
+  user?: any
+): Promise<boolean> {
+  if (!projectId) return false;
+  const nowIso = new Date().toISOString();
+  try {
+    const payload: Partial<Project> = {
+      status,
+      updated_at: nowIso
+    };
+    if (status === 'Delivered') {
+      (payload as any).delivered_at = nowIso;
+    } else if (status === 'Completed') {
+      (payload as any).completed_at = nowIso;
+    }
+    await safeUpdateDoc('projects', projectId, payload);
+    return true;
+  } catch (err) {
+    console.error('Failed to update project status:', err);
+    return false;
+  }
+}
+
