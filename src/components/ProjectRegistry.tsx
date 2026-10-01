@@ -25,7 +25,8 @@ import {
   Calendar,
   Layers,
   MapPin,
-  ShieldAlert
+  ShieldAlert,
+  Info
 } from 'lucide-react';
 
 interface ProjectRegistryProps {
@@ -167,10 +168,17 @@ export default function ProjectRegistry({
       }
 
       if (triggerToast) {
-        triggerToast(
-          `Project ${selectedProject.project_number} dispatched! Deducted ${result.dispatchedCount} warehouse items.`,
-          'success'
-        );
+        if (result.dispatchedCount > 0) {
+          triggerToast(
+            `Project ${selectedProject.project_number} dispatched! Deducted ${result.dispatchedCount} warehouse items.`,
+            'success'
+          );
+        } else {
+          triggerToast(
+            `Project ${selectedProject.project_number} marked as fulfilled.`,
+            'success'
+          );
+        }
       }
     } catch (err: any) {
       console.error('Failed executing project dispatch:', err);
@@ -392,7 +400,12 @@ export default function ProjectRegistry({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
                 {filteredProjects.map((project) => {
                   const isStockDeducted = Boolean((project as any).stock_deducted);
-                  const inventoriedLines = (project.line_items || []).filter((it) => it.product_id).length;
+                  const inventoriedCount = (project.line_items || []).filter((it) => {
+                    if (!it.product_id) return false;
+                    const p = productMap?.get(it.product_id);
+                    return p ? Boolean(p.is_inventoried) : false;
+                  }).length;
+                  const totalLinesCount = (project.line_items || []).length;
 
                   return (
                     <tr
@@ -432,11 +445,17 @@ export default function ProjectRegistry({
                             <Check className="w-3 h-3" />
                             <span>STOCK OUT</span>
                           </span>
-                        ) : (
+                        ) : inventoriedCount > 0 ? (
                           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40">
                             <Boxes className="w-3 h-3" />
-                            <span>{inventoriedLines} Reserved</span>
+                            <span>{inventoriedCount} Reserved</span>
                           </span>
+                        ) : totalLinesCount > 0 ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800">
+                            Non-Stock Scope
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">No Items</span>
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
@@ -569,7 +588,7 @@ export default function ProjectRegistry({
                           <tr key={it.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                             <td className="py-3 px-3">
                               <div className="font-bold text-slate-800 dark:text-slate-200">
-                                {it.description || 'Line Item'}
+                                {it.description?.trim() || productMap?.get(it.product_id || '')?.name || it.product_type || 'Custom Item / Scope'}
                               </div>
                               <div className="text-[11px] text-slate-400">
                                 Type: {it.product_type || 'General'}
@@ -643,21 +662,62 @@ export default function ProjectRegistry({
               </div>
 
               <div className="flex items-center space-x-3">
-                {!(selectedProject as any).stock_deducted && selectedProject.status !== 'Cancelled' ? (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDispatchOpen(true)}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <Truck className="w-4 h-4" />
-                    <span>Mark Dispatched & Deduct Stock</span>
-                  </button>
-                ) : (
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
-                    <Check className="w-4 h-4" />
-                    <span>Warehouse Stock Dispatched</span>
-                  </span>
-                )}
+                {(() => {
+                  const projectItems = selectedProject.line_items || [];
+                  const hasItems = projectItems.length > 0;
+                  const hasInventoriedItems = projectItems.some((it) => {
+                    if (!it.product_id) return false;
+                    const p = productMap?.get(it.product_id);
+                    return p ? Boolean(p.is_inventoried) : false;
+                  });
+
+                  if ((selectedProject as any).stock_deducted || selectedProject.status === 'Cancelled') {
+                    return (
+                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+                        <Check className="w-4 h-4" />
+                        <span>Warehouse Stock Dispatched</span>
+                      </span>
+                    );
+                  }
+
+                  if (!hasItems) {
+                    return (
+                      <button
+                        type="button"
+                        disabled={true}
+                        title="Cannot dispatch a project with 0 line items"
+                        className="px-4 py-2 opacity-50 cursor-not-allowed bg-slate-400 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5"
+                      >
+                        <Truck className="w-4 h-4" />
+                        <span>Mark Dispatched</span>
+                      </button>
+                    );
+                  }
+
+                  if (!hasInventoriedItems) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDispatchOpen(true)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Mark Fulfilled / Dispatched</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDispatchOpen(true)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>Mark Dispatched & Deduct Stock</span>
+                    </button>
+                  );
+                })()}
 
                 <button
                   type="button"
@@ -673,48 +733,77 @@ export default function ProjectRegistry({
       )}
 
       {/* Confirmation Dialog for Stock Deduction */}
-      {confirmDispatchOpen && selectedProject && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center space-x-3">
-              <span className="p-2 rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400">
-                <Truck className="w-5 h-5" />
-              </span>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
-                Confirm Warehouse Stock Dispatch
-              </h3>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
-              Marking project <strong className="font-mono text-slate-900 dark:text-white">{selectedProject.project_number}</strong> as Dispatched will deduct physical inventory from the warehouse for all linked catalog products and log immutable <span className="font-mono font-bold text-emerald-600">STOCK_OUT</span> audit entries.
-            </p>
-            <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start space-x-2">
-              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-              <span>
-                This operation updates live stock-on-hand and stock-reserved counters in Firestore.
-              </span>
-            </div>
-            <div className="flex items-center justify-end space-x-3 pt-2">
-              <button
-                type="button"
-                disabled={isDispatching}
-                onClick={() => setConfirmDispatchOpen(false)}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isDispatching}
-                onClick={handleExecuteDispatch}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
-              >
-                {isDispatching && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                <span>{isDispatching ? 'Deducting Stock...' : 'Confirm Dispatch'}</span>
-              </button>
+      {confirmDispatchOpen && selectedProject && (() => {
+        const modalItems = selectedProject.line_items || [];
+        const modalHasInventoried = modalItems.some((it) => {
+          if (!it.product_id) return false;
+          const p = productMap?.get(it.product_id);
+          return p ? Boolean(p.is_inventoried) : false;
+        });
+
+        return (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+              <div className="flex items-center space-x-3">
+                <span className={`p-2 rounded-xl ${modalHasInventoried ? 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400'}`}>
+                  {modalHasInventoried ? <Truck className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </span>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
+                  {modalHasInventoried ? 'Confirm Warehouse Stock Dispatch' : 'Confirm Project Fulfillment'}
+                </h3>
+              </div>
+              {modalHasInventoried ? (
+                <>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+                    Marking project <strong className="font-mono text-slate-900 dark:text-white">{selectedProject.project_number}</strong> as Dispatched will deduct physical inventory from the warehouse for all linked catalog products and log immutable <span className="font-mono font-bold text-emerald-600">STOCK_OUT</span> audit entries.
+                  </p>
+                  <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start space-x-2">
+                    <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                    <span>
+                      This operation updates live stock-on-hand and stock-reserved counters in Firestore.
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+                    This project contains custom/service scope without physical warehouse inventory. Mark as fulfilled?
+                  </p>
+                  <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl text-[11px] text-blue-800 dark:text-blue-300 flex items-start space-x-2">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
+                    <span>
+                      Project status will advance to Delivered without deducting warehouse inventory counts.
+                    </span>
+                  </div>
+                </>
+              )}
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isDispatching}
+                  onClick={() => setConfirmDispatchOpen(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDispatching}
+                  onClick={handleExecuteDispatch}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
+                >
+                  {isDispatching && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                  <span>
+                    {isDispatching
+                      ? modalHasInventoried ? 'Deducting Stock...' : 'Updating Project...'
+                      : modalHasInventoried ? 'Confirm Dispatch' : 'Confirm Fulfillment'}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
