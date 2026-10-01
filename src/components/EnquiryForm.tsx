@@ -259,6 +259,7 @@ const normalizeAttributeKey = (rawKey: string): string => {
 };
 
 interface CatalogItem {
+  id?: string;
   name?: string;
   product_type: ProductType;
   description: string;
@@ -505,6 +506,7 @@ export default function EnquiryForm({
 
   const combinedCatalog = React.useMemo(() => {
     return (products || []).map((p) => ({
+      id: p.id,
       name: p.name || p.product_type,
       product_type: p.product_type,
       description: p.description,
@@ -1286,6 +1288,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const price = Math.round(rawPrice * 100) / 100;
 
     const newItem: LineItem = {
+      product_id: item.id || undefined,
       item_type: 'product',
       product_type: item.product_type,
       description: item.description,

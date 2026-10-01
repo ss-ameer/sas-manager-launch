@@ -16,7 +16,8 @@ import {
   RotateCw,
   RotateCcw,
   AlertTriangle,
-  ChevronDown
+  ChevronDown,
+  Boxes
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
@@ -46,6 +47,16 @@ export default function ProductManager({ products, productCategories: propCatego
   const [formUnitPrice, setFormUnitPrice] = useState<number | undefined>(undefined);
   const [formSku, setFormSku] = useState('');
   const [formAttributes, setFormAttributes] = useState<ProductAttribute[]>([]);
+
+  // Inventory & Logistics Form States
+  const [formIsInventoried, setFormIsInventoried] = useState<boolean>(false);
+  const [formStockOnHand, setFormStockOnHand] = useState<number | undefined>(0);
+  const [formReorderLevel, setFormReorderLevel] = useState<number | undefined>(0);
+  const [formStorageLocation, setFormStorageLocation] = useState<string>('');
+  const [formHsCode, setFormHsCode] = useState<string>('');
+  const [formCountryOfOrigin, setFormCountryOfOrigin] = useState<string>('');
+  const [formGrossWeightKg, setFormGrossWeightKg] = useState<number | undefined>(undefined);
+  const [formCostPrice, setFormCostPrice] = useState<number | undefined>(undefined);
 
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -152,6 +163,14 @@ export default function ProductManager({ products, productCategories: propCatego
     setFormUnitPrice(undefined);
     setFormSku('');
     setFormAttributes([]);
+    setFormIsInventoried(false);
+    setFormStockOnHand(0);
+    setFormReorderLevel(0);
+    setFormStorageLocation('');
+    setFormHsCode('');
+    setFormCountryOfOrigin('');
+    setFormGrossWeightKg(undefined);
+    setFormCostPrice(undefined);
     setShowFormModal(true);
   };
 
@@ -164,6 +183,14 @@ export default function ProductManager({ products, productCategories: propCatego
     setFormUnitPrice(p.unit_price);
     setFormSku(p.sku || '');
     setFormAttributes(p.attributes || []);
+    setFormIsInventoried(Boolean(p.is_inventoried));
+    setFormStockOnHand(p.stock_on_hand ?? 0);
+    setFormReorderLevel(p.reorder_level ?? 0);
+    setFormStorageLocation(p.storage_location || '');
+    setFormHsCode(p.hs_code || '');
+    setFormCountryOfOrigin(p.country_of_origin || '');
+    setFormGrossWeightKg(p.gross_weight_kg);
+    setFormCostPrice(p.cost_price);
     setShowFormModal(true);
   };
 
@@ -200,6 +227,15 @@ export default function ProductManager({ products, productCategories: propCatego
       sku: formSku.trim() || undefined,
       attributes: cleanAttributes,
       search_terms: searchTerms,
+      is_inventoried: formIsInventoried,
+      stock_on_hand: formIsInventoried ? Number(formStockOnHand || 0) : undefined,
+      stock_reserved: editingProduct ? (editingProduct.stock_reserved || 0) : 0,
+      reorder_level: formIsInventoried ? Number(formReorderLevel || 0) : undefined,
+      storage_location: formIsInventoried && formStorageLocation.trim() ? formStorageLocation.trim() : undefined,
+      hs_code: formHsCode.trim() || undefined,
+      country_of_origin: formCountryOfOrigin.trim() || undefined,
+      gross_weight_kg: formGrossWeightKg !== undefined && formGrossWeightKg > 0 ? formGrossWeightKg : undefined,
+      cost_price: formCostPrice !== undefined && formCostPrice > 0 ? formCostPrice : undefined,
     };
 
     try {
@@ -388,6 +424,7 @@ export default function ProductManager({ products, productCategories: propCatego
                     <th className="py-4 px-6">Product Details</th>
                     <th className="py-4 px-6">Category</th>
                     <th className="py-4 px-6">SKU / Code</th>
+                    <th className="py-4 px-6">Stock Status</th>
                     <th className="py-4 px-6">Unit</th>
                     <th className="py-4 px-6 text-right">Standard Price</th>
                     <th className="py-4 px-6 text-center">Actions</th>
@@ -422,6 +459,30 @@ export default function ProductManager({ products, productCategories: propCatego
                       </td>
                       <td className="py-4 px-6 font-mono text-xs text-slate-600 font-semibold">
                         {p.sku || '—'}
+                      </td>
+                      <td className="py-4 px-6">
+                        {p.is_inventoried ? (
+                          <div className="space-y-0.5">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                ((p.stock_on_hand || 0) - (p.stock_reserved || 0)) <= (p.reorder_level || 0)
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                              }`}
+                            >
+                              Available: {(p.stock_on_hand || 0) - (p.stock_reserved || 0)}
+                            </span>
+                            {p.storage_location && (
+                              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate max-w-[140px]" title={p.storage_location}>
+                                Loc: {p.storage_location}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                            Procured / Service
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 px-6 font-mono text-xs text-slate-500">
                         {p.unit}
@@ -536,7 +597,7 @@ export default function ProductManager({ products, productCategories: propCatego
         <div id="product-form-modal" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
             onSubmit={handleSaveProduct}
-            className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-8 shadow-2xl relative space-y-6 animate-in fade-in zoom-in-95 duration-150"
+            className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-8 shadow-2xl relative space-y-6 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto"
           >
             <button
               type="button"
@@ -737,6 +798,149 @@ export default function ProductManager({ products, productCategories: propCatego
                     className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500/20 font-mono"
                     placeholder="Custom Price"
                   />
+                </div>
+              </div>
+
+              {/* Warehouse Inventory Tracking Section */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 font-sans">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <div className="flex items-center space-x-2.5">
+                    <Boxes className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                        Track Warehouse Stock
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Maintain live stock-on-hand count, reorder warnings, and storage bay locations.
+                      </span>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      id="track-stock-checkbox"
+                      checked={formIsInventoried}
+                      onChange={(e) => setFormIsInventoried(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {formIsInventoried && (
+                  <div className="p-3.5 rounded-xl border border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20 space-y-3 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                          On-Hand Quantity *
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={formStockOnHand !== undefined ? formStockOnHand : 0}
+                          onChange={(e) => setFormStockOnHand(e.target.value !== '' ? Number(e.target.value) : 0)}
+                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none"
+                          placeholder="0"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                          Low Stock Alert Threshold
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={formReorderLevel !== undefined ? formReorderLevel : 0}
+                          onChange={(e) => setFormReorderLevel(e.target.value !== '' ? Number(e.target.value) : 0)}
+                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                        Storage Bay / Bin Location
+                      </label>
+                      <input
+                        type="text"
+                        value={formStorageLocation}
+                        onChange={(e) => setFormStorageLocation(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                        placeholder="e.g. WH-1 / Bay 4 / Shelf B"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Optional Logistics, Customs & Costing Section */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 font-sans">
+                <span className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
+                  Logistics, Customs & Costing (Optional)
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+                      HS Tariff Code
+                    </label>
+                    <input
+                      type="text"
+                      value={formHsCode}
+                      onChange={(e) => setFormHsCode(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      placeholder="e.g. 8421.21.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+                      Country of Origin
+                    </label>
+                    <input
+                      type="text"
+                      value={formCountryOfOrigin}
+                      onChange={(e) => setFormCountryOfOrigin(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                      placeholder="e.g. United States, Germany"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+                      Gross Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
+                      onChange={(e) => setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      placeholder="e.g. 15.5"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+                      Cost Price (AED)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={formCostPrice !== undefined ? formCostPrice : ''}
+                      onChange={(e) => setFormCostPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                      placeholder="Internal Cost"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

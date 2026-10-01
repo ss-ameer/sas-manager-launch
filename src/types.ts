@@ -329,6 +329,7 @@ export interface ProductAttribute {
 
 export interface LineItem {
   id?: string;
+  product_id?: string;
   item_type?: ItemType;
   charge_type?: string;
   product_type: ProductType;
@@ -340,6 +341,26 @@ export interface LineItem {
   lead_time_note?: string;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
+}
+
+export type StockMovementType = 'STOCK_IN' | 'STOCK_RESERVE' | 'STOCK_RELEASE' | 'STOCK_OUT' | 'ADJUSTMENT';
+
+export interface StockMovement {
+  id?: string;
+  workspace_id: string;
+  product_id: string;
+  product_name: string;
+  movement_type: StockMovementType;
+  quantity: number;
+  previous_on_hand: number;
+  new_on_hand: number;
+  reference_type?: 'ENQUIRY' | 'PROJECT' | 'PO' | 'MANUAL';
+  reference_id?: string;
+  reference_number?: string;
+  reason_notes?: string;
+  created_at: string;
+  created_by_uid?: string;
+  created_by_name?: string;
 }
 
 export interface Attachment {
@@ -527,6 +548,16 @@ export interface Product extends SoftDeleteFields {
   sku?: string;
   createdAt?: string;
   attributes?: ProductAttribute[];
+  is_inventoried?: boolean;
+  stock_on_hand?: number;
+  stock_reserved?: number;
+  reorder_level?: number;
+  hs_code?: string;
+  country_of_origin?: string;
+  gross_weight_kg?: number;
+  storage_location?: string;
+  cost_price?: number;
+  search_terms?: string[];
 }
 
 export const getInitials = (name?: string | null): string => {
