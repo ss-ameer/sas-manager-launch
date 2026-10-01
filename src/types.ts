@@ -363,6 +363,24 @@ export interface StockMovement {
   created_by_name?: string;
 }
 
+export interface Project {
+  id?: string;
+  project_number: string; // e.g. PRJ-2026-XXXX
+  workspace_id: string;
+  enquiry_id: string;
+  client_name: string;
+  client_contact_id?: string;
+  title: string;
+  status: 'Draft' | 'In Progress' | 'Delivered' | 'Completed' | 'Cancelled';
+  project_type: 'Supply Only' | 'Turnkey / Installation';
+  contract_value: number;
+  currency?: string;
+  line_items: LineItem[];
+  operational_notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Attachment {
   id?: string;
   name: string;
@@ -448,6 +466,10 @@ export interface Enquiry extends SoftDeleteFields {
   remarks?: string;
   invoice_po_no?: string;
   payment_status?: string;
+  project_id?: string;
+  project_number?: string;
+  stock_reserved?: boolean;
+  stock_reserved_at?: string | null;
   custom_project_details?: ProductAttribute[];
   line_items: LineItem[];
   attachments?: Attachment[];

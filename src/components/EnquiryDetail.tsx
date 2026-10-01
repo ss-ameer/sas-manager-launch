@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -15,6 +15,8 @@ import FilePreviewModal from './common/FilePreviewModal';
 import { resolveAttachmentUrl } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
+import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
+import { createProjectFromEnquiry, getProjectForEnquiry } from '../services/projectService';
 import {
   FileText,
   Building,
@@ -45,7 +47,11 @@ import {
   Eye,
   Image as ImageIcon,
   Users,
-  UserPlus
+  UserPlus,
+  FolderPlus,
+  Boxes,
+  PackageCheck,
+  ArrowRight
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -120,6 +126,136 @@ export default function EnquiryDetail({
     setCurrentEnquiry(enquiry);
     setActiveOptionTab('ALL');
   }, [enquiry]);
+
+  // Project linkage & Inventory Reservation States
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
+  const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
+  const [linkedProject, setLinkedProject] = useState<Project | null>(null);
+
+  // Check if a project document is already attached to this enquiry
+  useEffect(() => {
+    if (currentEnquiry?.id) {
+      getProjectForEnquiry(currentEnquiry.id).then((p) => {
+        if (p) setLinkedProject(p);
+      });
+    }
+  }, [currentEnquiry?.id, currentEnquiry?.project_id]);
+
+  // Status transition handler: auto-reserves stock on Won, auto-releases on Lost/Cancelled
+  const handleStatusTransition = async (newStatus: string) => {
+    if (!currentEnquiry?.id || isUpdatingStatus || newStatus === currentEnquiry.status) return;
+    setIsUpdatingStatus(true);
+    const oldStatus = currentEnquiry.status;
+    const nowIso = new Date().toISOString();
+
+    try {
+      let isStockReserved = Boolean(currentEnquiry.stock_reserved);
+      let stockReservedAt = currentEnquiry.stock_reserved_at;
+
+      // 1. Transition TO Won/Order Received/Approved
+      if (isWonStatus(newStatus) && !isWonStatus(oldStatus)) {
+        const res = await reserveEnquiryStock(currentEnquiry, user);
+        isStockReserved = true;
+        stockReservedAt = nowIso;
+        if (triggerToast) {
+          triggerToast(
+            res.reservedCount > 0
+              ? `Status updated to "${newStatus}". Auto-reserved stock for ${res.reservedCount} line item(s).`
+              : `Status updated to "${newStatus}".`,
+            'success'
+          );
+        }
+      }
+      // 2. Transition AWAY from Won TO Lost/Cancelled
+      else if (isLostOrCancelledStatus(newStatus) && isWonStatus(oldStatus)) {
+        if (isStockReserved) {
+          const rel = await releaseEnquiryStock(currentEnquiry, user);
+          isStockReserved = false;
+          stockReservedAt = null;
+          if (triggerToast) {
+            triggerToast(
+              rel.releasedCount > 0
+                ? `Status updated to "${newStatus}". Released reserved stock for ${rel.releasedCount} line item(s).`
+                : `Status updated to "${newStatus}".`,
+              'info'
+            );
+          }
+        } else if (triggerToast) {
+          triggerToast(`Status updated to "${newStatus}".`, 'info');
+        }
+      } else {
+        if (triggerToast) {
+          triggerToast(`Status updated to "${newStatus}".`, 'info');
+        }
+      }
+
+      const updatedEnquiry: Enquiry = {
+        ...currentEnquiry,
+        status: newStatus as any,
+        stock_reserved: isStockReserved,
+        stock_reserved_at: stockReservedAt,
+        updatedAt: nowIso
+      };
+
+      await safeUpdateDoc('enquiries', currentEnquiry.id, {
+        status: newStatus,
+        stock_reserved: isStockReserved,
+        stock_reserved_at: stockReservedAt,
+        updatedAt: nowIso
+      });
+
+      setCurrentEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry(updatedEnquiry);
+      }
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+      if (triggerToast) {
+        triggerToast('Failed to update status: ' + err.message, 'error');
+      }
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Convert Won Enquiry into an Operational Project Container
+  const handleCreateProject = async () => {
+    if (!currentEnquiry?.id || isCreatingProject) return;
+    setIsCreatingProject(true);
+    try {
+      const newProject = await createProjectFromEnquiry(currentEnquiry, user);
+      setLinkedProject(newProject);
+
+      const updatedEnquiry: Enquiry = {
+        ...currentEnquiry,
+        project_id: newProject.id,
+        project_number: newProject.project_number,
+        updatedAt: new Date().toISOString()
+      };
+
+      setCurrentEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry(updatedEnquiry);
+      }
+
+      if (triggerToast) {
+        triggerToast(`Project ${newProject.project_number} created successfully!`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to create project:', err);
+      if (triggerToast) {
+        triggerToast('Failed to create project: ' + err.message, 'error');
+      }
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
 
   const currentWsId = activeWorkspaceId || activeWorkspace?.id || currentEnquiry.workspace_id;
 
@@ -712,9 +848,12 @@ export default function EnquiryDetail({
     switch (status) {
       case 'Active':
         return 'bg-blue-50 border-blue-200 text-blue-700';
+      case 'Won':
+      case 'Won / Approved':
       case 'Order Received':
         return 'bg-emerald-50 border-emerald-200 text-emerald-700';
       case 'Lost':
+      case 'Lost / Cancelled':
         return 'bg-rose-50 border-rose-200 text-rose-700';
       case 'Dead':
         return 'bg-slate-100 border-slate-200 text-slate-600';
@@ -920,15 +1059,108 @@ export default function EnquiryDetail({
             <div className="space-y-6">
               {/* Status and Value Header Card */}
               <div className="grid grid-cols-2 gap-4">
-                <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(enquiry.status)}`}>
-                  <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status Code</span>
-                  <span className="text-base font-bold font-sans mt-1">{enquiry.status}</span>
+                <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status Code</span>
+                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                      <select
+                        value={currentEnquiry.status}
+                        disabled={isUpdatingStatus}
+                        onChange={(e) => handleStatusTransition(e.target.value)}
+                        className="text-xs bg-white/90 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-0.5 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer focus:outline-none shadow-2xs"
+                        title="Change Enquiry Status"
+                      >
+                        {['Active', 'Won / Approved', 'Order Received', 'Lost', 'Lost / Cancelled', 'Delayed', 'Hold', 'Dead', 'Cancelled PO'].map((st) => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <span className="text-base font-bold font-sans">{currentEnquiry.status}</span>
+                    {currentEnquiry.stock_reserved && (
+                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <Boxes className="w-3 h-3" />
+                        <span>Stock Reserved</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Total Package Price</span>
-                  <span className="text-base font-bold font-mono text-blue-600 mt-1">{formatCurrency(enquiry.value_aed)}</span>
+                  <span className="text-base font-bold font-mono text-blue-600 mt-1">{formatCurrency(currentEnquiry.value_aed)}</span>
                 </div>
               </div>
+
+              {/* Won Status - Project Conversion / Fulfillment Banner */}
+              {isWonStatus(currentEnquiry.status) && (
+                <div className="p-4.5 rounded-2xl border border-emerald-200 dark:border-emerald-800/80 bg-gradient-to-r from-emerald-50/80 via-emerald-50/40 to-blue-50/40 dark:from-emerald-950/40 dark:via-slate-900 dark:to-blue-950/30 space-y-3 shadow-xs">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-emerald-600 text-white shadow-2xs">
+                          <PackageCheck className="w-4 h-4" />
+                        </span>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white font-sans">
+                          {linkedProject || currentEnquiry.project_number
+                            ? `Project Linked: ${linkedProject?.project_number || currentEnquiry.project_number}`
+                            : 'Enquiry Won — Ready for Project Fulfillment'}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 font-sans">
+                        {linkedProject || currentEnquiry.project_number
+                          ? `This enquiry has been converted into project ${linkedProject?.project_number || currentEnquiry.project_number} (${linkedProject?.status || 'In Progress'}). Contract value: ${formatCurrency(currentEnquiry.value_aed)}.`
+                          : 'Warehouse inventory has been reserved. You can now instantiate an operational project container to track procurement, delivery, and installation.'}
+                      </p>
+                    </div>
+
+                    {!linkedProject && !currentEnquiry.project_number ? (
+                      <button
+                        type="button"
+                        id="create-project-fulfillment-btn"
+                        disabled={isCreatingProject}
+                        onClick={handleCreateProject}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-2 shrink-0 cursor-pointer disabled:opacity-60"
+                      >
+                        {isCreatingProject ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Creating Project...</span>
+                          </>
+                        ) : (
+                          <>
+                            <FolderPlus className="w-4 h-4" />
+                            <span>Convert to Project / Fulfillment</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
+                          {linkedProject?.project_number || currentEnquiry.project_number}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stock reservation breakdown info */}
+                  <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-800/40 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center space-x-2">
+                      <Boxes className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>
+                        {currentEnquiry.stock_reserved
+                          ? `Auto-reserved ${currentEnquiry.line_items?.filter((it) => it.product_id).length || 0} catalog product line(s) in warehouse`
+                          : 'No catalog products linked for warehouse reservation'}
+                      </span>
+                    </div>
+                    {currentEnquiry.stock_reserved_at && (
+                      <span className="font-mono text-[10px] text-slate-400">
+                        Reserved on {new Date(currentEnquiry.stock_reserved_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Revision History Chain Card */}
               {revisionChain.length > 0 && (
