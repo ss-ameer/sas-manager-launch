@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Project, Product, Workspace, UserProfile, LineItem } from '../types';
 import { dispatchProjectStock } from '../services/inventoryService';
 import { updateProjectStatus } from '../services/projectService';
@@ -38,6 +38,8 @@ interface ProjectRegistryProps {
   user: UserProfile;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onOpenMobileMenu?: () => void;
+  initialProjectId?: string | null;
+  onClearInitialProject?: () => void;
 }
 
 export default function ProjectRegistry({
@@ -48,7 +50,9 @@ export default function ProjectRegistry({
   activeWorkspace,
   user,
   triggerToast,
-  onOpenMobileMenu
+  onOpenMobileMenu,
+  initialProjectId,
+  onClearInitialProject
 }: ProjectRegistryProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | Project['status']>('All');
@@ -56,6 +60,23 @@ export default function ProjectRegistry({
   const [isDispatching, setIsDispatching] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [confirmDispatchOpen, setConfirmDispatchOpen] = useState(false);
+
+  // Automatic deep-link / navigation to target project
+  useEffect(() => {
+    if (initialProjectId) {
+      const match = projects.find(
+        (p) => p.id === initialProjectId || p.project_number === initialProjectId
+      );
+      if (match) {
+        setSelectedProject(match);
+      }
+    }
+  }, [initialProjectId, projects]);
+
+  const handleCloseModal = () => {
+    setSelectedProject(null);
+    onClearInitialProject?.();
+  };
 
   // Multi-Tenant Isolation: Ensure only active workspace projects are shown
   const workspaceProjects = useMemo(() => {
@@ -507,7 +528,7 @@ export default function ProjectRegistry({
                 {getStatusBadge(selectedProject.status, Boolean((selectedProject as any).stock_deducted))}
                 <button
                   type="button"
-                  onClick={() => setSelectedProject(null)}
+                  onClick={handleCloseModal}
                   className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -721,7 +742,7 @@ export default function ProjectRegistry({
 
                 <button
                   type="button"
-                  onClick={() => setSelectedProject(null)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
                 >
                   Close

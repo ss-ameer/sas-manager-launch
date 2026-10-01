@@ -273,6 +273,13 @@ export default function App() {
   const [enquiryToEdit, setEnquiryToEdit] = useState<Enquiry | null>(null);
   const [showTrashBinModal, setShowTrashBinModal] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
+  const handleNavigateToProject = (projectId: string) => {
+    setSelectedEnquiryId(null); // Close enquiry modal
+    setActiveProjectId(projectId);
+    setCurrentTab('projects'); // Switch sidebar view
+  };
 
   // Global mobile menu open trigger listener
   useEffect(() => {
@@ -1853,6 +1860,8 @@ export default function App() {
             user={user}
             triggerToast={triggerToast}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            initialProjectId={activeProjectId}
+            onClearInitialProject={() => setActiveProjectId(null)}
           />
         )}
 
@@ -1987,6 +1996,7 @@ export default function App() {
           enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
           setEnquiries={setEnquiries}
           onClose={() => setSelectedEnquiryId(null)}
+          onNavigateToProject={handleNavigateToProject}
           onDeleteEnquiry={handleDeleteEnquiry}
           onEditEnquiry={(enq) => {
             setEnquiryToEdit(enq);

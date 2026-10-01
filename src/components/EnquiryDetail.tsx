@@ -51,7 +51,8 @@ import {
   FolderPlus,
   Boxes,
   PackageCheck,
-  ArrowRight
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -69,6 +70,7 @@ interface EnquiryDetailProps {
   activeWorkspaceId?: string;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onClose: () => void;
+  onNavigateToProject?: (projectId: string) => void;
   onDeleteEnquiry: (id: string) => void;
   onEditEnquiry: (enquiry: Enquiry) => void;
   onSelectEnquiry?: (id: string) => void;
@@ -101,6 +103,7 @@ export default function EnquiryDetail({
   activeWorkspace,
   activeWorkspaceId,
   onClose,
+  onNavigateToProject,
   onDeleteEnquiry,
   onEditEnquiry,
   onSelectEnquiry,
@@ -1136,9 +1139,20 @@ export default function EnquiryDetail({
                       </button>
                     ) : (
                       <div className="flex items-center space-x-2 shrink-0">
-                        <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 shadow-2xs">
-                          {linkedProject?.project_number || currentEnquiry.project_number}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const targetId = linkedProject?.id || currentEnquiry.project_id || linkedProject?.project_number || currentEnquiry.project_number;
+                            if (targetId && onNavigateToProject) {
+                              onNavigateToProject(targetId);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 shadow-2xs transition flex items-center space-x-1.5 cursor-pointer"
+                          title="Open linked project in Operations"
+                        >
+                          <span>{linkedProject?.project_number || currentEnquiry.project_number}</span>
+                          <ExternalLink className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        </button>
                       </div>
                     )}
                   </div>
