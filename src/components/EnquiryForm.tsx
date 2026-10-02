@@ -54,7 +54,10 @@ import {
   KeyRound,
   Info,
   UserPlus,
-  Pencil
+  Pencil,
+  Package,
+  Wrench,
+  Link2
 } from 'lucide-react';
 
 // Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
@@ -503,6 +506,7 @@ export default function EnquiryForm({
   // Line items state
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [linkingLineIndex, setLinkingLineIndex] = useState<number | null>(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('All');
 
@@ -1302,22 +1306,52 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       : 0;
     const price = Math.round(rawPrice * 100) / 100;
 
-    const newItem: LineItem = {
-      product_id: item.id || undefined,
-      item_type: 'product',
-      product_type: item.product_type,
-      description: item.description,
-      quantity: 1,
-      unit: item.unit,
-      unit_price: price,
-      total_price: price,
-      lead_time_note: item.lead_time_note || '',
-      option: 'Default / Included',
-      attributes: item.attributes || []
-    };
-
-    setLineItems((prev) => [...prev, newItem]);
+    if (linkingLineIndex !== null && lineItems[linkingLineIndex]) {
+      // Update existing line item in place
+      setLineItems((prev) => {
+        const next = [...prev];
+        const current = next[linkingLineIndex];
+        next[linkingLineIndex] = {
+          ...current,
+          product_id: item.id || undefined,
+          product_type: item.product_type || current.product_type,
+          description: current.description?.trim() ? current.description : item.description,
+          unit: item.unit || current.unit,
+          unit_price: current.unit_price > 0 ? current.unit_price : price,
+          total_price: (current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : price),
+          attributes: current.attributes && current.attributes.length > 0 ? current.attributes : (item.attributes || [])
+        };
+        return next;
+      });
+      setLinkingLineIndex(null);
+    } else {
+      // Default append behavior
+      const newItem: LineItem = {
+        product_id: item.id || undefined,
+        item_type: 'product',
+        product_type: item.product_type,
+        description: item.description,
+        quantity: 1,
+        unit: item.unit,
+        unit_price: price,
+        total_price: price,
+        lead_time_note: item.lead_time_note || '',
+        option: 'Default / Included',
+        attributes: item.attributes || []
+      };
+      setLineItems((prev) => [...prev, newItem]);
+    }
     setShowCatalogModal(false);
+  };
+
+  const handleUnlinkCatalogItem = (index: number) => {
+    setLineItems((prev) => {
+      const next = [...prev];
+      if (next[index]) {
+        next[index] = { ...next[index], product_id: undefined };
+      }
+      return next;
+    });
   };
 
   const handleLineItemChange = (index: number, field: keyof LineItem, val: any) => {
@@ -4371,7 +4405,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
-                  onClick={() => setShowCatalogModal(true)}
+                  onClick={() => {
+                    setLinkingLineIndex(null);
+                    setShowCatalogModal(true);
+                  }}
                   className="py-1 px-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
                   title="Fuzzy insert prefilled water treatment components from product catalogs"
                 >
@@ -4400,14 +4437,59 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 {lineItems.map((item, index) => (
                   <div key={index} className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 shadow-2xs">
                     {/* Card Header Bar */}
-                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80">
-                      <div className="flex items-center space-x-2">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 flex-wrap gap-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center">
                           #{index + 1}
                         </span>
                         <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                           Item Line #{index + 1}
                         </span>
+                        {(() => {
+                          const matchedProduct = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
+                          if (matchedProduct) {
+                            return (
+                              <div className="flex items-center space-x-2">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  <Package className="w-3 h-3 text-emerald-600"/>
+                                  <span>Linked: {matchedProduct.name || matchedProduct.sku || 'Catalog Item'}</span>
+                                  {matchedProduct.is_inventoried && (
+                                    <span className="font-mono text-[10px] ml-1 text-emerald-800 dark:text-emerald-200">
+                                      (On-Hand: {matchedProduct.stock_on_hand || 0} | Res: {matchedProduct.stock_reserved || 0})
+                                    </span>
+                                  )}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlinkCatalogItem(index)}
+                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer"
+                                  title="Unlink from catalog SKU (converts to custom/non-stock)"
+                                >
+                                  Unlink
+                                </button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center space-x-2">
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                <Wrench className="w-3 h-3 text-slate-400"/>
+                                <span>Custom / Non-Stock</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLinkingLineIndex(index);
+                                  setShowCatalogModal(true);
+                                }}
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                              >
+                                <Link2 className="w-2.5 h-2.5"/>
+                                <span>Link Catalog SKU</span>
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <button
                         type="button"
