@@ -145,13 +145,19 @@ export default function ProjectRegistry({
 
     try {
       const result = await dispatchProjectStock(selectedProject, user);
+      const hasDeductedPhysicalStock = result.dispatchedCount > 0;
 
       const nowIso = new Date().toISOString();
       const updatedProject: Project = {
         ...selectedProject,
         status: 'Delivered',
         updated_at: nowIso,
-        ...( { dispatched_at: nowIso, stock_deducted: true } as any )
+        ...( {
+          dispatched_at: nowIso,
+          stock_deducted: hasDeductedPhysicalStock,
+          dispatched_items_count: result.dispatchedCount,
+          fulfillment_type: hasDeductedPhysicalStock ? 'WAREHOUSE_DISPATCH' : 'SERVICE_FULFILLMENT'
+        } as any )
       };
 
       // Update parent projects state
@@ -420,13 +426,17 @@ export default function ProjectRegistry({
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
                 {filteredProjects.map((project) => {
-                  const isStockDeducted = Boolean((project as any).stock_deducted);
+                  const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
                   const inventoriedCount = (project.line_items || []).filter((it) => {
                     if (!it.product_id) return false;
                     const p = productMap?.get(it.product_id);
                     return p ? Boolean(p.is_inventoried) : false;
                   }).length;
                   const totalLinesCount = (project.line_items || []).length;
+                  const didDeductStock = Boolean(
+                    (project as any).stock_deducted &&
+                    ((project as any).dispatched_items_count ?? (inventoriedCount > 0 ? 1 : 0)) > 0
+                  );
 
                   return (
                     <tr
@@ -458,14 +468,21 @@ export default function ProjectRegistry({
                         })}
                       </td>
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        {getStatusBadge(project.status, isStockDeducted)}
+                        {getStatusBadge(project.status, didDeductStock)}
                       </td>
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        {isStockDeducted ? (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
-                            <Check className="w-3 h-3" />
-                            <span>STOCK OUT</span>
-                          </span>
+                        {isDelivered ? (
+                          didDeductStock ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              <Check className="w-3 h-3" />
+                              <span>STOCK OUT</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>FULFILLED</span>
+                            </span>
+                          )
                         ) : inventoriedCount > 0 ? (
                           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40">
                             <Boxes className="w-3 h-3" />
@@ -692,11 +709,37 @@ export default function ProjectRegistry({
                     return p ? Boolean(p.is_inventoried) : false;
                   });
 
-                  if ((selectedProject as any).stock_deducted || selectedProject.status === 'Cancelled') {
+                  if (selectedProject.status === 'Cancelled') {
                     return (
-                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
-                        <Check className="w-4 h-4" />
-                        <span>Warehouse Stock Dispatched</span>
+                      <span className="text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center space-x-1">
+                        <X className="w-4 h-4" />
+                        <span>Project Cancelled</span>
+                      </span>
+                    );
+                  }
+
+                  const isModalProjectDelivered =
+                    selectedProject.status === 'Delivered' ||
+                    selectedProject.status === 'Completed' ||
+                    Boolean((selectedProject as any).stock_deducted);
+                  const modalDidDeductStock = Boolean(
+                    (selectedProject as any).stock_deducted &&
+                    ((selectedProject as any).dispatched_items_count ?? (hasInventoriedItems ? 1 : 0)) > 0
+                  );
+
+                  if (isModalProjectDelivered) {
+                    if (modalDidDeductStock) {
+                      return (
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+                          <Check className="w-4 h-4" />
+                          <span>Warehouse Stock Dispatched</span>
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center space-x-1">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Scope Fulfilled (Non-Stock)</span>
                       </span>
                     );
                   }

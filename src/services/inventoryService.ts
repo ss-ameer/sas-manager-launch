@@ -368,13 +368,18 @@ export async function dispatchProjectStock(
   }
 
   // Update project in Firestore
+  const hasDeductedPhysicalStock = result.dispatchedCount > 0;
   if (project.id) {
     await safeUpdateDoc('projects', project.id, {
       status: 'Delivered',
       dispatched_at: nowIso,
-      stock_deducted: true,
+      stock_deducted: hasDeductedPhysicalStock,
+      dispatched_items_count: result.dispatchedCount,
+      fulfillment_type: hasDeductedPhysicalStock ? 'WAREHOUSE_DISPATCH' : 'SERVICE_FULFILLMENT',
       updated_at: nowIso
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn('Failed to update project dispatch status:', err);
+    });
   }
 
   return result;
