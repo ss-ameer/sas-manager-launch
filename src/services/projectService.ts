@@ -1,5 +1,31 @@
-import { Project, Enquiry, UserProfile } from '../types';
+import { Project, ProjectMilestone, Enquiry, UserProfile } from '../types';
 import { safeAddDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
+
+export interface ProjectConversionOptions {
+  project_type?: 'Supply Only' | 'Turnkey / Installation';
+  assigned_engineer_name?: string;
+  assigned_engineer_id?: string;
+  target_delivery_date?: string;
+  site_location?: string;
+  milestones?: ProjectMilestone[];
+  operational_notes?: string;
+}
+
+export function getDefaultMilestones(projectType: 'Supply Only' | 'Turnkey / Installation'): ProjectMilestone[] {
+  if (projectType === 'Turnkey / Installation') {
+    return [
+      { id: 'm1', title: 'Procurement & Fabrication', status: 'In Progress' },
+      { id: 'm2', title: 'Site Delivery', status: 'Pending' },
+      { id: 'm3', title: 'Mechanical & Electrical Installation', status: 'Pending' },
+      { id: 'm4', title: 'Testing & Wet Commissioning', status: 'Pending' },
+      { id: 'm5', title: 'Client Handover & Taking-Over Certificate (TOC)', status: 'Pending' }
+    ];
+  }
+  return [
+    { id: 'm1', title: 'Warehouse Picking & Staging', status: 'In Progress' },
+    { id: 'm2', title: 'Outbound Dispatch & Delivery Note', status: 'Pending' }
+  ];
+}
 
 export async function generateNextProjectNumber(workspaceId: string): Promise<string> {
   const currentYear = new Date().getFullYear();
@@ -32,17 +58,42 @@ export async function generateNextProjectNumber(workspaceId: string): Promise<st
 export async function createProjectFromEnquiry(
   enquiry: Enquiry,
   user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string },
+  options?: ProjectConversionOptions,
   overrides?: Partial<Project>
 ): Promise<Project> {
   const wsId = enquiry.workspace_id || (enquiry as any).workspaceId || 'default';
   const projectNumber = await generateNextProjectNumber(wsId);
   const nowIso = new Date().toISOString();
 
-  const isTurnkey = (enquiry.line_items || []).some(
+  const isTurnkeyDetected = (enquiry.line_items || []).some(
     (it) =>
       (it.description || '').toLowerCase().includes('installation') ||
       (it.product_type || '').toLowerCase().includes('fabrication')
   );
+
+  const finalProjectType: 'Supply Only' | 'Turnkey / Installation' =
+    options?.project_type || (isTurnkeyDetected ? 'Turnkey / Installation' : 'Supply Only');
+
+  const generatedMilestones =
+    options?.milestones && options.milestones.length > 0
+      ? options.milestones
+      : getDefaultMilestones(finalProjectType);
+
+  const fallbackEngineerName =
+    user?.full_name ||
+    (user as any)?.name ||
+    (user as any)?.displayName ||
+    (user as any)?.username ||
+    '';
+  const assignedEngineerName =
+    options?.assigned_engineer_name !== undefined ? options.assigned_engineer_name : fallbackEngineerName;
+  const assignedEngineerId =
+    options?.assigned_engineer_id !== undefined ? options.assigned_engineer_id : (user?.uid || '');
+  const siteLocation =
+    options?.site_location !== undefined ? options.site_location : (enquiry.project_location || (enquiry as any).location || '');
+  const targetDeliveryDate = options?.target_delivery_date;
+  const operationalNotes =
+    options?.operational_notes !== undefined ? options.operational_notes : (enquiry.remarks || '');
 
   const projectPayload: Omit<Project, 'id'> = {
     project_number: projectNumber,
@@ -52,11 +103,16 @@ export async function createProjectFromEnquiry(
     client_contact_id: enquiry.contact_id,
     title: enquiry.subject || `Fulfillment for ${enquiry.company_name || enquiry.quote_ref_no || 'Enquiry'}`,
     status: 'In Progress',
-    project_type: isTurnkey ? 'Turnkey / Installation' : 'Supply Only',
+    project_type: finalProjectType,
     contract_value: enquiry.value_aed || 0,
     currency: enquiry.currency || 'AED',
     line_items: enquiry.line_items || [],
-    operational_notes: enquiry.remarks || '',
+    operational_notes: operationalNotes,
+    assigned_engineer_name: assignedEngineerName || undefined,
+    assigned_engineer_id: assignedEngineerId || undefined,
+    target_delivery_date: targetDeliveryDate || undefined,
+    site_location: siteLocation || undefined,
+    milestones: generatedMilestones,
     created_at: nowIso,
     updated_at: nowIso,
     ...overrides

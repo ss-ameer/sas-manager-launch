@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -16,7 +16,7 @@ import { resolveAttachmentUrl } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
-import { createProjectFromEnquiry, getProjectForEnquiry } from '../services/projectService';
+import { createProjectFromEnquiry, getProjectForEnquiry, getDefaultMilestones, ProjectConversionOptions } from '../services/projectService';
 import {
   FileText,
   Building,
@@ -52,7 +52,12 @@ import {
   Boxes,
   PackageCheck,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  Calendar,
+  Truck,
+  Wrench,
+  Package,
+  Clock
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -224,12 +229,58 @@ export default function EnquiryDetail({
     }
   };
 
-  // Convert Won Enquiry into an Operational Project Container
-  const handleCreateProject = async () => {
+  // Operational Handoff / Project Conversion Modal State
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convertProjectType, setConvertProjectType] = useState<'Supply Only' | 'Turnkey / Installation'>('Supply Only');
+  const [convertEngineerName, setConvertEngineerName] = useState(
+    user?.full_name || (user as any)?.name || (user as any)?.displayName || ''
+  );
+  const [convertTargetDate, setConvertTargetDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().split('T')[0];
+  });
+  const [convertSiteLocation, setConvertSiteLocation] = useState(
+    currentEnquiry.project_location || (currentEnquiry as any).location || currentEnquiry.company_name || ''
+  );
+  const [convertOperationalNotes, setConvertOperationalNotes] = useState(currentEnquiry.remarks || '');
+
+  const previewMilestones = React.useMemo(() => {
+    return getDefaultMilestones(convertProjectType);
+  }, [convertProjectType]);
+
+  const handleOpenConvertModal = () => {
+    const isTurnkey = (currentEnquiry.line_items || []).some(
+      (it) =>
+        (it.description || '').toLowerCase().includes('installation') ||
+        (it.product_type || '').toLowerCase().includes('fabrication')
+    );
+    setConvertProjectType(isTurnkey ? 'Turnkey / Installation' : 'Supply Only');
+    setConvertEngineerName(user?.full_name || (user as any)?.name || (user as any)?.displayName || '');
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    setConvertTargetDate(d.toISOString().split('T')[0]);
+    setConvertSiteLocation(
+      currentEnquiry.project_location || (currentEnquiry as any).location || currentEnquiry.company_name || ''
+    );
+    setConvertOperationalNotes(currentEnquiry.remarks || '');
+    setShowConvertModal(true);
+  };
+
+  const handleConfirmCreateProject = async () => {
     if (!currentEnquiry?.id || isCreatingProject) return;
     setIsCreatingProject(true);
     try {
-      const newProject = await createProjectFromEnquiry(currentEnquiry, user);
+      const conversionOptions: ProjectConversionOptions = {
+        project_type: convertProjectType,
+        assigned_engineer_name: convertEngineerName.trim() || undefined,
+        target_delivery_date: convertTargetDate || undefined,
+        site_location: convertSiteLocation.trim() || undefined,
+        operational_notes: convertOperationalNotes.trim() || undefined,
+        milestones: previewMilestones
+      };
+
+      const newProject = await createProjectFromEnquiry(currentEnquiry, user, conversionOptions);
       setLinkedProject(newProject);
 
       const updatedEnquiry: Enquiry = {
@@ -246,6 +297,8 @@ export default function EnquiryDetail({
       if (onUpdateEnquiry) {
         onUpdateEnquiry(updatedEnquiry);
       }
+
+      setShowConvertModal(false);
 
       if (triggerToast) {
         triggerToast(`Project ${newProject.project_number} created successfully!`, 'success');
@@ -1122,7 +1175,7 @@ export default function EnquiryDetail({
                         type="button"
                         id="create-project-fulfillment-btn"
                         disabled={isCreatingProject}
-                        onClick={handleCreateProject}
+                        onClick={handleOpenConvertModal}
                         className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-2 shrink-0 cursor-pointer disabled:opacity-60"
                       >
                         {isCreatingProject ? (
@@ -2180,6 +2233,302 @@ export default function EnquiryDetail({
         isCollaboratorCheck={(sp) => isMemberCollaborator(sp, currentEnquiry)}
         workspaceId={currentEnquiry.workspace_id || activeWorkspaceId}
       />
+
+      {/* Operational Handoff & Project Conversion Modal */}
+      {showConvertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden text-slate-900 dark:text-white">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Project Conversion & Operational Handoff
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Instantiating fulfillment container for {currentEnquiry.quote_ref_no || currentEnquiry.id} • {currentEnquiry.company_name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConvertModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body - Scrollable */}
+            <div className="p-5 overflow-y-auto space-y-5 text-xs font-sans">
+              {/* Project Type Selector */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                  Operational Project Type
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setConvertProjectType('Supply Only')}
+                    className={`p-3.5 rounded-xl border text-left transition flex items-start space-x-3 cursor-pointer ${
+                      convertProjectType === 'Supply Only'
+                        ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg mt-0.5 ${
+                      convertProjectType === 'Supply Only'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                    }`}>
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center space-x-1.5">
+                        <span>Supply Only</span>
+                        {convertProjectType === 'Supply Only' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                        Warehouse picking, staging, and outbound dispatch. Suitable for hardware or equipment trade.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setConvertProjectType('Turnkey / Installation')}
+                    className={`p-3.5 rounded-xl border text-left transition flex items-start space-x-3 cursor-pointer ${
+                      convertProjectType === 'Turnkey / Installation'
+                        ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg mt-0.5 ${
+                      convertProjectType === 'Turnkey / Installation'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                    }`}>
+                      <Wrench className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center space-x-1.5">
+                        <span>Turnkey / Installation</span>
+                        {convertProjectType === 'Turnkey / Installation' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                        Full site delivery, mechanical/electrical installation, wet commissioning, and client signoff (TOC).
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Two-Column Inputs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Assigned Project Lead / Engineer
+                  </label>
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={convertEngineerName}
+                      onChange={(e) => setConvertEngineerName(e.target.value)}
+                      placeholder="e.g. Eng. Sarah Mitchell"
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Target Delivery / Commissioning Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={convertTargetDate}
+                      onChange={(e) => setConvertTargetDate(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Site / Delivery Location
+                  </label>
+                  <div className="relative">
+                    <MapPin className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={convertSiteLocation}
+                      onChange={(e) => setConvertSiteLocation(e.target.value)}
+                      placeholder="e.g. Plot 42, Dubai Industrial City / Client Warehouse"
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    Operational Handover Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={convertOperationalNotes}
+                    onChange={(e) => setConvertOperationalNotes(e.target.value)}
+                    placeholder="Special instructions for operations, warehouse, or site technicians..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Milestone Pipeline Preview */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Milestone Pipeline Preview ({previewMilestones.length} Phases)
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Auto-generated based on {convertProjectType}
+                  </span>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  {previewMilestones.map((m, idx) => (
+                    <div
+                      key={m.id || idx}
+                      className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800"
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                          {idx + 1}
+                        </span>
+                        <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">
+                          {m.title}
+                        </span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium ${
+                        idx === 0
+                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                      }`}>
+                        {idx === 0 ? 'In Progress' : 'Pending'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Line Item Scope Summary */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Scope of Line Items ({(currentEnquiry.line_items || []).length})
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Contract Value: {formatCurrency(currentEnquiry.value_aed)}
+                  </span>
+                </div>
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">Description</th>
+                        <th className="py-2 px-3 text-right">Qty</th>
+                        <th className="py-2 px-3 text-center">Inventory Type</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {(currentEnquiry.line_items || []).length > 0 ? (
+                        (currentEnquiry.line_items || []).map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                            <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2 px-3">
+                              <div className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-xs">
+                                {item.description || 'Line Item'}
+                              </div>
+                              {item.product_type && (
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  {item.product_type}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              {item.quantity || 1} {item.unit || 'EA'}
+                            </td>
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              {item.product_id ? (
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  <Package className="w-3 h-3 text-emerald-600" />
+                                  <span>Catalog Stock</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                  <Wrench className="w-3 h-3 text-slate-400" />
+                                  <span>Custom / Scope</span>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="py-3 px-3 text-center text-slate-400 italic text-[11px]">
+                            No line items registered on this enquiry.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowConvertModal(false)}
+                disabled={isCreatingProject}
+                className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreateProject}
+                disabled={isCreatingProject}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-2 cursor-pointer disabled:opacity-60"
+              >
+                {isCreatingProject ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Launching Project...</span>
+                  </>
+                ) : (
+                  <>
+                    <FolderPlus className="w-4 h-4" />
+                    <span>Confirm & Launch Project</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -387,6 +387,15 @@ export interface GrnReceiptData {
   notes?: string;
 }
 
+export interface ProjectMilestone {
+  id: string;
+  title: string;
+  status: 'Pending' | 'In Progress' | 'Completed';
+  target_date?: string;
+  completed_at?: string;
+  notes?: string;
+}
+
 export interface Project {
   id?: string;
   project_number: string; // e.g. PRJ-2026-XXXX
@@ -401,6 +410,15 @@ export interface Project {
   currency?: string;
   line_items: LineItem[];
   operational_notes?: string;
+  assigned_engineer_name?: string;
+  assigned_engineer_id?: string;
+  target_delivery_date?: string;
+  site_location?: string;
+  milestones?: ProjectMilestone[];
+  stock_deducted?: boolean;
+  dispatched_at?: string;
+  dispatched_items_count?: number;
+  fulfillment_type?: 'WAREHOUSE_DISPATCH' | 'SERVICE_FULFILLMENT';
   created_at: string;
   updated_at: string;
 }
