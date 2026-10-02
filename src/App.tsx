@@ -1925,6 +1925,7 @@ export default function App() {
             setUnits={setUnits}
             activeWorkspace={activeWorkspace}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            companies={workspaceCompanies}
           />
         )}
 

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Product, ProductType, UnitType, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, Workspace, DropdownOption } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Product, ProductType, UnitType, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, Workspace, DropdownOption, Company, StockMovement, GrnReceiptData } from '../types';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
+import { processStockGrn, subscribeStockMovements } from '../services/inventoryService';
 import {
   Package,
   Plus,
@@ -18,7 +19,12 @@ import {
   RotateCcw,
   AlertTriangle,
   ChevronDown,
-  Boxes
+  Boxes,
+  ArrowDownToLine,
+  History,
+  FileText,
+  CheckCircle2,
+  Truck
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
@@ -33,6 +39,7 @@ interface ProductManagerProps {
   setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   activeWorkspace?: Workspace;
   onOpenMobileMenu?: () => void;
+  companies?: Company[];
 }
 
 export default function ProductManager({
@@ -44,7 +51,8 @@ export default function ProductManager({
   setProductCategories,
   setUnits,
   activeWorkspace,
-  onOpenMobileMenu
+  onOpenMobileMenu,
+  companies
 }: ProductManagerProps) {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -99,6 +107,40 @@ export default function ProductManager({
 
   const isEditable = user.role !== 'Viewer';
 
+  // Inbound GRN Modal State
+  const [showGrnModal, setShowGrnModal] = useState(false);
+  const [grnNumber, setGrnNumber] = useState('');
+  const [grnDate, setGrnDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [grnProductId, setGrnProductId] = useState('');
+  const [grnQuantity, setGrnQuantity] = useState<number | string>('');
+  const [grnUnitCost, setGrnUnitCost] = useState<number | string>('');
+  const [grnUpdateCost, setGrnUpdateCost] = useState(true);
+  const [grnSupplierName, setGrnSupplierName] = useState('');
+  const [grnSupplierId, setGrnSupplierId] = useState('');
+  const [grnDeliveryNote, setGrnDeliveryNote] = useState('');
+  const [grnStorageLocation, setGrnStorageLocation] = useState('');
+  const [grnNotes, setGrnNotes] = useState('');
+  const [grnSubmitting, setGrnSubmitting] = useState(false);
+  const [grnFeedback, setGrnFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Stock Movement Ledger State
+  const [showLedgerModal, setShowLedgerModal] = useState(false);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [movementsSearch, setMovementsSearch] = useState('');
+  const [movementsTypeFilter, setMovementsTypeFilter] = useState<string>('All');
+  const [isLoadingMovements, setIsLoadingMovements] = useState(false);
+
+  // Realtime subscription for stock movements ledger when modal is opened
+  useEffect(() => {
+    if (!showLedgerModal || !activeWorkspace?.id) return;
+    setIsLoadingMovements(true);
+    const unsub = subscribeStockMovements(activeWorkspace.id, (list) => {
+      setMovements(list);
+      setIsLoadingMovements(false);
+    });
+    return () => unsub();
+  }, [showLedgerModal, activeWorkspace?.id]);
+
   React.useEffect(() => {
     if (!formProductType) return;
     const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES[formProductType] || [];
@@ -125,6 +167,162 @@ export default function ProductManager({
   const units: string[] = React.useMemo(() => {
     return propUnits && propUnits.length > 0 ? propUnits : [...UNIVERSAL_UNITS];
   }, [propUnits]);
+
+  // Physical Inventory Memos & Movement Filters
+  const inventoriedProducts = useMemo(() => {
+    return products.filter((p) => Boolean(p.is_inventoried) && !p.is_deleted);
+  }, [products]);
+
+  const selectedGrnProduct = useMemo(() => {
+    return products.find((p) => p.id === grnProductId) || null;
+  }, [products, grnProductId]);
+
+  const filteredMovements = useMemo(() => {
+    return movements.filter((m) => {
+      if (movementsTypeFilter !== 'All' && m.movement_type !== movementsTypeFilter) {
+        return false;
+      }
+      if (movementsSearch.trim()) {
+        const query = movementsSearch.toLowerCase();
+        const prod = (m.product_name || '').toLowerCase();
+        const ref = (m.reference_number || m.reference_id || '').toLowerCase();
+        const dn = (m.delivery_note_ref || '').toLowerCase();
+        const sup = (m.supplier_name || '').toLowerCase();
+        const notes = (m.reason_notes || '').toLowerCase();
+        return prod.includes(query) || ref.includes(query) || dn.includes(query) || sup.includes(query) || notes.includes(query);
+      }
+      return true;
+    });
+  }, [movements, movementsTypeFilter, movementsSearch]);
+
+  const openGrnModal = (prod?: Product) => {
+    const year = new Date().getFullYear();
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    setGrnNumber(`GRN-${year}-${randomSuffix}`);
+    setGrnDate(new Date().toISOString().split('T')[0]);
+    setGrnFeedback(null);
+    setGrnQuantity('');
+    setGrnDeliveryNote('');
+    setGrnSupplierName('');
+    setGrnSupplierId('');
+    setGrnNotes('');
+    setGrnUpdateCost(true);
+
+    if (prod && prod.is_inventoried) {
+      setGrnProductId(prod.id || '');
+      setGrnUnitCost(prod.cost_price !== undefined ? prod.cost_price : (prod.unit_price || ''));
+      setGrnStorageLocation(prod.storage_location || '');
+    } else {
+      const firstInv = inventoriedProducts[0];
+      if (firstInv) {
+        setGrnProductId(firstInv.id || '');
+        setGrnUnitCost(firstInv.cost_price !== undefined ? firstInv.cost_price : (firstInv.unit_price || ''));
+        setGrnStorageLocation(firstInv.storage_location || '');
+      } else {
+        setGrnProductId('');
+        setGrnUnitCost('');
+        setGrnStorageLocation('');
+      }
+    }
+    setShowGrnModal(true);
+  };
+
+  const handleGrnProductChange = (productId: string) => {
+    setGrnProductId(productId);
+    const p = products.find((item) => item.id === productId);
+    if (p) {
+      if (p.cost_price !== undefined && p.cost_price > 0) {
+        setGrnUnitCost(p.cost_price);
+      } else if (p.unit_price !== undefined && p.unit_price > 0) {
+        setGrnUnitCost(p.unit_price);
+      } else {
+        setGrnUnitCost('');
+      }
+      if (p.storage_location) {
+        setGrnStorageLocation(p.storage_location);
+      }
+    }
+  };
+
+  const handleSubmitGrn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!grnProductId) {
+      setGrnFeedback({ type: 'error', message: 'Please select an inventoried product.' });
+      return;
+    }
+    const qty = Number(grnQuantity);
+    if (!qty || qty <= 0) {
+      setGrnFeedback({ type: 'error', message: 'Received quantity must be at least 1.' });
+      return;
+    }
+    if (!grnNumber.trim()) {
+      setGrnFeedback({ type: 'error', message: 'GRN Number is required.' });
+      return;
+    }
+
+    const prod = products.find((p) => p.id === grnProductId);
+    if (!prod) {
+      setGrnFeedback({ type: 'error', message: 'Selected product was not found.' });
+      return;
+    }
+
+    const unitCostNum = Number(grnUnitCost) || 0;
+    const wsId = activeWorkspace?.id || 'default';
+
+    setGrnSubmitting(true);
+    setGrnFeedback(null);
+
+    const payload: GrnReceiptData = {
+      workspace_id: wsId,
+      grn_number: grnNumber.trim(),
+      received_date: grnDate,
+      supplier_id: grnSupplierId || undefined,
+      supplier_name: grnSupplierName.trim() || 'Vendor',
+      delivery_note_ref: grnDeliveryNote.trim(),
+      product_id: prod.id!,
+      product_name: prod.name,
+      quantity: qty,
+      unit_cost: unitCostNum,
+      storage_location: grnStorageLocation.trim() || undefined,
+      update_cost_price: grnUpdateCost,
+      notes: grnNotes.trim() || undefined
+    };
+
+    const res = await processStockGrn(payload, user);
+    setGrnSubmitting(false);
+
+    if (res.success) {
+      if (setProducts) {
+        setProducts((prev) =>
+          prev.map((item) => {
+            if (item.id === prod.id) {
+              return {
+                ...item,
+                stock_on_hand: (item.stock_on_hand || 0) + qty,
+                cost_price: grnUpdateCost && unitCostNum > 0 ? unitCostNum : item.cost_price,
+                storage_location: grnStorageLocation.trim() || item.storage_location
+              };
+            }
+            return item;
+          })
+        );
+      }
+
+      setGrnFeedback({
+        type: 'success',
+        message: `Successfully received ${qty} ${prod.unit || 'units'} into stock for ${prod.name}! (GRN: ${grnNumber})`
+      });
+
+      setTimeout(() => {
+        setShowGrnModal(false);
+      }, 1400);
+    } else {
+      setGrnFeedback({
+        type: 'error',
+        message: res.error || 'Failed to process GRN. Please check fields and try again.'
+      });
+    }
+  };
 
   const handleConfirmNewCategory = async () => {
     const trimmed = newCategoryInput.trim();
@@ -402,12 +600,30 @@ export default function ProductManager({
               }
             : undefined
         }
+        secondaryActions={[
+          ...(isEditable
+            ? [
+                {
+                  label: 'Receive Stock (GRN)',
+                  icon: ArrowDownToLine,
+                  onClick: () => openGrnModal(),
+                  variant: 'outline' as const
+                }
+              ]
+            : []),
+          {
+            label: 'Stock Ledger',
+            icon: History,
+            onClick: () => setShowLedgerModal(true),
+            variant: 'ghost' as const
+          }
+        ]}
       />
 
       <PageBody maxWidth="max-w-7xl">
 
       {/* Metrics Section */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
           <div className="p-3 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-xl">
             <Package className="w-5 h-5" />
@@ -420,30 +636,36 @@ export default function ProductManager({
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
           <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-xl">
-            <Layers className="w-5 h-5" />
+            <Boxes className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Product Categories</span>
-            <span className="text-xl font-bold font-mono text-slate-850 dark:text-white">
-              {new Set(products.map((p) => p.product_type)).size} active
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Tracked Inventory</span>
+            <span className="text-xl font-bold font-mono text-emerald-650 dark:text-emerald-400">
+              {inventoriedProducts.length} physical SKUs
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <ArrowDownToLine className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Total Stock on Hand</span>
+            <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-300">
+              {products.reduce((acc, p) => acc + (p.stock_on_hand || 0), 0).toLocaleString()} units
             </span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
           <div className="p-3 bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 rounded-xl">
-            <DollarSign className="w-5 h-5" />
+            <Layers className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Average Unit Price</span>
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Active Categories</span>
             <span className="text-xl font-bold font-mono text-slate-850 dark:text-white">
-              AED{' '}
-              {(() => {
-                const pricedProducts = products.filter(p => p.unit_price !== undefined && p.unit_price > 0);
-                return pricedProducts.length > 0
-                  ? Math.round(pricedProducts.reduce((sum, p) => sum + (p.unit_price || 0), 0) / pricedProducts.length).toLocaleString()
-                  : 0;
-              })()}
+              {new Set(products.map((p) => p.product_type)).size} categories
             </span>
           </div>
         </div>
@@ -578,6 +800,15 @@ export default function ProductManager({
                         <div className="flex items-center justify-center space-x-2">
                           {isEditable ? (
                             <>
+                              {p.is_inventoried && (
+                                <button
+                                  onClick={() => openGrnModal(p)}
+                                  className="p-1.5 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 text-slate-500 hover:text-emerald-700 rounded-lg transition"
+                                  title="Receive Stock (GRN)"
+                                >
+                                  <ArrowDownToLine className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => openEditModal(p)}
                                 className="p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 transition"
@@ -1199,6 +1430,488 @@ export default function ProductManager({
                 }`}
               >
                 {confirmDialog.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbound GRN Modal */}
+      {showGrnModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="p-5 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
+                  <ArrowDownToLine className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
+                      Inbound Goods Receipt Note (GRN)
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      {activeWorkspace?.name || 'Default'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
+                    Receive vendor shipment into warehouse stock and write immutable audit movement.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGrnModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleSubmitGrn} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+                {grnFeedback && (
+                  <div
+                    className={`p-3.5 rounded-xl border flex items-start space-x-2.5 text-xs font-medium ${
+                      grnFeedback.type === 'success'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                    }`}
+                  >
+                    {grnFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                    )}
+                    <span className="flex-1">{grnFeedback.message}</span>
+                  </div>
+                )}
+
+                {/* Intake Reference & Date */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      GRN Reference Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={grnNumber}
+                      onChange={(e) => setGrnNumber(e.target.value)}
+                      placeholder="e.g. GRN-2026-1001"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Received Date <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={grnDate}
+                      onChange={(e) => setGrnDate(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Product Selection */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Physical Inventory Item <span className="text-rose-500">*</span>
+                  </label>
+                  {inventoriedProducts.length === 0 ? (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>No inventoried products found. Edit a catalog product and toggle on <strong>"Track Inventory & Physical Stock"</strong> before receiving stock.</span>
+                    </div>
+                  ) : (
+                    <select
+                      required
+                      value={grnProductId}
+                      onChange={(e) => handleGrnProductChange(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none transition cursor-pointer"
+                    >
+                      <option value="">-- Select Inventoried Product --</option>
+                      {inventoriedProducts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.sku ? `(SKU: ${p.sku})` : ''} — On Hand: {p.stock_on_hand || 0} {p.unit || ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* Selected Product Snapshot Card */}
+                  {selectedGrnProduct && (
+                    <div className="mt-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-mono uppercase">On Hand</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-100">{selectedGrnProduct.stock_on_hand || 0} {selectedGrnProduct.unit}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-mono uppercase">Reserved</span>
+                        <span className="font-bold text-amber-600 dark:text-amber-400">{selectedGrnProduct.stock_reserved || 0} {selectedGrnProduct.unit}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-mono uppercase">Available</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                          {Math.max(0, (selectedGrnProduct.stock_on_hand || 0) - (selectedGrnProduct.stock_reserved || 0))} {selectedGrnProduct.unit}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-slate-400 font-mono uppercase">Default Bin</span>
+                        <span className="font-medium text-slate-600 dark:text-slate-300 truncate block">
+                          {selectedGrnProduct.storage_location || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quantity & Unit Cost */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Quantity Received <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      required
+                      value={grnQuantity}
+                      onChange={(e) => setGrnQuantity(e.target.value)}
+                      placeholder="e.g. 50"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Landed Unit Cost (AED)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={grnUnitCost}
+                      onChange={(e) => setGrnUnitCost(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                    />
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Total Receipt Value</span>
+                    <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
+                      AED {((Number(grnQuantity) || 0) * (Number(grnUnitCost) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Checkbox for cost price sync */}
+                <div className="flex items-center space-x-2.5 pt-1">
+                  <input
+                    type="checkbox"
+                    id="grnUpdateCost"
+                    checked={grnUpdateCost}
+                    onChange={(e) => setGrnUpdateCost(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="grnUpdateCost" className="text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                    Update product catalog standard cost price to this unit cost ({Number(grnUnitCost) > 0 ? `AED ${Number(grnUnitCost).toFixed(2)}` : 'Current'})
+                  </label>
+                </div>
+
+                {/* Supplier & Delivery Note */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Supplier / Vendor
+                    </label>
+                    <input
+                      type="text"
+                      list="grn-supplier-list"
+                      value={grnSupplierName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setGrnSupplierName(val);
+                        const match = companies?.find((c) => (c.display_name || c.canonical_name).toLowerCase() === val.toLowerCase());
+                        if (match) {
+                          setGrnSupplierId(match.id || '');
+                        } else {
+                          setGrnSupplierId('');
+                        }
+                      }}
+                      placeholder="e.g. Acme Industrial Supplies"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                    />
+                    <datalist id="grn-supplier-list">
+                      {companies?.map((c) => (
+                        <option key={c.id} value={c.display_name || c.canonical_name} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Delivery Note / PO Ref
+                    </label>
+                    <input
+                      type="text"
+                      value={grnDeliveryNote}
+                      onChange={(e) => setGrnDeliveryNote(e.target.value)}
+                      placeholder="e.g. DN-88192 or PO-2026-44"
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Storage Location */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Warehouse Bin / Storage Location
+                  </label>
+                  <input
+                    type="text"
+                    value={grnStorageLocation}
+                    onChange={(e) => setGrnStorageLocation(e.target.value)}
+                    placeholder="e.g. Rack B-03, Warehouse 1, Floor Bay"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Receiving Notes & Inspection Remarks
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={grnNotes}
+                    onChange={(e) => setGrnNotes(e.target.value)}
+                    placeholder="Optional receiving remarks, carton conditions, lot numbers..."
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 rounded-b-2xl flex items-center justify-end space-x-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowGrnModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={grnSubmitting || inventoriedProducts.length === 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {grnSubmitting ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Processing GRN...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowDownToLine className="w-4 h-4" />
+                      <span>Confirm & Receive Stock</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Movement Audit Ledger Modal */}
+      {showLedgerModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-5xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="p-5 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-xl border border-blue-100 dark:border-blue-900/40">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
+                      Inventory Stock Movement Ledger & Audit Log
+                    </h3>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      {movements.length} Records
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
+                    Immutable physical inventory transaction audit trail for receipts, reservations, and dispatch deductions.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLedgerModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="p-4 px-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 grid grid-cols-1 sm:grid-cols-12 gap-3 shrink-0">
+              <div className="sm:col-span-8 relative flex items-center">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Filter by product name, GRN / Ref #, supplier..."
+                  value={movementsSearch}
+                  onChange={(e) => setMovementsSearch(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 pl-10 pr-4 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition"
+                />
+              </div>
+
+              <div className="sm:col-span-4 relative flex items-center">
+                <select
+                  value={movementsTypeFilter}
+                  onChange={(e) => setMovementsTypeFilter(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+                >
+                  <option value="All">All Movement Types</option>
+                  <option value="STOCK_IN">Stock In (GRN Receipts)</option>
+                  <option value="STOCK_OUT">Stock Out (Dispatches)</option>
+                  <option value="STOCK_RESERVE">Stock Reserved</option>
+                  <option value="STOCK_RELEASE">Stock Released</option>
+                  <option value="ADJUSTMENT">Adjustments</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Movements Table */}
+            <div className="flex-1 overflow-y-auto p-0">
+              {isLoadingMovements ? (
+                <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-2">
+                  <span className="w-6 h-6 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                  <span>Loading ledger records...</span>
+                </div>
+              ) : filteredMovements.length === 0 ? (
+                <div className="py-16 text-center text-slate-400 text-xs">
+                  No stock movements match the current filter.
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse font-sans text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400 select-none bg-slate-50/60 dark:bg-slate-950/60 sticky top-0 z-10 backdrop-blur-xs">
+                      <th className="py-3 px-4">Date / Time</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Reference</th>
+                      <th className="py-3 px-4">Product Item</th>
+                      <th className="py-3 px-4 text-right">Quantity</th>
+                      <th className="py-3 px-4 text-center">On Hand (Prev → New)</th>
+                      <th className="py-3 px-4 text-right">Cost (AED)</th>
+                      <th className="py-3 px-4">Supplier / Context</th>
+                      <th className="py-3 px-4">User</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredMovements.map((m) => {
+                      const isStockIn = m.movement_type === 'STOCK_IN';
+                      const isStockOut = m.movement_type === 'STOCK_OUT';
+                      const isReserve = m.movement_type === 'STOCK_RESERVE';
+                      const isRelease = m.movement_type === 'STOCK_RELEASE';
+
+                      return (
+                        <tr key={m.id || `${m.product_id}-${m.created_at}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="py-3 px-4 text-slate-500 dark:text-slate-400 font-mono whitespace-nowrap">
+                            {m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}
+                            <span className="block text-[10px] text-slate-400">
+                              {m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center space-x-1 ${
+                                isStockIn
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : isStockOut
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                                  : isReserve
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : isRelease
+                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              <span>{m.movement_type.replace('_', ' ')}</span>
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                            {m.reference_number || m.reference_id || '—'}
+                            {m.delivery_note_ref && (
+                              <span className="block text-[10px] text-slate-400 font-normal">
+                                DN: {m.delivery_note_ref}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-900 dark:text-white font-medium max-w-[180px] truncate" title={m.product_name}>
+                            {m.product_name}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
+                            <span className={isStockIn ? 'text-emerald-600 dark:text-emerald-400' : isStockOut ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}>
+                              {isStockIn ? `+${m.quantity}` : isStockOut ? `-${m.quantity}` : m.quantity}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-500 whitespace-nowrap">
+                            <span className="text-slate-400">{m.previous_on_hand}</span>
+                            <span className="mx-1 text-slate-300 dark:text-slate-600">→</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{m.new_on_hand}</span>
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                            {m.total_cost !== undefined && m.total_cost > 0
+                              ? `AED ${m.total_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : m.unit_cost !== undefined && m.unit_cost > 0
+                              ? `AED ${(m.unit_cost * m.quantity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 dark:text-slate-400 max-w-[160px] truncate" title={m.reason_notes || m.supplier_name}>
+                            <span className="font-medium text-slate-700 dark:text-slate-200 block truncate">
+                              {m.supplier_name || m.reference_type || 'Internal'}
+                            </span>
+                            {m.reason_notes && (
+                              <span className="text-[10px] text-slate-400 block truncate">
+                                {m.reason_notes}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
+                            {m.created_by_name || 'System'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 rounded-b-2xl flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-400">
+                Displaying {filteredMovements.length} of {movements.length} total movement records
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowLedgerModal(false)}
+                className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

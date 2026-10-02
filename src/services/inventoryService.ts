@@ -1,6 +1,6 @@
-import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project } from '../types';
+import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project, GrnReceiptData } from '../types';
 import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 
 export interface ReservationResult {
   success: boolean;
@@ -379,3 +379,157 @@ export async function dispatchProjectStock(
 
   return result;
 }
+
+export interface GrnResult {
+  success: boolean;
+  movementId?: string;
+  previousOnHand: number;
+  newOnHand: number;
+  movement?: StockMovement;
+  error?: string;
+}
+
+/**
+ * Stage 4: Process Inbound Goods Receipt Note (GRN)
+ * Increments stock_on_hand, optionally updates storage_location and cost_price on the product,
+ * and records an immutable STOCK_IN movement in stock_movements.
+ */
+export async function processStockGrn(
+  data: GrnReceiptData,
+  user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string }
+): Promise<GrnResult> {
+  const wsId = data.workspace_id || 'default';
+  const nowIso = new Date().toISOString();
+  const userName =
+    user?.full_name ||
+    (user as any)?.username ||
+    (user as any)?.name ||
+    (user as any)?.email ||
+    'System';
+  const userUid = user?.uid;
+
+  try {
+    const prodRef = doc(db, 'products', data.product_id);
+    const prodSnap = await getDoc(prodRef);
+
+    let previousOnHand = 0;
+    let prodData: Product | null = null;
+
+    if (prodSnap.exists()) {
+      prodData = prodSnap.data() as Product;
+      previousOnHand = Number(prodData.stock_on_hand) || 0;
+    }
+
+    const qty = Number(data.quantity) || 0;
+    if (qty <= 0) {
+      throw new Error('Received quantity must be greater than zero.');
+    }
+
+    const newOnHand = previousOnHand + qty;
+    const unitCost = Number(data.unit_cost) || 0;
+    const totalCost = unitCost * qty;
+
+    // Build update payload for the product document
+    const updatePayload: Partial<Product> & { updatedAt: string } = {
+      stock_on_hand: newOnHand,
+      updatedAt: nowIso
+    };
+
+    if (data.storage_location && data.storage_location.trim()) {
+      updatePayload.storage_location = data.storage_location.trim();
+    }
+
+    if (data.update_cost_price && unitCost > 0) {
+      updatePayload.cost_price = unitCost;
+    }
+
+    await safeUpdateDoc('products', data.product_id, updatePayload);
+
+    // Build immutable STOCK_IN audit record
+    const movement: StockMovement = {
+      workspace_id: wsId,
+      product_id: data.product_id,
+      product_name: data.product_name || prodData?.name || 'Product',
+      movement_type: 'STOCK_IN',
+      quantity: qty,
+      previous_on_hand: previousOnHand,
+      new_on_hand: newOnHand,
+      reference_type: 'PO',
+      reference_number: data.grn_number,
+      reason_notes: data.notes || `Inbound GRN: ${data.grn_number} from ${data.supplier_name || 'Supplier'}`,
+      created_at: nowIso,
+      created_by_uid: userUid,
+      created_by_name: userName,
+      unit_cost: unitCost,
+      total_cost: totalCost,
+      supplier_id: data.supplier_id,
+      supplier_name: data.supplier_name,
+      delivery_note_ref: data.delivery_note_ref,
+      grn_number: data.grn_number,
+      received_date: data.received_date || nowIso.split('T')[0]
+    };
+
+    const docRef = await safeAddDoc('stock_movements', movement);
+    const movementId = docRef?.id;
+
+    return {
+      success: true,
+      movementId,
+      previousOnHand,
+      newOnHand,
+      movement
+    };
+  } catch (err: any) {
+    console.error('[processStockGrn] Failed receiving stock:', err);
+    return {
+      success: false,
+      previousOnHand: 0,
+      newOnHand: 0,
+      error: err?.message || 'Failed to process stock receipt'
+    };
+  }
+}
+
+/**
+ * Fetches recent stock movements for the given workspace, sorted newest first.
+ */
+export async function fetchStockMovements(workspaceId: string): Promise<StockMovement[]> {
+  try {
+    const coll = collection(db, 'stock_movements');
+    const q = query(coll, where('workspace_id', '==', workspaceId));
+    const snap = await getDocs(q);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement));
+    return list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  } catch (err) {
+    console.warn('[fetchStockMovements] Failed fetching movements:', err);
+    return [];
+  }
+}
+
+/**
+ * Subscribes to realtime updates of stock movements for the given workspace.
+ */
+export function subscribeStockMovements(
+  workspaceId: string,
+  callback: (movements: StockMovement[]) => void
+): () => void {
+  try {
+    const coll = collection(db, 'stock_movements');
+    const q = query(coll, where('workspace_id', '==', workspaceId));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement));
+        list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+        callback(list);
+      },
+      (err) => {
+        console.warn('[subscribeStockMovements] listener error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('[subscribeStockMovements] setup error:', err);
+    return () => {};
+  }
+}
+

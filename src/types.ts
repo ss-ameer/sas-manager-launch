@@ -361,6 +361,30 @@ export interface StockMovement {
   created_at: string;
   created_by_uid?: string;
   created_by_name?: string;
+  // Inbound GRN metadata
+  unit_cost?: number;
+  total_cost?: number;
+  supplier_id?: string;
+  supplier_name?: string;
+  delivery_note_ref?: string;
+  grn_number?: string;
+  received_date?: string;
+}
+
+export interface GrnReceiptData {
+  workspace_id: string;
+  grn_number: string;
+  received_date: string;
+  supplier_id?: string;
+  supplier_name: string;
+  delivery_note_ref: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+  storage_location?: string;
+  update_cost_price: boolean;
+  notes?: string;
 }
 
 export interface Project {
