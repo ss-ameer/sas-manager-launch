@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Product, Workspace, UserProfile, LineItem } from '../types';
+import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone } from '../types';
 import { dispatchProjectStock } from '../services/inventoryService';
 import { updateProjectStatus } from '../services/projectService';
 import { safeUpdateDoc, db } from '../firebase';
@@ -26,7 +26,10 @@ import {
   Layers,
   MapPin,
   ShieldAlert,
-  Info
+  Info,
+  Circle,
+  PlayCircle,
+  Flag
 } from 'lucide-react';
 
 interface ProjectRegistryProps {
@@ -242,6 +245,56 @@ export default function ProjectRegistry({
       }
     } finally {
       setIsUpdatingStatus(false);
+    }
+  };
+
+  // Milestone Progression Cycle: Pending -> In Progress -> Completed -> Pending
+  const handleToggleMilestone = async (milestoneId: string) => {
+    if (!selectedProject?.id || !selectedProject.milestones) return;
+
+    const updatedMilestones: ProjectMilestone[] = selectedProject.milestones.map((m) => {
+      if (m.id !== milestoneId) return m;
+
+      let nextStatus: ProjectMilestone['status'];
+      let completedAt = m.completed_at;
+
+      if (m.status === 'Pending') {
+        nextStatus = 'In Progress';
+        completedAt = undefined;
+      } else if (m.status === 'In Progress') {
+        nextStatus = 'Completed';
+        completedAt = new Date().toISOString();
+      } else {
+        nextStatus = 'Pending';
+        completedAt = undefined;
+      }
+
+      return {
+        ...m,
+        status: nextStatus,
+        completed_at: completedAt
+      };
+    });
+
+    const nowIso = new Date().toISOString();
+    const updated: Project = {
+      ...selectedProject,
+      milestones: updatedMilestones,
+      updated_at: nowIso
+    };
+
+    // Update local state and parent state immediately
+    setSelectedProject(updated);
+    if (setProjects) {
+      setProjects((prev) => prev.map((p) => (p.id === selectedProject.id ? updated : p)));
+    }
+
+    // Persist to Firestore
+    if (selectedProject?.id) {
+      await safeUpdateDoc('projects', selectedProject.id, {
+        milestones: updatedMilestones,
+        updated_at: nowIso
+      }).catch((err) => console.error('Failed to update milestones:', err));
     }
   };
 
@@ -594,6 +647,161 @@ export default function ProjectRegistry({
                   </div>
                 </div>
               </div>
+
+              {/* Secondary Operational Metadata Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                    Lead Engineer
+                  </span>
+                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                    <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <span className="truncate">{selectedProject.assigned_engineer_name || 'Unassigned'}</span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                    Site / Delivery Location
+                  </span>
+                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span className="truncate">{selectedProject.site_location || 'Not Specified'}</span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                    Target Delivery / Handover
+                  </span>
+                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5 font-mono">
+                    <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>
+                      {selectedProject.target_delivery_date
+                        ? new Date(selectedProject.target_delivery_date).toLocaleDateString()
+                        : 'Unscheduled'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interactive Milestone Pipeline */}
+              {selectedProject.milestones && selectedProject.milestones.length > 0 && (() => {
+                const totalMilestones = selectedProject.milestones.length;
+                const completedCount = selectedProject.milestones.filter((m) => m.status === 'Completed').length;
+                const progressPercent = Math.round((completedCount / totalMilestones) * 100);
+
+                return (
+                  <div className="space-y-3 p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center space-x-2">
+                        <Flag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <h4 className="text-xs font-mono uppercase tracking-widest text-slate-700 dark:text-slate-300 font-bold">
+                          Operational Milestones & Field Execution
+                        </h4>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          {completedCount} / {totalMilestones} Completed ({progressPercent}%)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+
+                    {/* Milestone List */}
+                    <div className="grid grid-cols-1 gap-2 pt-1">
+                      {selectedProject.milestones.map((m, idx) => {
+                        const isCompleted = m.status === 'Completed';
+                        const isInProgress = m.status === 'In Progress';
+                        const isPending = m.status === 'Pending';
+
+                        return (
+                          <div
+                            key={m.id || idx}
+                            className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
+                              isCompleted
+                                ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60'
+                                : isInProgress
+                                ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/60 shadow-2xs'
+                                : 'bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3 min-w-0">
+                              <span
+                                className={`w-6 h-6 rounded-full font-mono text-xs font-bold flex items-center justify-center shrink-0 ${
+                                  isCompleted
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                                    : isInProgress
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                }`}
+                              >
+                                {idx + 1}
+                              </span>
+
+                              <div className="min-w-0">
+                                <div className="font-semibold text-xs text-slate-800 dark:text-slate-200 flex items-center space-x-2">
+                                  <span className="truncate">{m.title}</span>
+                                </div>
+                                {m.completed_at && (
+                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
+                                    Signed off: {new Date(m.completed_at).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Interactive Status Toggle Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMilestone(m.id)}
+                              title="Click to cycle status: Pending ➔ In Progress ➔ Completed"
+                              className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+                                isCompleted
+                                  ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/70 dark:hover:bg-emerald-900/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                  : isInProgress
+                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/70 dark:hover:bg-amber-900/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {isCompleted && (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span>Completed</span>
+                                </>
+                              )}
+                              {isInProgress && (
+                                <>
+                                  <PlayCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                                  <span>In Progress</span>
+                                </>
+                              )}
+                              {isPending && (
+                                <>
+                                  <Circle className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Pending</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 pt-1 font-mono">
+                      <span>Click milestone status to advance phase</span>
+                      <span>Cycle: Pending ➔ In Progress ➔ Completed</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Line Items Breakdown Table */}
               <div className="space-y-3">
