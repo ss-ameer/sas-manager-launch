@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -27,8 +27,9 @@ import {
   Hash
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
-import { db, safeSetDoc, safeDeleteDoc } from '../firebase';
+import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import { releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
 import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import {
@@ -58,6 +59,8 @@ interface EnquiryListProps {
   salespersons: Salesperson[];
   contacts?: Contact[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  projects?: Project[];
+  setProjects?: React.Dispatch<React.SetStateAction<Project[]>>;
   onSelectEnquiry: (id: string) => void;
   onAddEnquiry: () => void;
   onEditEnquiry: (enquiry: Enquiry) => void;
@@ -91,6 +94,8 @@ export default function EnquiryList({
   companies,
   salespersons,
   setCompanies,
+  projects = [],
+  setProjects,
   onSelectEnquiry,
   onAddEnquiry,
   onEditEnquiry,
@@ -794,11 +799,62 @@ export default function EnquiryList({
     const sLower = newStatus.toLowerCase();
     const isSent = sLower.includes('sent');
     const isWon = sLower.includes('won') || sLower.includes('order received') || sLower.includes('approved');
-    const isLost = sLower.includes('lost') || sLower.includes('cancelled') || sLower.includes('dead');
+    const isLost = isLostOrCancelledStatus(newStatus) || sLower.includes('lost') || sLower.includes('cancelled') || sLower.includes('dead');
+
+    let linkedProjectCancelled = false;
+    let releasedStockCount = 0;
+
+    if (isLost) {
+      // 1. Linked Project Status Cascade on Proposal Cancellation
+      const linkedProjId = enquiry.project_id;
+      if (linkedProjId) {
+        try {
+          await safeUpdateDoc('projects', linkedProjId, {
+            status: 'Cancelled',
+            cancellation_reason: `Cancelled via Proposal #${enquiry.sn || ''} table update`,
+            updated_at: now
+          });
+          linkedProjectCancelled = true;
+          if (setProjects) {
+            setProjects((prev) =>
+              prev.map((p) =>
+                p.id === linkedProjId
+                  ? {
+                      ...p,
+                      status: 'Cancelled',
+                      cancellation_reason: `Cancelled via Proposal #${enquiry.sn || ''} table update`,
+                      updated_at: now
+                    }
+                  : p
+              )
+            );
+          }
+        } catch (projErr) {
+          console.error('Failed to update linked project on status cascade:', projErr);
+        }
+      }
+
+      // 2. Stock Release
+      const hasInventoriedItems = Boolean(
+        enquiry.stock_reserved ||
+        (enquiry.line_items && enquiry.line_items.some((it) => it.product_id))
+      );
+
+      if (hasInventoriedItems) {
+        try {
+          const relResult = await releaseEnquiryStock(enquiry, user);
+          releasedStockCount = relResult.releasedCount;
+        } catch (stockErr) {
+          console.warn('Failed releasing stock on status change to Lost/Cancelled:', stockErr);
+        }
+      }
+    }
 
     const updatedEnquiry: Enquiry = {
       ...enquiry,
       status: newStatus,
+      stock_reserved: isLost ? false : enquiry.stock_reserved,
+      stock_reserved_at: isLost ? undefined : enquiry.stock_reserved_at,
       statusUpdatedAt: now,
       statusUpdatedBy: userName,
       sentAt: (isSent && !enquiry.sentAt) ? now : enquiry.sentAt,
@@ -818,7 +874,13 @@ export default function EnquiryList({
       await EnquiryRepository.save(updatedEnquiry);
       await safeSetDoc('enquiries', enquiry.id, updatedEnquiry);
       if (triggerToast) {
-        triggerToast(`Status updated to "${newStatus}"`, 'success');
+        if (linkedProjectCancelled) {
+          triggerToast(`Status updated to "${newStatus}". Linked project cancelled and stock released.`, 'info');
+        } else if (releasedStockCount > 0) {
+          triggerToast(`Status updated to "${newStatus}". Released reserved stock for ${releasedStockCount} item(s).`, 'info');
+        } else {
+          triggerToast(`Status updated to "${newStatus}"`, 'success');
+        }
       }
     } catch (err: any) {
       console.error('Failed to update enquiry status:', err);
@@ -1414,6 +1476,22 @@ export default function EnquiryList({
                                   alert('Error: Enquiry ID is missing. Cannot delete.');
                                   return;
                                 }
+
+                                // Active project guard: block deletion if linked to an active project
+                                if (e.project_id) {
+                                  const linkedProj = projects?.find((p) => p.id === e.project_id || p.enquiry_id === targetId);
+                                  const isCancelled = linkedProj ? linkedProj.status === 'Cancelled' : false;
+                                  if (!isCancelled) {
+                                    const errorMsg = `Cannot delete Proposal #${e.sn}: An active project is linked. Please cancel the project first.`;
+                                    if (triggerToast) {
+                                      triggerToast(errorMsg, 'error');
+                                    } else {
+                                      alert(errorMsg);
+                                    }
+                                    return;
+                                  }
+                                }
+
                                 const isPlaceholder = Boolean(
                                   e.is_gap_placeholder === true ||
                                   (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||

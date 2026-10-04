@@ -772,7 +772,11 @@ export default function ProjectRegistry({
                           {getStatusBadge(project.status, didDeductStock)}
                         </td>
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          {isDelivered ? (
+                          {project.status === 'Cancelled' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-400">
+                              Cancelled
+                            </span>
+                          ) : isDelivered ? (
                             didDeductStock ? (
                               <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
                                 <Check className="w-3 h-3" />

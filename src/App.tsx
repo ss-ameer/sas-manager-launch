@@ -1510,6 +1510,21 @@ export default function App() {
     const enqToDelete = enquiries.find((e) => e.id === cleanId);
     console.log(`[handleDeleteEnquiry] Deleting enquiry ID ${cleanId} (#${enqToDelete?.sn || 'unknown'})`);
 
+    // Active project guard: block deletion if linked to an active project
+    if (enqToDelete?.project_id) {
+      const linkedProject = projects.find((p) => p.id === enqToDelete.project_id || p.enquiry_id === cleanId);
+      const isCancelled = linkedProject ? linkedProject.status === 'Cancelled' : false;
+      if (!isCancelled) {
+        const errorMsg = `Cannot delete Proposal #${enqToDelete.sn}: An active project is linked. Please cancel the project first.`;
+        if (triggerToast) {
+          triggerToast(errorMsg, 'error');
+        } else {
+          setToast({ id: Date.now().toString(), message: errorMsg, type: 'error' });
+        }
+        return;
+      }
+    }
+
     try {
       // Auto-release any active warehouse stock reservations before soft-deleting
       if (enqToDelete && (enqToDelete.stock_reserved || (enqToDelete.line_items && enqToDelete.line_items.some(it => it.product_id)))) {
@@ -1836,6 +1851,8 @@ export default function App() {
             setCompanies={setCompanies}
             contacts={workspaceContacts}
             salespersons={workspaceSalespersons}
+            projects={projects}
+            setProjects={setProjects}
             onSelectEnquiry={setSelectedEnquiryId}
             onAddEnquiry={() => {
               setEnquiryToEdit(null);
