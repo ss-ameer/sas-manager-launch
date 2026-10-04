@@ -1,6 +1,8 @@
 import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project, GrnReceiptData } from '../types';
 import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { MetadataRepository } from './repositories/MetadataRepository';
+import { saveToLocalStore } from './db';
 
 export interface ReservationResult {
   success: boolean;
@@ -69,6 +71,8 @@ export async function reserveEnquiryStock(
     'System';
   const userUid = user?.uid;
 
+  const runningReservedMap = new Map<string, number>();
+
   for (const item of lineItems) {
     if (!item.product_id) {
       result.skippedCount++;
@@ -99,15 +103,31 @@ export async function reserveEnquiryStock(
         continue;
       }
 
-      const currentReserved = Number(prodData.stock_reserved) || 0;
+      const currentReserved = runningReservedMap.has(item.product_id)
+        ? runningReservedMap.get(item.product_id)!
+        : Number(prodData.stock_reserved) || 0;
       const currentOnHand = Number(prodData.stock_on_hand) || 0;
       const newReserved = currentReserved + qty;
+      runningReservedMap.set(item.product_id, newReserved);
 
       // Update product document in Firestore
       await safeUpdateDoc('products', item.product_id, {
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
+
+      // Update local storage in IndexedDB as well
+      try {
+        const cachedProducts = await MetadataRepository.fetchProductsOnce();
+        if (cachedProducts && cachedProducts.length > 0) {
+          const updatedCached = cachedProducts.map((p) =>
+            p.id === item.product_id ? { ...p, stock_reserved: newReserved } : p
+          );
+          await saveToLocalStore('products', updatedCached);
+        }
+      } catch (cacheErr) {
+        // Non-critical local cache update
+      }
 
       // Append audit record to stock_movements
       const movement: StockMovement = {

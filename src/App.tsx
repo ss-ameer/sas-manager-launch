@@ -473,6 +473,18 @@ export default function App() {
     setToast({ id: Date.now().toString(), message, type });
   };
 
+  const refreshProducts = async () => {
+    try {
+      const freshProds = await MetadataRepository.fetchProductsOnce();
+      if (freshProds && freshProds.length > 0) {
+        setProducts(freshProds);
+        setLocalCache('omni_products', freshProds);
+      }
+    } catch (err) {
+      console.error('Failed to refresh products:', err);
+    }
+  };
+
   useEffect(() => {
     try {
       const isInitialized = localStorage.getItem('initialized') === 'true' || localStorage.getItem('omni_pristine_initialized') === 'true';
@@ -1874,6 +1886,7 @@ export default function App() {
             }}
             onInitiateActivity={initiateActivity}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            onStockUpdated={refreshProducts}
           />
         )}
 
@@ -1889,6 +1902,7 @@ export default function App() {
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             initialProjectId={activeProjectId}
             onClearInitialProject={() => setActiveProjectId(null)}
+            onStockUpdated={refreshProducts}
           />
         )}
 
@@ -2035,6 +2049,7 @@ export default function App() {
             setIsActivityDrawerOpen(true);
           }}
           onInitiateActivity={initiateActivity}
+          onStockUpdated={refreshProducts}
           triggerToast={triggerToast}
         />
       )}

@@ -44,6 +44,7 @@ interface ProjectRegistryProps {
   onOpenMobileMenu?: () => void;
   initialProjectId?: string | null;
   onClearInitialProject?: () => void;
+  onStockUpdated?: () => void;
 }
 
 export default function ProjectRegistry({
@@ -56,7 +57,8 @@ export default function ProjectRegistry({
   triggerToast,
   onOpenMobileMenu,
   initialProjectId,
-  onClearInitialProject
+  onClearInitialProject,
+  onStockUpdated
 }: ProjectRegistryProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | Project['status']>('All');
@@ -206,6 +208,10 @@ export default function ProjectRegistry({
         }
       }
 
+      if (onStockUpdated) {
+        onStockUpdated();
+      }
+
       if (triggerToast) {
         if (result.dispatchedCount > 0) {
           triggerToast(
@@ -348,6 +354,10 @@ export default function ProjectRegistry({
       }
       setSelectedProject(updatedProject);
       setVoidConfirmTarget(null);
+
+      if (onStockUpdated) {
+        onStockUpdated();
+      }
 
       if (triggerToast) {
         triggerToast('Project has been marked Cancelled and reserved inventory returned to catalog.', 'info');

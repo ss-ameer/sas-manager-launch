@@ -92,6 +92,7 @@ interface EnquiryDetailProps {
     logToEdit?: any;
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
+  onStockUpdated?: () => void;
 }
 
 export default function EnquiryDetail({
@@ -114,6 +115,7 @@ export default function EnquiryDetail({
   onSelectEnquiry,
   onOpenActivityDrawer,
   onInitiateActivity,
+  onStockUpdated,
   triggerToast
 }: EnquiryDetailProps) {
   const { openEditCompany, openEditContact } = useEntityEdit();
@@ -165,6 +167,9 @@ export default function EnquiryDetail({
         const res = await reserveEnquiryStock(currentEnquiry, user);
         isStockReserved = true;
         stockReservedAt = nowIso;
+        if (onStockUpdated) {
+          onStockUpdated();
+        }
         if (triggerToast) {
           triggerToast(
             res.reservedCount > 0
@@ -207,6 +212,9 @@ export default function EnquiryDetail({
           const rel = await releaseEnquiryStock(currentEnquiry, user);
           isStockReserved = false;
           stockReservedAt = null;
+          if (onStockUpdated) {
+            onStockUpdated();
+          }
           if (triggerToast) {
             if (linkedProjectCancelled) {
               triggerToast('Linked project and reserved inventory have been cancelled and released.', 'info');
@@ -339,6 +347,23 @@ export default function EnquiryDetail({
         milestones: modalMilestones
       };
 
+      // Ensure stock is reserved on project launch if not already reserved
+      let isStockReserved = Boolean(currentEnquiry.stock_reserved);
+      const hasInventoriedItems = Boolean(
+        currentEnquiry.line_items && currentEnquiry.line_items.some((it) => it.product_id)
+      );
+
+      if (!isStockReserved && hasInventoriedItems) {
+        try {
+          const res = await reserveEnquiryStock(currentEnquiry, user);
+          if (res.reservedCount > 0) {
+            isStockReserved = true;
+          }
+        } catch (resErr) {
+          console.warn('Failed auto-reserving stock on project launch:', resErr);
+        }
+      }
+
       const newProject = await createProjectFromEnquiry(currentEnquiry, user, conversionOptions);
       setLinkedProject(newProject);
 
@@ -346,6 +371,8 @@ export default function EnquiryDetail({
         ...currentEnquiry,
         project_id: newProject.id,
         project_number: newProject.project_number,
+        stock_reserved: isStockReserved,
+        stock_reserved_at: isStockReserved ? (currentEnquiry.stock_reserved_at || new Date().toISOString()) : undefined,
         updatedAt: new Date().toISOString()
       };
 
@@ -358,6 +385,10 @@ export default function EnquiryDetail({
       }
 
       setShowConvertModal(false);
+
+      if (onStockUpdated) {
+        onStockUpdated();
+      }
 
       if (triggerToast) {
         triggerToast(`Project ${newProject.project_number} created successfully!`, 'success');

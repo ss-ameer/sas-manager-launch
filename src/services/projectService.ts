@@ -1,5 +1,6 @@
 import { Project, ProjectMilestone, Enquiry, UserProfile } from '../types';
 import { safeAddDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
+import { reserveEnquiryStock } from './inventoryService';
 
 export interface ProjectConversionOptions {
   project_type?: 'Supply Only' | 'Turnkey / Installation';
@@ -127,8 +128,19 @@ export async function createProjectFromEnquiry(
     await safeUpdateDoc('enquiries', enquiry.id, {
       project_id: createdId,
       project_number: projectNumber,
+      stock_reserved: true,
+      stock_reserved_at: nowIso,
       updatedAt: nowIso
     }).catch(() => {});
+  }
+
+  // Ensure stock is reserved for inventoried line items if not already tagged
+  if (!enquiry.stock_reserved && enquiry.line_items && enquiry.line_items.some((it) => it.product_id)) {
+    try {
+      await reserveEnquiryStock(enquiry, user);
+    } catch (resErr) {
+      console.warn('Failed auto-reserving stock during createProjectFromEnquiry:', resErr);
+    }
   }
 
   return createdProject;

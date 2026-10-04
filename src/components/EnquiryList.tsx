@@ -86,6 +86,7 @@ interface EnquiryListProps {
     logToEdit?: any;
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
+  onStockUpdated?: () => void;
 }
 
 export default function EnquiryList({
@@ -110,7 +111,8 @@ export default function EnquiryList({
   onViewCompany360,
   setSelectedCompanyForDetail,
   onOpenActivityDrawer,
-  onInitiateActivity
+  onInitiateActivity,
+  onStockUpdated
 }: EnquiryListProps) {
   const launcher = useActivityLauncher();
   const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
@@ -844,6 +846,9 @@ export default function EnquiryList({
         try {
           const relResult = await releaseEnquiryStock(enquiry, user);
           releasedStockCount = relResult.releasedCount;
+          if (onStockUpdated) {
+            onStockUpdated();
+          }
         } catch (stockErr) {
           console.warn('Failed releasing stock on status change to Lost/Cancelled:', stockErr);
         }
