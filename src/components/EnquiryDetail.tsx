@@ -232,6 +232,7 @@ export default function EnquiryDetail({
   // Operational Handoff / Project Conversion Modal State
   const [showConvertModal, setShowConvertModal] = useState(false);
   const [convertProjectType, setConvertProjectType] = useState<'Supply Only' | 'Turnkey / Installation'>('Supply Only');
+  const [modalMilestones, setModalMilestones] = useState<ProjectMilestone[]>([]);
   const [convertEngineerName, setConvertEngineerName] = useState(
     user?.full_name || (user as any)?.name || (user as any)?.displayName || ''
   );
@@ -245,17 +246,15 @@ export default function EnquiryDetail({
   );
   const [convertOperationalNotes, setConvertOperationalNotes] = useState(currentEnquiry.remarks || '');
 
-  const previewMilestones = React.useMemo(() => {
-    return getDefaultMilestones(convertProjectType);
-  }, [convertProjectType]);
-
   const handleOpenConvertModal = () => {
     const isTurnkey = (currentEnquiry.line_items || []).some(
       (it) =>
         (it.description || '').toLowerCase().includes('installation') ||
         (it.product_type || '').toLowerCase().includes('fabrication')
     );
-    setConvertProjectType(isTurnkey ? 'Turnkey / Installation' : 'Supply Only');
+    const initialType: 'Supply Only' | 'Turnkey / Installation' = isTurnkey ? 'Turnkey / Installation' : 'Supply Only';
+    setConvertProjectType(initialType);
+    setModalMilestones(getDefaultMilestones(initialType));
     setConvertEngineerName(user?.full_name || (user as any)?.name || (user as any)?.displayName || '');
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -265,6 +264,31 @@ export default function EnquiryDetail({
     );
     setConvertOperationalNotes(currentEnquiry.remarks || '');
     setShowConvertModal(true);
+  };
+
+  const handleSelectProjectType = (type: 'Supply Only' | 'Turnkey / Installation') => {
+    setConvertProjectType(type);
+    setModalMilestones(getDefaultMilestones(type));
+  };
+
+  const handleUpdateMilestoneTitle = (id: string, newTitle: string) => {
+    setModalMilestones((prev) =>
+      prev.map((ms) => (ms.id === id ? { ...ms, title: newTitle } : ms))
+    );
+  };
+
+  const handleRemoveMilestone = (id: string) => {
+    setModalMilestones((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((ms) => ms.id !== id);
+    });
+  };
+
+  const handleAddMilestone = () => {
+    setModalMilestones((prev) => [
+      ...prev,
+      { id: 'ms_' + Date.now(), title: 'New Operational Phase', status: 'Pending' }
+    ]);
   };
 
   const handleConfirmCreateProject = async () => {
@@ -277,7 +301,7 @@ export default function EnquiryDetail({
         target_delivery_date: convertTargetDate || undefined,
         site_location: convertSiteLocation.trim() || undefined,
         operational_notes: convertOperationalNotes.trim() || undefined,
-        milestones: previewMilestones
+        milestones: modalMilestones
       };
 
       const newProject = await createProjectFromEnquiry(currentEnquiry, user, conversionOptions);
@@ -1924,7 +1948,16 @@ export default function EnquiryDetail({
                                   <span>Charge:</span> {item.charge_type || item.product_type}
                                 </span>
                               ) : (
-                                <span className="text-sm font-bold text-slate-800 dark:text-slate-100 font-sans truncate">{item.product_type}</span>
+                                <div className="truncate">
+                                  <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
+                                    {item.item_name || item.description || item.product_type || 'Line Item'}
+                                  </div>
+                                  {item.item_name && item.description && item.description !== item.item_name && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                      {item.description}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                               {((item as any).option_designation || item.option) && (
                                 <span
@@ -2272,7 +2305,7 @@ export default function EnquiryDetail({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setConvertProjectType('Supply Only')}
+                    onClick={() => handleSelectProjectType('Supply Only')}
                     className={`p-3.5 rounded-xl border text-left transition flex items-start space-x-3 cursor-pointer ${
                       convertProjectType === 'Supply Only'
                         ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/20'
@@ -2301,7 +2334,7 @@ export default function EnquiryDetail({
 
                   <button
                     type="button"
-                    onClick={() => setConvertProjectType('Turnkey / Installation')}
+                    onClick={() => handleSelectProjectType('Turnkey / Installation')}
                     className={`p-3.5 rounded-xl border text-left transition flex items-start space-x-3 cursor-pointer ${
                       convertProjectType === 'Turnkey / Installation'
                         ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 ring-2 ring-emerald-500/20'
@@ -2393,39 +2426,58 @@ export default function EnquiryDetail({
                 </div>
               </div>
 
-              {/* Milestone Pipeline Preview */}
+              {/* Milestone Pipeline Editable Section */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    Milestone Pipeline Preview ({previewMilestones.length} Phases)
+                    Milestone Pipeline & Operational Phases ({modalMilestones.length} Phases)
                   </label>
                   <span className="text-[10px] text-slate-400 font-mono">
-                    Auto-generated based on {convertProjectType}
+                    Customizable • Initial status: {modalMilestones[0]?.status || 'In Progress'}
                   </span>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
-                  {previewMilestones.map((m, idx) => (
+                  {modalMilestones.map((ms, idx) => (
                     <div
-                      key={m.id || idx}
-                      className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800"
+                      key={ms.id || idx}
+                      className="flex items-center space-x-2.5 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-2xs"
                     >
-                      <div className="flex items-center space-x-2.5">
-                        <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center border border-slate-200 dark:border-slate-700">
-                          {idx + 1}
-                        </span>
-                        <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">
-                          {m.title}
-                        </span>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium ${
+                      <span className="w-6 h-6 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                        #{idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={ms.title}
+                        onChange={(e) => handleUpdateMilestoneTitle(ms.id, e.target.value)}
+                        placeholder="Phase title..."
+                        className="flex-1 px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans font-medium"
+                      />
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium shrink-0 ${
                         idx === 0
                           ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                           : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                       }`}>
-                        {idx === 0 ? 'In Progress' : 'Pending'}
+                        {ms.status}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMilestone(ms.id)}
+                        disabled={modalMilestones.length <= 1}
+                        title={modalMilestones.length <= 1 ? 'At least one milestone is required' : 'Remove Milestone'}
+                        className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 disabled:opacity-30 disabled:hover:text-rose-500 rounded-lg transition cursor-pointer disabled:cursor-not-allowed shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   ))}
+
+                  <button
+                    type="button"
+                    onClick={handleAddMilestone}
+                    className="w-full py-2 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-700 hover:border-slate-400 dark:hover:text-slate-300 flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                  >
+                    <span>+ Add Custom Phase / Milestone</span>
+                  </button>
                 </div>
               </div>
 
@@ -2457,9 +2509,14 @@ export default function EnquiryDetail({
                               {idx + 1}
                             </td>
                             <td className="py-2 px-3">
-                              <div className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-xs">
-                                {item.description || 'Line Item'}
+                              <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                {item.item_name || item.description || 'Line Item'}
                               </div>
+                              {item.item_name && item.description && item.description !== item.item_name && (
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  {item.description}
+                                </div>
+                              )}
                               {item.product_type && (
                                 <div className="text-[10px] text-slate-400 font-mono">
                                   {item.product_type}

@@ -832,11 +832,16 @@ export default function ProjectRegistry({
 
                         return (
                           <tr key={it.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                            <td className="py-3 px-3">
-                              <div className="font-bold text-slate-800 dark:text-slate-200">
-                                {it.description?.trim() || productMap?.get(it.product_id || '')?.name || it.product_type || 'Custom Item / Scope'}
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                {it.item_name || (it.product_id ? productMap?.get(it.product_id)?.name : null) || it.description || 'Line Item'}
                               </div>
-                              <div className="text-[11px] text-slate-400">
+                              {it.description && it.description !== (it.item_name || (it.product_id ? productMap?.get(it.product_id)?.name : null)) && (
+                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                                  {it.description}
+                                </div>
+                              )}
+                              <div className="text-[11px] text-slate-400 mt-0.5">
                                 Type: {it.product_type || 'General'}
                               </div>
                             </td>

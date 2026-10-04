@@ -266,6 +266,7 @@ const normalizeAttributeKey = (rawKey: string): string => {
 interface CatalogItem {
   id?: string;
   name?: string;
+  sku?: string;
   product_type: ProductType;
   description: string;
   unit: UnitType;
@@ -511,16 +512,22 @@ export default function EnquiryForm({
   const [catalogCategory, setCatalogCategory] = useState('All');
 
   const combinedCatalog = React.useMemo(() => {
-    return (products || []).map((p) => ({
-      id: p.id,
-      name: p.name || p.product_type,
-      product_type: p.product_type,
-      description: p.description,
-      unit: p.unit,
-      unit_price_aed: p.unit_price,
-      lead_time_note: (p as any).lead_time_note || (p.sku ? `SKU: ${p.sku}` : undefined),
-      attributes: p.attributes || [],
-    }));
+    return (products || []).map((p) => {
+      const defaultLeadTime = (p as any).lead_time_note?.trim()
+        ? (p as any).lead_time_note
+        : (p.is_inventoried && (p.stock_on_hand || 0) > 0 ? 'Ex-Stock' : '');
+      return {
+        id: p.id,
+        name: p.name || p.product_type,
+        sku: p.sku || '',
+        product_type: p.product_type,
+        description: p.description,
+        unit: p.unit,
+        unit_price_aed: p.unit_price,
+        lead_time_note: defaultLeadTime,
+        attributes: p.attributes || [],
+      };
+    });
   }, [products]);
 
   const filteredCatalog = React.useMemo(() => {
@@ -1314,11 +1321,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         next[linkingLineIndex] = {
           ...current,
           product_id: item.id || undefined,
+          item_name: item.name || current.item_name,
           product_type: item.product_type || current.product_type,
           description: current.description?.trim() ? current.description : item.description,
           unit: item.unit || current.unit,
           unit_price: current.unit_price > 0 ? current.unit_price : price,
           total_price: (current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : price),
+          lead_time_note: current.lead_time_note && !current.lead_time_note.startsWith('SKU:')
+            ? current.lead_time_note
+            : (item.lead_time_note || ''),
           attributes: current.attributes && current.attributes.length > 0 ? current.attributes : (item.attributes || [])
         };
         return next;
@@ -1328,6 +1339,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       // Default append behavior
       const newItem: LineItem = {
         product_id: item.id || undefined,
+        item_name: item.name,
         item_type: 'product',
         product_type: item.product_type,
         description: item.description,
@@ -4452,7 +4464,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               <div className="flex items-center space-x-2">
                                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                   <Package className="w-3 h-3 text-emerald-600"/>
-                                  <span>Linked: {matchedProduct.name || matchedProduct.sku || 'Catalog Item'}</span>
+                                  <span>Linked: {matchedProduct.name} {matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}</span>
                                   {matchedProduct.is_inventoried && (
                                     <span className="font-mono text-[10px] ml-1 text-emerald-800 dark:text-emerald-200">
                                       (On-Hand: {matchedProduct.stock_on_hand || 0} | Res: {matchedProduct.stock_reserved || 0})

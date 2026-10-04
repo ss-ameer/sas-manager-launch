@@ -330,6 +330,7 @@ export interface ProductAttribute {
 export interface LineItem {
   id?: string;
   product_id?: string;
+  item_name?: string;
   item_type?: ItemType;
   charge_type?: string;
   product_type: ProductType;
