@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone } from '../types';
 import { dispatchProjectStock } from '../services/inventoryService';
 import { updateProjectStatus } from '../services/projectService';
-import { safeUpdateDoc, db } from '../firebase';
+import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import {
@@ -64,6 +64,8 @@ export default function ProjectRegistry({
   const [isDispatching, setIsDispatching] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [confirmDispatchOpen, setConfirmDispatchOpen] = useState(false);
+  const [voidConfirmTarget, setVoidConfirmTarget] = useState<Project | null>(null);
+  const [isVoiding, setIsVoiding] = useState<boolean>(false);
   const [milestoneWarning, setMilestoneWarning] = useState<{
     milestoneId: string;
     targetStatus: ProjectMilestone['status'];
@@ -255,6 +257,113 @@ export default function ProjectRegistry({
     }
   };
 
+  const handleInitiateVoidProject = (project: Project) => {
+    setVoidConfirmTarget(project);
+  };
+
+  const handleConfirmVoidProject = async (project: Project) => {
+    if (!project?.id || isVoiding) return;
+    setIsVoiding(true);
+    const nowIso = new Date().toISOString();
+    const userName = user?.full_name || (user as any)?.username || user?.email || 'Operator';
+    const userUid = user?.uid;
+
+    try {
+      // 1. Release reserved stock back to catalog for inventoried line items (if physical stock was not yet dispatched)
+      const didDeductStock = Boolean((project as any).stock_deducted);
+      if (!didDeductStock && project.line_items && project.line_items.length > 0) {
+        for (const item of project.line_items) {
+          if (!item.product_id) continue;
+          try {
+            const prodRef = doc(db, 'products', item.product_id);
+            const prodSnap = await getDoc(prodRef);
+            if (prodSnap.exists()) {
+              const prodData = prodSnap.data() as Product;
+              if (prodData.is_inventoried) {
+                const currentReserved = Number(prodData.stock_reserved) || 0;
+                const qty = Number(item.quantity) || 0;
+                const newReserved = Math.max(0, currentReserved - qty);
+                await safeUpdateDoc('products', item.product_id, {
+                  stock_reserved: newReserved,
+                  updatedAt: nowIso
+                });
+
+                // Update local products state if provided
+                if (setProducts) {
+                  setProducts(prev => prev.map(p => p.id === item.product_id ? { ...p, stock_reserved: newReserved } : p));
+                }
+
+                // Add immutable stock movement audit record
+                await safeAddDoc('stock_movements', {
+                  product_id: item.product_id,
+                  workspace_id: activeWorkspace.id,
+                  movement_type: 'STOCK_RELEASE',
+                  quantity: qty,
+                  previous_on_hand: Number(prodData.stock_on_hand) || 0,
+                  new_on_hand: Number(prodData.stock_on_hand) || 0,
+                  reference_type: 'PROJECT_VOID',
+                  reference_id: project.id,
+                  reference_number: project.project_number,
+                  reason_notes: `Stock reservation released: Project #${project.project_number} voided/cancelled by ${userName}`,
+                  created_at: nowIso,
+                  created_by_uid: userUid,
+                  created_by_name: userName
+                });
+              }
+            }
+          } catch (stockErr) {
+            console.warn(`[handleConfirmVoidProject] Failed releasing stock for product ${item.product_id}:`, stockErr);
+          }
+        }
+      }
+
+      // 2. Update the project document in Firestore
+      const updateData = {
+        status: 'Cancelled' as const,
+        cancellation_reason: 'Voided by operator via Project Registry',
+        updated_at: nowIso
+      };
+      await safeUpdateDoc('projects', project.id, updateData);
+
+      // 3. If the project has an associated enquiry_id, flag the parent enquiry
+      if (project.enquiry_id) {
+        try {
+          await safeUpdateDoc('enquiries', project.enquiry_id, {
+            project_status: 'Cancelled',
+            stock_reserved: false,
+            updatedAt: nowIso
+          });
+        } catch (enqErr) {
+          console.warn('[handleConfirmVoidProject] Failed to update parent enquiry:', enqErr);
+        }
+      }
+
+      // 4. Update local state
+      const updatedProject: Project = {
+        ...project,
+        ...updateData
+      };
+      if (setProjects) {
+        setProjects(prev => prev.map(p => p.id === project.id ? updatedProject : p));
+      }
+      setSelectedProject(updatedProject);
+      setVoidConfirmTarget(null);
+
+      if (triggerToast) {
+        triggerToast('Project has been marked Cancelled and reserved inventory returned to catalog.', 'info');
+      }
+    } catch (err: any) {
+      console.error('Failed to void project:', err);
+      if (triggerToast) {
+        triggerToast('Failed to void project: ' + err.message, 'error');
+      } else {
+        alert('Failed to void project: ' + err.message);
+      }
+    } finally {
+      setIsVoiding(false);
+    }
+  };
+
   const executeMilestoneStatusChange = async (
     milestoneId: string,
     nextStatus: ProjectMilestone['status']
@@ -312,6 +421,12 @@ export default function ProjectRegistry({
   // Milestone Progression Cycle: Pending -> In Progress -> Completed -> Pending
   const handleToggleMilestone = async (milestoneId: string) => {
     if (!selectedProject?.id || !selectedProject.milestones) return;
+    if (selectedProject.status === 'Cancelled') {
+      if (triggerToast) {
+        triggerToast('Cannot advance milestones on a cancelled project.', 'info');
+      }
+      return;
+    }
 
     const currentIndex = selectedProject.milestones.findIndex((m) => m.id === milestoneId);
     if (currentIndex === -1) return;
@@ -752,6 +867,20 @@ export default function ProjectRegistry({
 
             {/* Modal Body */}
             <div className="px-6 sm:px-8 py-6 space-y-6 overflow-y-auto flex-1 font-sans">
+              {selectedProject.status === 'Cancelled' && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center space-x-3 text-rose-700 dark:text-rose-300">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                  <div className="text-xs font-semibold">
+                    This project has been cancelled. Milestones and stock deductions are locked.
+                    {selectedProject.cancellation_reason && (
+                      <span className="block text-[11px] font-normal text-rose-600/80 dark:text-rose-400/80 mt-0.5 font-mono">
+                        Reason: {selectedProject.cancellation_reason}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Metadata Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
@@ -1040,20 +1169,34 @@ export default function ProjectRegistry({
 
             {/* Modal Operations Action Bar */}
             <div className="py-4 px-6 sm:px-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono text-slate-400">Change Status:</span>
-                <select
-                  value={selectedProject.status}
-                  disabled={isUpdatingStatus}
-                  onChange={(e) => handleUpdateStatus(e.target.value as Project['status'])}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                >
-                  <option value="Draft">Draft</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Delivered">Delivered</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-mono text-slate-400">Change Status:</span>
+                  <select
+                    value={selectedProject.status}
+                    disabled={isUpdatingStatus}
+                    onChange={(e) => handleUpdateStatus(e.target.value as Project['status'])}
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                  >
+                    <option value="Draft">Draft</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Delivered">Delivered</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                {selectedProject.status !== 'Cancelled' && (
+                  <button
+                    type="button"
+                    onClick={() => handleInitiateVoidProject(selectedProject)}
+                    className="px-3.5 py-1.5 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                    title="Cancel project and release reserved stock"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Void / Cancel Project</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center space-x-3">
@@ -1257,6 +1400,49 @@ export default function ProjectRegistry({
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer"
               >
                 <span>Proceed Anyway</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Voiding / Cancelling Project */}
+      {voidConfirmTarget && (
+        <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center space-x-3">
+              <span className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">
+                  Void / Cancel Project #{voidConfirmTarget.project_number}
+                </h3>
+                <span className="text-[11px] font-mono text-slate-400">{voidConfirmTarget.title}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+              Are you sure you want to void this project? This will mark the project as <strong className="text-rose-600 dark:text-rose-400">Cancelled</strong>, unlock/release all reserved catalog stock back to the warehouse, and lock operational milestones.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                disabled={isVoiding}
+                onClick={() => setVoidConfirmTarget(null)}
+                className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Keep Project
+              </button>
+              <button
+                type="button"
+                disabled={isVoiding}
+                onClick={() => handleConfirmVoidProject(voidConfirmTarget)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {isVoiding && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                <span>{isVoiding ? 'Voiding...' : 'Yes, Void Project'}</span>
               </button>
             </div>
           </div>
