@@ -412,227 +412,230 @@ export default function ProjectRegistry({
         onOpenSidebar={onOpenMobileMenu}
       />
 
-      {/* Quick KPI Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Active Projects
-            </span>
-            <span className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
-              <Briefcase className="w-4 h-4" />
-            </span>
+      <PageBody maxWidth="max-w-7xl">
+        {/* Quick KPI Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Active Projects
+              </span>
+              <span className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+                <Briefcase className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold font-sans text-slate-900 dark:text-white">
+                {kpis.activeCount}
+              </span>
+              <span className="text-xs text-slate-400">In Progress / Draft</span>
+            </div>
           </div>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-bold font-sans text-slate-900 dark:text-white">
-              {kpis.activeCount}
-            </span>
-            <span className="text-xs text-slate-400">In Progress / Draft</span>
+
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Pending Dispatch
+              </span>
+              <span className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
+                <Boxes className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold font-sans text-amber-600 dark:text-amber-400">
+                {kpis.pendingDispatchCount}
+              </span>
+              <span className="text-xs text-slate-400">Awaiting Delivery</span>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Dispatched & Completed
+              </span>
+              <span className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                <Truck className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold font-sans text-emerald-600 dark:text-emerald-400">
+                {kpis.deliveredCount}
+              </span>
+              <span className="text-xs text-slate-400">Fulfilled Jobs</span>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Operational Value
+              </span>
+              <span className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400">
+                <DollarSign className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline justify-between">
+              <span className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+                {kpis.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-xs text-slate-400">AED Total</span>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Pending Dispatch
-            </span>
-            <span className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
-              <Boxes className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-bold font-sans text-amber-600 dark:text-amber-400">
-              {kpis.pendingDispatchCount}
-            </span>
-            <span className="text-xs text-slate-400">Awaiting Delivery</span>
-          </div>
-        </div>
+        {/* Unified Search, Filters & Projects Directory Card */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl md:rounded-3xl p-6 shadow-xs space-y-6">
+          {/* Search Bar & Status Filter Pills */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search projects by reference, client, title..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans"
+              />
+            </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Dispatched & Completed
-            </span>
-            <span className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-              <Truck className="w-4 h-4" />
-            </span>
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
+              {(['All', 'In Progress', 'Delivered', 'Completed', 'Cancelled'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setStatusFilter(tab)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    statusFilter === tab
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-bold font-sans text-emerald-600 dark:text-emerald-400">
-              {kpis.deliveredCount}
-            </span>
-            <span className="text-xs text-slate-400">Fulfilled Jobs</span>
-          </div>
-        </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Operational Value
-            </span>
-            <span className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400">
-              <DollarSign className="w-4 h-4" />
-            </span>
-          </div>
-          <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
-              {kpis.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-            </span>
-            <span className="text-xs text-slate-400">AED Total</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Search & Filter Toolbar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search projects by reference, client, title..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans"
-          />
-        </div>
-
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">
-          {(['All', 'In Progress', 'Delivered', 'Completed', 'Cancelled'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setStatusFilter(tab)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                statusFilter === tab
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Projects List / Table */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-        {filteredProjects.length === 0 ? (
-          <div className="py-16 px-4 text-center">
-            <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-            <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 font-sans">
-              No Projects Found
-            </h4>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-              Projects are instantiated when Won enquiries are converted via the "Convert to Project / Fulfillment" button.
-            </p>
-          </div>
-        ) : (
+          {/* Projects Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-[10px] font-mono text-slate-400 uppercase tracking-widest">
-                  <th className="py-3 px-4">Project Ref</th>
-                  <th className="py-3 px-4">Client & Title</th>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4 text-right">Value (AED)</th>
-                  <th className="py-3 px-4 text-center">Fulfillment Status</th>
-                  <th className="py-3 px-4 text-center">Dispatch</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
-                {filteredProjects.map((project) => {
-                  const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
-                  const inventoriedCount = (project.line_items || []).filter((it) => {
-                    if (!it.product_id) return false;
-                    const p = productMap?.get(it.product_id);
-                    return p ? Boolean(p.is_inventoried) : false;
-                  }).length;
-                  const totalLinesCount = (project.line_items || []).length;
-                  const didDeductStock = Boolean(
-                    (project as any).stock_deducted &&
-                    ((project as any).dispatched_items_count ?? (inventoriedCount > 0 ? 1 : 0)) > 0
-                  );
+            {filteredProjects.length === 0 ? (
+              <div className="py-16 px-4 text-center">
+                <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 font-sans">
+                  No Projects Found
+                </h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                  Projects are instantiated when Won enquiries are converted via the "Convert to Project / Fulfillment" button.
+                </p>
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                    <th className="py-3.5 px-4 w-36 whitespace-nowrap">Project Ref</th>
+                    <th className="py-3.5 px-4 min-w-[200px]">Client & Title</th>
+                    <th className="py-3.5 px-4 w-32 whitespace-nowrap">Type</th>
+                    <th className="py-3.5 px-4 text-right w-36 whitespace-nowrap">Value (AED)</th>
+                    <th className="py-3.5 px-4 text-center w-40 whitespace-nowrap">Fulfillment Status</th>
+                    <th className="py-3.5 px-4 text-center w-36 whitespace-nowrap">Dispatch</th>
+                    <th className="py-3.5 px-4 text-right w-24 whitespace-nowrap">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
+                  {filteredProjects.map((project) => {
+                    const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
+                    const inventoriedCount = (project.line_items || []).filter((it) => {
+                      if (!it.product_id) return false;
+                      const p = productMap?.get(it.product_id);
+                      return p ? Boolean(p.is_inventoried) : false;
+                    }).length;
+                    const totalLinesCount = (project.line_items || []).length;
+                    const didDeductStock = Boolean(
+                      (project as any).stock_deducted &&
+                      ((project as any).dispatched_items_count ?? (inventoriedCount > 0 ? 1 : 0)) > 0
+                    );
 
-                  return (
-                    <tr
-                      key={project.id || project.project_number}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer"
-                      onClick={() => setSelectedProject(project)}
-                    >
-                      <td className="py-3.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                        {project.project_number}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 dark:text-white font-sans truncate max-w-xs">
-                          {project.title}
-                        </div>
-                        <div className="text-[11px] text-slate-400 flex items-center space-x-1 mt-0.5">
-                          <Building className="w-3 h-3 text-slate-400" />
-                          <span>{project.client_name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          {project.project_type}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                        {Number(project.contract_value).toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        {getStatusBadge(project.status, didDeductStock)}
-                      </td>
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        {isDelivered ? (
-                          didDeductStock ? (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
-                              <Check className="w-3 h-3" />
-                              <span>STOCK OUT</span>
+                    return (
+                      <tr
+                        key={project.id || project.project_number}
+                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer"
+                        onClick={() => setSelectedProject(project)}
+                      >
+                        <td className="py-3.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                          {project.project_number}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900 dark:text-white font-sans truncate max-w-xs md:max-w-sm">
+                            {project.title}
+                          </div>
+                          <div className="text-[11px] text-slate-400 flex items-center space-x-1 mt-0.5">
+                            <Building className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{project.client_name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {project.project_type}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                          {Number(project.contract_value).toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          {getStatusBadge(project.status, didDeductStock)}
+                        </td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          {isDelivered ? (
+                            didDeductStock ? (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                <Check className="w-3 h-3" />
+                                <span>STOCK OUT</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>FULFILLED</span>
+                              </span>
+                            )
+                          ) : inventoriedCount > 0 ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40">
+                              <Boxes className="w-3 h-3" />
+                              <span>{inventoriedCount} Reserved</span>
+                            </span>
+                          ) : totalLinesCount > 0 ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800">
+                              Non-Stock Scope
                             </span>
                           ) : (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>FULFILLED</span>
-                            </span>
-                          )
-                        ) : inventoriedCount > 0 ? (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40">
-                            <Boxes className="w-3 h-3" />
-                            <span>{inventoriedCount} Reserved</span>
-                          </span>
-                        ) : totalLinesCount > 0 ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800">
-                            Non-Stock Scope
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 italic">No Items</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedProject(project);
-                          }}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition flex items-center space-x-1 ml-auto cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <span className="text-[10px] text-slate-400 italic">No Items</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedProject(project);
+                            }}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition flex items-center space-x-1 ml-auto cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </PageBody>
 
       {/* Project Details & Fulfillment Modal */}
       {selectedProject && (
