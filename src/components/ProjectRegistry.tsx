@@ -636,10 +636,10 @@ export default function ProjectRegistry({
 
       {/* Project Details & Fulfillment Modal */}
       {selectedProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 sm:p-8 md:p-10 lg:px-16 lg:py-8">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-3xl xl:max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+            <div className="px-6 sm:px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
                 <span className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
                   <Briefcase className="w-5 h-5" />
@@ -670,7 +670,7 @@ export default function ProjectRegistry({
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6 overflow-y-auto flex-1 font-sans">
+            <div className="px-6 sm:px-8 py-6 space-y-6 overflow-y-auto flex-1 font-sans">
               {/* Metadata Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
@@ -958,7 +958,7 @@ export default function ProjectRegistry({
             </div>
 
             {/* Modal Operations Action Bar */}
-            <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="py-4 px-6 sm:px-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-mono text-slate-400">Change Status:</span>
                 <select
