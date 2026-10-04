@@ -1235,21 +1235,28 @@ export default function EnquiryDetail({
                   </div>
 
                   {/* Stock reservation breakdown info */}
-                  <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-800/40 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                    <div className="flex items-center space-x-2">
-                      <Boxes className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span>
-                        {currentEnquiry.stock_reserved
-                          ? `Auto-reserved ${currentEnquiry.line_items?.filter((it) => it.product_id).length || 0} catalog product line(s) in warehouse`
-                          : 'No catalog products linked for warehouse reservation'}
-                      </span>
-                    </div>
-                    {currentEnquiry.stock_reserved_at && (
-                      <span className="font-mono text-[10px] text-slate-400">
-                        Reserved on {new Date(currentEnquiry.stock_reserved_at).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
+                  {(() => {
+                    const linkedCount = currentEnquiry.line_items?.filter((it) => Boolean(it.product_id)).length || 0;
+                    return (
+                      <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-800/40 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+                        <div className="flex items-center space-x-2">
+                          <Boxes className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>
+                            {currentEnquiry.stock_reserved
+                              ? `Auto-reserved ${linkedCount} catalog product line(s) in warehouse`
+                              : linkedCount > 0
+                                ? `${linkedCount} catalog product(s) linked (Physical stock deducted on dispatch)`
+                                : 'No catalog products linked for warehouse reservation'}
+                          </span>
+                        </div>
+                        {currentEnquiry.stock_reserved_at && (
+                          <span className="font-mono text-[10px] text-slate-400">
+                            Reserved on {new Date(currentEnquiry.stock_reserved_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

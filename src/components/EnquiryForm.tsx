@@ -1408,6 +1408,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         item.lead_time_note = '';
         item.attributes = [];
 
+        // If item.unit === 'Nos' or !item.unit, default it to 'LS'
+        if (item.unit === 'Nos' || !item.unit) {
+          item.unit = 'LS';
+        }
+
         if (val === 'discount' || val === 'Discount / Rebate') {
           item.item_type = 'discount';
           (item as any).classification = 'Discount / Rebate';
@@ -4713,16 +4718,46 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div>
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">LEAD TIME</MarqueeLabel>
-                        <input
-                          type="text"
-                          placeholder="e.g. 8–10 Weeks Ex-Factory"
-                          value={item.lead_time_note || ''}
-                          onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                        />
-                      </div>
+                      {(() => {
+                        const isDiscount = (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
+                        const isService = (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge' || (item.item_type as string) === 'service';
+
+                        if (isDiscount) {
+                          return <div className="opacity-0 pointer-events-none" />;
+                        }
+
+                        if (isService) {
+                          return (
+                            <div>
+                              <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                SERVICE TIMELINE / DURATION
+                              </MarqueeLabel>
+                              <input
+                                type="text"
+                                placeholder="e.g. 1–2 Days on site / Scheduled"
+                                value={item.lead_time_note || ''}
+                                onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                              />
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                              LEAD TIME
+                            </MarqueeLabel>
+                            <input
+                              type="text"
+                              placeholder="e.g. 8–10 Weeks Ex-Factory"
+                              value={item.lead_time_note || ''}
+                              onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            />
+                          </div>
+                        );
+                      })()}
 
                       <div>
                         <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">OPTION DESIGNATION</MarqueeLabel>
