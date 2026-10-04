@@ -24,7 +24,8 @@ import {
   History,
   FileText,
   CheckCircle2,
-  Truck
+  Truck,
+  Globe
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
@@ -49,6 +50,7 @@ interface ProductManagerProps {
   activeWorkspace?: Workspace;
   onOpenMobileMenu?: () => void;
   companies?: Company[];
+  triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export default function ProductManager({
@@ -61,7 +63,8 @@ export default function ProductManager({
   setUnits,
   activeWorkspace,
   onOpenMobileMenu,
-  companies
+  companies,
+  triggerToast
 }: ProductManagerProps) {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -488,8 +491,26 @@ export default function ProductManager({
     if (isSubmitting) return;
 
     if (!formName.trim()) {
-      alert('Product name is required.');
+      if (triggerToast) {
+        triggerToast('Product name is required.', 'error');
+      } else {
+        alert('Product name is required.');
+      }
       return;
+    }
+
+    if (formSku.trim()) {
+      const isDuplicate = products.some(
+        p => p.sku && p.sku.trim().toLowerCase() === formSku.trim().toLowerCase() && p.id !== editingProduct?.id
+      );
+      if (isDuplicate) {
+        if (triggerToast) {
+          triggerToast(`SKU "${formSku.trim()}" is already assigned to another catalog product.`, 'error');
+        } else {
+          alert(`SKU "${formSku.trim()}" is already assigned to another catalog product.`);
+        }
+        return;
+      }
     }
 
     if (!activeWorkspace?.id) {
@@ -501,7 +522,7 @@ export default function ProductManager({
 
     const cleanAttributes: ProductAttribute[] = formAttributes
       .map(a => ({ key: a.key.trim(), value: a.value.trim() }))
-      .filter(a => a.key !== '' || a.value !== '');
+      .filter(a => a.key !== '' && a.value !== '');
 
     const brandAttr = cleanAttributes.find(a => a.key.toLowerCase() === 'brand')?.value;
     const searchTerms = generateProductSearchTerms(formName.trim(), formProductType, formSku.trim(), brandAttr);
@@ -512,7 +533,7 @@ export default function ProductManager({
       product_type: formProductType,
       description: formDescription.trim() || formName.trim(),
       unit: formUnit,
-      unit_price: formUnitPrice !== undefined && formUnitPrice > 0 ? formUnitPrice : undefined,
+      unit_price: (typeof formUnitPrice === 'number' && !isNaN(formUnitPrice) && formUnitPrice >= 0) ? formUnitPrice : undefined,
       sku: formSku.trim() || undefined,
       attributes: cleanAttributes,
       search_terms: searchTerms,
@@ -523,8 +544,8 @@ export default function ProductManager({
       storage_location: formIsInventoried && formStorageLocation.trim() ? formStorageLocation.trim() : undefined,
       hs_code: formHsCode.trim() || undefined,
       country_of_origin: formCountryOfOrigin.trim() || undefined,
-      gross_weight_kg: formGrossWeightKg !== undefined && formGrossWeightKg > 0 ? formGrossWeightKg : undefined,
-      cost_price: formCostPrice !== undefined && formCostPrice > 0 ? formCostPrice : undefined,
+      gross_weight_kg: (typeof formGrossWeightKg === 'number' && !isNaN(formGrossWeightKg) && formGrossWeightKg >= 0) ? formGrossWeightKg : undefined,
+      cost_price: (typeof formCostPrice === 'number' && !isNaN(formCostPrice) && formCostPrice >= 0) ? formCostPrice : undefined,
     };
 
     try {
@@ -545,9 +566,19 @@ export default function ProductManager({
           setProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newId)]);
         }
       }
+      if (triggerToast) {
+        triggerToast(
+          editingProduct ? `Product "${formName.trim()}" updated successfully.` : `Product "${formName.trim()}" registered successfully.`,
+          'success'
+        );
+      }
       setShowFormModal(false);
     } catch (err: any) {
-      alert('Failed to save product: ' + err.message);
+      if (triggerToast) {
+        triggerToast('Failed to save product: ' + err.message, 'error');
+      } else {
+        alert('Failed to save product: ' + err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -556,7 +587,23 @@ export default function ProductManager({
   const handleDeleteProduct = async (p: Product) => {
     const targetId = p.id || (p as any)._id;
     if (!targetId) {
-      alert('Error: Product ID is missing. Cannot delete.');
+      if (triggerToast) {
+        triggerToast('Error: Product ID is missing. Cannot delete.', 'error');
+      } else {
+        alert('Error: Product ID is missing. Cannot delete.');
+      }
+      return;
+    }
+
+    if (p.stock_reserved && p.stock_reserved > 0) {
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Cannot Delete Product',
+        message: `"${p.name}" has ${p.stock_reserved} unit(s) reserved for active orders. Release reservations before deleting.`,
+        confirmText: 'Understood',
+        isDestructive: false,
+        onConfirm: async () => setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+      });
       return;
     }
 
@@ -584,8 +631,15 @@ export default function ProductManager({
             deleted_by_uid: user?.uid || null,
             deleted_by_name: user?.full_name || user?.username || 'Unknown'
           });
+          if (triggerToast) {
+            triggerToast(`Product "${p.name}" deleted.`, 'info');
+          }
         } catch (err: any) {
-          alert('Failed to delete product: ' + err.message);
+          if (triggerToast) {
+            triggerToast('Failed to delete product: ' + err.message, 'error');
+          } else {
+            alert('Failed to delete product: ' + err.message);
+          }
         }
       }
     });
@@ -1097,82 +1151,34 @@ export default function ProductManager({
                     </div>
                   );
                 })()}
-                <div className="space-y-2 max-h-40 overflow-y-auto border border-slate-200/60 p-3 rounded-xl bg-slate-50/50">
+                <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200/60 dark:border-slate-700/60 p-3 rounded-xl bg-slate-50/50 dark:bg-slate-800/30">
                   {formAttributes.length > 0 ? (
-                    formAttributes.map((attr, index) => {
-                      const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[formProductType] || [];
-                      const isCustom = attr.key && !suggestedKeys.includes(attr.key);
-                      const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
-
-                      return (
-                        <div key={index} className="flex items-center space-x-2">
-                          {showCustomInput ? (
-                            <div className="w-1/3 flex items-center space-x-1">
-                              <input
-                                type="text"
-                                value={attr.key === '__custom_editing__' ? '' : attr.key}
-                                placeholder="Custom Key"
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: val } : a));
-                                }}
-                                className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2.5 text-xs text-slate-800 focus:outline-none"
-                              />
-                              {suggestedKeys.length > 0 && (
-                                <button
-                                  type="button"
-                                  title="Back to suggestions"
-                                  onClick={() => {
-                                    setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: '' } : a));
-                                  }}
-                                  className="text-[10px] text-blue-500 hover:text-blue-700 font-semibold px-1"
-                                >
-                                  List
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <select
-                              value={attr.key}
-                              onChange={(e) => {
-                                freshSelectKey: {
-                                  const val = e.target.value;
-                                  if (val === '__custom__') {
-                                    setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: '__custom_editing__' } : a));
-                                  } else {
-                                    setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: val } : a));
-                                  }
-                                }
-                              }}
-                              className="w-1/3 bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs text-slate-800 focus:outline-none"
-                            >
-                              <option value="">Select Key...</option>
-                              {suggestedKeys.map((k) => (
-                                <option key={k} value={k}>{k}</option>
-                              ))}
-                              <option value="__custom__">+ Custom Key...</option>
-                            </select>
-                          )}
-                          <input
-                            type="text"
-                            value={attr.value}
-                            placeholder="Value (e.g. 1000L)"
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, value: val } : a));
-                            }}
-                            className="w-2/3 bg-white border border-slate-200 rounded-lg py-1 px-2.5 text-xs text-slate-800 focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setFormAttributes(prev => prev.filter((_, i) => i !== index))}
-                            className="p-1 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })
+                    formAttributes.map((attr, index) => (
+                      <div key={index} className="flex items-center gap-2 mb-2 w-full">
+                        <input
+                          type="text"
+                          placeholder="Spec Name (e.g. Flow Rate)"
+                          value={attr.key}
+                          onChange={(e) => setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, key: e.target.value } : a))}
+                          className="w-[40%] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Value (e.g. 5 m3/h)"
+                          value={attr.value}
+                          onChange={(e) => setFormAttributes(prev => prev.map((a, i) => i === index ? { ...a, value: e.target.value } : a))}
+                          className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormAttributes(prev => prev.filter((_, i) => i !== index))}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 transition rounded-md shrink-0 cursor-pointer"
+                          title="Remove Attribute"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
                   ) : (
                     <p className="text-center text-slate-400 text-xs py-2">No specification attributes defined.</p>
                   )}
@@ -1370,53 +1376,63 @@ export default function ProductManager({
                 )}
               </div>
 
-              {/* Optional Logistics & Customs Section */}
+              {/* Logistics & International Trade Section */}
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3 font-sans">
-                <span className="block text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
-                  Logistics & Customs (Optional)
-                </span>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
-                      HS Tariff Code
-                    </label>
-                    <input
-                      type="text"
-                      value={formHsCode}
-                      onChange={(e) => setFormHsCode(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
-                      placeholder="e.g. 8421.21.00"
-                    />
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 space-y-3">
+                  <div className="flex items-center space-x-2.5">
+                    <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                        Logistics & International Trade
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        HS tariff code, origin, and cargo weight for freight documentation.
+                      </span>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
-                      Country of Origin
-                    </label>
-                    <input
-                      type="text"
-                      value={formCountryOfOrigin}
-                      onChange={(e) => setFormCountryOfOrigin(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
-                      placeholder="e.g. United States, Germany"
-                    />
-                  </div>
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                        HS Tariff Code
+                      </label>
+                      <input
+                        type="text"
+                        value={formHsCode}
+                        onChange={(e) => setFormHsCode(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                        placeholder="e.g. 8421.21.00"
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1">
-                    Gross Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
-                    onChange={(e) => setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
-                    placeholder="e.g. 15.5"
-                  />
+                    <div>
+                      <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                        Country of Origin
+                      </label>
+                      <input
+                        type="text"
+                        value={formCountryOfOrigin}
+                        onChange={(e) => setFormCountryOfOrigin(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                        placeholder="e.g. USA, Germany"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-1 font-bold">
+                        Gross Weight (kg)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
+                        onChange={(e) => setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
+                        placeholder="e.g. 15.5"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
