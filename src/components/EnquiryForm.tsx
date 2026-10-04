@@ -1366,7 +1366,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     });
   };
 
-  const handleLineItemChange = (index: number, field: keyof LineItem, val: any) => {
+  const handleLineItemChange = (index: number, field: keyof LineItem | 'classification', val: any) => {
     const updated = [...lineItems];
     const item = { ...updated[index] };
 
@@ -1382,17 +1382,41 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       if (q > 0) {
         item.unit_price = Number((tot / q).toFixed(2));
       }
-    } else if (field === 'item_type') {
-      item.item_type = val;
-      if (val === 'charge') {
-        item.charge_type = item.charge_type || 'Transportation';
-        item.product_type = 'Service / Charge';
-      } else if (val === 'discount') {
-        item.charge_type = 'Discount';
-        item.product_type = 'Service / Charge';
+    } else if (field === 'item_type' || (field as string) === 'classification') {
+      const isServiceChange =
+        val === 'charge' ||
+        val === 'discount' ||
+        val === 'service' ||
+        val === 'fee' ||
+        val === 'Charge / Fee (Service)' ||
+        val === 'Discount / Rebate';
+
+      if (isServiceChange) {
+        // Automatically clear any warehouse link
+        item.product_id = undefined;
+        (item as any).product_sku = undefined;
+        item.item_name = item.item_name || item.description;
+        item.lead_time_note = '';
+        item.attributes = [];
+
+        if (val === 'discount' || val === 'Discount / Rebate') {
+          item.item_type = 'discount';
+          (item as any).classification = 'Discount / Rebate';
+          item.charge_type = 'Discount';
+          item.product_type = 'Service / Charge';
+        } else {
+          item.item_type = 'charge';
+          (item as any).classification = 'Charge / Fee (Service)';
+          item.charge_type = item.charge_type || 'Transportation';
+          item.product_type = 'Service / Charge';
+        }
       } else {
+        item.item_type = 'product';
+        (item as any).classification = 'Product (Hardware / Component)';
         item.charge_type = undefined;
-        item.product_type = 'RO Membranes';
+        if (item.product_type === 'Service / Charge') {
+          item.product_type = 'Other';
+        }
       }
     } else if (field === 'charge_type') {
       item.charge_type = val;
@@ -2603,12 +2627,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setIsSubmitting(true);
 
     const cleanLineItems = lineItems.map((item) => {
-      const cleanAttr: ProductAttribute[] = (item.attributes || [])
-        .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
-        .filter((a) => a.key !== '' && a.value !== '');
+      const isServiceOrFee =
+        (item as any).classification === 'Charge / Fee (Service)' ||
+        (item as any).classification === 'Discount / Rebate' ||
+        item.item_type === 'charge' ||
+        item.item_type === 'discount' ||
+        (item.item_type as string) === 'service' ||
+        (item.item_type as string) === 'fee' ||
+        item.product_type === 'Service / Charge';
+
+      const cleanAttr: ProductAttribute[] = isServiceOrFee
+        ? []
+        : (item.attributes || [])
+            .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
+            .filter((a) => a.key !== '' && a.value !== '');
       const optDes = ((item as any).option_designation || item.option || 'Default / Included').trim();
       return {
         ...item,
+        product_id: isServiceOrFee ? undefined : item.product_id,
+        lead_time_note: isServiceOrFee ? '' : (item.lead_time_note || ''),
         option: optDes,
         option_designation: optDes,
         attributes: cleanAttr,
@@ -4446,7 +4483,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   ))}
                 </datalist>
                 
-                {lineItems.map((item, index) => (
+                {lineItems.map((item, index) => {
+                  const isServiceOrFee =
+                    (item as any).classification === 'Charge / Fee (Service)' ||
+                    (item as any).classification === 'Discount / Rebate' ||
+                    item.item_type === 'charge' ||
+                    item.item_type === 'discount' ||
+                    (item.item_type as string) === 'service' ||
+                    (item.item_type as string) === 'fee' ||
+                    item.product_type === 'Service / Charge';
+
+                  return (
                   <div key={index} className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 shadow-2xs">
                     {/* Card Header Bar */}
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 flex-wrap gap-2">
@@ -4458,6 +4505,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           Item Line #{index + 1}
                         </span>
                         {(() => {
+                          if (isServiceOrFee) {
+                            return (
+                              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                <span>⚡ Non-Stock Service / Fee</span>
+                              </span>
+                            );
+                          }
+
                           const matchedProduct = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
                           if (matchedProduct) {
                             return (
@@ -4506,7 +4561,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <button
                         type="button"
                         onClick={() => handleRemoveLineItem(index)}
-                        className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:hover:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-sans font-medium cursor-pointer"
+                        className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-sans font-medium cursor-pointer"
                         title="Remove Line Item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -4521,7 +4576,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           Classification
                         </label>
                         <select
-                          value={item.item_type || 'product'}
+                          value={
+                            (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
+                              ? 'charge'
+                              : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
+                              ? 'discount'
+                              : 'product'
+                          }
                           onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
@@ -4682,127 +4743,129 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     {/* Specification Attributes section */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">
-                          Specification Attributes
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...lineItems];
-                            const attrList = [...(updated[index].attributes || [])];
-                            attrList.push({ key: '', value: '' });
-                            updated[index] = { ...updated[index], attributes: attrList };
-                            setLineItems(updated);
-                          }}
-                          className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Add Attribute</span>
-                        </button>
-                      </div>
+                    {!isServiceOrFee && (
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">
+                            Specification Attributes
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = [...lineItems];
+                              const attrList = [...(updated[index].attributes || [])];
+                              attrList.push({ key: '', value: '' });
+                              updated[index] = { ...updated[index], attributes: attrList };
+                              setLineItems(updated);
+                            }}
+                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add Attribute</span>
+                          </button>
+                        </div>
 
-                      {(item.attributes && item.attributes.length > 0) ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                          {item.attributes.map((attr, attrIdx) => {
-                            const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
-                            const isCustom = attr.key && !suggestedKeys.includes(attr.key);
-                            const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
+                        {(item.attributes && item.attributes.length > 0) ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                            {item.attributes.map((attr, attrIdx) => {
+                              const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
+                              const isCustom = attr.key && !suggestedKeys.includes(attr.key);
+                              const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
 
-                            return (
-                              <div key={attrIdx} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
-                                {showCustomInput ? (
-                                  <div className="min-w-[120px] max-w-[160px] flex-shrink-0 flex items-center space-x-1 bg-transparent">
-                                    <input
-                                      type="text"
-                                      value={attr.key === '__custom_editing__' ? '' : attr.key}
-                                      placeholder="Key"
-                                      onChange={(e) => {
-                                        const updated = [...lineItems];
-                                        const attrList = [...(updated[index].attributes || [])];
-                                        attrList[attrIdx] = { ...attrList[attrIdx], key: e.target.value };
-                                        updated[index] = { ...updated[index], attributes: attrList };
-                                        setLineItems(updated);
-                                      }}
-                                      className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
-                                    />
-                                    {suggestedKeys.length > 0 && (
-                                      <button
-                                        type="button"
-                                        title="Back to suggestions"
-                                        onClick={() => {
+                              return (
+                                <div key={attrIdx} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
+                                  {showCustomInput ? (
+                                    <div className="min-w-[120px] max-w-[160px] flex-shrink-0 flex items-center space-x-1 bg-transparent">
+                                      <input
+                                        type="text"
+                                        value={attr.key === '__custom_editing__' ? '' : attr.key}
+                                        placeholder="Key"
+                                        onChange={(e) => {
                                           const updated = [...lineItems];
                                           const attrList = [...(updated[index].attributes || [])];
-                                          attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
+                                          attrList[attrIdx] = { ...attrList[attrIdx], key: e.target.value };
                                           updated[index] = { ...updated[index], attributes: attrList };
                                           setLineItems(updated);
                                         }}
-                                        className="text-[9px] text-blue-500 hover:text-blue-700 font-bold px-0.5 shrink-0 cursor-pointer"
-                                      >
-                                        List
-                                      </button>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <select
-                                    value={attr.key}
-                                    title={attr.key || 'Select Attribute Key'}
+                                        className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
+                                      />
+                                      {suggestedKeys.length > 0 && (
+                                        <button
+                                          type="button"
+                                          title="Back to suggestions"
+                                          onClick={() => {
+                                            const updated = [...lineItems];
+                                            const attrList = [...(updated[index].attributes || [])];
+                                            attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
+                                            updated[index] = { ...updated[index], attributes: attrList };
+                                            setLineItems(updated);
+                                          }}
+                                          className="text-[9px] text-blue-500 hover:text-blue-700 font-bold px-0.5 shrink-0 cursor-pointer"
+                                        >
+                                          List
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <select
+                                      value={attr.key}
+                                      title={attr.key || 'Select Attribute Key'}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updated = [...lineItems];
+                                        const attrList = [...(updated[index].attributes || [])];
+                                        if (val === '__custom__') {
+                                          attrList[attrIdx] = { ...attrList[attrIdx], key: '__custom_editing__' };
+                                        } else {
+                                          attrList[attrIdx] = { ...attrList[attrIdx], key: val };
+                                        }
+                                        updated[index] = { ...updated[index], attributes: attrList };
+                                        setLineItems(updated);
+                                      }}
+                                      className="min-w-[120px] max-w-[160px] flex-shrink-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold cursor-pointer focus:outline-none truncate"
+                                    >
+                                      <option value="">Select...</option>
+                                      {suggestedKeys.map((k) => (
+                                        <option key={k} value={k}>{k}</option>
+                                      ))}
+                                      <option value="__custom__">+ Custom...</option>
+                                    </select>
+                                  )}
+                                  <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">:</span>
+                                  <input
+                                    type="text"
+                                    value={attr.value}
+                                    placeholder="Value (e.g. 10m3)"
                                     onChange={(e) => {
-                                      const val = e.target.value;
                                       const updated = [...lineItems];
                                       const attrList = [...(updated[index].attributes || [])];
-                                      if (val === '__custom__') {
-                                        attrList[attrIdx] = { ...attrList[attrIdx], key: '__custom_editing__' };
-                                      } else {
-                                        attrList[attrIdx] = { ...attrList[attrIdx], key: val };
-                                      }
+                                      attrList[attrIdx] = { ...attrList[attrIdx], value: e.target.value };
                                       updated[index] = { ...updated[index], attributes: attrList };
                                       setLineItems(updated);
                                     }}
-                                    className="min-w-[120px] max-w-[160px] flex-shrink-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold cursor-pointer focus:outline-none truncate"
+                                    className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...lineItems];
+                                      const attrList = (updated[index].attributes || []).filter((_, i) => i !== attrIdx);
+                                      updated[index] = { ...updated[index], attributes: attrList };
+                                      setLineItems(updated);
+                                    }}
+                                    className="p-0.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition shrink-0 cursor-pointer"
                                   >
-                                    <option value="">Select...</option>
-                                    {suggestedKeys.map((k) => (
-                                      <option key={k} value={k}>{k}</option>
-                                    ))}
-                                    <option value="__custom__">+ Custom...</option>
-                                  </select>
-                                )}
-                                <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">:</span>
-                                <input
-                                  type="text"
-                                  value={attr.value}
-                                  placeholder="Value (e.g. 10m3)"
-                                  onChange={(e) => {
-                                    const updated = [...lineItems];
-                                    const attrList = [...(updated[index].attributes || [])];
-                                    attrList[attrIdx] = { ...attrList[attrIdx], value: e.target.value };
-                                    updated[index] = { ...updated[index], attributes: attrList };
-                                    setLineItems(updated);
-                                  }}
-                                  className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = [...lineItems];
-                                    const attrList = (updated[index].attributes || []).filter((_, i) => i !== attrIdx);
-                                    updated[index] = { ...updated[index], attributes: attrList };
-                                    setLineItems(updated);
-                                  }}
-                                  className="p-0.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition shrink-0 cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
-                      )}
-                    </div>
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
+                        )}
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-end text-right text-xs font-mono text-slate-400 dark:text-slate-500 space-x-1.5 flex-wrap gap-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
                       <span className="shrink-0 text-slate-600 dark:text-slate-400 font-bold">Line Total ({formCurrency}):</span>
@@ -4818,7 +4881,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       )}
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             ) : (
               <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 overflow-hidden">
