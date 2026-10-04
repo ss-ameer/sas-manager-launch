@@ -29,7 +29,8 @@ import {
   Info,
   Circle,
   PlayCircle,
-  Flag
+  Flag,
+  Download
 } from 'lucide-react';
 
 interface ProjectRegistryProps {
@@ -401,6 +402,59 @@ export default function ProjectRegistry({
     }
   };
 
+  const handleExportCsv = () => {
+    if (!filteredProjects || filteredProjects.length === 0) {
+      if (triggerToast) {
+        triggerToast('No projects to export.', 'info');
+      } else {
+        alert('No projects to export.');
+      }
+      return;
+    }
+
+    const headers = [
+      'Project Ref',
+      'Client',
+      'Project Title',
+      'Type',
+      'Value (AED)',
+      'Fulfillment Status',
+      'Created Date'
+    ];
+
+    const escapeCsv = (val: any) => {
+      if (val === undefined || val === null) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = filteredProjects.map((p) => [
+      escapeCsv(p.project_number),
+      escapeCsv(p.client_name),
+      escapeCsv(p.title),
+      escapeCsv(p.project_type),
+      escapeCsv(Number(p.contract_value || 0).toFixed(2)),
+      escapeCsv(p.status),
+      escapeCsv(p.created_at ? new Date(p.created_at).toLocaleDateString() : '')
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.href = url;
+    link.setAttribute('download', `projects-registry-${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (triggerToast) {
+      triggerToast(`Exported ${filteredProjects.length} project(s) to CSV.`, 'success');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -410,6 +464,14 @@ export default function ProjectRegistry({
         badge={{ text: `${workspaceProjects.length} Projects`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
+        secondaryActions={[
+          {
+            label: 'Export Projects CSV',
+            icon: Download,
+            onClick: handleExportCsv,
+            variant: 'outline'
+          }
+        ]}
       />
 
       <PageBody maxWidth="max-w-7xl">
@@ -486,6 +548,12 @@ export default function ProjectRegistry({
 
         {/* Unified Search, Filters & Projects Directory Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl md:rounded-3xl p-6 shadow-xs space-y-6">
+          {/* Section Tag */}
+          <div className="flex items-center space-x-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">
+            <Filter className="w-3.5 h-3.5" />
+            <span>Operational Search & Filters</span>
+          </div>
+
           {/* Search Bar & Status Filter Pills */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="relative flex-1 max-w-md">
@@ -633,6 +701,16 @@ export default function ProjectRegistry({
                 </tbody>
               </table>
             )}
+          </div>
+
+          {/* Standardized Card Footer & Item Counter */}
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-sans">
+            <div>
+              Showing <span className="font-bold text-slate-800 dark:text-slate-200">{filteredProjects.length}</span> of <span className="font-bold text-slate-800 dark:text-slate-200">{workspaceProjects.length}</span> projects
+            </div>
+            <div className="text-[11px] font-mono text-slate-400">
+              Active Workspace Registry
+            </div>
           </div>
         </div>
       </PageBody>
