@@ -29,6 +29,15 @@ import {
 import SearchResultCounter from './common/SearchResultCounter';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 
+const DEFAULT_QUICK_ATTRIBUTES = [
+  'Flow Rate',
+  'Operating Pressure',
+  'Connection Size',
+  'Material (MOC)',
+  'Power Supply',
+  'Capacity / Volume'
+];
+
 interface ProductManagerProps {
   products: Product[];
   productCategories?: string[];
@@ -1059,6 +1068,35 @@ export default function ProductManager({
                     <span>Add Custom</span>
                   </button>
                 </div>
+                {(() => {
+                  const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[formProductType];
+                  const currentPresets = categoryPresets && categoryPresets.length > 0
+                    ? categoryPresets
+                    : DEFAULT_QUICK_ATTRIBUTES;
+                  const existingKeys = new Set(formAttributes.map(a => a.key.trim().toLowerCase()));
+                  const availablePresets = currentPresets.filter(p => !existingKeys.has(p.toLowerCase()));
+
+                  if (availablePresets.length === 0) return null;
+
+                  return (
+                    <div className="mb-2.5 flex items-center flex-wrap gap-1.5">
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase mr-0.5">
+                        Quick Add:
+                      </span>
+                      {availablePresets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setFormAttributes(prev => [...prev, { key: preset, value: '' }])}
+                          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 text-slate-600 hover:text-emerald-700 dark:text-slate-300 dark:hover:text-emerald-300 border border-slate-200/80 hover:border-emerald-300 dark:border-slate-700 dark:hover:border-emerald-700 transition cursor-pointer"
+                        >
+                          <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                          <span>{preset}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div className="space-y-2 max-h-40 overflow-y-auto border border-slate-200/60 p-3 rounded-xl bg-slate-50/50">
                   {formAttributes.length > 0 ? (
                     formAttributes.map((attr, index) => {

@@ -62,6 +62,15 @@ import {
 
 // Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
 
+const DEFAULT_QUICK_ATTRIBUTES = [
+  'Flow Rate',
+  'Operating Pressure',
+  'Connection Size',
+  'Material (MOC)',
+  'Power Supply',
+  'Capacity / Volume'
+];
+
 const FormattedNumberInput = ({ value, onChange, className, ...props }: any) => {
   const [displayValue, setDisplayValue] = React.useState('');
 
@@ -4764,6 +4773,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             <span>Add Attribute</span>
                           </button>
                         </div>
+
+                        {(() => {
+                          const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
+                          const currentPresets = categoryPresets && categoryPresets.length > 0
+                            ? categoryPresets
+                            : DEFAULT_QUICK_ATTRIBUTES;
+                          const existingKeys = new Set((item.attributes || []).map(a => a.key.trim().toLowerCase()));
+                          const availablePresets = currentPresets.filter(p => !existingKeys.has(p.toLowerCase()));
+
+                          if (availablePresets.length === 0) return null;
+
+                          return (
+                            <div className="mb-2.5 flex items-center flex-wrap gap-1.5">
+                              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase mr-0.5">
+                                Quick Add:
+                              </span>
+                              {availablePresets.map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...lineItems];
+                                    const attrList = [...(updated[index].attributes || [])];
+                                    attrList.push({ key: preset, value: '' });
+                                    updated[index] = { ...updated[index], attributes: attrList };
+                                    setLineItems(updated);
+                                  }}
+                                  className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 text-slate-600 hover:text-emerald-700 dark:text-slate-300 dark:hover:text-emerald-300 border border-slate-200/80 hover:border-emerald-300 dark:border-slate-700 dark:hover:border-emerald-700 transition cursor-pointer"
+                                >
+                                  <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                                  <span>{preset}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
 
                         {(item.attributes && item.attributes.length > 0) ? (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
