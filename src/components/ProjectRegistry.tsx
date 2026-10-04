@@ -270,10 +270,19 @@ export default function ProjectRegistry({
       return updated;
     });
 
+    const allCompleted =
+      updatedMilestones.length > 0 && updatedMilestones.every((m) => m.status === 'Completed');
+    const shouldMarkCompleted =
+      allCompleted &&
+      selectedProject.status !== 'Completed' &&
+      selectedProject.status !== 'Delivered';
+
+    const nowIso = new Date().toISOString();
     const updatedProj: Project = {
       ...selectedProject,
       milestones: updatedMilestones,
-      updated_at: new Date().toISOString()
+      status: shouldMarkCompleted ? 'Completed' : selectedProject.status,
+      updated_at: nowIso
     };
 
     setSelectedProject(updatedProj);
@@ -283,10 +292,19 @@ export default function ProjectRegistry({
     setMilestoneWarning(null);
 
     if (selectedProject.id) {
-      await safeUpdateDoc('projects', selectedProject.id, {
+      const updateData: Partial<Project> = {
         milestones: updatedMilestones,
-        updated_at: new Date().toISOString()
-      }).catch((err) => console.error('Failed to save milestone:', err));
+        updated_at: nowIso
+      };
+      if (shouldMarkCompleted) {
+        updateData.status = 'Completed';
+      }
+      await safeUpdateDoc('projects', selectedProject.id, updateData).catch((err) =>
+        console.error('Failed to save milestone:', err)
+      );
+      if (shouldMarkCompleted && triggerToast) {
+        triggerToast('All operational milestones completed! Project marked as Completed.', 'success');
+      }
     }
   };
 
@@ -307,8 +325,24 @@ export default function ProjectRegistry({
       nextStatus = 'Pending';
     }
 
-    // When advancing toward 'In Progress' or 'Completed', check if any preceding milestone is Pending
-    if (nextStatus === 'In Progress' || nextStatus === 'Completed') {
+    // Sequence Check:
+    // If nextStatus === 'Completed': ensure all preceding milestones are Completed
+    // If nextStatus === 'In Progress': ensure preceding milestones are not Pending
+    if (nextStatus === 'Completed') {
+      const precedingIncomplete = selectedProject.milestones
+        .slice(0, currentIndex)
+        .find((m) => m.status !== 'Completed');
+
+      if (precedingIncomplete) {
+        setMilestoneWarning({
+          milestoneId,
+          targetStatus: nextStatus,
+          targetTitle: current.title,
+          precedingTitle: precedingIncomplete.title
+        });
+        return;
+      }
+    } else if (nextStatus === 'In Progress') {
       const precedingPending = selectedProject.milestones
         .slice(0, currentIndex)
         .find((m) => m.status === 'Pending');
