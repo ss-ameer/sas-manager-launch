@@ -174,22 +174,57 @@ export default function EnquiryDetail({
           );
         }
       }
-      // 2. Transition AWAY from Won TO Lost/Cancelled
-      else if (isLostOrCancelledStatus(newStatus) && isWonStatus(oldStatus)) {
-        if (isStockReserved) {
+      // 2. Transition into Lost or Cancelled
+      else if (isLostOrCancelledStatus(newStatus)) {
+        let linkedProjectCancelled = false;
+        const linkedProjId = currentEnquiry.project_id || linkedProject?.id;
+        if (linkedProjId) {
+          try {
+            await safeUpdateDoc('projects', linkedProjId, {
+              status: 'Cancelled',
+              cancellation_reason: `Cancelled via Proposal #${currentEnquiry.sn || ''} transition to ${newStatus}`,
+              updated_at: nowIso
+            });
+            linkedProjectCancelled = true;
+            if (linkedProject) {
+              setLinkedProject((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      status: 'Cancelled',
+                      cancellation_reason: `Cancelled via Proposal #${currentEnquiry.sn || ''} transition to ${newStatus}`,
+                      updated_at: nowIso
+                    }
+                  : null
+              );
+            }
+          } catch (projErr) {
+            console.error('Failed to cancel linked project:', projErr);
+          }
+        }
+
+        if (isStockReserved || linkedProjectCancelled) {
           const rel = await releaseEnquiryStock(currentEnquiry, user);
           isStockReserved = false;
           stockReservedAt = null;
           if (triggerToast) {
-            triggerToast(
-              rel.releasedCount > 0
-                ? `Status updated to "${newStatus}". Released reserved stock for ${rel.releasedCount} line item(s).`
-                : `Status updated to "${newStatus}".`,
-              'info'
-            );
+            if (linkedProjectCancelled) {
+              triggerToast('Linked project and reserved inventory have been cancelled and released.', 'info');
+            } else if (rel.releasedCount > 0) {
+              triggerToast(
+                `Status updated to "${newStatus}". Released reserved stock for ${rel.releasedCount} line item(s).`,
+                'info'
+              );
+            } else {
+              triggerToast(`Status updated to "${newStatus}".`, 'info');
+            }
           }
         } else if (triggerToast) {
-          triggerToast(`Status updated to "${newStatus}".`, 'info');
+          if (linkedProjectCancelled) {
+            triggerToast('Linked project has been cancelled.', 'info');
+          } else {
+            triggerToast(`Status updated to "${newStatus}".`, 'info');
+          }
         }
       } else {
         if (triggerToast) {
@@ -1063,12 +1098,35 @@ export default function EnquiryDetail({
               {canDeleteEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const targetId = enquiry.id || (enquiry as any)._id;
                     if (!targetId) {
                       alert('Error: Enquiry ID is missing. Cannot delete.');
                       return;
                     }
+
+                    // Active Project Deletion Guard
+                    const linkedProjId = enquiry.project_id || linkedProject?.id;
+                    if (linkedProjId) {
+                      let activeProj = linkedProject;
+                      if (!activeProj && enquiry.id) {
+                        try {
+                          activeProj = await getProjectForEnquiry(enquiry.id);
+                        } catch (e) {
+                          console.warn('Failed to fetch project for deletion guard:', e);
+                        }
+                      }
+                      if (activeProj && activeProj.status !== 'Cancelled') {
+                        const guardMsg = "Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.";
+                        if (triggerToast) {
+                          triggerToast(guardMsg, 'error');
+                        } else {
+                          alert(guardMsg);
+                        }
+                        return;
+                      }
+                    }
+
                     setConfirmDialog({
                       isOpen: true,
                       title: 'Delete Enquiry',

@@ -41,6 +41,7 @@ import { CompanyRepository } from './services/repositories/CompanyRepository';
 import { CallLogRepository } from './services/repositories/CallLogRepository';
 import { MetadataRepository } from './services/repositories/MetadataRepository';
 import { WorkspaceRepository } from './services/repositories/WorkspaceRepository';
+import { releaseEnquiryStock } from './services/inventoryService';
 import { ShieldCheck, HelpCircle, CheckCircle2, AlertCircle, Info, X, User, Clock, Menu } from 'lucide-react';
 import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1510,6 +1511,15 @@ export default function App() {
     console.log(`[handleDeleteEnquiry] Deleting enquiry ID ${cleanId} (#${enqToDelete?.sn || 'unknown'})`);
 
     try {
+      // Auto-release any active warehouse stock reservations before soft-deleting
+      if (enqToDelete && (enqToDelete.stock_reserved || (enqToDelete.line_items && enqToDelete.line_items.some(it => it.product_id)))) {
+        try {
+          await releaseEnquiryStock(enqToDelete, user);
+        } catch (stockErr) {
+          console.warn('[handleDeleteEnquiry] Failed auto-releasing stock reservations on deletion:', stockErr);
+        }
+      }
+
       // 1. Immediately update local state and local cache for instant UI feedback
       setEnquiries((prev) => {
         const next = prev.map((e) => e.id === cleanId ? {
