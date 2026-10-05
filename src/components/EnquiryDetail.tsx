@@ -364,7 +364,11 @@ export default function EnquiryDetail({
         }
       }
 
-      const newProject = await createProjectFromEnquiry(currentEnquiry, user, conversionOptions);
+      const newProject = await createProjectFromEnquiry(
+        { ...currentEnquiry, stock_reserved: isStockReserved },
+        user,
+        conversionOptions
+      );
       setLinkedProject(newProject);
 
       const updatedEnquiry: Enquiry = {

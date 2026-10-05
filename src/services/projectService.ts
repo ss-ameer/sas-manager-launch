@@ -134,10 +134,13 @@ export async function createProjectFromEnquiry(
     }).catch(() => {});
   }
 
-  // Ensure stock is reserved for inventoried line items if not already tagged
-  if (!enquiry.stock_reserved && enquiry.line_items && enquiry.line_items.some((it) => it.product_id)) {
+  // Ensure stock is reserved for inventoried line items if not already tagged (idempotent guard)
+  if (enquiry.stock_reserved !== true && !enquiry.stock_reserved && enquiry.line_items && enquiry.line_items.some((it) => it.product_id)) {
     try {
-      await reserveEnquiryStock(enquiry, user);
+      const res = await reserveEnquiryStock(enquiry, user);
+      if (res && res.reservedCount > 0) {
+        enquiry.stock_reserved = true;
+      }
     } catch (resErr) {
       console.warn('Failed auto-reserving stock during createProjectFromEnquiry:', resErr);
     }
