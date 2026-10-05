@@ -40,6 +40,7 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
   const [subject, setSubject] = useState<string>('');
   const [previewRef, setPreviewRef] = useState<string>('');
   const [previewSn, setPreviewSn] = useState<number | null>(null);
+  const [previewSeq, setPreviewSeq] = useState<number | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState<boolean>(false);
   const [isClaiming, setIsClaiming] = useState<boolean>(false);
 
@@ -94,34 +95,36 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         const now = new Date();
         const periodKey = getSequencePeriodKey(counters.resetCadence, now);
 
+        const activePattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || counters.pattern || '{SEQ}-{DD}{MM}{YY}';
         // Calculate dynamic active ceilings from registered proposals
         const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
           candidateEnquiries || [],
           activeWorkspace.id,
-          counters.pattern
+          activePattern
         );
 
         // S/N: Respect baseline overrides if higher than maxSn, but clamp down phantom counters to maxSn + 1
         const baselineSn = (activeWorkspace as any)?.settings?.next_sn_baseline || 0;
-        const counterSn = counters.lastSnNumber || 0;
-        const effectiveLastSn = maxSn > 0 ? (counterSn > maxSn ? maxSn : counterSn) : counterSn;
-        const displayNextSn = Math.max(baselineSn, maxSn > 0 ? maxSn + 1 : effectiveLastSn + 1);
+        const displayNextSn = Math.max(baselineSn, maxSn + 1);
 
         // Sequence: Respect baseline overrides if higher than maxSeq, but clamp down phantom counters to maxSeq + 1
         const baselineSeq = (activeWorkspace as any)?.settings?.next_seq_baseline || 0;
-        const counterSeq = counters.sequences?.[periodKey] || 0;
-        const effectiveLastSeq = maxSeq > 0 ? (counterSeq > maxSeq ? maxSeq : counterSeq) : counterSeq;
-        const displayNextSeq = Math.max(baselineSeq, maxSeq > 0 ? maxSeq + 1 : effectiveLastSeq + 1);
+        const displayNextSeq = Math.max(baselineSeq, maxSeq + 1);
 
-        const liveQuoteRef = formatPattern(counters.pattern, {
+        const prefix = (activeWorkspace as any)?.settings?.quote_prefix !== undefined
+          ? (activeWorkspace as any).settings.quote_prefix
+          : (counters.prefix || '');
+
+        const liveQuoteRef = formatPattern(activePattern, {
           seq: displayNextSeq,
-          prefix: counters.prefix,
+          prefix: prefix,
           date: now,
           rep: repInitials
         });
 
         setPreviewRef(liveQuoteRef);
         setPreviewSn(displayNextSn);
+        setPreviewSeq(displayNextSeq);
         setIsLoadingPreview(false);
       })
       .catch((err) => {
@@ -132,6 +135,7 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
             if (isMounted) {
               setPreviewRef(res.quoteRef);
               setPreviewSn(res.sn);
+              setPreviewSeq(res.sequence || null);
               setIsLoadingPreview(false);
             }
           })
@@ -166,13 +170,34 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       return;
     }
 
+    let candidateEnquiries = enquiries;
+    if (!candidateEnquiries || candidateEnquiries.length === 0) {
+      try {
+        const saved = localStorage.getItem('omni_enquiries');
+        if (saved) {
+          candidateEnquiries = JSON.parse(saved);
+        }
+      } catch (e) {
+        // ignore cache read failure
+      }
+    }
+
     setIsClaiming(true);
     try {
-      // 1. Atomically claim sequential quote reference and S/N
+      // 1. Atomically claim sequential quote reference and S/N locked to preview
       const claimed = await claimNextEnquirySequence(
         activeWorkspace.id,
         repInitials,
-        user?.uid || user?.id || 'system'
+        user?.uid || user?.id || 'system',
+        new Date(),
+        {
+          targetSn: previewSn || undefined,
+          targetSeq: previewSeq || undefined,
+          companyAccount: (companyName || '').trim(),
+          salesPerson: selectedRep,
+          assignedSalesperson: selectedRep,
+          enquiries: candidateEnquiries
+        }
       );
 
       // Find company ID if existing match safely by display_name, canonical_name, or legacy name

@@ -249,8 +249,8 @@ export default function SettingsHub({
     setCurrentPeriodKey(getSequencePeriodKey(seqResetCadence, new Date()));
   }, [seqResetCadence]);
 
-  // One-click sync baseline counters to the active registry ceiling
-  const handleSyncBaselinesToRegistry = () => {
+  // One-click sync baseline counters to the active registry ceiling with instant persistence
+  const handleSyncBaselinesToRegistry = async () => {
     if (!activeWorkspace?.id) return;
     const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
       enquiries || [],
@@ -261,8 +261,35 @@ export default function SettingsHub({
     const nextSeq = maxSeq + 1;
     setSeqNextSnBaseline(String(nextSn));
     setSeqNextSeqBaseline(String(nextSeq));
-    if (triggerToast) {
-      triggerToast(`Baselines synced to registry: S/N #${nextSn}, Seq #${nextSeq}`, 'info');
+
+    try {
+      const countersRef = doc(db, 'workspaces', activeWorkspace.id, 'system', 'counters');
+      const periodKey = getSequencePeriodKey(seqResetCadence, new Date());
+      await setDoc(countersRef, {
+        lastSnNumber: Math.max(0, nextSn - 1),
+        sequences: {
+          [periodKey]: Math.max(0, nextSeq - 1)
+        },
+        updatedAt: new Date().toISOString(),
+        updatedBy: user?.uid || 'system'
+      }, { merge: true });
+
+      await safeUpdateDoc('workspaces', activeWorkspace.id, {
+        'settings.next_sn_baseline': nextSn,
+        'settings.next_seq_baseline': nextSeq,
+        'settings.nextSnBaseline': nextSn,
+        'settings.nextSeqBaseline': nextSeq,
+        updatedAt: new Date().toISOString()
+      });
+
+      if (triggerToast) {
+        triggerToast(`Baselines synced to registry: S/N #${nextSn}, Seq #${nextSeq}`, 'info');
+      }
+    } catch (err: any) {
+      console.warn('Could not auto-persist synced baselines:', err);
+      if (triggerToast) {
+        triggerToast(`Baselines synced to registry: S/N #${nextSn}, Seq #${nextSeq}`, 'info');
+      }
     }
   };
 
@@ -284,6 +311,18 @@ export default function SettingsHub({
         },
         user?.uid || user?.email || 'admin'
       );
+
+      // Also persist to workspace document settings
+      await safeUpdateDoc('workspaces', activeWorkspace.id, {
+        'settings.quote_prefix': seqPrefix.trim(),
+        'settings.quote_sequence_pattern': seqPattern.trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+        'settings.quote_reset_cadence': seqResetCadence,
+        'settings.next_sn_baseline': !isNaN(parsedSnBaseline) ? parsedSnBaseline : 1,
+        'settings.next_seq_baseline': !isNaN(parsedSeqBaseline) ? parsedSeqBaseline : 1,
+        'settings.nextSnBaseline': !isNaN(parsedSnBaseline) ? parsedSnBaseline : 1,
+        'settings.nextSeqBaseline': !isNaN(parsedSeqBaseline) ? parsedSeqBaseline : 1,
+        updatedAt: new Date().toISOString()
+      });
 
       // Direct write to workspaces/{workspaceId}/system/counters to guarantee instant sync
       try {

@@ -228,51 +228,84 @@ export function parseSequenceFromQuoteRef(quoteRef: string, pattern?: string): n
   if (!quoteRef || typeof quoteRef !== 'string') return null;
   const trimmed = quoteRef.trim();
 
-  // 1. If pattern is provided and contains {SEQ}
+  // 1. Pattern-Guided Regex Extraction
+  // If pattern is provided and contains {SEQ}
   if (pattern && pattern.includes('{SEQ}')) {
     try {
+      // Escape regex special characters in the pattern except the curly brace tokens
       let regexStr = pattern
         .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         .replace(/\\\{SEQ\\\}/g, '(\\d+)')
         .replace(/\\\{PREFIX\\\}/g, '[A-Za-z0-9_-]*')
+        .replace(/\\\{REP\\\}/g, '[A-Za-z0-9_-]*')
         .replace(/\\\{DD\\\}/g, '\\d{1,2}')
         .replace(/\\\{MM\\\}/g, '\\d{1,2}')
-        .replace(/\\\{YYYY\\\}/g, '\\d{4}')
         .replace(/\\\{YY\\\}/g, '\\d{2}')
-        .replace(/\\\{REP\\\}/g, '[A-Za-z0-9_-]*');
+        .replace(/\\\{YYYY\\\}/g, '\\d{4}');
 
       const regex = new RegExp(`^${regexStr}$`, 'i');
       const match = trimmed.match(regex);
       if (match && match[1]) {
         const parsed = parseInt(match[1], 10);
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+        // Exclude legacy date contamination (> 100000)
+        if (!isNaN(parsed) && parsed > 0 && parsed <= 100000) {
+          return parsed;
+        }
       }
     } catch {
-      // ignore regex error and fall through
+      // ignore regex error and fall through to universal safeguard
     }
   }
 
-  // 2. Tokenized heuristic split by standard delimiters (/, -, _, .)
+  // 2. Universal Safeguard / Fallback:
+  // If pattern match fails or no pattern is provided:
+  // Split by standard delimiters: [/\\-_.]
   const parts = trimmed.split(/[/\\-_.]/).filter(Boolean);
   if (parts.length > 0) {
-    // Check backwards: find integer not resembling a 4-digit calendar year
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const part = parts[i];
+    const candidates: number[] = [];
+    for (const part of parts) {
       if (/^\d+$/.test(part)) {
+        // Exclude 6-digit dates (e.g. 310826, 051026) and 8-digit dates (e.g. 20261005)
+        if (part.length === 6 || part.length === 8) {
+          continue;
+        }
         const num = parseInt(part, 10);
-        if (num > 0 && !(num >= 2020 && num <= 2099)) {
-          return num;
+        // Exclude 4-digit calendar years (2020-2099)
+        if (num >= 2020 && num <= 2099 && part.length === 4) {
+          continue;
+        }
+        // Exclude invalid date contamination > 100000
+        if (num > 100000) {
+          continue;
+        }
+        if (num > 0) {
+          candidates.push(num);
         }
       }
     }
+
+    if (candidates.length > 0) {
+      if (candidates.length === 1) {
+        return candidates[0];
+      }
+      // If the string starts with digits (e.g. 2801-310826), prefer the first candidate
+      if (/^\d+/.test(trimmed)) {
+        return candidates[0];
+      }
+      // Otherwise (e.g. ANRW/10/2026/044), prefer the last candidate
+      return candidates[candidates.length - 1];
+    }
   }
 
-  // 3. Fallback: match trailing digits
+  // 3. Fallback: match trailing digits with safeguards
   const trailing = trimmed.match(/(\d+)$/);
   if (trailing) {
-    const num = parseInt(trailing[1], 10);
-    if (!isNaN(num) && num > 0 && !(num >= 2020 && num <= 2099)) {
-      return num;
+    const part = trailing[1];
+    if (part.length !== 6 && part.length !== 8) {
+      const num = parseInt(part, 10);
+      if (!isNaN(num) && num > 0 && !(num >= 2020 && num <= 2099 && part.length === 4) && num <= 100000) {
+        return num;
+      }
     }
   }
 
@@ -302,7 +335,11 @@ export function getWorkspaceActiveCeilings(
   const maxSeq = active.reduce((max, e) => {
     const qRef = e.quote_ref_no || (e as any).quote_ref || '';
     const parsed = parseSequenceFromQuoteRef(qRef, pattern);
-    return Math.max(max, parsed || 0);
+    // If parsed > 100000, disregard it as an invalid legacy date contamination
+    if (parsed && parsed > 0 && parsed <= 100000) {
+      return Math.max(max, parsed);
+    }
+    return max;
   }, 0);
 
   return { maxSn, maxSeq };
@@ -355,8 +392,14 @@ export async function healWorkspaceCounters(
 
 export interface ClaimSequenceOptions {
   targetSn?: number;
+  targetSeq?: number;
   customQuoteRef?: string;
   date?: Date;
+  companyAccount?: string;
+  salesPerson?: string;
+  assignedSalesperson?: string;
+  repInitials?: string;
+  enquiries?: Enquiry[];
 }
 
 /**
@@ -365,22 +408,93 @@ export interface ClaimSequenceOptions {
  */
 export async function claimNextEnquirySequence(
   workspaceId: string,
-  repInitials: string = '',
-  userId: string = 'system',
-  dateOrOptions: Date | ClaimSequenceOptions = new Date(),
+  repInitialsOrUser: any = '',
+  userIdOrOptions?: any,
+  dateOrOptions?: any,
   explicitOptions?: ClaimSequenceOptions
 ): Promise<ClaimedSequenceResult> {
   const docRef = getWorkspaceCountersDocRef(workspaceId);
-  const date = dateOrOptions instanceof Date ? dateOrOptions : (dateOrOptions?.date || new Date());
-  const options = dateOrOptions instanceof Date ? explicitOptions : dateOrOptions;
-  const now = options?.date || date;
 
-  // Pre-query highest existing S/N and check targetSn collision from enquiries
-  let highestExistingSn = 0;
+  // Normalize polymorphic argument calling signatures:
+  // Form A: (workspaceId, repInitials, userId, date, options)
+  // Form B: (workspaceId, user, options)
+  let repInitials = '';
+  let userId = 'system';
+  let date = new Date();
+  let options: ClaimSequenceOptions = {};
+
+  if (typeof repInitialsOrUser === 'string') {
+    repInitials = repInitialsOrUser;
+    if (typeof userIdOrOptions === 'string') {
+      userId = userIdOrOptions;
+    } else if (userIdOrOptions && typeof userIdOrOptions === 'object') {
+      options = userIdOrOptions;
+    }
+    if (dateOrOptions instanceof Date) {
+      date = dateOrOptions;
+      if (explicitOptions) options = { ...options, ...explicitOptions };
+    } else if (dateOrOptions && typeof dateOrOptions === 'object') {
+      options = { ...options, ...dateOrOptions };
+    }
+  } else if (repInitialsOrUser && typeof repInitialsOrUser === 'object') {
+    // repInitialsOrUser is user object
+    userId = repInitialsOrUser.uid || repInitialsOrUser.id || 'system';
+    if (userIdOrOptions && typeof userIdOrOptions === 'object') {
+      options = userIdOrOptions;
+    }
+    if (options.repInitials) {
+      repInitials = options.repInitials;
+    } else if (options.salesPerson) {
+      repInitials = options.salesPerson.slice(0, 2).toUpperCase();
+    }
+    if (dateOrOptions instanceof Date) {
+      date = dateOrOptions;
+    }
+  }
+
+  const now = options.date || date || new Date();
+
+  // Dynamic active ceilings calculation
+  let maxSn = 0;
+  let maxSeq = 0;
   let isTargetSnTaken = false;
 
   try {
-    if (options?.targetSn && options.targetSn > 0) {
+    let candidateEnquiries: Enquiry[] = options?.enquiries || [];
+    if (!candidateEnquiries || candidateEnquiries.length === 0) {
+      const local = await getFromLocalStore<Enquiry>('enquiries');
+      if (local && local.length > 0) candidateEnquiries = local;
+    }
+    if (!candidateEnquiries || candidateEnquiries.length === 0) {
+      try {
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('omni_enquiries') : null;
+        if (saved) candidateEnquiries = JSON.parse(saved);
+      } catch (e) {}
+    }
+
+    if (candidateEnquiries && candidateEnquiries.length > 0) {
+      const ceilings = getWorkspaceActiveCeilings(candidateEnquiries, workspaceId);
+      maxSn = ceilings.maxSn;
+      maxSeq = ceilings.maxSeq;
+
+      if (options?.targetSn && options.targetSn > 0) {
+        const target = Number(options.targetSn);
+        const match = candidateEnquiries.find(e => {
+          if (e.is_deleted) return false;
+          const eWs = e.workspace_id || (e as any).workspaceId;
+          if (eWs && eWs !== workspaceId && !(workspaceId === 'ws_default' && !eWs)) return false;
+          return Number(e.sn) === target;
+        });
+        if (match) isTargetSnTaken = true;
+      }
+    }
+  } catch (err) {
+    console.warn('[claimNextEnquirySequence] Could not calculate active ceilings:', err);
+  }
+
+  // Pre-query highest existing S/N and check targetSn collision from Firestore enquiries if not found locally
+  try {
+    if (options?.targetSn && options.targetSn > 0 && !isTargetSnTaken) {
       const numTarget = Number(options.targetSn);
       const strTarget = String(options.targetSn);
 
@@ -414,27 +528,6 @@ export async function claimNextEnquirySequence(
   }
 
   try {
-    // Check local store to find highestExistingSn across cached records
-    const localEnquiries = await getFromLocalStore<any>('enquiries');
-    if (localEnquiries && localEnquiries.length > 0) {
-      for (const e of localEnquiries) {
-        if (e.is_deleted) continue;
-        const eWs = e.workspace_id || e.workspaceId;
-        if (eWs && eWs !== workspaceId && !(workspaceId === 'ws_default' && !eWs)) continue;
-        const parsedSn = Number(e.sn);
-        if (!isNaN(parsedSn) && parsedSn > 0) {
-          if (parsedSn > highestExistingSn) highestExistingSn = parsedSn;
-          if (options?.targetSn && parsedSn === Number(options.targetSn)) {
-            isTargetSnTaken = true;
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[claimNextEnquirySequence] Could not check local store for highest S/N:', err);
-  }
-
-  try {
     return await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(docRef);
       let counters: WorkspaceSequenceCounters;
@@ -463,29 +556,33 @@ export async function claimNextEnquirySequence(
       }
 
       const periodKey = getSequencePeriodKey(counters.resetCadence, now);
-      // Floor counter by active highestExistingSn so deleting proposals heals downward
-      const baseSeq = Math.max(counters.sequences?.[periodKey] || 0, 0);
-      const currentSeq = baseSeq;
-      let nextSeq = currentSeq + 1;
+      const baseSeq = counters.sequences?.[periodKey] || 0;
 
-      // Determine baseline S/N based on counters and known highest existing S/N
-      // If counters are ratcheted higher than actual proposals, clamp them down to highestExistingSn
-      const currentMaxSn = highestExistingSn > 0
-        ? Math.min(counters.lastSnNumber || 0, highestExistingSn)
+      // Clamped dynamic ceilings:
+      // If counters are ratcheted higher than actual active proposals, clamp them down to active ceilings
+      const currentMaxSn = maxSn > 0
+        ? Math.min(counters.lastSnNumber || 0, maxSn)
         : (counters.lastSnNumber || 0);
-      let nextSn = (highestExistingSn > 0 ? highestExistingSn : currentMaxSn) + 1;
+      const currentMaxSeq = maxSeq > 0
+        ? Math.min(baseSeq, maxSeq)
+        : baseSeq;
 
-      // When evaluating options.targetSn, ensure that if targetSn already exists in the
-      // workspace's active sequence map or Firestore enquiries, do NOT reuse it.
-      // If targetSn is unoccupied (including an open gap), honor targetSn.
+      let nextSn: number;
       if (options?.targetSn && options.targetSn > 0) {
         if (!isTargetSnTaken) {
-          // Unoccupied S/N (either high-water mark or filling an open gap)
           nextSn = options.targetSn;
         } else {
-          // Collision: force the new S/N to Math.max(lastSnNumber, highestExistingSn) + 1
           nextSn = currentMaxSn + 1;
         }
+      } else {
+        nextSn = currentMaxSn + 1;
+      }
+
+      let nextSeq: number;
+      if (options?.targetSeq && options.targetSeq > 0) {
+        nextSeq = options.targetSeq;
+      } else {
+        nextSeq = currentMaxSeq + 1;
       }
 
       let quoteRef: string;
@@ -509,7 +606,7 @@ export async function claimNextEnquirySequence(
         [periodKey]: nextSeq
       };
 
-      // Commit the new lastSnNumber: if filling a lower gap, keep currentMaxSn; otherwise use nextSn
+      // Commit the new lastSnNumber and sequences[periodKey]
       const committedLastSn = Math.max(currentMaxSn, nextSn);
 
       transaction.set(
