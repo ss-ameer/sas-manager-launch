@@ -721,8 +721,8 @@ export default function App() {
       return workspaceEnquiries;
     }
 
-    return workspaceEnquiries.filter((e) => canAccessEnquiry(user, e, activeWorkspace));
-  }, [workspaceEnquiries, user, activeWorkspace]);
+    return workspaceEnquiries.filter((e) => canAccessEnquiry(user, e, activeWorkspace, salespersons));
+  }, [workspaceEnquiries, user, activeWorkspace, salespersons]);
 
   const visibleCallLogs = useMemo(() => {
     if (!user) return [];
