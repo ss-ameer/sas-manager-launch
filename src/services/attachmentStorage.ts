@@ -1,5 +1,84 @@
 import { Attachment } from '../types';
-import { saveAttachmentBlob, getAttachmentBlob } from './db';
+import { saveAttachmentBlob, getAttachmentBlob, deleteAttachmentBlob } from './db';
+
+export { deleteAttachmentBlob };
+
+/**
+ * Converts a base64 data URL to a File object.
+ */
+export function dataUrlToFile(dataUrl: string, filename: string): File {
+  const arr = dataUrl.split(',');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
+/**
+ * Deletes an object from Supabase Storage given its public HTTPS URL or filePath.
+ */
+export async function deleteFromSupabaseStorage(
+  fileUrl: string,
+  storageConfig: { supabaseUrl: string; supabaseAnonKey: string; bucket: string }
+): Promise<boolean> {
+  if (!fileUrl || !storageConfig.supabaseUrl || !storageConfig.supabaseAnonKey || !storageConfig.bucket) {
+    return false;
+  }
+
+  try {
+    const baseUrl = storageConfig.supabaseUrl.trim().replace(/\/+$/, '');
+    const bucket = storageConfig.bucket.trim();
+
+    // Extract filePath from public URL
+    // e.g. ${baseUrl}/storage/v1/object/public/${bucket}/${filePath}
+    let filePath = '';
+    const prefix = `/storage/v1/object/public/${bucket}/`;
+    const prefixIdx = fileUrl.indexOf(prefix);
+    if (prefixIdx !== -1) {
+      filePath = fileUrl.substring(prefixIdx + prefix.length);
+    } else if (fileUrl.startsWith('enquiries/')) {
+      filePath = fileUrl;
+    } else {
+      // Check if URL contains bucket name followed by slash
+      const bucketIdx = fileUrl.indexOf(`/${bucket}/`);
+      if (bucketIdx !== -1) {
+        filePath = fileUrl.substring(bucketIdx + bucket.length + 2);
+      }
+    }
+
+    // Strip query parameters or hashes if present
+    filePath = filePath.split('?')[0].split('#')[0];
+    if (!filePath) {
+      console.warn('[deleteFromSupabaseStorage] Could not parse filePath from URL:', fileUrl);
+      return false;
+    }
+
+    const deleteUrl = `${baseUrl}/storage/v1/object/${bucket}/${filePath}`;
+    const res = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        apikey: storageConfig.supabaseAnonKey.trim(),
+        Authorization: `Bearer ${storageConfig.supabaseAnonKey.trim()}`
+      }
+    });
+
+    if (res.ok || res.status === 200 || res.status === 204 || res.status === 404) {
+      console.log(`[deleteFromSupabaseStorage] Successfully removed ${filePath} from bucket ${bucket}`);
+      return true;
+    } else {
+      console.warn(`[deleteFromSupabaseStorage] Delete returned status ${res.status}: ${res.statusText}`);
+      return false;
+    }
+  } catch (err) {
+    console.warn('[deleteFromSupabaseStorage] Network error deleting file from Supabase:', err);
+    return false;
+  }
+}
 
 /**
  * Generate a consistent storage key for an attachment

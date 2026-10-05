@@ -455,6 +455,7 @@ export interface Attachment {
   uploadedAt: string;
   isLocal?: boolean;
   uploadedByUserName?: string;
+  storageProvider?: 'supabase' | 'local';
 }
 
 export type EnquirySource = string;

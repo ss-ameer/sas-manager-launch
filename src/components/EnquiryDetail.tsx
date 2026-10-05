@@ -12,7 +12,7 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
-import { resolveAttachmentUrl } from '../services/attachmentStorage';
+import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -31,6 +31,8 @@ import {
   Check,
   TrendingUp,
   Cloud,
+  UploadCloud,
+  Loader2,
   AlertTriangle,
   X,
   ShieldCheck,
@@ -130,6 +132,8 @@ export default function EnquiryDetail({
   const [isExpandedWidth, setIsExpandedWidth] = useState(false);
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [promotingAttachmentKey, setPromotingAttachmentKey] = useState<string | null>(null);
+  const [deletingAttachmentKey, setDeletingAttachmentKey] = useState<string | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [activeOptionTab, setActiveOptionTab] = useState<string>('ALL');
 
@@ -672,6 +676,161 @@ export default function EnquiryDetail({
           'error'
         );
       }
+    }
+  };
+
+  const handleDeleteAttachment = async (targetIndex: number) => {
+    const attachments = enquiry.attachments || [];
+    const target = attachments[targetIndex];
+    if (!target) return;
+
+    if (!window.confirm(`Are you sure you want to remove the attachment "${target.name}"?`)) {
+      return;
+    }
+
+    const key = target.storageKey || target.id || `att_${targetIndex}`;
+    setDeletingAttachmentKey(key);
+
+    try {
+      const storageConfig = activeWorkspace?.settings?.storage;
+      const f = target as any;
+      const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || '';
+      const isCloudUrl = typeof fileUrl === 'string' && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'));
+
+      // Synchronized Cloud Deletion (Option B)
+      if (isCloudUrl && storageConfig?.supabaseUrl && storageConfig?.supabaseAnonKey && storageConfig?.bucket) {
+        await deleteFromSupabaseStorage(fileUrl, {
+          supabaseUrl: storageConfig.supabaseUrl,
+          supabaseAnonKey: storageConfig.supabaseAnonKey,
+          bucket: storageConfig.bucket
+        });
+      }
+
+      // IndexedDB Blob cleanup
+      if (target.storageKey) {
+        await deleteAttachmentBlob(target.storageKey).catch(() => {});
+      }
+
+      const updatedAttachments = attachments.filter((_, i) => i !== targetIndex);
+      const updatedEnquiry: Enquiry = {
+        ...enquiry,
+        attachments: updatedAttachments.length > 0 ? updatedAttachments : undefined
+      };
+
+      if (enquiry.id) {
+        await safeUpdateDoc('enquiries', enquiry.id, {
+          attachments: updatedAttachments.length > 0 ? updatedAttachments : []
+        });
+      }
+
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry(updatedEnquiry);
+      }
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiry.id ? updatedEnquiry : e)));
+      }
+
+      if (triggerToast) {
+        triggerToast(`Attachment "${target.name}" removed successfully.`, 'info');
+      }
+    } catch (err: any) {
+      console.error('Failed to remove attachment:', err);
+      if (triggerToast) {
+        triggerToast(`Failed to remove attachment: ${err.message || 'Unknown error'}`, 'error');
+      }
+    } finally {
+      setDeletingAttachmentKey(null);
+    }
+  };
+
+  const handlePromoteAttachmentToCloud = async (targetIndex: number) => {
+    const attachments = enquiry.attachments || [];
+    const target = attachments[targetIndex];
+    if (!target) return;
+
+    const storageConfig = activeWorkspace?.settings?.storage;
+    if (!storageConfig?.supabaseUrl || !storageConfig?.supabaseAnonKey || !storageConfig?.bucket) {
+      if (triggerToast) {
+        triggerToast('Cloud storage is not configured for this workspace.', 'error');
+      }
+      return;
+    }
+
+    const key = target.storageKey || target.id || `att_${targetIndex}`;
+    setPromotingAttachmentKey(key);
+
+    try {
+      let dataUrl = target.url;
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        dataUrl = await resolveAttachmentUrl(target);
+      }
+
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        if (triggerToast) {
+          triggerToast(
+            "This document is stored locally on the uploader's device and its content is not present in this browser to upload.",
+            'error'
+          );
+        }
+        return;
+      }
+
+      const fileObj = dataUrlToFile(dataUrl, target.name);
+      const publicUrl = await uploadToSupabaseStorage(
+        fileObj,
+        {
+          supabaseUrl: storageConfig.supabaseUrl,
+          supabaseAnonKey: storageConfig.supabaseAnonKey,
+          bucket: storageConfig.bucket
+        }
+      );
+
+      // Clean up local blob
+      if (target.storageKey) {
+        deleteAttachmentBlob(target.storageKey).catch(() => {});
+      }
+
+      const updatedAttachments = attachments.map((att, i) =>
+        i === targetIndex
+          ? {
+              ...att,
+              url: publicUrl,
+              isLocal: false,
+              storageProvider: 'supabase' as const
+            }
+          : att
+      );
+
+      const updatedEnquiry: Enquiry = {
+        ...enquiry,
+        attachments: updatedAttachments
+      };
+
+      if (enquiry.id) {
+        await safeUpdateDoc('enquiries', enquiry.id, {
+          attachments: updatedAttachments
+        });
+      }
+
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry(updatedEnquiry);
+      }
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiry.id ? updatedEnquiry : e)));
+      }
+
+      if (triggerToast) {
+        triggerToast(`Promoted "${target.name}" to Cloud Storage!`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to promote attachment to cloud:', err);
+      if (triggerToast) {
+        triggerToast(`Promotion failed: ${err.message || 'Unknown error'}`, 'error');
+      }
+    } finally {
+      setPromotingAttachmentKey(null);
     }
   };
 
@@ -1820,8 +1979,25 @@ export default function EnquiryDetail({
                             </div>
                           </div>
 
-                          {/* Dual Action Buttons: Preview & Download */}
+                          {/* Action Buttons: Promote to Cloud, Preview, Download, Delete */}
                           <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-center">
+                            {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !fileUrl.startsWith('http')) && (
+                              <button
+                                type="button"
+                                onClick={() => handlePromoteAttachmentToCloud(idx)}
+                                disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
+                                title="Upload this local attachment to Supabase Cloud Storage to share across team devices"
+                              >
+                                {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                ) : (
+                                  <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
+                                )}
+                                <span>Upload to Cloud</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => setPreviewAttachment(normalizedFile)}
@@ -1841,6 +2017,22 @@ export default function EnquiryDetail({
                               <Download className="w-3.5 h-3.5" />
                               <span>Download</span>
                             </button>
+
+                            {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAttachment(idx)}
+                                disabled={deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition cursor-pointer disabled:opacity-50"
+                                title="Remove attachment"
+                              >
+                                {deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
                       );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
-import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage } from '../services/attachmentStorage';
+import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage, deleteFromSupabaseStorage, deleteAttachmentBlob, dataUrlToFile } from '../services/attachmentStorage';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -25,6 +25,8 @@ import {
   Paperclip,
   Check,
   Cloud,
+  UploadCloud,
+  HardDrive,
   AlertTriangle,
   Lock,
   HelpCircle,
@@ -552,6 +554,8 @@ export default function EnquiryForm({
 
   // Attachments state
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadTarget, setUploadTarget] = useState<'cloud' | 'local'>('cloud');
+  const [promotingAttachmentKey, setPromotingAttachmentKey] = useState<string | null>(null);
   const [uploading, setGeneratingUrl] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [currentUploadingFile, setCurrentUploadingFile] = useState<string | null>(null);
@@ -1453,7 +1457,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // File attachment uploading: Streams to Supabase Storage if configured, or uses local IndexedDB fallback
+  // File attachment uploading: Streams to Supabase Storage if configured and selected, or uses local IndexedDB fallback
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -1477,7 +1481,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         let downloadUrl = '';
         let isLocal = false;
 
-        if (hasCloudStorage && storageConfig) {
+        if (hasCloudStorage && storageConfig && uploadTarget === 'cloud') {
           downloadUrl = await uploadToSupabaseStorage(
             file,
             {
@@ -1491,7 +1495,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           );
           isLocal = false;
         } else {
-          // Local fallback
+          // Local fallback (IndexedDB / Base64)
           const storagePath = `proposals/${Date.now()}_${file.name}`;
           downloadUrl = await uploadAttachmentWithProgress(file, storagePath, (percent) => {
             setUploadProgress(percent);
@@ -1509,6 +1513,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           storageKey,
           uploadedAt: new Date().toISOString(),
           isLocal,
+          storageProvider: isLocal ? 'local' : 'supabase',
           uploadedByUserName: user?.displayName || user?.full_name || user?.username || user?.name || user?.email || 'User'
         };
         uploadedList.push(attachment);
@@ -1530,11 +1535,94 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setGeneratingUrl(false);
       setUploadProgress(null);
       setCurrentUploadingFile(null);
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
-  const removeAttachment = (index: number) => {
+  // Synchronized deletion: Removes cloud object from Supabase or blob from IndexedDB
+  const removeAttachment = async (index: number) => {
+    const target = attachments[index];
+    if (target) {
+      const storageConfig = activeWorkspace?.settings?.storage;
+      const isCloudUrl = target.url && (target.url.startsWith('http://') || target.url.startsWith('https://'));
+      if (isCloudUrl && storageConfig?.supabaseUrl && storageConfig?.supabaseAnonKey && storageConfig?.bucket) {
+        deleteFromSupabaseStorage(target.url, {
+          supabaseUrl: storageConfig.supabaseUrl,
+          supabaseAnonKey: storageConfig.supabaseAnonKey,
+          bucket: storageConfig.bucket
+        }).catch((err) => console.warn('Could not delete from Supabase storage:', err));
+      }
+      if (target.storageKey) {
+        deleteAttachmentBlob(target.storageKey).catch(() => {});
+      }
+      if (activePreviewUrl && activePreviewUrl === target.url) {
+        setActivePreviewUrl(null);
+      }
+    }
     setAttachments(attachments.filter((_, i) => i !== index));
+  };
+
+  // Promote local attachment to cloud
+  const handlePromoteAttachmentToCloud = async (index: number) => {
+    const target = attachments[index];
+    if (!target) return;
+    const storageConfig = activeWorkspace?.settings?.storage;
+    if (!storageConfig?.supabaseUrl || !storageConfig?.supabaseAnonKey || !storageConfig?.bucket) {
+      alert('Cloud storage is not configured for this workspace.');
+      return;
+    }
+
+    const key = target.storageKey || target.id || `att_${index}`;
+    setPromotingAttachmentKey(key);
+
+    try {
+      let dataUrl = target.url;
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        dataUrl = await resolveAttachmentUrl(target);
+      }
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        alert("The local file content could not be found on this device to upload to cloud.");
+        return;
+      }
+
+      const fileObj = dataUrlToFile(dataUrl, target.name);
+      const publicUrl = await uploadToSupabaseStorage(
+        fileObj,
+        {
+          supabaseUrl: storageConfig.supabaseUrl,
+          supabaseAnonKey: storageConfig.supabaseAnonKey,
+          bucket: storageConfig.bucket
+        }
+      );
+
+      if (target.storageKey) {
+        deleteAttachmentBlob(target.storageKey).catch(() => {});
+      }
+
+      setAttachments((prev) =>
+        prev.map((att, i) =>
+          i === index
+            ? {
+                ...att,
+                url: publicUrl,
+                isLocal: false,
+                storageProvider: 'supabase'
+              }
+            : att
+        )
+      );
+
+      if (activePreviewUrl === target.url) {
+        setActivePreviewUrl(publicUrl);
+      }
+    } catch (err: any) {
+      console.error('Failed to promote attachment to cloud:', err);
+      alert(`Promotion failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setPromotingAttachmentKey(null);
+    }
   };
 
   // Sorensen-Dice coefficient similarity matching
@@ -5235,7 +5323,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            {/* Storage Mode Transparency Banner */}
+            {/* Storage Mode Transparency & Destination Target Selection */}
             {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-xs">
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -5247,11 +5335,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-800 dark:text-blue-200 text-xs">
-                <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span className="text-[11px] font-medium">
-                  <strong className="font-semibold">Cloud Storage Active:</strong> Files will be securely uploaded to <span className="font-mono font-semibold">{activeWorkspace?.settings?.storage?.bucket || 'cloud bucket'}</span> and accessible across team devices.
-                </span>
+              <div className="space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-900 dark:text-blue-200 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <div>
+                      <span className="font-semibold block">Cloud Storage Target: <span className="font-mono text-blue-700 dark:text-blue-300">{activeWorkspace?.settings?.storage?.bucket}</span></span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400">Choose storage destination for newly attached documents</span>
+                    </div>
+                  </div>
+
+                  {/* Segmented control for user choice */}
+                  <div className="inline-flex rounded-lg bg-white/90 dark:bg-slate-900/90 p-0.5 border border-blue-200 dark:border-blue-800 shadow-2xs shrink-0 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setUploadTarget('cloud')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
+                        uploadTarget === 'cloud'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Cloud className="w-3.5 h-3.5" />
+                      <span>Cloud Sync (Shared)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadTarget('local')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
+                        uploadTarget === 'local'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <HardDrive className="w-3.5 h-3.5" />
+                      <span>Local Device Only</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -5278,7 +5399,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     )}
                   </div>
                 ) : (
-                  <span>Drag and Drop or Click to Attach Quote Files</span>
+                  <span>
+                    Drag and Drop or Click to Attach Quote Files
+                    {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey)
+                      ? uploadTarget === 'cloud'
+                        ? ' (Uploading to Cloud Bucket)'
+                        : ' (Saving to Local Storage Only)'
+                      : ''}
+                  </span>
                 )}
               </div>
               <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-1 block">
@@ -5429,6 +5557,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         >
                           <Eye className="w-3 h-3" />
                           <span>{activePreviewUrl === file.url ? 'Previewing' : 'View'}</span>
+                        </button>
+                      )}
+
+                      {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !file.url || !file.url.startsWith('http')) && (
+                        <button
+                          type="button"
+                          onClick={() => handlePromoteAttachmentToCloud(idx)}
+                          disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) || uploading}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer shadow-2xs"
+                          title="Promote this local attachment to Supabase Cloud Storage to share with entire team"
+                        >
+                          {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                          ) : (
+                            <UploadCloud className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          )}
+                          <span>Upload to Cloud</span>
                         </button>
                       )}
 
