@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
-import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey } from '../services/attachmentStorage';
+import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage } from '../services/attachmentStorage';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -24,6 +24,7 @@ import {
   Trash2,
   Paperclip,
   Check,
+  Cloud,
   AlertTriangle,
   Lock,
   HelpCircle,
@@ -1452,10 +1453,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // Real File attachment uploading using Firebase Storage with secure Base64 fallback and progress
+  // File attachment uploading: Streams to Supabase Storage if configured, or uses local IndexedDB fallback
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    const storageConfig = activeWorkspace?.settings?.storage;
+    const hasCloudStorage = Boolean(
+      storageConfig?.supabaseUrl &&
+      storageConfig?.supabaseAnonKey &&
+      storageConfig?.bucket
+    );
 
     setGeneratingUrl(true);
     const uploadedList: Attachment[] = [];
@@ -1466,11 +1474,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         setCurrentUploadingFile(file.name);
         setUploadProgress(0);
 
-        // Create unique path under proposals folder in Storage bucket
-        const storagePath = `proposals/${Date.now()}_${file.name}`;
-        const downloadUrl = await uploadAttachmentWithProgress(file, storagePath, (percent) => {
-          setUploadProgress(percent);
-        });
+        let downloadUrl = '';
+        let isLocal = false;
+
+        if (hasCloudStorage && storageConfig) {
+          downloadUrl = await uploadToSupabaseStorage(
+            file,
+            {
+              supabaseUrl: storageConfig.supabaseUrl!,
+              supabaseAnonKey: storageConfig.supabaseAnonKey!,
+              bucket: storageConfig.bucket!
+            },
+            (percent) => {
+              setUploadProgress(percent);
+            }
+          );
+          isLocal = false;
+        } else {
+          // Local fallback
+          const storagePath = `proposals/${Date.now()}_${file.name}`;
+          downloadUrl = await uploadAttachmentWithProgress(file, storagePath, (percent) => {
+            setUploadProgress(percent);
+          });
+          isLocal = true;
+        }
 
         const storageKey = getAttachmentStorageKey({ name: file.name, size: file.size }, i, enquiryToEdit?.id);
 
@@ -1480,7 +1507,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           type: file.type || 'application/pdf',
           url: downloadUrl,
           storageKey,
-          uploadedAt: new Date().toISOString()
+          uploadedAt: new Date().toISOString(),
+          isLocal,
+          uploadedByUserName: user?.displayName || user?.full_name || user?.username || user?.name || user?.email || 'User'
         };
         uploadedList.push(attachment);
       }
@@ -1494,9 +1523,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
         return next;
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Upload error:", err);
-      alert("Failed to upload file(s). Please try again.");
+      alert(err.message || "Failed to upload file(s). Please try again.");
     } finally {
       setGeneratingUrl(false);
       setUploadProgress(null);
@@ -5206,6 +5235,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
+            {/* Storage Mode Transparency Banner */}
+            {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold">Local Storage Mode</span>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Cloud storage is not configured for this workspace. Files attached will be saved to your local browser only and will not sync across other team members' devices. An admin can configure Cloud Storage in Workspace Settings.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-800 dark:text-blue-200 text-xs">
+                <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span className="text-[11px] font-medium">
+                  <strong className="font-semibold">Cloud Storage Active:</strong> Files will be securely uploaded to <span className="font-mono font-semibold">{activeWorkspace?.settings?.storage?.bucket || 'cloud bucket'}</span> and accessible across team devices.
+                </span>
+              </div>
+            )}
+
             <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-6 text-center transition duration-150 cursor-pointer relative bg-white/50 dark:bg-slate-900/50">
               <input
                 type="file"
@@ -5346,8 +5395,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       title={file.url ? "Click to preview side-by-side" : "Attachment stored offline"}
                     >
                       <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                      <span className="truncate font-sans font-medium text-slate-800 dark:text-slate-200 hover:underline">{file.name}</span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate font-sans font-medium text-slate-800 dark:text-slate-200 hover:underline">{file.name}</span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
+                        {!file.isLocal && file.url && (file.url.startsWith('http://') || file.url.startsWith('https://')) ? (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                            <Cloud className="w-2.5 h-2.5" />
+                            <span>Cloud</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-amber-50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0" title={file.uploadedByUserName ? `Stored on ${file.uploadedByUserName}'s browser` : 'Stored locally on this browser'}>
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            <span>Local</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center space-x-2 shrink-0">
                       {file.url && (

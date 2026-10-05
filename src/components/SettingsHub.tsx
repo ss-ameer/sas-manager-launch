@@ -53,6 +53,7 @@ import {
   getSequencePeriodKey,
   getWorkspaceActiveCeilings
 } from '../services/enquirySequences';
+import { testSupabaseStorageConnection } from '../services/attachmentStorage';
 import {
   UserProfile,
   Company,
@@ -373,16 +374,92 @@ export default function SettingsHub({
     }
   }, [isAdmin, activeSubTab]);
 
+  // Workspace Cloud Storage Configuration States
+  const [storageUrl, setStorageUrl] = useState('');
+  const [storageAnonKey, setStorageAnonKey] = useState('');
+  const [storageBucket, setStorageBucket] = useState('proposal-attachments');
+  const [testingStorage, setTestingStorage] = useState(false);
+  const [savingStorage, setSavingStorage] = useState(false);
+  const [showAnonKey, setShowAnonKey] = useState(false);
+
+  useEffect(() => {
+    if (activeWorkspace) {
+      const storageCfg = activeWorkspace.settings?.storage;
+      setStorageUrl(storageCfg?.supabaseUrl || '');
+      setStorageAnonKey(storageCfg?.supabaseAnonKey || '');
+      setStorageBucket(storageCfg?.bucket || 'proposal-attachments');
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.settings?.storage]);
+
+  const handleTestStorageConnection = async () => {
+    setTestingStorage(true);
+    try {
+      const res = await testSupabaseStorageConnection({
+        supabaseUrl: storageUrl.trim(),
+        supabaseAnonKey: storageAnonKey.trim(),
+        bucket: storageBucket.trim()
+      });
+      if (res.success) {
+        if (triggerToast) triggerToast(res.message, 'success');
+      } else {
+        if (triggerToast) triggerToast(res.message, 'error');
+      }
+    } catch (err: any) {
+      if (triggerToast) triggerToast(`Test failed: ${err.message || 'Network error'}`, 'error');
+    } finally {
+      setTestingStorage(false);
+    }
+  };
+
+  const handleSaveStorageSettings = async () => {
+    if (!activeWorkspace?.id || !isAdmin) return;
+    setSavingStorage(true);
+    try {
+      const hasConfig = Boolean(storageUrl.trim() && storageBucket.trim());
+      await safeUpdateDoc('workspaces', activeWorkspace.id, {
+        'settings.storage': {
+          enabled: hasConfig,
+          provider: 'supabase',
+          bucket: storageBucket.trim(),
+          supabaseUrl: storageUrl.trim(),
+          supabaseAnonKey: storageAnonKey.trim()
+        },
+        updatedAt: new Date().toISOString()
+      });
+      if (triggerToast) {
+        triggerToast(
+          hasConfig
+            ? 'Workspace Cloud Storage configured successfully!'
+            : 'Cloud Storage configuration cleared (Local mode active).',
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to save storage settings:', err);
+      if (triggerToast) triggerToast('Failed to save storage settings: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setSavingStorage(false);
+    }
+  };
+
   const handleSaveWorkspace = async () => {
     if (!activeWorkspace?.id || !isAdmin) return;
     setSavingWs(true);
     try {
+      const hasStorageConfig = Boolean(storageUrl.trim() && storageBucket.trim());
       await safeUpdateDoc('workspaces', activeWorkspace.id, {
         name: wsName.trim() || activeWorkspace.name,
         description: wsDescription.trim(),
         modules: {
           enquiriesEnabled: wsEnquiriesEnabled,
           callLogEnabled: wsCallLogEnabled
+        },
+        'settings.storage': {
+          enabled: hasStorageConfig,
+          provider: 'supabase',
+          bucket: storageBucket.trim(),
+          supabaseUrl: storageUrl.trim(),
+          supabaseAnonKey: storageAnonKey.trim()
         },
         updatedAt: new Date().toISOString()
       });
@@ -1055,6 +1132,112 @@ export default function SettingsHub({
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Workspace Cloud Storage Configuration Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Cloud className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 font-sans">Workspace Cloud Storage (Supabase)</h4>
+                        <p className="text-[11px] text-slate-500 font-sans">
+                          Configure external cloud object storage for universal team attachment syncing across all devices.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {storageUrl.trim() && storageBucket.trim() ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Cloud Storage Configured
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                          <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          Local Storage Fallback
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5 md:col-span-2">
+                      <label className="text-xs font-bold text-slate-700 font-sans">Supabase Project URL</label>
+                      <input
+                        type="url"
+                        value={storageUrl}
+                        onChange={(e) => setStorageUrl(e.target.value)}
+                        placeholder="https://your-project-id.supabase.co"
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-[11px] text-slate-400 font-sans">The base HTTPS endpoint for your Supabase project.</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 font-sans">Storage Bucket Name</label>
+                      <input
+                        type="text"
+                        value={storageBucket}
+                        onChange={(e) => setStorageBucket(e.target.value)}
+                        placeholder="proposal-attachments"
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-[11px] text-slate-400 font-sans">Ensure this bucket is set to Public in Supabase Storage.</p>
+                    </div>
+
+                    <div className="space-y-1.5 md:col-span-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 font-sans">Supabase Anon Public API Key</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowAnonKey(!showAnonKey)}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>{showAnonKey ? 'Hide Key' : 'Show Key'}</span>
+                        </button>
+                      </div>
+                      <input
+                        type={showAnonKey ? 'text' : 'password'}
+                        value={storageAnonKey}
+                        onChange={(e) => setStorageAnonKey(e.target.value)}
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-[11px] text-slate-400 font-sans">
+                        Safe public anon key (not service_role secret). Used by team browsers to stream uploads directly to your bucket.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200">
+                    <p className="text-[11px] text-slate-500 font-sans">
+                      Unconfigured workspaces will automatically and transparently use local IndexedDB storage.
+                    </p>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={handleTestStorageConnection}
+                        disabled={testingStorage || !storageUrl.trim() || !storageBucket.trim()}
+                        className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${testingStorage ? 'animate-spin text-blue-600' : ''}`} />
+                        <span>{testingStorage ? 'Testing Connection...' : 'Test Connection'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveStorageSettings}
+                        disabled={savingStorage}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <Save className={`w-3.5 h-3.5 ${savingStorage ? 'animate-spin' : ''}`} />
+                        <span>{savingStorage ? 'Saving Storage...' : 'Save Storage Configuration'}</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Save Bar */}

@@ -57,6 +57,24 @@ export interface WorkspaceMember {
   salesperson_id?: string;
 }
 
+export interface WorkspaceSettings {
+  quote_prefix?: string;
+  quote_sequence_pattern?: string;
+  quote_reset_cadence?: 'never' | 'monthly' | 'yearly';
+  next_sn_baseline?: number;
+  next_seq_baseline?: number;
+  nextSnBaseline?: number;
+  nextSeqBaseline?: number;
+  storage?: {
+    enabled?: boolean;
+    provider?: 'supabase';
+    bucket?: string;
+    supabaseUrl?: string;
+    supabaseAnonKey?: string;
+  };
+  [key: string]: any;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -76,6 +94,7 @@ export interface Workspace {
   join_code?: string;
   data_visibility_scope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
   dataVisibilityScope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
+  settings?: WorkspaceSettings;
 }
 
 export type LegalSuffix = 'None / To Be Added Later' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other';
@@ -434,6 +453,8 @@ export interface Attachment {
   downloadURL?: string;
   storageKey?: string;
   uploadedAt: string;
+  isLocal?: boolean;
+  uploadedByUserName?: string;
 }
 
 export type EnquirySource = string;

@@ -13,9 +13,117 @@ export function getAttachmentStorageKey(att: Partial<Attachment>, index: number 
 }
 
 /**
+ * Uploads a file directly to Supabase Storage via REST API and returns a persistent public HTTPS URL.
+ */
+export function uploadToSupabaseStorage(
+  file: File,
+  storageConfig: { supabaseUrl: string; supabaseAnonKey: string; bucket: string },
+  onProgress?: (percent: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!storageConfig.supabaseUrl || !storageConfig.supabaseAnonKey || !storageConfig.bucket) {
+      return reject(new Error('Incomplete Supabase storage configuration. Check Project URL, Key, and Bucket.'));
+    }
+
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `enquiries/${Date.now()}_${cleanFileName}`;
+    const baseUrl = storageConfig.supabaseUrl.trim().replace(/\/+$/, '');
+    const bucket = storageConfig.bucket.trim();
+    const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${filePath}`;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', uploadUrl, true);
+
+    xhr.setRequestHeader('apikey', storageConfig.supabaseAnonKey.trim());
+    xhr.setRequestHeader('Authorization', `Bearer ${storageConfig.supabaseAnonKey.trim()}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-upsert', 'true');
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          const percent = Math.round((evt.loaded / evt.total) * 100);
+          onProgress(percent);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const publicUrl = `${baseUrl}/storage/v1/object/public/${bucket}/${filePath}`;
+        if (onProgress) onProgress(100);
+        resolve(publicUrl);
+      } else {
+        let errMsg = `Upload failed with HTTP ${xhr.status}`;
+        try {
+          const resp = JSON.parse(xhr.responseText);
+          if (resp?.message || resp?.error) {
+            errMsg = resp.message || resp.error;
+          }
+        } catch (_) {}
+        reject(new Error(errMsg));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('Network error during Supabase upload. Please verify Supabase URL, bucket name, and CORS policy.'));
+    };
+
+    xhr.send(file);
+  });
+}
+
+/**
+ * Tests connectivity to a Supabase Storage bucket.
+ */
+export async function testSupabaseStorageConnection(storageConfig: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  bucket: string;
+}): Promise<{ success: boolean; message: string }> {
+  try {
+    const baseUrl = (storageConfig.supabaseUrl || '').trim().replace(/\/+$/, '');
+    const bucket = (storageConfig.bucket || '').trim();
+    const key = (storageConfig.supabaseAnonKey || '').trim();
+
+    if (!baseUrl || !bucket || !key) {
+      return { success: false, message: 'Please provide Supabase URL, Anon Key, and Bucket name.' };
+    }
+
+    const testUrl = `${baseUrl}/storage/v1/bucket/${bucket}`;
+    const res = await fetch(testUrl, {
+      method: 'GET',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`
+      }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const isPublic = data?.public !== false;
+      return {
+        success: true,
+        message: `Bucket "${bucket}" is reachable and active (${isPublic ? 'Public bucket' : 'Private bucket'}).`
+      };
+    } else {
+      let errText = `HTTP ${res.status} ${res.statusText}`;
+      try {
+        const json = await res.json();
+        if (json?.message || json?.error) errText = json.message || json.error;
+      } catch (_) {}
+      return { success: false, message: `Unable to reach bucket: ${errText}` };
+    }
+  } catch (err: any) {
+    return { success: false, message: `Connection test failed: ${err.message || 'Network error'}` };
+  }
+}
+
+/**
  * Process attachments before saving an Enquiry to Firestore.
  * - Stores large binary data (data URLs) into IndexedDB.
- * - Returns a lightweight version for Firestore (strips data URLs > 30KB).
+ * - Leaves persistent HTTPS cloud URLs intact without bloating or stripping.
+ * - Returns a lightweight version for Firestore (strips data URLs > 25KB).
  * - Returns a full-resolution version for immediate in-memory state.
  */
 export async function prepareAttachmentsForSave(
@@ -37,12 +145,41 @@ export async function prepareAttachmentsForSave(
     const key = getAttachmentStorageKey(att, i, enquiryId);
     const rawUrl = (att as any).url || (att as any).fileUrl || (att as any).downloadURL || (att as any).downloadUrl || '';
 
-    // In memory version keeps the actual previewable URL
+    // Check if cloud URL (HTTPS / HTTP)
+    const isCloudUrl = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'));
+
+    if (isCloudUrl) {
+      // Keep cloud URL intact, mark isLocal: false, and do NOT write or strip
+      const memoryAtt: Attachment = {
+        ...att,
+        id: att.id || key,
+        storageKey: key,
+        url: rawUrl,
+        isLocal: false
+      };
+      memoryAttachments.push(memoryAtt);
+
+      firestoreAttachments.push({
+        name: att.name,
+        size: att.size,
+        type: att.type || 'application/pdf',
+        uploadedAt: att.uploadedAt || new Date().toISOString(),
+        url: rawUrl,
+        id: att.id || key,
+        storageKey: key,
+        isLocal: false,
+        uploadedByUserName: att.uploadedByUserName
+      });
+      continue;
+    }
+
+    // Local mode (base64 data: or empty string)
     const memoryAtt: Attachment = {
       ...att,
       id: att.id || key,
       storageKey: key,
-      url: rawUrl
+      url: rawUrl,
+      isLocal: true
     };
     memoryAttachments.push(memoryAtt);
 
@@ -63,7 +200,9 @@ export async function prepareAttachmentsForSave(
       uploadedAt: att.uploadedAt || new Date().toISOString(),
       url: firestoreUrl,
       id: att.id || key,
-      storageKey: key
+      storageKey: key,
+      isLocal: true,
+      uploadedByUserName: att.uploadedByUserName
     });
   }
 
@@ -101,6 +240,13 @@ export function sanitizeFirestorePayload(payload: any): any {
   if (Array.isArray(copy.attachments)) {
     copy.attachments = copy.attachments.map((att: any, i: number) => {
       const url = att?.url || '';
+      // If it's a cloud URL, leave untouched
+      if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+        return {
+          ...att,
+          isLocal: false
+        };
+      }
       if (typeof url === 'string' && url.startsWith('data:') && url.length > 25000) {
         const key = att.storageKey || att.id || `blob_${att.name || 'file'}_${i}`;
         // Async save to IndexedDB as safety net
@@ -108,7 +254,8 @@ export function sanitizeFirestorePayload(payload: any): any {
         return {
           ...att,
           storageKey: key,
-          url: ''
+          url: '',
+          isLocal: true
         };
       }
       return att;

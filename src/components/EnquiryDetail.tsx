@@ -30,6 +30,8 @@ import {
   RotateCcw,
   Check,
   TrendingUp,
+  Cloud,
+  AlertTriangle,
   X,
   ShieldCheck,
   Shield,
@@ -662,6 +664,13 @@ export default function EnquiryDetail({
       }, 100);
       if (triggerToast) {
         triggerToast(`Downloading ${file.name}...`, 'info');
+      }
+    } else {
+      if (triggerToast) {
+        triggerToast(
+          "This document is stored locally on the uploader's device and is not available on this browser. A workspace admin can configure Cloud Storage in Workspace Settings.",
+          'error'
+        );
       }
     }
   };
@@ -1784,17 +1793,29 @@ export default function EnquiryDetail({
                               )}
                             </div>
                             <div className="truncate">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="truncate font-semibold text-xs text-slate-800 group-hover:text-blue-600 transition">
                                   {file.name}
                                 </span>
                                 <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded shrink-0">
                                   {ext}
                                 </span>
+                                {!file.isLocal && fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) ? (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded shrink-0">
+                                    <Cloud className="w-2.5 h-2.5 text-blue-600" />
+                                    <span>Cloud Synced</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded shrink-0" title={file.uploadedByUserName ? `Stored locally on ${file.uploadedByUserName}'s device` : 'Stored locally on uploader device'}>
+                                    <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                    <span>Local Device</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[10px] text-slate-400 font-mono mt-0.5">
                                 {(file.size / 1024).toFixed(1)} KB
                                 {file.uploadedAt && ` • ${new Date(file.uploadedAt).toLocaleDateString()}`}
+                                {file.uploadedByUserName && ` • By ${file.uploadedByUserName}`}
                               </div>
                             </div>
                           </div>
@@ -1811,17 +1832,15 @@ export default function EnquiryDetail({
                               <span>Preview</span>
                             </button>
 
-                            {fileUrl && (
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadAttachment(normalizedFile)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
-                                title="Download proposal attachment"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>Download</span>
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadAttachment(normalizedFile)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                              title="Download proposal attachment"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download</span>
+                            </button>
                           </div>
                         </div>
                       );

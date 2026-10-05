@@ -14,6 +14,8 @@ import {
   FileCode,
   FileSpreadsheet,
   AlertCircle,
+  AlertTriangle,
+  Cloud,
   Maximize2,
   File
 } from 'lucide-react';
@@ -233,7 +235,7 @@ export default function FilePreviewModal({
             <h3 id="file-preview-title" className="text-sm font-semibold text-white truncate" title={file.name}>
               {file.name}
             </h3>
-            <div className="flex items-center space-x-2 text-[11px] text-slate-400 font-mono">
+            <div className="flex items-center space-x-2 text-[11px] text-slate-400 font-mono flex-wrap">
               <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-300 font-bold">
                 {fileExtension}
               </span>
@@ -244,6 +246,17 @@ export default function FilePreviewModal({
                   <span>•</span>
                   <span>{new Date(file.uploadedAt).toLocaleDateString()}</span>
                 </>
+              )}
+              {file.url && (file.url.startsWith('http://') || file.url.startsWith('https://')) ? (
+                <span className="inline-flex items-center gap-1 bg-blue-900/60 text-blue-300 border border-blue-700/60 px-1.5 py-0.5 rounded text-[10px] font-bold font-sans">
+                  <Cloud className="w-3 h-3 text-blue-400" />
+                  <span>Cloud Synced</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 bg-amber-900/60 text-amber-300 border border-amber-700/60 px-1.5 py-0.5 rounded text-[10px] font-bold font-sans" title={(file as any).uploadedByUserName ? `Stored locally on ${(file as any).uploadedByUserName}'s device` : 'Stored locally on uploader device'}>
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  <span>Local Device</span>
+                </span>
               )}
             </div>
           </div>
@@ -427,9 +440,21 @@ export default function FilePreviewModal({
               {imageError
                 ? 'Image stream could not be loaded directly. Please download the file to view it.'
                 : !effectiveUrl
-                ? 'This attachment has no stored remote URL or local binary data.'
+                ? "This document is stored locally on the uploader's device. To make attachments accessible across all devices, a workspace admin can configure Cloud Storage in Workspace Settings."
                 : `In-browser interactive preview is not supported for .${fileExtension.toLowerCase()} files. You can securely download this attachment to inspect it in your native desktop software.`}
             </p>
+
+            {!effectiveUrl && (
+              <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-left flex items-start gap-2.5 text-xs text-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-semibold text-amber-300">Local Device Storage Notice</span>
+                  <p className="text-[11px] text-amber-200/90 leading-normal">
+                    This file was saved locally in the browser of the team member who uploaded it{(file as any)?.uploadedByUserName ? ` (${(file as any).uploadedByUserName})` : ''} and has not synced to the cloud. To enable seamless file access across all devices, a workspace admin can configure Supabase Cloud Storage in Workspace Settings.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 flex flex-col sm:flex-row gap-2.5 justify-center">
               {effectiveUrl ? (
