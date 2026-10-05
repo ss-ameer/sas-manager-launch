@@ -1,6 +1,6 @@
 import { safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
 import { where, doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
-import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult } from '../types';
+import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry } from '../types';
 import { getFromLocalStore } from './db';
 
 /**
@@ -279,6 +279,80 @@ export function parseSequenceFromQuoteRef(quoteRef: string, pattern?: string): n
   return null;
 }
 
+/**
+ * Dynamic ceiling calculator from active, non-deleted proposals in the active workspace.
+ */
+export function getWorkspaceActiveCeilings(
+  enquiries: Enquiry[],
+  workspaceId: string,
+  pattern?: string
+): { maxSn: number; maxSeq: number } {
+  if (!enquiries || enquiries.length === 0) {
+    return { maxSn: 0, maxSeq: 0 };
+  }
+
+  const active = enquiries.filter((e) => {
+    if (e.is_deleted) return false;
+    const wId = e.workspace_id || (e as any).workspaceId;
+    return wId === workspaceId || (!wId && (workspaceId === 'ws_default' || workspaceId === 'default'));
+  });
+
+  const maxSn = active.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
+
+  const maxSeq = active.reduce((max, e) => {
+    const qRef = e.quote_ref_no || (e as any).quote_ref || '';
+    const parsed = parseSequenceFromQuoteRef(qRef, pattern);
+    return Math.max(max, parsed || 0);
+  }, 0);
+
+  return { maxSn, maxSeq };
+}
+
+/**
+ * Self-healing counter routine: Reconciles workspace counters down to actual active ceilings.
+ * Heals both lastSnNumber and sequences[periodKey] without ratcheting or phantom bloat.
+ */
+export async function healWorkspaceCounters(
+  workspaceId: string,
+  enquiries: Enquiry[],
+  pattern?: string,
+  date: Date = new Date()
+): Promise<{ healedSn: number; healedSeq: number }> {
+  if (!workspaceId) {
+    return { healedSn: 0, healedSeq: 0 };
+  }
+
+  const { maxSn, maxSeq } = getWorkspaceActiveCeilings(enquiries, workspaceId, pattern);
+  const docRef = getWorkspaceCountersDocRef(workspaceId);
+
+  try {
+    let currentData: any = {};
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      currentData = snap.data();
+    }
+
+    const cadence = currentData.resetCadence || 'monthly';
+    const periodKey = getSequencePeriodKey(cadence, date);
+    const existingSequences = currentData.sequences ? { ...currentData.sequences } : {};
+    existingSequences[periodKey] = maxSeq;
+
+    const payload: Partial<WorkspaceSequenceCounters> = {
+      lastSnNumber: maxSn,
+      sequences: existingSequences,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'system-heal'
+    };
+
+    await setDoc(docRef, payload, { merge: true });
+    console.log(`[healWorkspaceCounters] Workspace ${workspaceId} counters healed: lastSn=${maxSn}, seq[${periodKey}]=${maxSeq}`);
+    return { healedSn: maxSn, healedSeq: maxSeq };
+  } catch (err) {
+    console.warn(`[healWorkspaceCounters] Failed healing counters for workspace ${workspaceId}:`, err);
+    return { healedSn: maxSn, healedSeq: maxSeq };
+  }
+}
+
 export interface ClaimSequenceOptions {
   targetSn?: number;
   customQuoteRef?: string;
@@ -389,12 +463,17 @@ export async function claimNextEnquirySequence(
       }
 
       const periodKey = getSequencePeriodKey(counters.resetCadence, now);
-      const currentSeq = counters.sequences?.[periodKey] || 0;
+      // Floor counter by active highestExistingSn so deleting proposals heals downward
+      const baseSeq = Math.max(counters.sequences?.[periodKey] || 0, 0);
+      const currentSeq = baseSeq;
       let nextSeq = currentSeq + 1;
 
       // Determine baseline S/N based on counters and known highest existing S/N
-      const currentMaxSn = Math.max(counters.lastSnNumber || 0, highestExistingSn);
-      let nextSn = currentMaxSn + 1;
+      // If counters are ratcheted higher than actual proposals, clamp them down to highestExistingSn
+      const currentMaxSn = highestExistingSn > 0
+        ? Math.min(counters.lastSnNumber || 0, highestExistingSn)
+        : (counters.lastSnNumber || 0);
+      let nextSn = (highestExistingSn > 0 ? highestExistingSn : currentMaxSn) + 1;
 
       // When evaluating options.targetSn, ensure that if targetSn already exists in the
       // workspace's active sequence map or Firestore enquiries, do NOT reuse it.
@@ -430,8 +509,8 @@ export async function claimNextEnquirySequence(
         [periodKey]: nextSeq
       };
 
-      // Only increment or maintain highest lastSnNumber so filling a gap does not regress counters
-      const committedLastSn = Math.max(counters.lastSnNumber || 0, nextSn);
+      // Commit the new lastSnNumber: if filling a lower gap, keep currentMaxSn; otherwise use nextSn
+      const committedLastSn = Math.max(currentMaxSn, nextSn);
 
       transaction.set(
         docRef,

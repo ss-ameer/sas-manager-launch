@@ -41,7 +41,7 @@ import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
 import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 import { signOut, deleteUser } from 'firebase/auth';
-import { writeBatch, collection, query, where, getDocs, doc, arrayRemove } from 'firebase/firestore';
+import { writeBatch, collection, query, where, getDocs, doc, arrayRemove, setDoc } from 'firebase/firestore';
 import { auth, db, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
 import { isWorkspaceAdmin, getUserRoleInWorkspace, getUserWorkspaceRole, canManageWorkspace, canModifyRegistrySettings } from '../utils/permissions';
 import { clearAllLocalStores } from '../services/db';
@@ -50,7 +50,8 @@ import {
   formatPattern,
   getWorkspaceSequenceCounters,
   updateWorkspaceSequenceSettings,
-  getSequencePeriodKey
+  getSequencePeriodKey,
+  getWorkspaceActiveCeilings
 } from '../services/enquirySequences';
 import {
   UserProfile,
@@ -248,6 +249,23 @@ export default function SettingsHub({
     setCurrentPeriodKey(getSequencePeriodKey(seqResetCadence, new Date()));
   }, [seqResetCadence]);
 
+  // One-click sync baseline counters to the active registry ceiling
+  const handleSyncBaselinesToRegistry = () => {
+    if (!activeWorkspace?.id) return;
+    const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
+      enquiries || [],
+      activeWorkspace.id,
+      seqPattern
+    );
+    const nextSn = maxSn + 1;
+    const nextSeq = maxSeq + 1;
+    setSeqNextSnBaseline(String(nextSn));
+    setSeqNextSeqBaseline(String(nextSeq));
+    if (triggerToast) {
+      triggerToast(`Baselines synced to registry: S/N #${nextSn}, Seq #${nextSeq}`, 'info');
+    }
+  };
+
   const handleSaveSequenceSettings = async () => {
     if (!activeWorkspace?.id || !isAdmin) return;
     setSavingSeqCounters(true);
@@ -266,6 +284,25 @@ export default function SettingsHub({
         },
         user?.uid || user?.email || 'admin'
       );
+
+      // Direct write to workspaces/{workspaceId}/system/counters to guarantee instant sync
+      try {
+        const countersRef = doc(db, 'workspaces', activeWorkspace.id, 'system', 'counters');
+        const periodKey = getSequencePeriodKey(seqResetCadence, new Date());
+        const seqBaselineNum = !isNaN(parsedSeqBaseline) ? parsedSeqBaseline : 1;
+        const snBaselineNum = !isNaN(parsedSnBaseline) ? parsedSnBaseline : 1;
+
+        await setDoc(countersRef, {
+          lastSnNumber: Math.max(0, snBaselineNum - 1),
+          sequences: {
+            [periodKey]: Math.max(0, seqBaselineNum - 1)
+          },
+          updatedAt: new Date().toISOString(),
+          updatedBy: user?.uid || 'user'
+        }, { merge: true });
+      } catch (directDocErr) {
+        console.warn('Could not directly update counters document in Firestore:', directDocErr);
+      }
 
       if (triggerToast) triggerToast('Sequence format and counter baseline saved successfully!', 'success');
     } catch (err: any) {
@@ -916,7 +953,18 @@ export default function SettingsHub({
 
                         {/* Next S/N Baseline */}
                         <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-700 font-sans">Next S/N Baseline</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700 font-sans">Next S/N Baseline</label>
+                            <button
+                              type="button"
+                              onClick={handleSyncBaselinesToRegistry}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded transition cursor-pointer"
+                              title="Sync S/N and Sequence baselines to the active registry ceiling"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5" />
+                              <span>Sync to Current Registry</span>
+                            </button>
+                          </div>
                           <input
                             type="number"
                             min="1"
@@ -930,7 +978,18 @@ export default function SettingsHub({
 
                         {/* Next Sequence Number */}
                         <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-700 font-sans">Next Sequence Number</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700 font-sans">Next Sequence Number</label>
+                            <button
+                              type="button"
+                              onClick={handleSyncBaselinesToRegistry}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded transition cursor-pointer"
+                              title="Sync S/N and Sequence baselines to the active registry ceiling"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5" />
+                              <span>Sync to Current Registry</span>
+                            </button>
+                          </div>
                           <input
                             type="number"
                             min="1"

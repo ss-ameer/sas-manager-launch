@@ -42,6 +42,7 @@ import { CallLogRepository } from './services/repositories/CallLogRepository';
 import { MetadataRepository } from './services/repositories/MetadataRepository';
 import { WorkspaceRepository } from './services/repositories/WorkspaceRepository';
 import { releaseEnquiryStock } from './services/inventoryService';
+import { healWorkspaceCounters } from './services/enquirySequences';
 import { ShieldCheck, HelpCircle, CheckCircle2, AlertCircle, Info, X, User, Clock, Menu } from 'lucide-react';
 import { BRAND_CONFIG } from './config';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1593,7 +1594,18 @@ export default function App() {
         }
       }
 
-      // 4. S/N numbers are immutable on deletion: deleting an enquiry never modifies or re-sequences other records
+      // 4. Self-healing sequence rollback: Reconcile workspace counters down to remaining active ceilings
+      const targetWsId = enqToDelete?.workspace_id || (enqToDelete as any)?.workspaceId || activeWorkspace?.id;
+      if (targetWsId) {
+        try {
+          const updatedEnquiries = enquiries.map((e) => e.id === cleanId ? { ...e, is_deleted: true } : e);
+          await healWorkspaceCounters(targetWsId, updatedEnquiries);
+        } catch (healErr) {
+          console.warn('[handleDeleteEnquiry] Non-critical counter healing failed:', healErr);
+        }
+      }
+
+      // 5. S/N numbers are immutable on deletion: deleting an enquiry never modifies or re-sequences other records
       setToast({ message: `Enquiry #${enqToDelete?.sn || ''} successfully deleted`, type: 'info' });
     } catch (error) {
       console.error('[handleDeleteEnquiry] Error during enquiry deletion:', error);
@@ -1650,7 +1662,17 @@ export default function App() {
         }
       }
 
-      // 3. S/N numbers are immutable on deletion: deleting enquiries never modifies or re-sequences other records
+      // 3. Self-healing sequence rollback: Reconcile workspace counters down to remaining active ceilings
+      if (activeWorkspace?.id) {
+        try {
+          const updatedEnquiries = enquiries.map((e) => validIds.includes(e.id) ? { ...e, is_deleted: true } : e);
+          await healWorkspaceCounters(activeWorkspace.id, updatedEnquiries);
+        } catch (healErr) {
+          console.warn('[handleBulkDeleteEnquiries] Non-critical counter healing failed:', healErr);
+        }
+      }
+
+      // 4. S/N numbers are immutable on deletion: deleting enquiries never modifies or re-sequences other records
       setToast({ message: `Successfully deleted ${validIds.length} enquiries`, type: 'info' });
     } catch (error) {
       console.error('[handleBulkDeleteEnquiries] Error bulk deleting enquiries:', error);

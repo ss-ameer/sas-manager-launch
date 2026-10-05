@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { X, Hash, Sparkles, User, Building, FileText, CheckCircle2, Loader2 } from 'lucide-react';
 import { Company, Salesperson, Workspace, Enquiry } from '../types';
-import { previewNextEnquirySequence, claimNextEnquirySequence, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
+import {
+  previewNextEnquirySequence,
+  claimNextEnquirySequence,
+  getWorkspaceSequenceCounters,
+  getSequencePeriodKey,
+  formatPattern,
+  getWorkspaceActiveCeilings
+} from '../services/enquirySequences';
 import { safeAddDoc } from '../firebase';
 
 interface QuickClaimModalProps {
@@ -11,6 +18,7 @@ interface QuickClaimModalProps {
   user: any;
   salespersons: Salesperson[];
   companies: Company[];
+  enquiries?: Enquiry[];
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onSuccess?: (claimedEnquiry: Enquiry) => void;
 }
@@ -22,6 +30,7 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
   user,
   salespersons,
   companies,
+  enquiries = [],
   triggerToast,
   onSuccess
 }) => {
@@ -59,36 +68,66 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
     }
   }, [isOpen, user, salespersons]);
 
-  // Live Next Sequence Resolution: On mount, fetch fresh counters from Firestore
+  // Live Next Sequence Resolution: On mount, fetch fresh counters from Firestore and reconcile with active registry ceilings
   useEffect(() => {
     if (!isOpen || !activeWorkspace?.id) return;
 
     let isMounted = true;
     setIsLoadingPreview(true);
 
+    // 1. Resolve active registry proposals from props or local cache fallback
+    let candidateEnquiries = enquiries;
+    if (!candidateEnquiries || candidateEnquiries.length === 0) {
+      try {
+        const saved = localStorage.getItem('omni_enquiries');
+        if (saved) {
+          candidateEnquiries = JSON.parse(saved);
+        }
+      } catch (e) {
+        // ignore cache read failure
+      }
+    }
+
     getWorkspaceSequenceCounters(activeWorkspace.id)
       .then((counters) => {
         if (!isMounted) return;
         const now = new Date();
         const periodKey = getSequencePeriodKey(counters.resetCadence, now);
-        const nextSn = (counters.lastSnNumber || 0) + 1;
-        const nextSeq = (counters.sequences?.[periodKey] || 0) + 1;
+
+        // Calculate dynamic active ceilings from registered proposals
+        const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
+          candidateEnquiries || [],
+          activeWorkspace.id,
+          counters.pattern
+        );
+
+        // S/N: Respect baseline overrides if higher than maxSn, but clamp down phantom counters to maxSn + 1
+        const baselineSn = (activeWorkspace as any)?.settings?.next_sn_baseline || 0;
+        const counterSn = counters.lastSnNumber || 0;
+        const effectiveLastSn = maxSn > 0 ? (counterSn > maxSn ? maxSn : counterSn) : counterSn;
+        const displayNextSn = Math.max(baselineSn, maxSn > 0 ? maxSn + 1 : effectiveLastSn + 1);
+
+        // Sequence: Respect baseline overrides if higher than maxSeq, but clamp down phantom counters to maxSeq + 1
+        const baselineSeq = (activeWorkspace as any)?.settings?.next_seq_baseline || 0;
+        const counterSeq = counters.sequences?.[periodKey] || 0;
+        const effectiveLastSeq = maxSeq > 0 ? (counterSeq > maxSeq ? maxSeq : counterSeq) : counterSeq;
+        const displayNextSeq = Math.max(baselineSeq, maxSeq > 0 ? maxSeq + 1 : effectiveLastSeq + 1);
 
         const liveQuoteRef = formatPattern(counters.pattern, {
-          seq: nextSeq,
+          seq: displayNextSeq,
           prefix: counters.prefix,
           date: now,
           rep: repInitials
         });
 
         setPreviewRef(liveQuoteRef);
-        setPreviewSn(nextSn);
+        setPreviewSn(displayNextSn);
         setIsLoadingPreview(false);
       })
       .catch((err) => {
         console.error('Error fetching live sequence counters:', err);
         // Fallback to previewNextEnquirySequence
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date())
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date(), candidateEnquiries)
           .then(res => {
             if (isMounted) {
               setPreviewRef(res.quoteRef);
@@ -104,7 +143,7 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, activeWorkspace?.id, repInitials]);
+  }, [isOpen, activeWorkspace?.id, repInitials, enquiries]);
 
   if (!isOpen) return null;
 

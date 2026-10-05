@@ -2000,6 +2000,7 @@ export default function EnquiryList({
         user={user}
         salespersons={salespersons}
         companies={companies}
+        enquiries={enquiries}
         triggerToast={triggerToast}
         onSuccess={(claimedEnquiry) => {
           if (onSelectEnquiry && claimedEnquiry.id) {
