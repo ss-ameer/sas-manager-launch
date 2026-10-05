@@ -307,16 +307,32 @@ export async function claimNextEnquirySequence(
 
   try {
     if (options?.targetSn && options.targetSn > 0) {
-      const snapTarget = await safeGetDocs(
-        'enquiries',
-        where('workspace_id', '==', workspaceId),
-        where('sn', '==', options.targetSn)
-      );
-      if (snapTarget && !snapTarget.empty) {
-        const activeMatches = snapTarget.docs.filter((d: any) => !d.data()?.is_deleted);
-        if (activeMatches.length > 0) {
-          isTargetSnTaken = true;
-        }
+      const numTarget = Number(options.targetSn);
+      const strTarget = String(options.targetSn);
+
+      // Query both workspace_id and workspaceId for both numeric and string representations of sn
+      const [snap1, snap2, snap3, snap4] = await Promise.all([
+        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId), where('sn', '==', numTarget)),
+        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId), where('sn', '==', strTarget)),
+        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId), where('sn', '==', numTarget)),
+        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId), where('sn', '==', strTarget))
+      ]);
+
+      const allDocs = [
+        ...(snap1?.docs || []),
+        ...(snap2?.docs || []),
+        ...(snap3?.docs || []),
+        ...(snap4?.docs || [])
+      ];
+
+      const activeMatches = allDocs.filter((d: any) => {
+        const data = d.data();
+        if (data?.is_deleted) return false;
+        return Number(data?.sn) === numTarget;
+      });
+
+      if (activeMatches.length > 0) {
+        isTargetSnTaken = true;
       }
     }
   } catch (err) {
@@ -330,10 +346,11 @@ export async function claimNextEnquirySequence(
       for (const e of localEnquiries) {
         if (e.is_deleted) continue;
         const eWs = e.workspace_id || e.workspaceId;
-        if (eWs && eWs !== workspaceId) continue;
-        if (typeof e.sn === 'number') {
-          if (e.sn > highestExistingSn) highestExistingSn = e.sn;
-          if (options?.targetSn && e.sn === options.targetSn) {
+        if (eWs && eWs !== workspaceId && !(workspaceId === 'ws_default' && !eWs)) continue;
+        const parsedSn = Number(e.sn);
+        if (!isNaN(parsedSn) && parsedSn > 0) {
+          if (parsedSn > highestExistingSn) highestExistingSn = parsedSn;
+          if (options?.targetSn && parsedSn === Number(options.targetSn)) {
             isTargetSnTaken = true;
           }
         }

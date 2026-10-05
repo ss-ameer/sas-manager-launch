@@ -1593,18 +1593,7 @@ export default function App() {
         }
       }
 
-      // 4. Automatically re-sequence remaining quote S/N numbers sequentially
-      const remainingEnquiries = enquiries.filter((e) => e.id !== cleanId);
-      try {
-        const resequenced = await syncSNNumbersInFirestore(remainingEnquiries);
-        if (resequenced && resequenced.length > 0) {
-          setEnquiries(resequenced);
-          setLocalCache('omni_enquiries', resequenced);
-        }
-      } catch (snErr) {
-        console.warn('[handleDeleteEnquiry] Error re-sequencing S/N numbers:', snErr);
-      }
-
+      // 4. S/N numbers are immutable on deletion: deleting an enquiry never modifies or re-sequences other records
       setToast({ message: `Enquiry #${enqToDelete?.sn || ''} successfully deleted`, type: 'info' });
     } catch (error) {
       console.error('[handleDeleteEnquiry] Error during enquiry deletion:', error);
@@ -1661,18 +1650,7 @@ export default function App() {
         }
       }
 
-      // 3. Automatically re-sequence remaining quote S/N numbers sequentially
-      const remainingEnquiries = enquiries.filter((e) => e.id && !validIds.includes(e.id));
-      try {
-        const resequenced = await syncSNNumbersInFirestore(remainingEnquiries);
-        if (resequenced && resequenced.length > 0) {
-          setEnquiries(resequenced);
-          setLocalCache('omni_enquiries', resequenced);
-        }
-      } catch (snErr) {
-        console.warn('[handleBulkDeleteEnquiries] Error re-sequencing S/N numbers:', snErr);
-      }
-
+      // 3. S/N numbers are immutable on deletion: deleting enquiries never modifies or re-sequences other records
       setToast({ message: `Successfully deleted ${validIds.length} enquiries`, type: 'info' });
     } catch (error) {
       console.error('[handleBulkDeleteEnquiries] Error bulk deleting enquiries:', error);
@@ -2367,43 +2345,5 @@ export default function App() {
     </ActivityLauncherProvider>
     </EntityEditContext.Provider>
   );
-}
-
-async function syncSNNumbersInFirestore(enquiriesList: Enquiry[]) {
-  if (enquiriesList.length === 0) return enquiriesList;
-  const sorted = [...enquiriesList].sort((a, b) => {
-    const dateA = a.createdAt || a.enquiry_date || '';
-    const dateB = b.createdAt || b.enquiry_date || '';
-    const dateComp = dateA.localeCompare(dateB);
-    if (dateComp !== 0) return dateComp;
-    return (a.sn || 0) - (b.sn || 0);
-  });
-
-  const baseSn = sorted[0]?.sn ? Math.min(sorted[0].sn, 1001) : 1001;
-  const batch = writeBatch(db);
-  let changed = false;
-
-  const resequenced = sorted.map((item, index) => {
-    const expectedSn = baseSn + index;
-    if (item.sn !== expectedSn) {
-      if (item.id && !item.id.startsWith('local_') && !item.id.startsWith('temp_')) {
-        const ref = doc(db, 'enquiries', item.id);
-        batch.update(ref, { sn: expectedSn, updatedAt: new Date().toISOString() });
-        changed = true;
-      }
-      return { ...item, sn: expectedSn };
-    }
-    return item;
-  });
-
-  if (changed) {
-    try {
-      await batch.commit();
-    } catch (e) {
-      console.error("Error auto-syncing S/N numbers:", e);
-    }
-  }
-
-  return resequenced;
 }
 

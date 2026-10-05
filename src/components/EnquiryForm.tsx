@@ -8,6 +8,7 @@ import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductTy
 import { db } from '../firebase';
 import { collection, writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
@@ -1099,7 +1100,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   const occupiedEnquiry = React.useMemo(() => {
     if (!enquiries || enquiries.length === 0 || isNaN(sn) || sn <= 0) return null;
     const isEditing = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
-    if (isEditing && enquiryToEdit?.sn === sn) return null;
+    if (isEditing && Number(enquiryToEdit?.sn) === Number(sn)) return null;
     const currentWorkspaceId = activeWorkspace?.id;
     return enquiries.find((e) => {
       if (e.is_deleted) return false;
@@ -1107,7 +1108,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
       const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
       if (!sameWorkspace) return false;
-      return typeof e.sn === 'number' && e.sn === sn;
+      return Number(e.sn) === Number(sn);
     }) || null;
   }, [enquiries, sn, enquiryToEdit, activeWorkspace]);
 
@@ -1124,7 +1125,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
       const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
       if (!sameWorkspace) return false;
-      return typeof e.sn === 'number' && e.sn >= sn;
+      return Number(e.sn) >= Number(sn);
     }).length;
   }, [isTargetSnOccupied, enquiries, sn, enquiryToEdit, activeWorkspace]);
 
@@ -2756,7 +2757,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
             const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
             if (!sameWorkspace) return false;
-            return typeof e.sn === 'number' && e.sn === targetSn;
+            return Number(e.sn) === Number(targetSn);
           })
         : null;
 
@@ -2787,7 +2788,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               const eWorkspaceId = e.workspace_id || (e as any).workspaceId;
               const sameWorkspace = eWorkspaceId === currentWorkspaceId || (!eWorkspaceId && activeWorkspace?.is_default);
               if (!sameWorkspace) return false;
-              return typeof e.sn === 'number' && e.sn >= targetSn;
+              return Number(e.sn) >= targetSn;
             })
             .sort((a, b) => (b.sn || 0) - (a.sn || 0)); // Descending order so higher numbers increment first
 
@@ -2822,6 +2823,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const updatedDoc: Enquiry = { 
           id: enquiryToEdit.id, 
           ...payload,
+          sn: Number(sn),
           attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
         };
         // Log update audit trail
@@ -2837,6 +2839,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         } else {
           await safeUpdateDoc('enquiries', enquiryToEdit.id, payload);
         }
+
+        // Persist to EnquiryRepository and local cache so onSnapshot and local cache remain in sync
+        try {
+          await EnquiryRepository.save(updatedDoc, activeWorkspace?.id);
+        } catch (repoErr) {
+          console.warn('Failed to save updated enquiry to EnquiryRepository:', repoErr);
+        }
+
+        try {
+          const cached = localStorage.getItem('omni_enquiries');
+          if (cached) {
+            const list = JSON.parse(cached);
+            const updated = list.map((e: any) => (e.id === enquiryToEdit.id ? updatedDoc : e));
+            localStorage.setItem('omni_enquiries', JSON.stringify(updated));
+          }
+        } catch (_) {}
 
         await logAudit(enquiryToEdit.id, 'enquiry', 'update', enquiryToEdit, updatedDoc, changes);
 
@@ -2917,6 +2935,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           ...finalPayload,
           attachments: memoryAttachments && memoryAttachments.length > 0 ? memoryAttachments : undefined
         };
+
+        try {
+          await EnquiryRepository.save(newDoc, activeWorkspace?.id);
+        } catch (repoErr) {
+          console.warn('Failed to save new enquiry to EnquiryRepository:', repoErr);
+        }
 
         await logAudit(newId, 'enquiry', 'create', null, finalPayload, []);
 
