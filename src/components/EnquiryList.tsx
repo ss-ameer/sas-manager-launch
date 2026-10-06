@@ -152,6 +152,7 @@ export default function EnquiryList({
     confirmText?: string;
     cancelText?: string;
     isDestructive?: boolean;
+    variant?: 'destructive' | 'warning' | 'default';
   }>({
     isOpen: false,
     title: '',
@@ -1504,13 +1505,14 @@ export default function EnquiryList({
                                 );
                                 setConfirmDialog({
                                   isOpen: true,
-                                  title: isPlaceholder ? 'Delete Reserved Gap' : 'Delete Enquiry',
+                                  title: isPlaceholder ? 'Delete Reserved Gap' : 'Move to Recycle Bin',
                                   message: isPlaceholder
                                     ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will immediately revert back to an open missing sequence gap.`
-                                    : `Are you sure you want to delete Enquiry #${e.sn}? This is irreversible.`,
-                                  confirmText: 'Delete',
+                                    : `Are you sure you want to move Enquiry #${e.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
+                                  confirmText: isPlaceholder ? 'Delete' : 'Move to Bin',
                                   cancelText: 'Cancel',
-                                  isDestructive: true,
+                                  variant: isPlaceholder ? 'destructive' : 'warning',
+                                  isDestructive: isPlaceholder,
                                   onConfirm: async () => {
                                     if (isPlaceholder) {
                                       try {
@@ -1901,11 +1903,12 @@ export default function EnquiryList({
               onClick={() => {
                 setConfirmDialog({
                   isOpen: true,
-                  title: 'Bulk Delete Enquiries',
-                  message: `Are you sure you want to delete ALL ${selectedEnquiryIds.length} selected enquiries? This is absolutely permanent.`,
-                  confirmText: 'Delete All',
+                  title: 'Move Selected to Recycle Bin',
+                  message: `Are you sure you want to move all ${selectedEnquiryIds.length} selected enquiries to the Recycle Bin? You can restore them anytime from the sidebar.`,
+                  confirmText: 'Move to Bin',
                   cancelText: 'Cancel',
-                  isDestructive: true,
+                  variant: 'warning',
+                  isDestructive: false,
                   onConfirm: () => {
                     onBulkDeleteEnquiries(selectedEnquiryIds);
                     setSelectedEnquiryIds([]);
@@ -1942,7 +1945,9 @@ export default function EnquiryList({
                   setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
                 }}
                 className={`py-2 px-4 rounded-xl text-xs font-bold text-white transition cursor-pointer ${
-                  confirmDialog.isDestructive
+                  confirmDialog.variant === 'warning'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : confirmDialog.isDestructive
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-slate-900 hover:bg-slate-800'
                 }`}

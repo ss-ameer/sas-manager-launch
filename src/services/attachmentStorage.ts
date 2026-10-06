@@ -348,3 +348,52 @@ export function sanitizeFirestorePayload(payload: any): any {
 
   return copy;
 }
+
+/**
+ * Permanently deletes an enquiry's attachments from both Supabase cloud storage and IndexedDB.
+ */
+export async function purgeEnquiryAttachments(
+  attachments: Attachment[] | undefined,
+  workspaceSettings?: any
+): Promise<void> {
+  if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
+    return;
+  }
+
+  const storageConfig = workspaceSettings?.storage || workspaceSettings;
+  const hasCloud = Boolean(
+    storageConfig?.supabaseUrl &&
+    storageConfig?.supabaseAnonKey &&
+    storageConfig?.bucket
+  );
+
+  const purgePromises = attachments.map(async (att) => {
+    if (!att) return;
+    const rawUrl = (att as any).url || (att as any).fileUrl || (att as any).downloadURL || (att as any).downloadUrl || '';
+
+    // 1. Cloud storage deletion if hosted on Supabase
+    if (typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) && hasCloud) {
+      try {
+        await deleteFromSupabaseStorage(rawUrl, {
+          supabaseUrl: storageConfig.supabaseUrl,
+          supabaseAnonKey: storageConfig.supabaseAnonKey,
+          bucket: storageConfig.bucket
+        });
+      } catch (err) {
+        console.warn(`[purgeEnquiryAttachments] Failed removing cloud attachment ${att.name}:`, err);
+      }
+    }
+
+    // 2. IndexedDB blob cleanup
+    const key = att.storageKey || (att.id ? `blob_${att.id}` : '') || getAttachmentStorageKey(att);
+    if (key) {
+      try {
+        await deleteAttachmentBlob(key);
+      } catch (err) {
+        console.warn(`[purgeEnquiryAttachments] Failed removing local blob ${key}:`, err);
+      }
+    }
+  });
+
+  await Promise.allSettled(purgePromises);
+}

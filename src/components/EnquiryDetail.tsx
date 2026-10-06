@@ -887,6 +887,7 @@ export default function EnquiryDetail({
     confirmText?: string;
     cancelText?: string;
     isDestructive?: boolean;
+    variant?: 'destructive' | 'warning' | 'default';
   }>({
     isOpen: false,
     title: '',
@@ -1332,11 +1333,12 @@ export default function EnquiryDetail({
 
                     setConfirmDialog({
                       isOpen: true,
-                      title: 'Delete Enquiry',
-                      message: `Are you sure you want to delete Enquiry #${enquiry.sn}? This action is irreversible.`,
-                      confirmText: 'Delete',
+                      title: 'Move to Recycle Bin',
+                      message: `Are you sure you want to move Enquiry #${enquiry.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
+                      confirmText: 'Move to Bin',
                       cancelText: 'Cancel',
-                      isDestructive: true,
+                      variant: 'warning',
+                      isDestructive: false,
                       onConfirm: () => {
                         onDeleteEnquiry(targetId);
                         onClose();
@@ -2546,7 +2548,9 @@ export default function EnquiryDetail({
                   setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
                 }}
                 className={`py-2 px-4 rounded-xl text-xs font-bold text-white transition cursor-pointer ${
-                  confirmDialog.isDestructive
+                  confirmDialog.variant === 'warning'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : confirmDialog.isDestructive
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : 'bg-slate-900 hover:bg-slate-800'
                 }`}

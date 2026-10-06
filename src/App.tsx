@@ -2199,6 +2199,8 @@ export default function App() {
         products={products}
         callLogs={callLogs}
         activeWorkspaceId={activeWorkspace?.id}
+        activeWorkspace={activeWorkspace}
+        triggerToast={triggerToast}
         onRefreshData={async () => {
           // Re-sync local cache repositories
           try {

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Trash2, RefreshCw, AlertTriangle, Search, Filter, ShieldAlert, CheckCircle2, RotateCcw } from 'lucide-react';
-import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile } from '../types';
+import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment } from '../types';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
+import { purgeEnquiryAttachments } from '../services/attachmentStorage';
 
 interface TrashBinModalProps {
   isOpen: boolean;
@@ -17,6 +18,8 @@ interface TrashBinModalProps {
   callLogs: CallLogEntry[];
   onRefreshData: () => void;
   activeWorkspaceId?: string;
+  activeWorkspace?: Workspace;
+  triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs';
@@ -31,12 +34,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   products,
   callLogs,
   onRefreshData,
-  activeWorkspaceId
+  activeWorkspaceId,
+  activeWorkspace,
+  triggerToast
 }) => {
   const [activeTab, setActiveTab] = useState<CategoryTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmPurgeId, setConfirmPurgeId] = useState<string | null>(null);
+  const [itemToPurge, setItemToPurge] = useState<UnifiedDeletedItem | null>(null);
   const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
 
   if (!isOpen) return null;
@@ -188,12 +194,20 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     }
   };
 
-  // Handle Purge Permanent
+  // Handle Purge Permanent with Cascade Storage Cleanup
   const handlePurge = async (item: UnifiedDeletedItem) => {
     setIsProcessing(true);
     try {
       if (item.type === 'enquiry') {
+        const rawAtts = item.rawItem?.attachments;
+        if (Array.isArray(rawAtts) && rawAtts.length > 0) {
+          await purgeEnquiryAttachments(rawAtts, activeWorkspace?.settings);
+        }
         await EnquiryRepository.purgePermanent(item.id);
+        const snLabel = item.rawItem?.sn ? `Enquiry #${item.rawItem.sn}` : 'Enquiry';
+        if (triggerToast) {
+          triggerToast(`${snLabel} and linked attachments permanently purged.`, 'info');
+        }
       } else if (item.type === 'company') {
         await CompanyRepository.purgeCompanyPermanent(item.id);
       } else if (item.type === 'contact') {
@@ -203,30 +217,50 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
       } else if (item.type === 'call_log') {
         await CallLogRepository.purgePermanent(item.id);
       }
+      setItemToPurge(null);
       setConfirmPurgeId(null);
       onRefreshData();
     } catch (e) {
       console.error('Failed to purge item:', e);
+      if (triggerToast) {
+        triggerToast('Failed to permanently purge record.', 'error');
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Handle Empty Trash
+  // Handle Empty Trash with Cascade Storage Cleanup
   const handleEmptyTrash = async () => {
     setIsProcessing(true);
     try {
       for (const item of items) {
-        if (item.type === 'enquiry') await EnquiryRepository.purgePermanent(item.id);
-        else if (item.type === 'company') await CompanyRepository.purgeCompanyPermanent(item.id);
-        else if (item.type === 'contact') await CompanyRepository.purgeContactPermanent(item.id);
-        else if (item.type === 'product') await MetadataRepository.purgeProductPermanent(item.id);
-        else if (item.type === 'call_log') await CallLogRepository.purgePermanent(item.id);
+        if (item.type === 'enquiry') {
+          const rawAtts = item.rawItem?.attachments;
+          if (Array.isArray(rawAtts) && rawAtts.length > 0) {
+            await purgeEnquiryAttachments(rawAtts, activeWorkspace?.settings);
+          }
+          await EnquiryRepository.purgePermanent(item.id);
+        } else if (item.type === 'company') {
+          await CompanyRepository.purgeCompanyPermanent(item.id);
+        } else if (item.type === 'contact') {
+          await CompanyRepository.purgeContactPermanent(item.id);
+        } else if (item.type === 'product') {
+          await MetadataRepository.purgeProductPermanent(item.id);
+        } else if (item.type === 'call_log') {
+          await CallLogRepository.purgePermanent(item.id);
+        }
       }
       setShowEmptyTrashConfirm(false);
+      if (triggerToast) {
+        triggerToast('Recycle bin emptied and cloud attachments permanently freed.', 'info');
+      }
       onRefreshData();
     } catch (e) {
       console.error('Failed to empty trash:', e);
+      if (triggerToast) {
+        triggerToast('Failed to empty trash bin.', 'error');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -382,32 +416,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                     </button>
 
                     {isAdmin && (
-                      confirmPurgeId === item.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handlePurge(item)}
-                            disabled={isProcessing}
-                            className="px-2 py-1 text-[11px] font-semibold bg-rose-600 text-white rounded-md hover:bg-rose-500"
-                          >
-                            Confirm Purge
-                          </button>
-                          <button
-                            onClick={() => setConfirmPurgeId(null)}
-                            className="px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmPurgeId(item.id)}
-                          disabled={isProcessing}
-                          className="px-2 py-1 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors"
-                          title="Purge Permanently"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )
+                      <button
+                        type="button"
+                        onClick={() => setItemToPurge(item)}
+                        disabled={isProcessing}
+                        className="px-2 py-1 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                        title="Purge Permanently"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -416,30 +433,72 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
           )}
         </div>
 
-        {/* Empty Trash Confirmation Modal */}
-        {showEmptyTrashConfirm && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl">
+        {/* Individual Item Purge Confirmation Modal */}
+        {itemToPurge && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 p-4 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
               <div className="flex items-center gap-3 text-rose-400 mb-3">
-                <AlertTriangle className="w-6 h-6" />
-                <h3 className="text-sm font-bold text-slate-100">Permanently Empty Trash Bin?</h3>
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-sm font-bold text-slate-100">
+                  {itemToPurge.type === 'enquiry'
+                    ? `Permanently Delete Enquiry #${itemToPurge.rawItem?.sn || ''}?`
+                    : `Permanently Delete ${itemToPurge.title || itemToPurge.typeLabel}?`}
+                </h3>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                This action will permanently delete all {totalDeletedCount} soft-deleted records from Firestore and local storage. This operation cannot be undone.
+                {itemToPurge.type === 'enquiry'
+                  ? 'This will permanently delete this enquiry record and reclaim storage by deleting all attached proposal documents from cloud storage. This action cannot be undone.'
+                  : 'This will permanently delete this record from the database. This action cannot be undone.'}
               </p>
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => setShowEmptyTrashConfirm(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+                  type="button"
+                  onClick={() => setItemToPurge(null)}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  onClick={() => handlePurge(itemToPurge)}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors cursor-pointer"
+                >
+                  Permanently Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Empty Trash Confirmation Modal */}
+        {showEmptyTrashConfirm && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 p-4 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-3 text-rose-400 mb-3">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-sm font-bold text-slate-100">Empty Entire Workspace Recycle Bin?</h3>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                Are you sure you want to permanently delete all {totalDeletedCount} items in the recycle bin? All associated proposal attachments will be deleted from Supabase cloud storage to free quota. This cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEmptyTrashConfirm(false)}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
                   onClick={handleEmptyTrash}
                   disabled={isProcessing}
-                  className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-500"
+                  className="px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors cursor-pointer"
                 >
-                  Confirm Empty Trash
+                  Empty Bin & Free Storage
                 </button>
               </div>
             </div>

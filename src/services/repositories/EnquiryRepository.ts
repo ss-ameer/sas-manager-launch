@@ -4,6 +4,7 @@ import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
 import { canAccessEnquiry, isAdmin, isSuperAdmin, getUserWorkspaceRole } from '../../utils/permissions';
+import { purgeEnquiryAttachments } from '../attachmentStorage';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -184,9 +185,15 @@ export class EnquiryRepository {
     await this.save(restoredEnquiry);
   }
 
-  public static async purgePermanent(id: string): Promise<void> {
-    // 1. Hard purge from local cache
+  public static async purgePermanent(id: string, workspaceSettings?: any): Promise<void> {
+    // 1. Hard purge from local cache & clean attachments if present
     const current = await this.getAllLocal();
+    const target = current.find((item) => item.id === id);
+    if (target?.attachments && Array.isArray(target.attachments) && target.attachments.length > 0) {
+      await purgeEnquiryAttachments(target.attachments, workspaceSettings).catch((err) => {
+        console.warn('[EnquiryRepository.purgePermanent] Attachment purge warning:', err);
+      });
+    }
     const updated = current.filter((item) => item.id !== id);
     await this.saveLocalCache(updated);
 
