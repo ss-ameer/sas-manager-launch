@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -182,7 +182,8 @@ export default function EnquiryList({
     sales_person: number;
     client: number;
     value: number;
-  }>({ sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1 });
+    status: number;
+  }>({ sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1, status: -1 });
 
   // Format currency parts for high-hierarchy tabular display
   const getEnquiryCurrencyParts = (e: Enquiry) => {
@@ -355,6 +356,10 @@ export default function EnquiryList({
     const activeReps = new Set<string>();
     (authorizedEnquiries || []).forEach((e) => {
       if (!e) return;
+      const spId = resolveSalespersonIdentifier(e);
+      const spName = resolveSalespersonName(e);
+      if (spId) activeReps.add(spId.toLowerCase().trim());
+      if (spName) activeReps.add(spName.toLowerCase().trim());
       if (e.sales_person_id) activeReps.add(e.sales_person_id.toLowerCase().trim());
       if (e.salesperson_id) activeReps.add(e.salesperson_id.toLowerCase().trim());
       if (e.sales_rep_id) activeReps.add(e.sales_rep_id.toLowerCase().trim());
@@ -390,13 +395,31 @@ export default function EnquiryList({
         const matchText = !q || compNameLower.includes(q) || ref.includes(q) || snStr.includes(q);
 
         // 2. Status
-        const matchStatus = statusFilter === 'All' || e.status === statusFilter;
+        const matchStatus =
+          statusFilter === 'All' ||
+          e.status === statusFilter ||
+          (statusFilter === 'Gap / Reserved' && (e.status === 'GAP / RESERVED' || e.is_gap_placeholder)) ||
+          normalizeEnquiryStatus(e.status) === statusFilter;
 
         // 3. Salesperson
         const matchRep = salesPersonFilter === 'All' || (() => {
           const sp = (salespersons || []).find(s => s && (s.id === salesPersonFilter || s.initials === salesPersonFilter));
-          if (!sp) return e.sales_person === salesPersonFilter || e.salesperson === salesPersonFilter;
+          const spId = resolveSalespersonIdentifier(e);
+          const spName = resolveSalespersonName(e);
+          if (!sp) {
+            return (
+              spId === salesPersonFilter ||
+              spName === salesPersonFilter ||
+              e.sales_person === salesPersonFilter ||
+              e.salesperson === salesPersonFilter
+            );
+          }
           return (
+            spId === sp.id ||
+            spId === sp.initials ||
+            spName === sp.id ||
+            spName === sp.initials ||
+            (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()) ||
             e.sales_person === sp.id ||
             e.sales_person === sp.initials ||
             e.salesperson === sp.id ||
@@ -490,7 +513,7 @@ export default function EnquiryList({
       setParsedRows(parsed);
       // Try to intelligently detect mapping indices if first row looks like a header
       const headers = parsed[0];
-      const map = { sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1 };
+      const map = { sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1, status: -1 };
       
       headers.forEach((h, idx) => {
         const low = h.toLowerCase().trim();
@@ -500,6 +523,7 @@ export default function EnquiryList({
         else if (low.includes('sales') || low.includes('person') || low.includes('rep') || low.includes('initials')) map.sales_person = idx;
         else if (low.includes('client') || low.includes('company') || low.includes('customer') || low.includes('account')) map.client = idx;
         else if (low.includes('value') || low.includes('aed') || low.includes('price') || low.includes('amount')) map.value = idx;
+        else if (low.includes('status') || low.includes('stage')) map.status = idx;
       });
       setColumnMappings(map);
       setImportStep('preview');
@@ -548,22 +572,43 @@ export default function EnquiryList({
 
         // Check if company is known
         const comp = companies.find(
-          (c) => c.canonical_name.toLowerCase() === clientText.toLowerCase() || c.aliases.some((a) => a.toLowerCase() === clientText.toLowerCase())
+          (c) =>
+            c.canonical_name?.toLowerCase() === clientText.toLowerCase() ||
+            c.display_name?.toLowerCase() === clientText.toLowerCase() ||
+            c.aliases?.some((a) => a.toLowerCase() === clientText.toLowerCase())
         );
         const cId = comp?.id || 'comp_ionex'; // fall back to preloaded general client account
+        const activeWorkspaceId = activeWorkspace?.id ?? 'ws_default';
+        const now = new Date().toISOString();
+
+        // Map Status
+        let rowStatus: EnquiryStatus = 'Active';
+        if (columnMappings.status !== undefined && columnMappings.status !== -1 && parts[columnMappings.status]) {
+          const rawSt = parts[columnMappings.status].trim();
+          rowStatus = normalizeEnquiryStatus(rawSt) as EnquiryStatus;
+        }
 
         const record: Enquiry = {
           sn: snNum,
+          workspace_id: activeWorkspaceId,
+          workspaceId: activeWorkspaceId,
           enquiry_date: dateStr,
           sales_person: spInitials,
           company_id: cId,
+          company_name: comp?.display_name || clientText,
+          client_company: clientText,
           country: 'UAE',
           project_location: 'Sharjah',
           enquiry_source: 'Email',
-          status: 'Active',
+          status: rowStatus,
           quote_ref_no: quoteRef,
           value_aed: valNum,
-          line_items: []
+          line_items: [],
+          created_by: user?.uid || 'system',
+          createdBy: user?.displayName || user?.name || user?.email || 'User',
+          created_by_uid: user?.uid || 'system',
+          createdAt: now,
+          created_at: now
         };
 
         const docRef = doc(collection(db, 'enquiries'));
@@ -608,7 +653,7 @@ export default function EnquiryList({
         id: gapDocId,
         sn: targetSn,
         company_name: `[Reserved Sequence / #${targetSn}]`,
-        status: 'GAP / RESERVED',
+        status: 'Gap / Reserved',
         workspace_id: workspaceId,
         workspaceId: workspaceId,
         created_at: now,
@@ -690,7 +735,7 @@ export default function EnquiryList({
       const newGapDoc: any = {
         id: gapDocId,
         sn: snNum,
-        status: 'GAP / RESERVED',
+        status: 'Gap / Reserved',
         company_name: (reserveGapMemo || '').trim() ? `[Reserved Sequence / #${snNum}] ${(reserveGapMemo || '').trim()}` : `[Reserved Sequence / #${snNum}]`,
         quote_ref: (reserveGapMemo || '').trim(),
         quote_ref_no: (reserveGapMemo || '').trim(),
@@ -745,18 +790,10 @@ export default function EnquiryList({
     }
   };
 
-  const PROPOSAL_STATUS_OPTIONS = [
-    { value: 'Draft', label: 'Draft' },
-    { value: 'Active', label: 'Active' },
-    { value: 'Sent / Pending Client', label: 'Sent / Pending Client' },
-    { value: 'Revision Requested', label: 'Revision Requested' },
-    { value: 'Won / Approved', label: 'Won / Approved' },
-    { value: 'Lost / Cancelled', label: 'Lost / Cancelled' },
-    { value: 'Hold', label: 'Hold' },
-    { value: 'Delayed', label: 'Delayed' },
-    { value: 'Dead', label: 'Dead' },
-    { value: 'Gap / Reserved', label: 'Gap / Reserved' }
-  ];
+  const PROPOSAL_STATUS_OPTIONS = ENQUIRY_STATUS_OPTIONS.map((opt) => ({
+    value: opt,
+    label: opt
+  }));
 
   const formatRelativeTime = (isoString?: string): string => {
     if (!isoString) return '';
@@ -1033,17 +1070,9 @@ export default function EnquiryList({
                 className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Statuses</option>
-                <option value="Active">Active</option>
-                <option value="Draft">Draft</option>
-                <option value="Sent / Pending Client">Sent / Pending Client</option>
-                <option value="Revision Requested">Revision Requested</option>
-                <option value="Won / Approved">Won / Approved</option>
-                <option value="Lost / Cancelled">Lost / Cancelled</option>
-                <option value="Hold">Hold</option>
-                <option value="Delayed">Delayed</option>
-                <option value="Dead">Dead</option>
-                <option value="Order Received">Order Received (Legacy)</option>
-                <option value="Gap / Reserved">Gap / Reserved</option>
+                {ENQUIRY_STATUS_OPTIONS.map((st) => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
               </select>
               <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
@@ -1354,12 +1383,26 @@ export default function EnquiryList({
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         {(() => {
-                          const sp = (salespersons || []).find((s) => s && (s.id === e.sales_person || s.initials === e.sales_person));
-                          const initials = sp ? (sp.initials || getInitials(sp.full_name || '')) : (e.sales_person || '—');
+                          const spId = resolveSalespersonIdentifier(e);
+                          const spName = resolveSalespersonName(e);
+                          const sp = (salespersons || []).find(
+                            (s) =>
+                              s &&
+                              ((spId && (s.id === spId || s.initials === spId)) ||
+                               (spName &&
+                                 (s.id === spName ||
+                                  s.initials === spName ||
+                                  (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
+                                  (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
+                          );
+                          const initials = sp
+                            ? (sp.initials || getInitials(sp.full_name || sp.name || ''))
+                            : (spName || spId || '—');
+                          const titleText = sp?.full_name || sp?.name || spName || spId || '';
                           return (
                             <span 
                               className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
-                              title={sp?.full_name || e.sales_person || ''}
+                              title={titleText}
                             >
                               {initials}
                             </span>
@@ -1383,7 +1426,7 @@ export default function EnquiryList({
                             <div className="flex flex-col items-start gap-1">
                               <div className="relative inline-flex items-center">
                                 <select
-                                  value={e.status}
+                                  value={normalizeEnquiryStatus(e.status)}
                                   onClick={(evt) => evt.stopPropagation()}
                                   onChange={(evt) => {
                                     evt.stopPropagation();
@@ -1392,23 +1435,15 @@ export default function EnquiryList({
                                   title={tooltipTitle}
                                   className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
                                 >
-                                  {PROPOSAL_STATUS_OPTIONS.map((opt) => (
+                                  {ENQUIRY_STATUS_OPTIONS.map((st) => (
                                     <option
-                                      key={opt.value}
-                                      value={opt.value}
+                                      key={st}
+                                      value={st}
                                       className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
                                     >
-                                      {opt.label}
+                                      {st}
                                     </option>
                                   ))}
-                                  {!PROPOSAL_STATUS_OPTIONS.some((opt) => opt.value === e.status) && (
-                                    <option
-                                      value={e.status}
-                                      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
-                                    >
-                                      {e.status}
-                                    </option>
-                                  )}
                                 </select>
                                 <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
                               </div>
@@ -1792,6 +1827,20 @@ export default function EnquiryList({
                         ))}
                       </select>
                     </div>
+
+                    <div>
+                      <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1">Status</label>
+                      <select
+                        value={columnMappings.status ?? -1}
+                        onChange={(e) => setColumnMappings({ ...columnMappings, status: Number(e.target.value) })}
+                        className="w-full text-xs p-1.5 border border-slate-200 rounded bg-white font-sans"
+                      >
+                        <option value={-1}>-- Default (Active) --</option>
+                        {parsedRows[0]?.map((_, idx) => (
+                          <option key={idx} value={idx}>Col {idx + 1} ({parsedRows[0][idx] || 'Empty'})</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -1836,6 +1885,10 @@ export default function EnquiryList({
                                 {matchedComp ? (
                                   <span className="text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                                     ✓ {matchedComp.display_name}
+                                  </span>
+                                ) : clientText ? (
+                                  <span className="text-blue-700 font-medium bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                                    {clientText}
                                   </span>
                                 ) : (
                                   <span className="text-slate-400 italic">

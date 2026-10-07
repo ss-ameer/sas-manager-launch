@@ -4,7 +4,7 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquirySource, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, LegalSuffix, DropdownOption, Workspace } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquirySource, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, LegalSuffix, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus } from '../types';
 import { db } from '../firebase';
 import { collection, writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
@@ -1171,7 +1171,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           setRemarks(enquiryToEdit.remarks || '');
         }
       } else {
-        setStatus(enquiryToEdit.status);
+        setStatus(normalizeEnquiryStatus(enquiryToEdit.status) as EnquiryStatus);
         setRemarks(enquiryToEdit.remarks || '');
       }
 
@@ -5141,11 +5141,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div>
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Status</MarqueeLabel>
                 <select
-                  value={status}
+                  value={normalizeEnquiryStatus(status)}
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
                 >
-                  {['Active', 'Order Received', 'Lost', 'Dead', 'Hold', 'Delayed', 'Cancelled PO', 'Gap / Reserved'].map((st) => (
+                  {ENQUIRY_STATUS_OPTIONS.map((st) => (
                     <option key={st} value={st}>{st}</option>
                   ))}
                 </select>

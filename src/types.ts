@@ -460,21 +460,44 @@ export interface Attachment {
 
 export type EnquirySource = string;
 
+/**
+ * Canonical array of all recognized enquiry stages and statuses across all views.
+ */
+export const ENQUIRY_STATUS_OPTIONS = [
+  'Draft',
+  'Active',
+  'Sent / Pending Client',
+  'Revision Requested',
+  'Order Received',
+  'Won / Approved',
+  'Lost',
+  'Lost / Cancelled',
+  'Delayed',
+  'Hold',
+  'Dead',
+  'Cancelled PO',
+  'Gap / Reserved'
+] as const;
+
+export type CanonicalEnquiryStatus = (typeof ENQUIRY_STATUS_OPTIONS)[number];
+
 export type EnquiryStatus =
-  | 'Active'
-  | 'Order Received'
-  | 'Lost'
-  | 'Dead'
-  | 'Hold'
-  | 'Delayed'
-  | 'Cancelled PO'
-  | 'Draft'
-  | 'Sent / Pending Client'
-  | 'Revision Requested'
-  | 'Won / Approved'
-  | 'Lost / Cancelled'
-  | 'Gap / Reserved'
+  | CanonicalEnquiryStatus
+  | 'Won'
+  | 'GAP / RESERVED'
   | string;
+
+/**
+ * Safely resolves case variations (e.g. legacy 'GAP / RESERVED') to canonical options.
+ */
+export function normalizeEnquiryStatus(status?: string | null): string {
+  if (!status) return 'Active';
+  const trimmed = status.trim();
+  const matched = ENQUIRY_STATUS_OPTIONS.find(
+    (opt) => opt.toLowerCase() === trimmed.toLowerCase()
+  );
+  return matched || trimmed;
+}
 
 export interface EnquiryStatusHistoryEntry {
   from: string;
@@ -541,7 +564,9 @@ export interface Enquiry extends SoftDeleteFields {
   concerned_persons?: string[];
   concerned_person?: string;
   createdAt?: string;
+  created_at?: string;
   updatedAt?: string;
+  updated_at?: string;
   createdByUid?: string;
   createdByUsername?: string;
   updatedByUid?: string;
@@ -614,6 +639,8 @@ export interface Salesperson {
   workspace_id?: string;
   initials?: string;
   full_name: string;
+  name?: string;
+  displayName?: string;
   role: string;
   email?: string;
   phone?: string;
@@ -658,6 +685,36 @@ export const getInitials = (name?: string | null): string => {
   }
   return (trimmed || '??').substring(0, Math.min(2, trimmed.length)).toUpperCase();
 };
+
+/**
+ * Resolves the primary salesperson identifier/ID across legacy and standard keys.
+ */
+export function resolveSalespersonIdentifier(enquiry: Partial<Enquiry> | null | undefined): string {
+  if (!enquiry) return '';
+  return (
+    enquiry.sales_person_id ||
+    enquiry.salesperson_id ||
+    enquiry.sales_person ||
+    enquiry.salesperson ||
+    enquiry.assigned_to_id ||
+    enquiry.assigned_to ||
+    ''
+  );
+}
+
+/**
+ * Resolves the salesperson display name or initials across assignment keys.
+ */
+export function resolveSalespersonName(enquiry: Partial<Enquiry> | null | undefined): string {
+  if (!enquiry) return '';
+  return (
+    enquiry.assignedSalesperson ||
+    enquiry.sales_person ||
+    enquiry.salesperson ||
+    enquiry.assigned_to ||
+    ''
+  );
+}
 
 export function normalizeAttributes(attributes: any): ProductAttribute[] {
   if (!attributes) return [];

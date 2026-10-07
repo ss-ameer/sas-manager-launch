@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -1164,24 +1164,34 @@ export default function EnquiryDetail({
   };
 
   const getStatusStyle = (status: string) => {
-    switch (status) {
-      case 'Active':
+    const s = (status || '').trim().toLowerCase();
+    if (s.includes('gap') || s.includes('reserved')) {
+      return 'bg-amber-50 border-amber-300 text-amber-800 border-dashed';
+    }
+    if (s.includes('draft')) {
+      return 'bg-slate-100 border-slate-300 text-slate-700';
+    }
+    if (s.includes('sent')) {
+      return 'bg-blue-50 border-blue-200 text-blue-700';
+    }
+    if (s.includes('revision')) {
+      return 'bg-amber-50 border-amber-200 text-amber-700';
+    }
+    if (s.includes('won') || s.includes('order received') || s.includes('approved')) {
+      return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+    }
+    if (s.includes('lost') || s.includes('cancelled')) {
+      return 'bg-rose-50 border-rose-200 text-rose-700';
+    }
+    switch (s) {
+      case 'active':
         return 'bg-blue-50 border-blue-200 text-blue-700';
-      case 'Won':
-      case 'Won / Approved':
-      case 'Order Received':
-        return 'bg-emerald-50 border-emerald-200 text-emerald-700';
-      case 'Lost':
-      case 'Lost / Cancelled':
-        return 'bg-rose-50 border-rose-200 text-rose-700';
-      case 'Dead':
-        return 'bg-slate-100 border-slate-200 text-slate-600';
-      case 'Hold':
+      case 'hold':
         return 'bg-amber-50 border-amber-200 text-amber-700';
-      case 'Delayed':
+      case 'delayed':
         return 'bg-purple-50 border-purple-200 text-purple-700';
-      case 'Cancelled PO':
-        return 'bg-pink-50 border-pink-200 text-pink-700';
+      case 'dead':
+        return 'bg-slate-100 border-slate-200 text-slate-600';
       default:
         return 'bg-slate-50 border-slate-200 text-slate-600';
     }
@@ -1198,30 +1208,59 @@ export default function EnquiryDetail({
             <span className="text-xs font-mono bg-slate-50 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-md font-bold shrink-0">
               #{enquiry.sn}
             </span>
-            <div className="flex items-center space-x-2 min-w-0 flex-1">
-              <h3
-                className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate"
-                title={matchedCompany?.display_name || 'Unassigned Account'}
-              >
-                {matchedCompany?.display_name || 'Unassigned Account'}
-              </h3>
-              {matchedCompany && (
-                <div className="hidden md:flex items-center space-x-2 shrink-0">
-                  <GoogleSearchButton
-                    companyName={matchedCompany.display_name}
-                    location={matchedCompany.city}
-                    size="sm"
-                  />
-                  <TemperatureBadge
-                    companyId={matchedCompany.id}
-                    temperature={matchedCompany.temperature}
-                    isDnc={matchedCompany.is_dnc}
-                    variant="compact"
-                    companies={companies}
-                    setCompanies={setCompanies}
-                  />
-                  <IndustryBadge company={matchedCompany} size="sm" showEmpty />
-                </div>
+            <div className="flex flex-col min-w-0 flex-1 justify-center">
+              <div className="flex items-center space-x-2 min-w-0 flex-wrap">
+                {(() => {
+                  const resolvedCompanyName =
+                    matchedCompany?.display_name ||
+                    enquiry.company_name ||
+                    (enquiry as any)?.company ||
+                    (enquiry as any)?.client_name ||
+                    currentEnquiry.company_name ||
+                    (currentEnquiry as any)?.company ||
+                    'Unassigned Account';
+                  return (
+                    <h3
+                      className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate"
+                      title={resolvedCompanyName}
+                    >
+                      {resolvedCompanyName}
+                    </h3>
+                  );
+                })()}
+                {matchedCompany && (
+                  <div className="hidden md:flex items-center space-x-2 shrink-0">
+                    <GoogleSearchButton
+                      companyName={matchedCompany.display_name}
+                      location={matchedCompany.city}
+                      size="sm"
+                    />
+                    <TemperatureBadge
+                      companyId={matchedCompany.id}
+                      temperature={matchedCompany.temperature}
+                      isDnc={matchedCompany.is_dnc}
+                      variant="compact"
+                      companies={companies}
+                      setCompanies={setCompanies}
+                    />
+                    <IndustryBadge company={matchedCompany} size="sm" showEmpty />
+                  </div>
+                )}
+                {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
+                    Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                  </span>
+                )}
+                {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
+                    {currentEnquiry.proposal_option || enquiry.proposal_option}
+                  </span>
+                )}
+              </div>
+              {(currentEnquiry.subject || enquiry.subject) && (
+                <p className="text-xs text-slate-500 font-medium truncate mt-0.5" title={currentEnquiry.subject || enquiry.subject}>
+                  {currentEnquiry.subject || enquiry.subject}
+                </p>
               )}
             </div>
           </div>
@@ -1407,13 +1446,13 @@ export default function EnquiryDetail({
                     <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status Code</span>
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                       <select
-                        value={currentEnquiry.status}
+                        value={normalizeEnquiryStatus(currentEnquiry.status)}
                         disabled={isUpdatingStatus}
                         onChange={(e) => handleStatusTransition(e.target.value)}
                         className="text-xs bg-white/90 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-0.5 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer focus:outline-none shadow-2xs"
                         title="Change Enquiry Status"
                       >
-                        {['Active', 'Won / Approved', 'Order Received', 'Lost', 'Lost / Cancelled', 'Delayed', 'Hold', 'Dead', 'Cancelled PO'].map((st) => (
+                        {ENQUIRY_STATUS_OPTIONS.map((st) => (
                           <option key={st} value={st}>{st}</option>
                         ))}
                       </select>
@@ -1430,7 +1469,14 @@ export default function EnquiryDetail({
                   </div>
                 </div>
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Total Package Price</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Total Package Price</span>
+                    {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200" title="Selected Option">
+                        {currentEnquiry.proposal_option || enquiry.proposal_option}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-base font-bold font-mono text-blue-600 mt-1">{formatCurrency(currentEnquiry.value_aed)}</span>
                 </div>
               </div>
@@ -1685,17 +1731,70 @@ export default function EnquiryDetail({
                 <div className="grid grid-cols-2 gap-4 text-xs">
                   <div>
                     <span className="text-slate-400 block uppercase font-mono text-[10px]">Quote Ref</span>
-                    <span className="text-slate-800 font-semibold font-mono">{enquiry.quote_ref_no}</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-slate-800 font-semibold font-mono">{currentEnquiry.quote_ref_no || enquiry.quote_ref_no}</span>
+                      {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200" title="Proposal Option">
+                          {currentEnquiry.proposal_option || enquiry.proposal_option}
+                        </span>
+                      )}
+                      {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200" title="Customer Reference Code">
+                          Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                        </span>
+                      )}
+                    </div>
+                    {(currentEnquiry.subject || enquiry.subject) && (
+                      <p className="text-xs text-slate-600 font-medium mt-1">
+                        {currentEnquiry.subject || enquiry.subject}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <span className="text-slate-400 block uppercase font-mono text-[10px]">Sales Representative</span>
                     <span className="text-slate-800 font-semibold font-sans">
                       {(() => {
-                        const sp = salespersons.find(s => s.id === enquiry.sales_person || s.initials === enquiry.sales_person);
-                        return sp ? sp.full_name : enquiry.sales_person;
+                        const targetEq = currentEnquiry || enquiry;
+                        const spId = resolveSalespersonIdentifier(targetEq);
+                        const spName = resolveSalespersonName(targetEq);
+                        const sp = salespersons.find(
+                          (s) =>
+                            s &&
+                            ((spId && (s.id === spId || s.initials === spId)) ||
+                             (spName &&
+                               (s.id === spName ||
+                                s.initials === spName ||
+                                (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
+                                (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
+                        );
+                        return sp ? (sp.full_name || sp.name || sp.initials) : (spName || spId || '—');
                       })()}
                     </span>
                   </div>
+                  {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
+                    <div>
+                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Customer Reference</span>
+                      <span className="text-slate-800 font-semibold font-mono">
+                        {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                      </span>
+                    </div>
+                  )}
+                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                    <div>
+                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Proposal Option</span>
+                      <span className="text-purple-700 font-semibold font-sans">
+                        {currentEnquiry.proposal_option || enquiry.proposal_option}
+                      </span>
+                    </div>
+                  )}
+                  {(currentEnquiry.subject || enquiry.subject) && (
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Subject</span>
+                      <span className="text-slate-800 font-medium font-sans">
+                        {currentEnquiry.subject || enquiry.subject}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="text-slate-400 block uppercase font-mono text-[10px]">Project Country</span>
                     <span className="text-slate-800 font-semibold font-sans">{enquiry.country}</span>

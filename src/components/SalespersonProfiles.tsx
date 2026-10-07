@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Salesperson, Enquiry, Company, getInitials, Workspace, UserProfile, CallLogEntry } from '../types';
+import { Salesperson, Enquiry, Company, getInitials, Workspace, UserProfile, CallLogEntry, resolveSalespersonIdentifier, resolveSalespersonName } from '../types';
 import { safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../firebase';
 import { writeBatch, doc } from 'firebase/firestore';
 import { recordAuditLog } from '../utils/auditLogger';
@@ -175,7 +175,16 @@ export default function SalespersonProfiles({
 
   // Find metrics for a specific salesperson
   const getSalespersonMetrics = (sp: Salesperson) => {
-    const personalEnqs = enquiries.filter((e) => e.sales_person === sp.id || e.sales_person === sp.initials);
+    const personalEnqs = enquiries.filter((e) => {
+      const spId = resolveSalespersonIdentifier(e);
+      const spName = resolveSalespersonName(e);
+      return (
+        (spId && (spId === sp.id || spId === sp.initials)) ||
+        (spName && (spName === sp.id || spName === sp.initials || (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()))) ||
+        e.sales_person === sp.id ||
+        e.sales_person === sp.initials
+      );
+    });
     const activeVal = personalEnqs
       .filter((e) => e.status === 'Active')
       .reduce((sum, e) => sum + e.value_aed, 0);
@@ -461,7 +470,11 @@ export default function SalespersonProfiles({
         if (eq.id) {
           await safeUpdateDoc('enquiries', eq.id, {
             sales_person: targetInitials,
+            salesperson: targetInitials,
             sales_person_id: targetId,
+            salesperson_id: targetId,
+            assigned_to: targetInitials,
+            assignedSalesperson: targetInitials,
             updatedAt: new Date().toISOString()
           });
         }
@@ -469,7 +482,15 @@ export default function SalespersonProfiles({
       if (setEnquiries) {
         setEnquiries(prev => prev.map(eq => {
           if (eq.id && openEnqIds.has(eq.id)) {
-            return { ...eq, sales_person: targetInitials, sales_person_id: targetId };
+            return {
+              ...eq,
+              sales_person: targetInitials,
+              salesperson: targetInitials,
+              sales_person_id: targetId,
+              salesperson_id: targetId,
+              assigned_to: targetInitials,
+              assignedSalesperson: targetInitials
+            };
           }
           return eq;
         }));
@@ -525,7 +546,11 @@ export default function SalespersonProfiles({
         if (eq.id) {
           await safeUpdateDoc('enquiries', eq.id, {
             sales_person: '',
+            salesperson: '',
             sales_person_id: '',
+            salesperson_id: '',
+            assigned_to: '',
+            assignedSalesperson: '',
             updatedAt: new Date().toISOString()
           });
         }
@@ -533,7 +558,15 @@ export default function SalespersonProfiles({
       if (setEnquiries) {
         setEnquiries(prev => prev.map(eq => {
           if (eq.id && openEnqIds.has(eq.id)) {
-            return { ...eq, sales_person: '', sales_person_id: '' };
+            return {
+              ...eq,
+              sales_person: '',
+              salesperson: '',
+              sales_person_id: '',
+              salesperson_id: '',
+              assigned_to: '',
+              assignedSalesperson: ''
+            };
           }
           return eq;
         }));
@@ -585,13 +618,17 @@ export default function SalespersonProfiles({
     }
     
     // Check open enquiries (status === 'Active') and pending activity logs assigned to this salesperson
-    const openEnquiries = enquiries.filter(
-      (e) =>
-        e.status === 'Active' &&
-        (e.sales_person === targetId ||
-          (s.initials && e.sales_person?.toUpperCase() === s.initials.toUpperCase()) ||
-          (e as any).sales_person_id === targetId)
-    );
+    const openEnquiries = enquiries.filter((e) => {
+      const spId = resolveSalespersonIdentifier(e);
+      const spName = resolveSalespersonName(e);
+      const isMatch =
+        (spId && (spId === targetId || (s.initials && spId.toUpperCase() === s.initials.toUpperCase()))) ||
+        (spName && (spName === targetId || (s.initials && spName.toUpperCase() === s.initials.toUpperCase()) || (s.full_name && spName.toLowerCase() === s.full_name.toLowerCase()))) ||
+        e.sales_person === targetId ||
+        (s.initials && e.sales_person?.toUpperCase() === s.initials.toUpperCase()) ||
+        (e as any).sales_person_id === targetId;
+      return (e.status === 'Active' || !e.status) && isMatch;
+    });
 
     const pendingLogs = (callLogs || []).filter(
       (c) =>
