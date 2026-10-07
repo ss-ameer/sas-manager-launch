@@ -22,7 +22,31 @@ interface TrashBinModalProps {
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+// Clean interface for dual-field workspace resolution
+export interface WorkspaceScopedItem {
+  workspace_id?: string;
+  workspaceId?: string;
+  is_deleted?: boolean;
+}
+
+export function getEntityWorkspaceId(item: WorkspaceScopedItem): string | undefined {
+  return item.workspace_id ?? item.workspaceId;
+}
+
 type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs';
+
+type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry;
+
+interface UnifiedDeletedItem {
+  id: string;
+  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log';
+  typeLabel: string;
+  title: string;
+  subTitle?: string;
+  deletedAt?: string;
+  deletedByName?: string;
+  rawItem: DeletedItemEntity;
+}
 
 export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   isOpen,
@@ -57,12 +81,12 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     return itemWs === currentWs;
   };
 
-  // Extract soft-deleted items (filtered by workspace)
-  const deletedEnquiries = enquiries.filter((e) => e.is_deleted && isWsMatch(e.workspace_id || (e as any).workspaceId));
-  const deletedCompanies = companies.filter((c) => c.is_deleted && isWsMatch(c.workspace_id || (c as any).workspaceId));
-  const deletedContacts = contacts.filter((c) => c.is_deleted && isWsMatch(c.workspace_id || (c as any).workspaceId));
-  const deletedProducts = products.filter((p) => p.is_deleted && isWsMatch(p.workspace_id || (p as any).workspaceId));
-  const deletedCallLogs = callLogs.filter((l) => l.is_deleted && isWsMatch(l.workspace_id));
+  // Extract soft-deleted items (strictly scoped by workspace via dual-field resolution)
+  const deletedEnquiries = enquiries.filter((e) => e.is_deleted && isWsMatch(getEntityWorkspaceId(e)));
+  const deletedCompanies = companies.filter((c) => c.is_deleted && isWsMatch(getEntityWorkspaceId(c)));
+  const deletedContacts = contacts.filter((c) => c.is_deleted && isWsMatch(getEntityWorkspaceId(c)));
+  const deletedProducts = products.filter((p) => p.is_deleted && isWsMatch(getEntityWorkspaceId(p)));
+  const deletedCallLogs = callLogs.filter((l) => l.is_deleted && isWsMatch(getEntityWorkspaceId(l)));
 
   const totalDeletedCount =
     deletedEnquiries.length +
@@ -70,18 +94,6 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     deletedContacts.length +
     deletedProducts.length +
     deletedCallLogs.length;
-
-  // Build unified items list
-  interface UnifiedDeletedItem {
-    id: string;
-    type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log';
-    typeLabel: string;
-    title: string;
-    subTitle?: string;
-    deletedAt?: string;
-    deletedByName?: string;
-    rawItem: any;
-  }
 
   const items: UnifiedDeletedItem[] = [];
 
@@ -199,12 +211,18 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     setIsProcessing(true);
     try {
       if (item.type === 'enquiry') {
-        const rawAtts = item.rawItem?.attachments;
+        const enquiry = item.rawItem as Enquiry;
+        const rawAtts = enquiry.attachments;
         if (Array.isArray(rawAtts) && rawAtts.length > 0) {
-          await purgeEnquiryAttachments(rawAtts, activeWorkspace?.settings);
+          const strictAttachments: Attachment[] = rawAtts.filter(
+            (att): att is Attachment => Boolean(att && typeof att === 'object')
+          );
+          if (strictAttachments.length > 0) {
+            await purgeEnquiryAttachments(strictAttachments, activeWorkspace?.settings);
+          }
         }
         await EnquiryRepository.purgePermanent(item.id);
-        const snLabel = item.rawItem?.sn ? `Enquiry #${item.rawItem.sn}` : 'Enquiry';
+        const snLabel = enquiry.sn ? `Enquiry #${enquiry.sn}` : 'Enquiry';
         if (triggerToast) {
           triggerToast(`${snLabel} and linked attachments permanently purged.`, 'info');
         }
@@ -236,9 +254,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     try {
       for (const item of items) {
         if (item.type === 'enquiry') {
-          const rawAtts = item.rawItem?.attachments;
+          const enquiry = item.rawItem as Enquiry;
+          const rawAtts = enquiry.attachments;
           if (Array.isArray(rawAtts) && rawAtts.length > 0) {
-            await purgeEnquiryAttachments(rawAtts, activeWorkspace?.settings);
+            const strictAttachments: Attachment[] = rawAtts.filter(
+              (att): att is Attachment => Boolean(att && typeof att === 'object')
+            );
+            if (strictAttachments.length > 0) {
+              await purgeEnquiryAttachments(strictAttachments, activeWorkspace?.settings);
+            }
           }
           await EnquiryRepository.purgePermanent(item.id);
         } else if (item.type === 'company') {
@@ -441,7 +465,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                 <AlertTriangle className="w-6 h-6 shrink-0" />
                 <h3 className="text-sm font-bold text-slate-100">
                   {itemToPurge.type === 'enquiry'
-                    ? `Permanently Delete Enquiry #${itemToPurge.rawItem?.sn || ''}?`
+                    ? `Permanently Delete Enquiry #${(itemToPurge.rawItem as Enquiry).sn || ''}?`
                     : `Permanently Delete ${itemToPurge.title || itemToPurge.typeLabel}?`}
                 </h3>
               </div>

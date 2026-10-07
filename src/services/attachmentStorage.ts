@@ -4,6 +4,29 @@ import { saveAttachmentBlob, getAttachmentBlob, deleteAttachmentBlob } from './d
 export { deleteAttachmentBlob };
 
 /**
+ * Storage configuration parameters for Supabase Storage
+ */
+export interface StorageConfig {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  bucket?: string;
+  enabled?: boolean;
+  provider?: 'supabase' | string;
+  [key: string]: any;
+}
+
+/**
+ * Workspace settings containing optional storage configuration
+ */
+export interface WorkspaceStorageSettings {
+  storage?: StorageConfig;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  bucket?: string;
+  [key: string]: any;
+}
+
+/**
  * Converts a base64 data URL to a File object.
  */
 export function dataUrlToFile(dataUrl: string, filename: string): File {
@@ -21,12 +44,13 @@ export function dataUrlToFile(dataUrl: string, filename: string): File {
 
 /**
  * Deletes an object from Supabase Storage given its public HTTPS URL or filePath.
+ * Returns true if successful, or if the item was already deleted (404/204 idempotency).
  */
 export async function deleteFromSupabaseStorage(
   fileUrl: string,
-  storageConfig: { supabaseUrl: string; supabaseAnonKey: string; bucket: string }
+  storageConfig?: StorageConfig | null
 ): Promise<boolean> {
-  if (!fileUrl || !storageConfig.supabaseUrl || !storageConfig.supabaseAnonKey || !storageConfig.bucket) {
+  if (!fileUrl || !storageConfig?.supabaseUrl || !storageConfig?.supabaseAnonKey || !storageConfig?.bucket) {
     return false;
   }
 
@@ -96,11 +120,11 @@ export function getAttachmentStorageKey(att: Partial<Attachment>, index: number 
  */
 export function uploadToSupabaseStorage(
   file: File,
-  storageConfig: { supabaseUrl: string; supabaseAnonKey: string; bucket: string },
+  storageConfig?: StorageConfig | null,
   onProgress?: (percent: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!storageConfig.supabaseUrl || !storageConfig.supabaseAnonKey || !storageConfig.bucket) {
+    if (!storageConfig?.supabaseUrl || !storageConfig?.supabaseAnonKey || !storageConfig?.bucket) {
       return reject(new Error('Incomplete Supabase storage configuration. Check Project URL, Key, and Bucket.'));
     }
 
@@ -351,33 +375,38 @@ export function sanitizeFirestorePayload(payload: any): any {
 
 /**
  * Permanently deletes an enquiry's attachments from both Supabase cloud storage and IndexedDB.
+ * Handles missing/null arrays gracefully, catches and settles all child deletion promises,
+ * and strictly isolates storage credentials to the provided workspace settings.
  */
 export async function purgeEnquiryAttachments(
-  attachments: Attachment[] | undefined,
-  workspaceSettings?: any
+  attachments?: Attachment[] | null,
+  workspaceSettings?: WorkspaceStorageSettings | null
 ): Promise<void> {
   if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
     return;
   }
 
-  const storageConfig = workspaceSettings?.storage || workspaceSettings;
-  const hasCloud = Boolean(
-    storageConfig?.supabaseUrl &&
-    storageConfig?.supabaseAnonKey &&
-    storageConfig?.bucket
-  );
+  // Resolve storage config safely and strictly from the provided workspaceSettings
+  const storageConfig: StorageConfig | undefined =
+    workspaceSettings?.storage || (workspaceSettings?.supabaseUrl ? workspaceSettings : undefined);
+
+  const supabaseUrl = storageConfig?.supabaseUrl?.trim();
+  const supabaseAnonKey = storageConfig?.supabaseAnonKey?.trim();
+  const bucket = storageConfig?.bucket?.trim();
+
+  const hasCloud = Boolean(supabaseUrl && supabaseAnonKey && bucket);
 
   const purgePromises = attachments.map(async (att) => {
-    if (!att) return;
+    if (!att || typeof att !== 'object') return;
     const rawUrl = (att as any).url || (att as any).fileUrl || (att as any).downloadURL || (att as any).downloadUrl || '';
 
-    // 1. Cloud storage deletion if hosted on Supabase
-    if (typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) && hasCloud) {
+    // 1. Cloud storage deletion if hosted on Supabase and workspace has valid credentials
+    if (typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) && hasCloud && supabaseUrl && supabaseAnonKey && bucket) {
       try {
         await deleteFromSupabaseStorage(rawUrl, {
-          supabaseUrl: storageConfig.supabaseUrl,
-          supabaseAnonKey: storageConfig.supabaseAnonKey,
-          bucket: storageConfig.bucket
+          supabaseUrl,
+          supabaseAnonKey,
+          bucket
         });
       } catch (err) {
         console.warn(`[purgeEnquiryAttachments] Failed removing cloud attachment ${att.name}:`, err);
