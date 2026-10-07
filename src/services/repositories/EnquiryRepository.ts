@@ -1,10 +1,10 @@
-import { Enquiry } from '../../types';
+import { Enquiry, Workspace, UserProfile, WorkspaceMember } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
 import { canAccessEnquiry, isAdmin, isSuperAdmin, getUserWorkspaceRole } from '../../utils/permissions';
-import { purgeEnquiryAttachments } from '../attachmentStorage';
+import { purgeEnquiryAttachments, WorkspaceStorageSettings } from '../attachmentStorage';
 
 export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
@@ -86,7 +86,7 @@ export class EnquiryRepository {
     if (!enquiry) return null;
 
     // Hardened Single-Document Read Guard: Explicitly verify workspace ownership
-    const docWsId = enquiry.workspace_id || (enquiry as any).workspaceId || 'ws_default';
+    const docWsId = enquiry.workspace_id ?? enquiry.workspaceId ?? 'ws_default';
     if (currentActiveWorkspaceId && docWsId !== currentActiveWorkspaceId && currentActiveWorkspaceId !== 'ws_default') {
       throw new Error('Access Denied: Cross-Workspace Boundary Violation');
     }
@@ -130,7 +130,7 @@ export class EnquiryRepository {
     if (currentActiveWorkspaceId) {
       // Forcefully override and append workspace_id & workspaceId to mutation payload right before saving
       enquiry.workspace_id = currentActiveWorkspaceId;
-      (enquiry as any).workspaceId = currentActiveWorkspaceId;
+      enquiry.workspaceId = currentActiveWorkspaceId;
     }
     // 1. Optimistic write to local storage cache
     const current = await this.getAllLocal();
@@ -185,7 +185,7 @@ export class EnquiryRepository {
     await this.save(restoredEnquiry);
   }
 
-  public static async purgePermanent(id: string, workspaceSettings?: any): Promise<void> {
+  public static async purgePermanent(id: string, workspaceSettings?: WorkspaceStorageSettings): Promise<void> {
     // 1. Hard purge from local cache & clean attachments if present
     const current = await this.getAllLocal();
     const target = current.find((item) => item.id === id);
@@ -292,7 +292,7 @@ export class EnquiryRepository {
     const current = await this.getAllLocal();
     const idx = current.findIndex((item) => item.id === targetId);
     const existing = idx !== -1 ? current[idx] : ({ id: targetId } as Enquiry);
-    const targetWsId = workspaceId || existing.workspace_id || (existing as any).workspaceId || 'ws_default';
+    const targetWsId = workspaceId || existing.workspace_id || existing.workspaceId || 'ws_default';
 
     const updatedEnquiry: Enquiry = {
       ...existing,
@@ -384,8 +384,8 @@ export class EnquiryRepository {
    */
   public static filterVisibleEnquiries(
     enquiries: Enquiry[],
-    currentUser: any,
-    activeWorkspace?: any
+    currentUser: UserProfile | null | undefined,
+    activeWorkspace?: Workspace | null
   ): Enquiry[] {
     if (!currentUser) return [];
     const activeWorkspaceRole = getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace);
@@ -406,6 +406,7 @@ export class EnquiryRepository {
       )
     );
 
+    const wsAny = activeWorkspace as any;
     const isWsAdmin =
       activeWorkspaceRole?.toLowerCase() === 'admin' ||
       activeWorkspaceRole?.toLowerCase() === 'owner' ||
@@ -414,8 +415,9 @@ export class EnquiryRepository {
       currentUser?.role?.toLowerCase() === 'superadmin' ||
       isSuperAdmin(currentUser) ||
       isAdmin(currentUser, activeWorkspace?.id, activeWorkspace) ||
-      activeWorkspace?.ownerId === currentUserId ||
-      activeWorkspace?.owner_id === currentUserId;
+      activeWorkspace?.owner_uid === currentUserId ||
+      wsAny?.ownerId === currentUserId ||
+      wsAny?.owner_id === currentUserId;
 
     if (isWsAdmin) {
       // Fetch and display ALL enquiries in the active workspace
