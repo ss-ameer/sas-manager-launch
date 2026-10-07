@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
-import { db } from '../firebase';
-import { collection, doc } from 'firebase/firestore';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
-import { canEditOrDeleteRecord, isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
+import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -29,13 +27,11 @@ import {
   History,
   RotateCcw,
   Check,
-  TrendingUp,
   Cloud,
   UploadCloud,
   Loader2,
   AlertTriangle,
   X,
-  ShieldCheck,
   Shield,
   Download,
   Trash2,
@@ -55,13 +51,11 @@ import {
   FolderPlus,
   Boxes,
   PackageCheck,
-  ArrowRight,
   ExternalLink,
   Calendar,
   Truck,
   Wrench,
-  Package,
-  Clock
+  Package
 } from 'lucide-react';
 
 interface EnquiryDetailProps {

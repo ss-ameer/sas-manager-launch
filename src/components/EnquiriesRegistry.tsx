@@ -1,4 +1,3 @@
-import React from 'react';
 import EnquiryList from './EnquiryList';
 
 export const ENQUIRY_ACTION_PILL_CLASSES =
@@ -15,3 +14,4 @@ export const OVERDUE_FILTER_TOGGLE_INACTIVE_CLASSES =
 
 export default EnquiryList;
 export * from './EnquiryList';
+export { EnquiryTableRow, GapDetectorRow, areRowPropsEqual } from './EnquiryList';

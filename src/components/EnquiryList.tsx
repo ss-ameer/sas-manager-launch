@@ -8,17 +8,14 @@ import {
   Plus,
   Download,
   Upload,
-  Calendar,
   Filter,
   ArrowUpDown,
   ChevronRight,
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
-  UserCheck,
   X,
   Check,
-  ArrowRight,
   Trash,
   ChevronDown,
   Clock,
@@ -31,26 +28,528 @@ import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
 import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { PageHeader, PageBody } from './layout/UiContainer';
 import {
-  isRecordOwner,
-  canEditOrDeleteRecord,
   canAccessEnquiry,
   canCreateEnquiry,
   canEditEnquiry,
   canDeleteEnquiry,
   canExportData,
   isAdmin,
-  isSuperAdmin,
-  getUserWorkspaceRole,
   getEffectiveWorkspaceRole
 } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
+import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';
+
+// ==========================================
+// PURE UTILITY HELPERS (Module Level)
+// ==========================================
+
+export const getEnquiryCurrencyParts = (e: Enquiry) => {
+  const isUSD = e?.currency === 'USD';
+  const numVal = typeof e?.value_aed === 'number' ? e.value_aed : parseFloat(String(e?.value_aed || 0)) || 0;
+  const val = isUSD ? numVal / 3.6725 : numVal;
+  const prefix = isUSD ? '$' : 'AED';
+  const formattedAmount = Math.round(val).toLocaleString('en-US');
+  return { prefix, formattedAmount };
+};
+
+export const formatEnquiryCurrency = (e: Enquiry) => {
+  const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
+  return `${prefix} ${formattedAmount}`;
+};
+
+export const formatEnquiryDate = (dateStr?: string) => {
+  if (!dateStr) return '—';
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
+};
+
+export const formatRelativeTime = (isoString?: string): string => {
+  if (!isoString) return '';
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    if (isNaN(date.getTime()) || diffMs < 0) return 'just now';
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSec < 60) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+};
+
+export const getStatusBadgeClass = (status: string) => {
+  const s = (status || '').trim().toLowerCase();
+  if (s.includes('gap') || s.includes('reserved')) {
+    return 'border-dashed border-amber-400/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 font-semibold';
+  }
+  if (s.includes('draft')) {
+    return 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700';
+  }
+  if (s.includes('sent')) {
+    return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 font-semibold';
+  }
+  if (s.includes('revision')) {
+    return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-semibold';
+  }
+  if (s.includes('won') || s.includes('order received') || s.includes('approved')) {
+    return 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-semibold';
+  }
+  if (s.includes('lost') || s.includes('cancelled')) {
+    return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60';
+  }
+  switch (s) {
+    case 'active':
+      return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-semibold';
+    case 'pending':
+      return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
+    case 'dead':
+      return 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60';
+    case 'hold':
+      return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
+    case 'delayed':
+      return 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60';
+    default:
+      return 'bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60';
+  }
+};
+
+// ==========================================
+// GAP DETECTOR ROW COMPONENT (Memoized)
+// ==========================================
+
+export interface GapDetectorRowProps {
+  prevSn: number | null;
+  curSn: number | null;
+  sortAsc: boolean;
+  isMarkingMode: boolean;
+  isEditable: boolean;
+  isReservingGap: number | null;
+  onFillGap: (sn: number) => void;
+}
+
+export const GapDetectorRow = React.memo(function GapDetectorRow({
+  prevSn,
+  curSn,
+  sortAsc,
+  isMarkingMode,
+  isEditable,
+  isReservingGap,
+  onFillGap
+}: GapDetectorRowProps) {
+  if (prevSn === null || curSn === null) return null;
+
+  let gapMin: number | null = null;
+  let gapMax: number | null = null;
+
+  if (!sortAsc && prevSn - curSn > 1) {
+    gapMin = curSn + 1;
+    gapMax = prevSn - 1;
+  } else if (sortAsc && curSn - prevSn > 1) {
+    gapMin = prevSn + 1;
+    gapMax = curSn - 1;
+  }
+
+  if (gapMin === null || gapMax === null || gapMin > gapMax) return null;
+
+  const gapLabel = gapMin === gapMax ? `#${gapMin}` : `#${gapMin} - #${gapMax}`;
+  const fillSn = gapMin;
+
+  return (
+    <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
+      <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-4">
+        <div className="flex items-center justify-between text-xs text-amber-600/90 dark:text-amber-400 font-mono">
+          <div className="flex items-center space-x-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block animate-pulse" />
+            <span className="font-semibold">Missing Sequence: {gapLabel}</span>
+          </div>
+          {isEditable && (
+            <button
+              type="button"
+              disabled={isReservingGap === fillSn}
+              onClick={() => onFillGap(fillSn)}
+              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1 font-sans ${
+                isReservingGap === fillSn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              }`}
+              title={`Reserve sequence gap #${fillSn}`}
+            >
+              <span>{isReservingGap === fillSn ? 'Reserving...' : '+ Fill Gap'}</span>
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+// ==========================================
+// ENQUIRY TABLE ROW COMPONENT (Memoized)
+// ==========================================
+
+export interface EnquiryTableRowProps {
+  enquiry: Enquiry;
+  isChecked: boolean;
+  isMarkingMode: boolean;
+  isEditable: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  companyName: string;
+  resolvedCompany?: Company;
+  salesperson?: Salesperson;
+  companies: Company[];
+  setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
+  onToggleSelect: (id: string, checked: boolean) => void;
+  onSelectEnquiry: (id: string) => void;
+  onEditEnquiry: (enquiry: Enquiry) => void;
+  onDeleteEnquiry: (enquiry: Enquiry) => void;
+  onStatusChange: (enquiry: Enquiry, newStatus: string) => void;
+  onCompanyClick: (enquiry: Enquiry) => void;
+}
+
+export function areRowPropsEqual(
+  prevProps: EnquiryTableRowProps,
+  nextProps: EnquiryTableRowProps
+): boolean {
+  if (prevProps.isChecked !== nextProps.isChecked) return false;
+  if (prevProps.isMarkingMode !== nextProps.isMarkingMode) return false;
+  if (prevProps.isEditable !== nextProps.isEditable) return false;
+  if (prevProps.canEdit !== nextProps.canEdit) return false;
+  if (prevProps.canDelete !== nextProps.canDelete) return false;
+  if (prevProps.companyName !== nextProps.companyName) return false;
+
+  if (prevProps.resolvedCompany !== nextProps.resolvedCompany) {
+    if (
+      prevProps.resolvedCompany?.id !== nextProps.resolvedCompany?.id ||
+      prevProps.resolvedCompany?.temperature !== nextProps.resolvedCompany?.temperature ||
+      prevProps.resolvedCompany?.is_dnc !== nextProps.resolvedCompany?.is_dnc ||
+      prevProps.resolvedCompany?.display_name !== nextProps.resolvedCompany?.display_name ||
+      prevProps.resolvedCompany?.industry !== nextProps.resolvedCompany?.industry ||
+      prevProps.resolvedCompany?.city !== nextProps.resolvedCompany?.city
+    ) {
+      return false;
+    }
+  }
+
+  if (prevProps.salesperson !== nextProps.salesperson) {
+    if (
+      prevProps.salesperson?.id !== nextProps.salesperson?.id ||
+      prevProps.salesperson?.initials !== nextProps.salesperson?.initials ||
+      prevProps.salesperson?.full_name !== nextProps.salesperson?.full_name ||
+      (prevProps.salesperson as any)?.name !== (nextProps.salesperson as any)?.name
+    ) {
+      return false;
+    }
+  }
+
+  // Check enquiry record
+  const prevE = prevProps.enquiry;
+  const nextE = nextProps.enquiry;
+  if (prevE !== nextE) {
+    if (
+      prevE.id !== nextE.id ||
+      prevE.sn !== nextE.sn ||
+      prevE.status !== nextE.status ||
+      prevE.value_aed !== nextE.value_aed ||
+      prevE.currency !== nextE.currency ||
+      prevE.quote_ref_no !== nextE.quote_ref_no ||
+      prevE.company_id !== nextE.company_id ||
+      prevE.company_name !== nextE.company_name ||
+      prevE.client_company !== nextE.client_company ||
+      prevE.sales_person !== nextE.sales_person ||
+      prevE.sales_person_id !== nextE.sales_person_id ||
+      prevE.salesperson !== nextE.salesperson ||
+      prevE.salesperson_id !== nextE.salesperson_id ||
+      prevE.assignedSalesperson !== nextE.assignedSalesperson ||
+      prevE.enquiry_date !== nextE.enquiry_date ||
+      prevE.enquiry_source !== nextE.enquiry_source ||
+      prevE.statusUpdatedAt !== nextE.statusUpdatedAt ||
+      prevE.statusUpdatedBy !== nextE.statusUpdatedBy ||
+      prevE.sentAt !== nextE.sentAt ||
+      prevE.wonAt !== nextE.wonAt ||
+      prevE.lostAt !== nextE.lostAt ||
+      prevE.updatedAt !== nextE.updatedAt ||
+      prevE.is_gap_placeholder !== nextE.is_gap_placeholder ||
+      prevE.is_deleted !== nextE.is_deleted
+    ) {
+      return false;
+    }
+  }
+
+  // Stabilized callbacks
+  if (prevProps.onToggleSelect !== nextProps.onToggleSelect) return false;
+  if (prevProps.onSelectEnquiry !== nextProps.onSelectEnquiry) return false;
+  if (prevProps.onEditEnquiry !== nextProps.onEditEnquiry) return false;
+  if (prevProps.onDeleteEnquiry !== nextProps.onDeleteEnquiry) return false;
+  if (prevProps.onStatusChange !== nextProps.onStatusChange) return false;
+  if (prevProps.onCompanyClick !== nextProps.onCompanyClick) return false;
+
+  return true;
+}
+
+export const EnquiryTableRow = React.memo(function EnquiryTableRow({
+  enquiry: e,
+  isChecked,
+  isMarkingMode,
+  isEditable,
+  canEdit,
+  canDelete,
+  companyName,
+  resolvedCompany,
+  salesperson,
+  companies,
+  setCompanies,
+  onToggleSelect,
+  onSelectEnquiry,
+  onEditEnquiry,
+  onDeleteEnquiry,
+  onStatusChange,
+  onCompanyClick
+}: EnquiryTableRowProps) {
+  const isGapReserved = Boolean(
+    e.is_gap_placeholder ||
+    (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
+    (e.company_name && e.company_name.includes('[Reserved Sequence'))
+  );
+
+  const isClickable = Boolean(resolvedCompany?.id || e.company_id || resolvedCompany);
+
+  const spId = resolveSalespersonIdentifier(e);
+  const spName = resolveSalespersonName(e);
+  const initials = salesperson
+    ? (salesperson.initials || getInitials(salesperson.full_name || (salesperson as any).name || ''))
+    : (spName || spId || '—');
+  const titleText = salesperson?.full_name || (salesperson as any)?.name || spName || spId || '';
+
+  const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
+  const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
+  const tooltipTitle = e.statusUpdatedAt
+    ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${lastUpdater ? ` by ${lastUpdater}` : ''}`
+    : `Status: ${e.status} • Click to update`;
+
+  const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
+
+  return (
+    <tr
+      key={e.id}
+      className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
+        isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
+      } ${
+        isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
+      }`}
+    >
+      {isMarkingMode && (
+        <td className="py-2.5 px-2 text-center">
+          <input
+            type="checkbox"
+            checked={isChecked}
+            onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
+            className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
+          />
+        </td>
+      )}
+      <td className="py-2.5 px-3 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center">
+        #{e.sn}
+      </td>
+      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[160px] max-w-[220px]">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center space-x-1.5 min-w-0">
+            <span
+              className={`truncate text-sm font-semibold ${isClickable ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : 'text-slate-700 dark:text-slate-300'}`}
+              onClick={() => {
+                if (isClickable) {
+                  onCompanyClick(e);
+                }
+              }}
+              title={isClickable ? `View 360° profile for ${companyName}` : undefined}
+            >
+              {companyName}
+            </span>
+            {companyName && companyName !== 'Unknown Client' && (
+              <div className="shrink-0">
+                <GoogleSearchButton
+                  companyName={companyName}
+                  location={resolvedCompany?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
+                  size="xs"
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+            {resolvedCompany && (
+              <>
+                <TemperatureBadge
+                  companyId={resolvedCompany.id}
+                  temperature={resolvedCompany.temperature}
+                  isDnc={resolvedCompany.is_dnc}
+                  variant="compact"
+                  companies={companies || []}
+                  setCompanies={setCompanies}
+                />
+                <IndustryBadge company={resolvedCompany} size="sm" />
+              </>
+            )}
+            {e.enquiry_source && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
+                title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
+              >
+                {normalizeEnquirySource(e.enquiry_source)}
+              </span>
+            )}
+          </div>
+        </div>
+      </td>
+      <td className="py-2.5 px-3 whitespace-nowrap">
+        <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
+          {e.quote_ref_no || '—'}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 whitespace-nowrap">
+        <span
+          className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
+          title={titleText}
+        >
+          {initials}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 whitespace-nowrap">
+        <span className="font-mono text-xs text-slate-600 dark:text-slate-400 font-medium">
+          {formatEnquiryDate(e.enquiry_date)}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex flex-col items-start gap-1">
+          <div className="relative inline-flex items-center">
+            <select
+              value={normalizeEnquiryStatus(e.status)}
+              onClick={(evt) => evt.stopPropagation()}
+              onChange={(evt) => {
+                evt.stopPropagation();
+                onStatusChange(e, evt.target.value);
+              }}
+              title={tooltipTitle}
+              className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
+            >
+              {ENQUIRY_STATUS_OPTIONS.map((st) => (
+                <option
+                  key={st}
+                  value={st}
+                  className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
+                >
+                  {st}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
+          </div>
+
+          {relTime && (
+            <span
+              className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight"
+              title={tooltipTitle}
+            >
+              <Clock className="w-2.5 h-2.5 opacity-70" />
+              <span>{relTime}</span>
+              {lastUpdater && (
+                <span className="text-slate-400 font-sans font-medium" title={`By ${lastUpdater}`}>
+                  • {lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
+        <div className="inline-flex items-baseline justify-end">
+          <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
+          <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
+        </div>
+      </td>
+      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+        <div className="flex items-center justify-center space-x-1.5">
+          <button
+            type="button"
+            onClick={() => e.id && onSelectEnquiry(e.id)}
+            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
+            title="View enquiry details"
+          >
+            Details
+          </button>
+          {canEdit && (
+            isGapReserved ? (
+              <button
+                type="button"
+                onClick={() => onEditEnquiry(e)}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                title="Claim and populate details for this reserved gap sequence"
+              >
+                <span>Claim Gap</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onEditEnquiry(e)}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
+                title="Edit enquiry"
+              >
+                Edit
+              </button>
+            )
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDeleteEnquiry(e)}
+              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
+              title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
+            >
+              <Trash className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}, areRowPropsEqual);
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
@@ -186,53 +685,6 @@ export default function EnquiryList({
     status: number;
   }>({ sn: 0, quote_ref: 1, date: 2, sales_person: 3, client: 4, value: -1, status: -1 });
 
-  // Format currency parts for high-hierarchy tabular display
-  const getEnquiryCurrencyParts = (e: Enquiry) => {
-    const isUSD = e?.currency === 'USD';
-    const numVal = typeof e?.value_aed === 'number' ? e.value_aed : parseFloat(String(e?.value_aed || 0)) || 0;
-    const val = isUSD ? numVal / 3.6725 : numVal;
-    const prefix = isUSD ? '$' : 'AED';
-    const formattedAmount = Math.round(val).toLocaleString('en-US');
-    return { prefix, formattedAmount };
-  };
-
-  const formatEnquiryCurrency = (e: Enquiry) => {
-    const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
-    return `${prefix} ${formattedAmount}`;
-  };
-
-  // Format enquiry date as clean tabular date with crisp contrast (e.g. Aug 24, 2026)
-  const formatEnquiryDate = (dateStr?: string) => {
-    if (!dateStr) return '—';
-    try {
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        const d = new Date(year, month, day);
-        if (!isNaN(d.getTime())) {
-          return d.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          });
-        }
-      }
-      const d = new Date(dateStr);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        });
-      }
-      return dateStr;
-    } catch {
-      return dateStr;
-    }
-  };
-
   // Cycle lists and helpers
   const statuses = [
     'All',
@@ -270,14 +722,35 @@ export default function EnquiryList({
 
   const isEditable = canCreateEnquiry(user, activeWorkspace);
 
+  // Memoized Lookup Maps
   const companyMap = React.useMemo(() => {
     return new Map((companies || []).filter(Boolean).map((c) => [c.id, c.display_name || (c as any)?.name || '']));
   }, [companies]);
 
+  const companyByIdMap = React.useMemo(() => {
+    return new Map((companies || []).filter(Boolean).map((c) => [c.id, c]));
+  }, [companies]);
+
+  const primaryContactMap = React.useMemo(() => {
+    return new Map((contacts || []).filter(Boolean).map((c) => [c.id, c]));
+  }, [contacts]);
+
+  const salespersonMap = React.useMemo(() => {
+    const map = new Map<string, Salesperson>();
+    (salespersons || []).forEach((s) => {
+      if (!s) return;
+      if (s.id) map.set(s.id.toLowerCase().trim(), s);
+      if (s.initials) map.set(s.initials.toLowerCase().trim(), s);
+      if (s.full_name) map.set(s.full_name.toLowerCase().trim(), s);
+      if ((s as any).name) map.set((s as any).name.toLowerCase().trim(), s);
+    });
+    return map;
+  }, [salespersons]);
+
   const resolveCompanyForEnquiry = React.useCallback((enquiry: Enquiry): Company | undefined => {
     if (!enquiry) return undefined;
     if (enquiry.company_id) {
-      const found = (companies || []).find((c) => c && c.id === enquiry.company_id);
+      const found = companyByIdMap.get(enquiry.company_id);
       if (found) return found;
     }
     const nameToMatch = (
@@ -297,7 +770,30 @@ export default function EnquiryList({
       );
     }
     return undefined;
-  }, [companies, companyMap]);
+  }, [companies, companyMap, companyByIdMap]);
+
+  const resolveSalespersonForEnquiry = React.useCallback((e: Enquiry): Salesperson | undefined => {
+    const spId = resolveSalespersonIdentifier(e);
+    const spName = resolveSalespersonName(e);
+    if (spId) {
+      const found = salespersonMap.get(spId.toLowerCase().trim());
+      if (found) return found;
+    }
+    if (spName) {
+      const found = salespersonMap.get(spName.toLowerCase().trim());
+      if (found) return found;
+    }
+    return (salespersons || []).find(
+      (s) =>
+        s &&
+        ((spId && (s.id === spId || s.initials === spId)) ||
+         (spName &&
+           (s.id === spName ||
+            s.initials === spName ||
+            (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
+            (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
+    );
+  }, [salespersonMap, salespersons]);
 
   const handleCompanyClick = React.useCallback((enquiry: Enquiry) => {
     const targetComp = resolveCompanyForEnquiry(enquiry);
@@ -321,14 +817,17 @@ export default function EnquiryList({
     }
   }, [resolveCompanyForEnquiry, onOpenCompany360, onViewCompany360, setSelectedCompanyForDetail]);
 
-  const handleSort = (field: 'sn' | 'enquiry_date' | 'value_aed') => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(false);
-    }
-  };
+  const handleSort = React.useCallback((field: 'sn' | 'enquiry_date' | 'value_aed') => {
+    setSortField((prevField) => {
+      if (prevField === field) {
+        setSortAsc((prevAsc) => !prevAsc);
+        return prevField;
+      } else {
+        setSortAsc(false);
+        return field;
+      }
+    });
+  }, []);
 
   // Determine administrative read rights: Workspace Admin or Superadmin sees all workspace enquiries
   const currentUser = user;
@@ -393,80 +892,85 @@ export default function EnquiryList({
     return Array.from(set).sort();
   }, [authorizedEnquiries]);
 
-  // Filter & Sort Logic
+  // Filter Logic (Memoized)
   const filteredEnquiries = React.useMemo(() => {
-    return (authorizedEnquiries || [])
-      .filter((e) => {
-        if (!e) return false;
-        // 1. Search Query
-        const q = (searchInput || searchQuery || '').toLowerCase().trim();
-        const compName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || '';
-        const compNameLower = String(compName).toLowerCase();
-        const ref = (e.quote_ref_no || '').toLowerCase();
-        const snStr = e.sn != null ? String(e.sn) : '';
-        const matchText = !q || compNameLower.includes(q) || ref.includes(q) || snStr.includes(q);
+    const q = (searchInput || searchQuery || '').toLowerCase().trim();
+    const today = new Date().toISOString().split('T')[0];
 
-        // 2. Status
-        const matchStatus =
-          statusFilter === 'All' ||
-          e.status === statusFilter ||
-          (statusFilter === 'Gap / Reserved' && (e.status === 'GAP / RESERVED' || e.is_gap_placeholder)) ||
-          normalizeEnquiryStatus(e.status) === statusFilter;
+    return (authorizedEnquiries || []).filter((e) => {
+      if (!e) return false;
+      // 1. Search Query
+      const compName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || '';
+      const compNameLower = String(compName).toLowerCase();
+      const ref = (e.quote_ref_no || '').toLowerCase();
+      const snStr = e.sn != null ? String(e.sn) : '';
+      const matchText = !q || compNameLower.includes(q) || ref.includes(q) || snStr.includes(q);
 
-        // 3. Salesperson
-        const matchRep = salesPersonFilter === 'All' || (() => {
-          const sp = (salespersons || []).find(s => s && (s.id === salesPersonFilter || s.initials === salesPersonFilter));
-          const spId = resolveSalespersonIdentifier(e);
-          const spName = resolveSalespersonName(e);
-          if (!sp) {
-            return (
-              spId === salesPersonFilter ||
-              spName === salesPersonFilter ||
-              e.sales_person === salesPersonFilter ||
-              e.salesperson === salesPersonFilter
-            );
-          }
+      // 2. Status
+      const matchStatus =
+        statusFilter === 'All' ||
+        e.status === statusFilter ||
+        (statusFilter === 'Gap / Reserved' && (e.status === 'GAP / RESERVED' || e.is_gap_placeholder)) ||
+        normalizeEnquiryStatus(e.status) === statusFilter;
+
+      // 3. Salesperson
+      const matchRep = salesPersonFilter === 'All' || (() => {
+        const filterKey = salesPersonFilter.toLowerCase().trim();
+        const sp = salespersonMap.get(filterKey);
+        const spId = resolveSalespersonIdentifier(e);
+        const spName = resolveSalespersonName(e);
+        if (!sp) {
           return (
-            spId === sp.id ||
-            spId === sp.initials ||
-            spName === sp.id ||
-            spName === sp.initials ||
-            (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()) ||
-            e.sales_person === sp.id ||
-            e.sales_person === sp.initials ||
-            e.salesperson === sp.id ||
-            e.salesperson === sp.initials ||
-            (sp.full_name && (e.salesperson === sp.full_name || e.sales_person === sp.full_name))
+            spId === salesPersonFilter ||
+            spName === salesPersonFilter ||
+            e.sales_person === salesPersonFilter ||
+            e.salesperson === salesPersonFilter
           );
-        })();
-
-        // 4. Urgency (Overdue followups)
-        const today = new Date().toISOString().split('T')[0];
-        const matchUrgency =
-          urgencyFilter === 'All' ||
-          (e.status === 'Active' && e.next_followup_date && e.next_followup_date < today);
-
-        // 5. Enquiry Source
-        const matchSource =
-          sourceFilter === 'All' ||
-          normalizeEnquirySource(e.enquiry_source) === sourceFilter;
-
-        return matchText && matchStatus && matchRep && matchUrgency && matchSource;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-        if (sortField === 'sn') {
-          comparison = (Number(a?.sn) || 0) - (Number(b?.sn) || 0);
-        } else if (sortField === 'enquiry_date') {
-          const dateA = a?.enquiry_date || '';
-          const dateB = b?.enquiry_date || '';
-          comparison = dateA.localeCompare(dateB);
-        } else if (sortField === 'value_aed') {
-          comparison = (Number(a?.value_aed) || 0) - (Number(b?.value_aed) || 0);
         }
-        return sortAsc ? comparison : -comparison;
-      });
-  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, sortField, sortAsc, companyMap, salespersons]);
+        return (
+          spId === sp.id ||
+          spId === sp.initials ||
+          spName === sp.id ||
+          spName === sp.initials ||
+          (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()) ||
+          e.sales_person === sp.id ||
+          e.sales_person === sp.initials ||
+          e.salesperson === sp.id ||
+          e.salesperson === sp.initials ||
+          (sp.full_name && (e.salesperson === sp.full_name || e.sales_person === sp.full_name))
+        );
+      })();
+
+      // 4. Urgency (Overdue followups)
+      const matchUrgency =
+        urgencyFilter === 'All' ||
+        (e.status === 'Active' && e.next_followup_date && e.next_followup_date < today);
+
+      // 5. Enquiry Source
+      const matchSource =
+        sourceFilter === 'All' ||
+        normalizeEnquirySource(e.enquiry_source) === sourceFilter;
+
+      return matchText && matchStatus && matchRep && matchUrgency && matchSource;
+    });
+  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, companyMap, salespersonMap, salespersons]);
+
+  // Sort Pipeline (Memoized independently from filtering)
+  const sortedEnquiries = React.useMemo(() => {
+    return [...filteredEnquiries].sort((a, b) => {
+      let comparison = 0;
+      if (sortField === 'sn') {
+        comparison = (Number(a?.sn) || 0) - (Number(b?.sn) || 0);
+      } else if (sortField === 'enquiry_date') {
+        const dateA = a?.enquiry_date || '';
+        const dateB = b?.enquiry_date || '';
+        comparison = dateA.localeCompare(dateB);
+      } else if (sortField === 'value_aed') {
+        comparison = (Number(a?.value_aed) || 0) - (Number(b?.value_aed) || 0);
+      }
+      return sortAsc ? comparison : -comparison;
+    });
+  }, [filteredEnquiries, sortField, sortAsc]);
 
   const activeEnquiryFilterLabels = React.useMemo(() => {
     const labels: string[] = [];
@@ -490,15 +994,15 @@ export default function EnquiryList({
   };
 
   // Calculate pagination details
-  const totalItems = filteredEnquiries.length;
+  const totalItems = sortedEnquiries.length;
   const pageSize = itemsPerPage === 'All' ? Math.max(totalItems, 1) : Number(itemsPerPage) || 25;
   const totalPages = itemsPerPage === 'All' ? 1 : Math.ceil(totalItems / pageSize) || 1;
 
   const paginatedEnquiries = React.useMemo(() => {
-    if (itemsPerPage === 'All') return filteredEnquiries || [];
+    if (itemsPerPage === 'All') return sortedEnquiries || [];
     const startIndex = (currentPage - 1) * pageSize;
-    return (filteredEnquiries || []).slice(startIndex, startIndex + pageSize);
-  }, [filteredEnquiries, currentPage, itemsPerPage, pageSize]);
+    return (sortedEnquiries || []).slice(startIndex, startIndex + pageSize);
+  }, [sortedEnquiries, currentPage, itemsPerPage, pageSize]);
 
   // Export Enquiries (Audited Section with Scope Selection, RFC 4180 Sanitization & Feedback)
   const handleExportCSV = () => {
@@ -645,7 +1149,7 @@ export default function EnquiryList({
     }
   };
 
-  const handleFillGap = async (targetSn: number) => {
+  const handleFillGap = React.useCallback(async (targetSn: number) => {
     if (isReservingGap === targetSn) return;
     setIsReservingGap(targetSn);
     try {
@@ -672,6 +1176,10 @@ export default function EnquiryList({
         id: gapDocId,
         sn: targetSn,
         company_name: `[Reserved Sequence / #${targetSn}]`,
+        company_id: '',
+        country: 'United Arab Emirates',
+        project_location: 'Dubai',
+        enquiry_source: 'Direct',
         status: 'Gap / Reserved',
         workspace_id: workspaceId,
         workspaceId: workspaceId,
@@ -715,7 +1223,7 @@ export default function EnquiryList({
     } finally {
       setIsReservingGap(null);
     }
-  };
+  }, [isReservingGap, activeWorkspace, enquiries, triggerToast, user, setEnquiries]);
 
   const handleReserveGapSubmit = async (evt: React.FormEvent) => {
     evt.preventDefault();
@@ -814,30 +1322,7 @@ export default function EnquiryList({
     label: opt
   }));
 
-  const formatRelativeTime = (isoString?: string): string => {
-    if (!isoString) return '';
-    try {
-      const date = new Date(isoString);
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      if (isNaN(date.getTime()) || diffMs < 0) return 'just now';
-      const diffSec = Math.floor(diffMs / 1000);
-      const diffMin = Math.floor(diffSec / 60);
-      const diffHours = Math.floor(diffMin / 60);
-      const diffDays = Math.floor(diffHours / 24);
-
-      if (diffSec < 60) return 'just now';
-      if (diffMin < 60) return `${diffMin}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays === 1) return 'yesterday';
-      if (diffDays < 7) return `${diffDays}d ago`;
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    } catch {
-      return '';
-    }
-  };
-
-  const handleStatusChange = async (enquiry: Enquiry, newStatus: string) => {
+  const handleStatusChange = React.useCallback(async (enquiry: Enquiry, newStatus: string) => {
     if (!enquiry.id || enquiry.status === newStatus) return;
     const prevStatus = enquiry.status || 'Active';
     const now = new Date().toISOString();
@@ -950,43 +1435,85 @@ export default function EnquiryList({
         triggerToast('Failed to save status change to cloud', 'error');
       }
     }
-  };
+  }, [user, setProjects, onStockUpdated, setEnquiries, triggerToast]);
 
-  const getStatusBadgeClass = (status: string) => {
-    const s = (status || '').trim().toLowerCase();
-    if (s.includes('gap') || s.includes('reserved')) {
-      return 'border-dashed border-amber-400/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 font-semibold';
+  const handleSelectEnquiry = React.useCallback((id: string) => {
+    if (onSelectEnquiry) {
+      onSelectEnquiry(id);
     }
-    if (s.includes('draft')) {
-      return 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700';
+  }, [onSelectEnquiry]);
+
+  const handleEditEnquiryRow = React.useCallback((e: Enquiry) => {
+    if (onEditEnquiry) {
+      onEditEnquiry(e);
     }
-    if (s.includes('sent')) {
-      return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 font-semibold';
+  }, [onEditEnquiry]);
+
+  const handleToggleSelectRow = React.useCallback((id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedEnquiryIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    } else {
+      setSelectedEnquiryIds((prev) => prev.filter((item) => item !== id));
     }
-    if (s.includes('revision')) {
-      return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-semibold';
+  }, []);
+
+  const handleDeleteRow = React.useCallback((e: Enquiry) => {
+    const targetId = e.id || (e as any)._id;
+    if (!targetId) {
+      alert('Error: Enquiry ID is missing. Cannot delete.');
+      return;
     }
-    if (s.includes('won') || s.includes('order received') || s.includes('approved')) {
-      return 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-semibold';
+
+    // Active project guard: block deletion if linked to an active project
+    if (e.project_id) {
+      const linkedProj = projects?.find((p) => p.id === e.project_id || p.enquiry_id === targetId);
+      const isCancelled = linkedProj ? linkedProj.status === 'Cancelled' : false;
+      if (!isCancelled) {
+        const errorMsg = `Cannot delete Proposal #${e.sn}: An active project is linked. Please cancel the project first.`;
+        if (triggerToast) {
+          triggerToast(errorMsg, 'error');
+        } else {
+          alert(errorMsg);
+        }
+        return;
+      }
     }
-    if (s.includes('lost') || s.includes('cancelled')) {
-      return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60';
-    }
-    switch (s) {
-      case 'active':
-        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-semibold';
-      case 'pending':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
-      case 'dead':
-        return 'bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60';
-      case 'hold':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60';
-      case 'delayed':
-        return 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60';
-      default:
-        return 'bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60';
-    }
-  };
+
+    const isPlaceholder = Boolean(
+      e.is_gap_placeholder === true ||
+      (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
+      (e.company_name && e.company_name.includes('[Reserved Sequence'))
+    );
+    setConfirmDialog({
+      isOpen: true,
+      title: isPlaceholder ? 'Delete Reserved Gap' : 'Move to Recycle Bin',
+      message: isPlaceholder
+        ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will immediately revert back to an open missing sequence gap.`
+        : `Are you sure you want to move Enquiry #${e.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
+      confirmText: isPlaceholder ? 'Delete' : 'Move to Bin',
+      cancelText: 'Cancel',
+      variant: isPlaceholder ? 'destructive' : 'warning',
+      isDestructive: isPlaceholder,
+      onConfirm: async () => {
+        if (isPlaceholder) {
+          try {
+            await deleteDoc(doc(db, 'enquiries', targetId));
+          } catch (delErr) {
+            console.warn('Direct deleteDoc failed, trying safeDeleteDoc:', delErr);
+            await safeDeleteDoc('enquiries', targetId);
+          }
+          if (setEnquiries) {
+            setEnquiries((prev) => prev.filter((item) => item.id !== targetId));
+          }
+          if (triggerToast) {
+            triggerToast(`Reserved sequence gap #${e.sn} deleted. Sequence slot reopened.`, 'info');
+          }
+        } else {
+          onDeleteEnquiry(targetId);
+        }
+      }
+    });
+  }, [projects, triggerToast, setConfirmDialog, setEnquiries, onDeleteEnquiry]);
 
   return (
     <>
@@ -1275,358 +1802,54 @@ export default function EnquiryList({
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
                   const isChecked = Boolean(e.id && selectedEnquiryIds.includes(e.id));
-                  const isGapReserved = Boolean(
-                    e.is_gap_placeholder ||
-                    (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
-                    (e.company_name && e.company_name.includes('[Reserved Sequence'))
-                  );
+                  const resolvedComp = resolveCompanyForEnquiry(e);
+                  const salesperson = resolveSalespersonForEnquiry(e);
+                  const canEdit = canEditEnquiry(user, activeWorkspace, e);
+                  const canDelete = canDeleteEnquiry(user, activeWorkspace, e);
 
                   // In-Table Gap Detector: Compare S/N of current row with previous row
-                  let gapRow: React.ReactNode = null;
+                  let prevSn: number | null = null;
+                  let curSn: number | null = null;
                   if (sortField === 'sn' && index > 0) {
                     const prevRow = paginatedEnquiries[index - 1];
-                    const prevSn = typeof prevRow?.sn === 'number' ? prevRow.sn : null;
-                    const curSn = typeof e.sn === 'number' ? e.sn : null;
-
-                    if (prevSn !== null && curSn !== null) {
-                      let gapMin: number | null = null;
-                      let gapMax: number | null = null;
-
-                      if (!sortAsc && prevSn - curSn > 1) {
-                        // Descending: e.g. prev=30, cur=28 -> missing 29; prev=28, cur=24 -> missing 25..27
-                        gapMin = curSn + 1;
-                        gapMax = prevSn - 1;
-                      } else if (sortAsc && curSn - prevSn > 1) {
-                        // Ascending: e.g. prev=24, cur=28 -> missing 25..27
-                        gapMin = prevSn + 1;
-                        gapMax = curSn - 1;
-                      }
-
-                      if (gapMin !== null && gapMax !== null && gapMin <= gapMax) {
-                        const gapLabel = gapMin === gapMax ? `#${gapMin}` : `#${gapMin} - #${gapMax}`;
-                        const fillSn = gapMin;
-
-                        gapRow = (
-                          <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
-                            <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-4">
-                              <div className="flex items-center justify-between text-xs text-amber-600/90 dark:text-amber-400 font-mono">
-                                <div className="flex items-center space-x-2">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block animate-pulse" />
-                                  <span className="font-semibold">Missing Sequence: {gapLabel}</span>
-                                </div>
-                                {isEditable && (
-                                  <button
-                                    type="button"
-                                    disabled={isReservingGap === fillSn}
-                                    onClick={() => handleFillGap(fillSn)}
-                                    className={`px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1 font-sans ${
-                                      isReservingGap === fillSn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                                    }`}
-                                    title={`Reserve sequence gap #${fillSn}`}
-                                  >
-                                    <span>{isReservingGap === fillSn ? 'Reserving...' : '+ Fill Gap'}</span>
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-                    }
+                    prevSn = typeof prevRow?.sn === 'number' ? prevRow.sn : null;
+                    curSn = typeof e.sn === 'number' ? e.sn : null;
                   }
 
                   return (
                     <React.Fragment key={e.id || index}>
-                      {gapRow}
-                      <tr
-                        key={e.id}
-                        className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
-                        isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
-                      } ${
-                        isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
-                      }`}
-                    >
-                      {isMarkingMode && (
-                        <td className="py-2.5 px-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(chk) => {
-                              if (chk.target.checked) {
-                                setSelectedEnquiryIds((prev) => [...prev, e.id!]);
-                              } else {
-                                setSelectedEnquiryIds((prev) => prev.filter((id) => id !== e.id!));
-                              }
-                            }}
-                            className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
-                          />
-                        </td>
-                      )}
-                      <td className="py-2.5 px-3 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center">
-                        #{e.sn}
-                      </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[160px] max-w-[220px]">
-                        {(() => {
-                          const resolvedComp = resolveCompanyForEnquiry(e);
-                          const targetCompanyId = resolvedComp?.id || e.company_id;
-                          const isClickable = Boolean(targetCompanyId || resolvedComp);
-
-                          return (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center space-x-1.5 min-w-0">
-                                <span 
-                                  className={`truncate text-sm font-semibold ${isClickable ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : 'text-slate-700 dark:text-slate-300'}`}
-                                  onClick={() => {
-                                    if (isClickable) {
-                                      handleCompanyClick(e);
-                                    }
-                                  }}
-                                  title={isClickable ? `View 360° profile for ${companyName}` : undefined}
-                                >
-                                  {companyName}
-                                </span>
-                                {companyName && companyName !== 'Unknown Client' && (
-                                  <div className="shrink-0">
-                                    <GoogleSearchButton
-                                      companyName={companyName}
-                                      location={resolvedComp?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
-                                      size="xs"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                {resolvedComp && (
-                                  <>
-                                    <TemperatureBadge
-                                      companyId={resolvedComp.id}
-                                      temperature={resolvedComp.temperature}
-                                      isDnc={resolvedComp.is_dnc}
-                                      variant="compact"
-                                      companies={companies || []}
-                                      setCompanies={setCompanies}
-                                    />
-                                    <IndustryBadge company={resolvedComp} size="sm" />
-                                  </>
-                                )}
-                                {e.enquiry_source && (
-                                  <span
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
-                                    title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
-                                  >
-                                    {normalizeEnquirySource(e.enquiry_source)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
-                          {e.quote_ref_no || '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        {(() => {
-                          const spId = resolveSalespersonIdentifier(e);
-                          const spName = resolveSalespersonName(e);
-                          const sp = (salespersons || []).find(
-                            (s) =>
-                              s &&
-                              ((spId && (s.id === spId || s.initials === spId)) ||
-                               (spName &&
-                                 (s.id === spName ||
-                                  s.initials === spName ||
-                                  (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
-                                  (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
-                          );
-                          const initials = sp
-                            ? (sp.initials || getInitials(sp.full_name || sp.name || ''))
-                            : (spName || spId || '—');
-                          const titleText = sp?.full_name || sp?.name || spName || spId || '';
-                          return (
-                            <span 
-                              className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
-                              title={titleText}
-                            >
-                              {initials}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span className="font-mono text-xs text-slate-600 dark:text-slate-400 font-medium">
-                          {formatEnquiryDate(e.enquiry_date)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
-                        {(() => {
-                          const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
-                          const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
-                          const tooltipTitle = e.statusUpdatedAt
-                            ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${lastUpdater ? ` by ${lastUpdater}` : ''}`
-                            : `Status: ${e.status} • Click to update`;
-
-                          return (
-                            <div className="flex flex-col items-start gap-1">
-                              <div className="relative inline-flex items-center">
-                                <select
-                                  value={normalizeEnquiryStatus(e.status)}
-                                  onClick={(evt) => evt.stopPropagation()}
-                                  onChange={(evt) => {
-                                    evt.stopPropagation();
-                                    handleStatusChange(e, evt.target.value);
-                                  }}
-                                  title={tooltipTitle}
-                                  className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
-                                >
-                                  {ENQUIRY_STATUS_OPTIONS.map((st) => (
-                                    <option
-                                      key={st}
-                                      value={st}
-                                      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
-                                    >
-                                      {st}
-                                    </option>
-                                  ))}
-                                </select>
-                                <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
-                              </div>
-
-                              {relTime && (
-                                <span
-                                  className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight"
-                                  title={tooltipTitle}
-                                >
-                                  <Clock className="w-2.5 h-2.5 opacity-70" />
-                                  <span>{relTime}</span>
-                                  {lastUpdater && (
-                                    <span className="text-slate-400 font-sans font-medium" title={`By ${lastUpdater}`}>
-                                      • {lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater}
-                                    </span>
-                                  )}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
-                        {(() => {
-                          const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
-                          return (
-                            <div className="inline-flex items-baseline justify-end">
-                              <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
-                              <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center space-x-1.5">
-                          <button
-                            type="button"
-                            onClick={() => e.id && onSelectEnquiry(e.id)}
-                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
-                            title="View enquiry details"
-                          >
-                            Details
-                          </button>
-                          {canEditEnquiry(user, activeWorkspace, e) && (
-                            isGapReserved ? (
-                              <button
-                                type="button"
-                                onClick={() => onEditEnquiry(e)}
-                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
-                                title="Claim and populate details for this reserved gap sequence"
-                              >
-                                <span>Claim Gap</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => onEditEnquiry(e)}
-                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
-                                title="Edit enquiry"
-                              >
-                                Edit
-                              </button>
-                            )
-                          )}
-                          {canDeleteEnquiry(user, activeWorkspace, e) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const targetId = e.id || (e as any)._id;
-                                if (!targetId) {
-                                  alert('Error: Enquiry ID is missing. Cannot delete.');
-                                  return;
-                                }
-
-                                // Active project guard: block deletion if linked to an active project
-                                if (e.project_id) {
-                                  const linkedProj = projects?.find((p) => p.id === e.project_id || p.enquiry_id === targetId);
-                                  const isCancelled = linkedProj ? linkedProj.status === 'Cancelled' : false;
-                                  if (!isCancelled) {
-                                    const errorMsg = `Cannot delete Proposal #${e.sn}: An active project is linked. Please cancel the project first.`;
-                                    if (triggerToast) {
-                                      triggerToast(errorMsg, 'error');
-                                    } else {
-                                      alert(errorMsg);
-                                    }
-                                    return;
-                                  }
-                                }
-
-                                const isPlaceholder = Boolean(
-                                  e.is_gap_placeholder === true ||
-                                  (e.status && (e.status === 'Gap / Reserved' || e.status.toUpperCase() === 'GAP / RESERVED')) ||
-                                  (e.company_name && e.company_name.includes('[Reserved Sequence'))
-                                );
-                                setConfirmDialog({
-                                  isOpen: true,
-                                  title: isPlaceholder ? 'Delete Reserved Gap' : 'Move to Recycle Bin',
-                                  message: isPlaceholder
-                                    ? `Are you sure you want to delete reserved gap #${e.sn}? This sequence slot will immediately revert back to an open missing sequence gap.`
-                                    : `Are you sure you want to move Enquiry #${e.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
-                                  confirmText: isPlaceholder ? 'Delete' : 'Move to Bin',
-                                  cancelText: 'Cancel',
-                                  variant: isPlaceholder ? 'destructive' : 'warning',
-                                  isDestructive: isPlaceholder,
-                                  onConfirm: async () => {
-                                    if (isPlaceholder) {
-                                      try {
-                                        await deleteDoc(doc(db, 'enquiries', targetId));
-                                      } catch (delErr) {
-                                        console.warn('Direct deleteDoc failed, trying safeDeleteDoc:', delErr);
-                                        await safeDeleteDoc('enquiries', targetId);
-                                      }
-                                      if (setEnquiries) {
-                                        setEnquiries((prev) => prev.filter((item) => item.id !== targetId));
-                                      }
-                                      if (triggerToast) {
-                                        triggerToast(`Reserved sequence gap #${e.sn} deleted. Sequence slot reopened.`, 'info');
-                                      }
-                                    } else {
-                                      onDeleteEnquiry(targetId);
-                                    }
-                                  }
-                                });
-                              }}
-                              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
-                              title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
-                            >
-                              <Trash className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
+                      <GapDetectorRow
+                        prevSn={prevSn}
+                        curSn={curSn}
+                        sortAsc={sortAsc}
+                        isMarkingMode={isMarkingMode}
+                        isEditable={isEditable}
+                        isReservingGap={isReservingGap}
+                        onFillGap={handleFillGap}
+                      />
+                      <EnquiryTableRow
+                        enquiry={e}
+                        isChecked={isChecked}
+                        isMarkingMode={isMarkingMode}
+                        isEditable={isEditable}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        companyName={companyName}
+                        resolvedCompany={resolvedComp}
+                        salesperson={salesperson}
+                        companies={companies || []}
+                        setCompanies={setCompanies}
+                        onToggleSelect={handleToggleSelectRow}
+                        onSelectEnquiry={handleSelectEnquiry}
+                        onEditEnquiry={handleEditEnquiryRow}
+                        onDeleteEnquiry={handleDeleteRow}
+                        onStatusChange={handleStatusChange}
+                        onCompanyClick={handleCompanyClick}
+                      />
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
             </table>
           </div>
           {/* Pagination Controls */}

@@ -585,6 +585,7 @@ export interface Enquiry extends SoftDeleteFields {
   stock_reserved?: boolean;
   stock_reserved_at?: string | null;
   custom_project_details?: ProductAttribute[];
+  is_gap_placeholder?: boolean;
   line_items: LineItem[];
   attachments?: Attachment[];
   concerned_persons?: string[];
@@ -906,4 +907,137 @@ export interface ClaimedSequenceResult {
 }
 
 export const WORKSPACE_STORAGE_KEY = 'sas_active_workspace_id';
+
+// ==========================================
+// QUOTATION ENGINE & PRESET ARCHITECTURE TYPES
+// ==========================================
+
+export type QuotationTaxMode = 'tax_calculated' | 'taxes_extra' | 'tax_exempt';
+
+export type QuotationSignatoryMode = 'single' | 'dual' | 'stamp_only' | 'none';
+
+export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
+
+export interface QuotationLineItem {
+  id?: string;
+  item_name: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total_price: number;
+  brand_make?: string;
+  model_part_no?: string;
+  country_of_origin?: string;
+  availability?: string;
+  is_optional?: boolean;
+}
+
+export interface DocumentProfileBankAccount {
+  id?: string;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  iban?: string;
+  swift_bic?: string;
+  branch_address?: string;
+  currency?: string;
+  is_default?: boolean;
+}
+
+export interface WorkspaceDocumentProfile extends SoftDeleteFields {
+  id?: string;
+  workspace_id?: string;
+  workspaceId?: string;
+  profile_name: string;
+  legal_entity_name: string;
+  trn?: string; // Tax Registration Number
+  address_line_1: string;
+  address_line_2?: string;
+  city?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  logo_url?: string;
+  stamp_seal_url?: string;
+  accent_color?: string; // Hex color code
+  bank_accounts: DocumentProfileBankAccount[];
+  is_default?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface QuotationPresetColumns {
+  brand?: boolean;
+  model?: boolean;
+  origin?: boolean;
+  availability?: boolean;
+  unit_price?: boolean;
+}
+
+export interface QuotationPreset extends SoftDeleteFields {
+  id?: string;
+  workspace_id?: string;
+  workspaceId?: string;
+  preset_name: string;
+  header_profile_id?: string;
+  visible_columns: QuotationPresetColumns;
+  default_tax_mode: QuotationTaxMode;
+  default_price_basis?: string; // e.g., 'Ex-Works', 'FOB', 'CIF', 'DDP'
+  default_payment_terms?: string; // e.g., '100% Advance', '30 Days Net'
+  default_validity_days: number; // e.g., 30
+  signatory_mode: QuotationSignatoryMode;
+  flyer_attachments?: Attachment[];
+  notes_template?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface QuotationPartySnapshot {
+  entity_name: string;
+  contact_person?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  trn?: string;
+}
+
+export interface QuotationSignatory {
+  name: string;
+  designation?: string;
+  signature_url?: string;
+  date?: string;
+}
+
+export interface Quotation extends SoftDeleteFields {
+  id?: string;
+  workspace_id: string;
+  workspaceId: string;
+  enquiry_id: string;
+  quote_number: string; // e.g., 'QT-2026-0042'
+  revision_number: number; // 0 for R0, 1 for R1, etc.
+  formatted_quote_ref: string; // e.g., 'QT-2026-0042-R0'
+  status: QuotationStatus;
+  client_snapshot: QuotationPartySnapshot;
+  sender_snapshot: QuotationPartySnapshot;
+  line_items: QuotationLineItem[];
+  tax_mode: QuotationTaxMode;
+  subtotal: number;
+  freight_amount: number;
+  tax_rate_percent: number;
+  tax_amount: number;
+  grand_total: number;
+  applied_terms?: string;
+  applied_bank_account?: DocumentProfileBankAccount;
+  signatories?: QuotationSignatory[];
+  pdf_storage_path?: string;
+  pdf_download_url?: string;
+  created_at: string;
+  updatedAt?: string;
+  updated_at?: string;
+  valid_until?: string;
+  parent_quote_id?: string; // Link to parent quote when revisioned
+  currency?: string;
+}
 

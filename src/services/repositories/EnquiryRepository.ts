@@ -1,7 +1,7 @@
-import { Enquiry, Workspace, UserProfile, WorkspaceMember } from '../../types';
+import { Enquiry, Workspace, UserProfile } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
 import { canAccessEnquiry, isAdmin, isSuperAdmin, getUserWorkspaceRole } from '../../utils/permissions';
 import { purgeEnquiryAttachments, WorkspaceStorageSettings } from '../attachmentStorage';

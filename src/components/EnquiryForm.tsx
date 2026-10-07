@@ -4,16 +4,16 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquirySource, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, LegalSuffix, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus } from '../types';
 import { db } from '../firebase';
-import { collection, writeBatch, doc, updateDoc } from 'firebase/firestore';
-import { safeAddDoc, safeUpdateDoc, uploadAttachment, uploadAttachmentWithProgress } from '../firebase';
+import { writeBatch, doc, updateDoc } from 'firebase/firestore';
+import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
-import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
+import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import {
@@ -29,8 +29,6 @@ import {
   HardDrive,
   AlertTriangle,
   Lock,
-  HelpCircle,
-  TrendingUp,
   X,
   FileCheck,
   Search,
