@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { db } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -898,6 +898,19 @@ export default function EnquiryDetail({
   const matchedCompany = companies.find((c) => c.id === enquiry.company_id);
   const matchedContact = contacts.find((c) => c.id === enquiry.contact_id);
 
+  // Resolve stakeholders / concerned persons with legacy string fallback
+  const rawConcerned = currentEnquiry.concerned_persons || enquiry.concerned_persons;
+  const rawConcernedLegacy = currentEnquiry.concerned_person || enquiry.concerned_person;
+  const resolvedConcernedPersons: string[] = React.useMemo(() => {
+    if (Array.isArray(rawConcerned) && rawConcerned.length > 0) {
+      return rawConcerned.map(p => String(p).trim()).filter(Boolean);
+    }
+    if (typeof rawConcernedLegacy === 'string' && rawConcernedLegacy.trim()) {
+      return rawConcernedLegacy.split(/[,;\n]+/).map(p => p.trim()).filter(Boolean);
+    }
+    return [];
+  }, [rawConcerned, rawConcernedLegacy]);
+
   // Compute the chronological list of revisions
   const revisionChain = React.useMemo(() => {
     if (!enquiries || enquiries.length === 0) return [enquiry];
@@ -1669,59 +1682,83 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Personal Contact card */}
-              {matchedContact && (
+              {/* Contact Information & Concerned Stakeholders */}
+              {(matchedContact || resolvedConcernedPersons.length > 0) && (
                 <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
                       <User className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Contact Person</span>
+                      <span>{matchedContact ? 'Contact Person' : 'Concerned Stakeholders'}</span>
                     </h4>
-                    <button
-                      type="button"
-                      onClick={() => openEditContact(matchedCompany?.id, matchedContact)}
-                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                      title="Edit Contact Person"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit Contact</span>
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-sm font-semibold text-slate-800 block font-sans">{matchedContact.full_name}</span>
-                    <span className="text-[10px] text-slate-500 block font-sans">{matchedContact.designation || 'Project Manager'}</span>
-                  </div>
-                  <div className="flex flex-col md:flex-row md:items-center gap-4 text-xs font-sans text-slate-600 border-t border-slate-200 pt-2.5">
-                    {matchedContact.mobile && (
-                      <div className="flex items-center space-x-2">
-                        <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-                        <a
-                          href={`tel:${matchedContact.mobile}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="hover:underline font-mono"
-                        >
-                          {matchedContact.mobile}
-                        </a>
-                        <a
-                          href={getWhatsAppUrl(matchedContact.mobile)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
-                          title={`WhatsApp ${matchedContact.full_name}`}
-                        >
-                          <MessageSquare className="w-3 h-3 text-emerald-600" />
-                          <span>WhatsApp</span>
-                        </a>
-                      </div>
-                    )}
-                    {matchedContact.email && (
-                      <div className="flex items-center space-x-2 overflow-hidden">
-                        <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="truncate">{matchedContact.email}</span>
-                      </div>
+                    {matchedContact && (
+                      <button
+                        type="button"
+                        onClick={() => openEditContact(matchedCompany?.id, matchedContact)}
+                        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                        title="Edit Contact Person"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit Contact</span>
+                      </button>
                     )}
                   </div>
+                  {matchedContact && (
+                    <>
+                      <div className="space-y-1">
+                        <span className="text-sm font-semibold text-slate-800 block font-sans">{matchedContact.full_name}</span>
+                        <span className="text-[10px] text-slate-500 block font-sans">{matchedContact.designation || 'Project Manager'}</span>
+                      </div>
+                      <div className="flex flex-col md:flex-row md:items-center gap-4 text-xs font-sans text-slate-600 border-t border-slate-200 pt-2.5">
+                        {matchedContact.mobile && (
+                          <div className="flex items-center space-x-2">
+                            <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                            <a
+                              href={`tel:${matchedContact.mobile}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:underline font-mono"
+                            >
+                              {matchedContact.mobile}
+                            </a>
+                            <a
+                              href={getWhatsAppUrl(matchedContact.mobile)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
+                              title={`WhatsApp ${matchedContact.full_name}`}
+                            >
+                              <MessageSquare className="w-3 h-3 text-emerald-600" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </div>
+                        )}
+                        {matchedContact.email && (
+                          <div className="flex items-center space-x-2 overflow-hidden">
+                            <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="truncate">{matchedContact.email}</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {resolvedConcernedPersons.length > 0 && (
+                    <div className={`${matchedContact ? 'border-t border-slate-200 pt-3' : ''} space-y-2`}>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-1.5">
+                        <Users className="w-3 h-3 text-slate-400" />
+                        <span>Stakeholders / Concerned Persons</span>
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {resolvedConcernedPersons.map((person, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50/80 text-blue-700 border border-blue-200/60 font-sans"
+                          >
+                            {person}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1801,7 +1838,7 @@ export default function EnquiryDetail({
                   </div>
                   <div>
                     <span className="text-slate-400 block uppercase font-mono text-[10px]">Enquiry Source</span>
-                    <span className="text-slate-800 font-semibold font-sans">{enquiry.enquiry_source}</span>
+                    <span className="text-slate-800 font-semibold font-sans">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
                   </div>
                   <div>
                     <span className="text-slate-400 block uppercase font-mono text-[10px]">Estimated Order Date</span>

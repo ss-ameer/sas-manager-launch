@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -130,6 +130,7 @@ export default function EnquiryList({
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [salesPersonFilter, setSalesPersonFilter] = useState<string>('All');
   const [urgencyFilter, setUrgencyFilter] = useState<'All' | 'Overdue'>('All');
+  const [sourceFilter, setSourceFilter] = useState<string>('All');
 
   // Debounce search input updates to eliminate typing lag
   React.useEffect(() => {
@@ -167,7 +168,7 @@ export default function EnquiryList({
   // Reset page to 1 when filters change to prevent empty states
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, salesPersonFilter, urgencyFilter]);
+  }, [searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter]);
 
   // Excel/CSV Advanced Column-Mapping Preview Importer state
   const [showImport, setShowImport] = useState(false);
@@ -381,6 +382,17 @@ export default function EnquiryList({
     return filtered.length > 0 ? filtered : (salespersons || []);
   }, [salespersons, authorizedEnquiries, isWsAdmin]);
 
+  // Dynamic set of enquiry sources with case normalization
+  const availableSources = React.useMemo(() => {
+    const set = new Set<string>();
+    (authorizedEnquiries || []).forEach((e) => {
+      if (e?.enquiry_source) {
+        set.add(normalizeEnquirySource(e.enquiry_source));
+      }
+    });
+    return Array.from(set).sort();
+  }, [authorizedEnquiries]);
+
   // Filter & Sort Logic
   const filteredEnquiries = React.useMemo(() => {
     return (authorizedEnquiries || [])
@@ -434,7 +446,12 @@ export default function EnquiryList({
           urgencyFilter === 'All' ||
           (e.status === 'Active' && e.next_followup_date && e.next_followup_date < today);
 
-        return matchText && matchStatus && matchRep && matchUrgency;
+        // 5. Enquiry Source
+        const matchSource =
+          sourceFilter === 'All' ||
+          normalizeEnquirySource(e.enquiry_source) === sourceFilter;
+
+        return matchText && matchStatus && matchRep && matchUrgency && matchSource;
       })
       .sort((a, b) => {
         let comparison = 0;
@@ -449,7 +466,7 @@ export default function EnquiryList({
         }
         return sortAsc ? comparison : -comparison;
       });
-  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sortField, sortAsc, companyMap, salespersons]);
+  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, sortField, sortAsc, companyMap, salespersons]);
 
   const activeEnquiryFilterLabels = React.useMemo(() => {
     const labels: string[] = [];
@@ -458,9 +475,10 @@ export default function EnquiryList({
       const sp = (salespersons || []).find(s => s && ((s.id || s.initials) === salesPersonFilter));
       labels.push(`Rep: ${sp ? sp.full_name : salesPersonFilter}`);
     }
+    if (sourceFilter !== 'All') labels.push(`Source: ${sourceFilter}`);
     if (urgencyFilter === 'Overdue') labels.push('Overdue Only');
     return labels;
-  }, [statusFilter, salesPersonFilter, urgencyFilter, salespersons]);
+  }, [statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, salespersons]);
 
   const handleClearEnquiryFilters = () => {
     setSearchInput('');
@@ -468,6 +486,7 @@ export default function EnquiryList({
     setStatusFilter('All');
     setSalesPersonFilter('All');
     setUrgencyFilter('All');
+    setSourceFilter('All');
   };
 
   // Calculate pagination details
@@ -1097,6 +1116,23 @@ export default function EnquiryList({
             </div>
           </div>
 
+          {/* Source selector */}
+          <div className="flex-1 min-w-[140px]">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
+              >
+                <option value="All">All Sources</option>
+                {availableSources.map((src) => (
+                  <option key={src} value={src}>{src}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
           {/* Urgency follow-up toggle (Interactive Pill Toggle) */}
           <div className="flex-1 min-w-[140px]">
             <button
@@ -1359,19 +1395,29 @@ export default function EnquiryList({
                                   </div>
                                 )}
                               </div>
-                              {resolvedComp && (
-                                <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                  <TemperatureBadge
-                                    companyId={resolvedComp.id}
-                                    temperature={resolvedComp.temperature}
-                                    isDnc={resolvedComp.is_dnc}
-                                    variant="compact"
-                                    companies={companies || []}
-                                    setCompanies={setCompanies}
-                                  />
-                                  <IndustryBadge company={resolvedComp} size="sm" />
-                                </div>
-                              )}
+                              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                                {resolvedComp && (
+                                  <>
+                                    <TemperatureBadge
+                                      companyId={resolvedComp.id}
+                                      temperature={resolvedComp.temperature}
+                                      isDnc={resolvedComp.is_dnc}
+                                      variant="compact"
+                                      companies={companies || []}
+                                      setCompanies={setCompanies}
+                                    />
+                                    <IndustryBadge company={resolvedComp} size="sm" />
+                                  </>
+                                )}
+                                {e.enquiry_source && (
+                                  <span
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
+                                    title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
+                                  >
+                                    {normalizeEnquirySource(e.enquiry_source)}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })()}
@@ -1663,7 +1709,7 @@ export default function EnquiryList({
         ) : (
           <div className="py-24 text-center text-slate-400 font-sans">
             <p>No enquiries matched your filter conditions in this log.</p>
-            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All') && (
+            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All' || sourceFilter !== 'All') && (
               <button
                 type="button"
                 onClick={handleClearEnquiryFilters}

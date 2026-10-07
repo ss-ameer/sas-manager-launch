@@ -461,6 +461,32 @@ export interface Attachment {
 export type EnquirySource = string;
 
 /**
+ * Normalizes enquiry source to clean Title-Case standard casing
+ * (e.g., 'EMAIL' -> 'Email', 'DIRECT' -> 'Direct', 'WHATSAPP' -> 'WhatsApp').
+ */
+export function normalizeEnquirySource(source?: string | null): string {
+  if (!source) return 'Direct';
+  const trimmed = source.trim();
+  if (!trimmed) return 'Direct';
+  const upper = trimmed.toUpperCase();
+  if (upper === 'EMAIL') return 'Email';
+  if (upper === 'DIRECT') return 'Direct';
+  if (upper === 'WHATSAPP') return 'WhatsApp';
+  if (upper === 'PHONE' || upper === 'CALL') return 'Phone';
+  if (upper === 'WEBSITE' || upper === 'WEB') return 'Website';
+  if (upper === 'REFERRAL') return 'Referral';
+  if (upper === 'WALK-IN' || upper === 'WALKIN') return 'Walk-in';
+  if (upper === 'EXHIBITION' || upper === 'EXPO') return 'Exhibition';
+  if (upper === 'LINKEDIN') return 'LinkedIn';
+
+  return trimmed
+    .toLowerCase()
+    .split(/([\s/-]+)/)
+    .map((part) => (part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part))
+    .join('');
+}
+
+/**
  * Canonical array of all recognized enquiry stages and statuses across all views.
  */
 export const ENQUIRY_STATUS_OPTIONS = [
