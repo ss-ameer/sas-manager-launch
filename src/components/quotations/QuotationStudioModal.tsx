@@ -10,7 +10,8 @@ import {
   Enquiry,
   Salesperson,
   UserProfile,
-  LineItem
+  LineItem,
+  Workspace
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { QuotationDocument } from './QuotationDocument';
@@ -43,6 +44,7 @@ export interface QuotationStudioModalProps {
   enquiry: Enquiry;
   salespersonName?: string;
   activeWorkspaceId: string;
+  activeWorkspace?: Workspace;
   user: UserProfile;
   profile?: WorkspaceDocumentProfile | null;
   onQuotationCreated?: (quotation: Quotation) => void;
@@ -55,6 +57,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   enquiry,
   salespersonName,
   activeWorkspaceId,
+  activeWorkspace,
   user,
   profile,
   onQuotationCreated,
@@ -251,9 +254,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         trn: undefined
       },
       sender_snapshot: {
-        entity_name: profile?.legal_entity_name || 'Industrial Trading LLC',
+        entity_name: profile?.legal_entity_name || activeWorkspace?.name || 'Commercial Entity LLC',
         trn: profile?.trn,
-        address: profile?.address_line_1,
+        address: [profile?.address_line_1, profile?.address_line_2, profile?.city, profile?.country].filter(Boolean).join(', ') || undefined,
         phone: profile?.phone,
         email: profile?.email
       },
@@ -722,7 +725,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="font-semibold text-slate-700">Live Preview:</span>
                 <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600">
-                  A4 Landscape Scale: {Math.round(zoomScale * 100)}%
+                  A4 Portrait Scale: {Math.round(zoomScale * 100)}%
                 </span>
               </div>
 

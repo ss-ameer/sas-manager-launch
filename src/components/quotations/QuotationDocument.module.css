@@ -12,9 +12,16 @@
     background: #ffffff !important;
   }
 
+  /* Hide backdrop overlays, sticky toolbars, app headers and sidebars during print */
+  header, nav, aside, .no-print, [role="dialog"] > header, button {
+    display: none !important;
+  }
+
   .quotation-document-container {
     padding: 0 !important;
+    margin: 0 !important;
     background: transparent !important;
+    display: block !important;
   }
 
   .quotation-a4-sheet {
@@ -31,4 +38,14 @@
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
 }
+

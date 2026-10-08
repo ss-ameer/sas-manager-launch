@@ -1,4 +1,4 @@
-import { Quotation, QuotationPreset, QuotationTaxMode } from '../../types';
+import { Quotation, QuotationPreset, QuotationTaxMode, WorkspaceDocumentProfile } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc } from 'firebase/firestore';
@@ -14,6 +14,7 @@ export interface TaxCalculationResult {
 export class QuotationRepository {
   private static QUOTATIONS_STORE = 'quotations';
   private static PRESETS_STORE = 'quotation_presets';
+  private static PROFILES_STORE = 'workspace_document_profiles';
 
   /**
    * Pure calculation helper for tax and totals based on QuotationTaxMode:
@@ -348,5 +349,123 @@ export class QuotationRepository {
     }
 
     return presets.sort((a, b) => (a.preset_name || '').localeCompare(b.preset_name || ''));
+  }
+
+  /**
+   * Deletes a quotation preset (soft delete with local and cloud sync).
+   */
+  public static async deletePreset(presetId: string): Promise<boolean> {
+    if (!presetId) return false;
+    const now = new Date().toISOString();
+    try {
+      await safeUpdateDoc('quotation_presets', presetId, {
+        is_deleted: true,
+        deleted_at: now
+      });
+    } catch (_) {}
+
+    try {
+      const existing = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+      const updated = existing.map((p) =>
+        p.id === presetId ? { ...p, is_deleted: true, deleted_at: now } : p
+      );
+      await saveToLocalStore(this.PRESETS_STORE, updated);
+    } catch (_) {}
+
+    return true;
+  }
+
+  /**
+   * Retrieves the active document profile for a workspace, strictly isolated.
+   */
+  public static async getWorkspaceDocumentProfile(
+    workspaceId: string
+  ): Promise<WorkspaceDocumentProfile | null> {
+    if (!workspaceId) return null;
+
+    // 1. Try Firestore fetch
+    try {
+      const snap = await safeGetDocs('workspace_document_profiles');
+      if (snap && !snap.empty) {
+        let found: WorkspaceDocumentProfile | null = null;
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          const itemWsId = data.workspace_id || data.workspaceId;
+          if (itemWsId === workspaceId && !data.is_deleted) {
+            found = {
+              id: d.id,
+              ...data,
+              workspace_id: workspaceId,
+              workspaceId: workspaceId
+            };
+          }
+        });
+        if (found) return found;
+      }
+    } catch (_) {}
+
+    // 2. Fallback to Local IndexedDB Cache
+    try {
+      const local =
+        (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
+      const cached = local.find((p) => {
+        const itemWsId = p.workspace_id || p.workspaceId;
+        return itemWsId === workspaceId && !p.is_deleted;
+      });
+      if (cached) return cached;
+    } catch (_) {}
+
+    return null;
+  }
+
+  /**
+   * Saves or updates the document profile for a workspace.
+   */
+  public static async saveWorkspaceDocumentProfile(
+    profile: Partial<WorkspaceDocumentProfile> & { workspace_id: string }
+  ): Promise<WorkspaceDocumentProfile> {
+    const wsId = profile.workspace_id || profile.workspaceId || 'ws_default';
+    const profileId = profile.id || `docprof_${wsId}`;
+    const now = new Date().toISOString();
+
+    const fullProfile: WorkspaceDocumentProfile = {
+      id: profileId,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      profile_name: profile.profile_name || 'Standard Legal Profile',
+      legal_entity_name: profile.legal_entity_name || '',
+      trn: profile.trn || '',
+      address_line_1: profile.address_line_1 || '',
+      address_line_2: profile.address_line_2 || '',
+      city: profile.city || '',
+      country: profile.country || '',
+      phone: profile.phone || '',
+      email: profile.email || '',
+      website: profile.website || '',
+      logo_url: profile.logo_url || '',
+      stamp_seal_url: profile.stamp_seal_url || '',
+      accent_color: profile.accent_color || '#2563eb',
+      bank_accounts: profile.bank_accounts || [],
+      is_default: profile.is_default ?? true,
+      createdAt: profile.createdAt || now,
+      updatedAt: now
+    };
+
+    // 1. Persist to Firestore
+    try {
+      await safeSetDoc('workspace_document_profiles', profileId, fullProfile);
+    } catch (_) {}
+
+    // 2. Persist to IndexedDB cache
+    try {
+      const existing =
+        (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
+      const updated = existing
+        .filter((p) => p.id !== profileId && (p.workspace_id || p.workspaceId) !== wsId)
+        .concat(fullProfile);
+      await saveToLocalStore(this.PROFILES_STORE, updated);
+    } catch (_) {}
+
+    return fullProfile;
   }
 }

@@ -253,6 +253,60 @@ async function runTestSuite() {
     assert.strictEqual(calc.grand_total, 2150);
   });
 
+  // Group 5: Document Profile & Preset Lifecycle
+  console.log('Group 5: Workspace Document Profile & Presets');
+  await test('saves, persists, and retrieves workspace document profile strictly by workspace', async () => {
+    const wsProfA = `ws_prof_${Date.now()}_a`;
+    const wsProfB = `ws_prof_${Date.now()}_b`;
+
+    await QuotationRepository.saveWorkspaceDocumentProfile({
+      workspace_id: wsProfA,
+      legal_entity_name: 'Alpha Trading LLC',
+      trn: '100099988800003',
+      address_line_1: 'Al Quoz 1',
+      city: 'Dubai',
+      country: 'United Arab Emirates',
+      bank_accounts: [
+        {
+          id: 'bank_1',
+          bank_name: 'ENBD',
+          account_number: '12345678',
+          currency: 'AED',
+          is_default: true
+        }
+      ]
+    });
+
+    const profA = await QuotationRepository.getWorkspaceDocumentProfile(wsProfA);
+    assert.ok(profA, 'Profile A must exist');
+    assert.strictEqual(profA?.legal_entity_name, 'Alpha Trading LLC');
+    assert.strictEqual(profA?.trn, '100099988800003');
+    assert.strictEqual(profA?.bank_accounts.length, 1);
+    assert.strictEqual(profA?.bank_accounts[0].bank_name, 'ENBD');
+
+    const profB = await QuotationRepository.getWorkspaceDocumentProfile(wsProfB);
+    assert.strictEqual(profB, null, 'Workspace B profile must be null initially');
+  });
+
+  await test('deletes presets cleanly via soft-delete', async () => {
+    const wsDel = `ws_del_${Date.now()}`;
+    const preset = await QuotationRepository.savePreset({
+      workspace_id: wsDel,
+      preset_name: 'Temporary Preset',
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 15,
+      signatory_mode: 'single'
+    });
+
+    assert.ok(preset.id);
+    const beforeList = await QuotationRepository.getPresets(wsDel);
+    assert.strictEqual(beforeList.length, 1);
+
+    await QuotationRepository.deletePreset(preset.id!);
+    const afterList = await QuotationRepository.getPresets(wsDel);
+    assert.strictEqual(afterList.length, 0, 'Deleted preset must not be returned');
+  });
+
   console.log('\n========================================');
   console.log(`Results: ${passedCount} passed, ${failedCount} failed`);
   console.log('========================================\n');

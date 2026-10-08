@@ -3210,6 +3210,7 @@ export default function EnquiryDetail({
           enquiry={currentEnquiry}
           salespersonName={resolveSalespersonName(currentEnquiry)}
           activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
+          activeWorkspace={activeWorkspace}
           user={user}
           onQuotationCreated={(newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);

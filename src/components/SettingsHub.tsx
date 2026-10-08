@@ -40,6 +40,7 @@ import {
 import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
 import IndustryTaxonomyManager from './IndustryTaxonomyManager';
+import { WorkspaceDocumentProfileSettings } from './settings/WorkspaceDocumentProfileSettings';
 import { signOut, deleteUser } from 'firebase/auth';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove, setDoc } from 'firebase/firestore';
 import { auth, db, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
@@ -187,6 +188,7 @@ export default function SettingsHub({
 
   const [activeSubTab, setActiveSubTab] = useState<
     | 'workspace'
+    | 'branding'
     | 'account'
     | 'docs'
     | 'users'
@@ -716,6 +718,13 @@ export default function SettingsHub({
       label: isAdmin ? 'Workspace Details' : 'Workspace Info',
       icon: Building2,
       description: isAdmin ? 'Configure workspace profile, modules & regional geographies' : 'Read-only workspace identity and active modules overview',
+      adminOnly: false
+    },
+    {
+      id: 'branding' as const,
+      label: 'Document & Quotes',
+      icon: FileText,
+      description: 'Legal company branding, TRN, wire remittance bank accounts, and quotation presets',
       adminOnly: false
     },
     {
@@ -2143,6 +2152,15 @@ export default function SettingsHub({
               showToast={(msg, type) => triggerToast && triggerToast(msg, type || 'info')}
             />
           </CardPanel>
+        )}
+
+        {activeSubTab === 'branding' && activeWorkspace && (
+          <WorkspaceDocumentProfileSettings
+            activeWorkspace={activeWorkspace}
+            user={user}
+            isAdmin={isAdmin}
+            triggerToast={triggerToast}
+          />
         )}
 
         {activeSubTab === 'docs' && (

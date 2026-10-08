@@ -288,22 +288,22 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             ITEMIZED TABLE
            ======================================================== */}
         <section className="flex-1 my-2">
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-left border-collapse text-xs">
+          <div className="rounded-lg border border-slate-200 overflow-hidden">
+            <table className="w-full table-fixed text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <th className="py-2.5 px-3 w-10 text-center">#</th>
-                  <th className="py-2.5 px-3 min-w-[180px]">Item & Description</th>
-                  {showBrand && <th className="py-2.5 px-2 w-24">Brand</th>}
-                  {showModel && <th className="py-2.5 px-2 w-24">Model / Part</th>}
-                  {showOrigin && <th className="py-2.5 px-2 w-20">Origin</th>}
-                  {showAvailability && <th className="py-2.5 px-2 w-24">Delivery</th>}
-                  <th className="py-2.5 px-2 w-16 text-center">Qty</th>
-                  <th className="py-2.5 px-2 w-14 text-center">UOM</th>
+                  <th className="py-2 px-1.5 w-[5%] text-center">#</th>
+                  <th className="py-2 px-2.5 break-words">Item & Description</th>
+                  {showBrand && <th className="py-2 px-1.5 w-[12%] break-words">Brand</th>}
+                  {showModel && <th className="py-2 px-1.5 w-[13%] break-words">Model / Part</th>}
+                  {showOrigin && <th className="py-2 px-1.5 w-[10%] break-words">Origin</th>}
+                  {showAvailability && <th className="py-2 px-1.5 w-[12%] break-words">Delivery</th>}
+                  <th className="py-2 px-1 w-[7%] text-center">Qty</th>
+                  <th className="py-2 px-1 w-[6%] text-center">UOM</th>
                   {showUnitPrice && (
-                    <th className="py-2.5 px-3 w-24 text-right">Unit Price</th>
+                    <th className="py-2 px-2 w-[13%] text-right">Unit Price</th>
                   )}
-                  <th className="py-2.5 px-3 w-28 text-right">Total ({currency})</th>
+                  <th className="py-2 px-2.5 w-[15%] text-right">Total ({currency})</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -317,59 +317,59 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           : 'hover:bg-slate-50/60'
                       }`}
                     >
-                      <td className="py-2.5 px-3 text-center font-mono text-slate-500">
+                      <td className="py-2 px-1.5 text-center font-mono text-slate-500 align-top">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <td className="py-2 px-2.5 align-top break-words">
+                        <div className="font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-tight">
                           <span>{item.item_name || 'Standard Line Item'}</span>
                           {item.is_optional && (
-                            <span className="px-1.5 py-0.5 text-[10px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded">
+                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded">
                               Optional
                             </span>
                           )}
                         </div>
                         {item.description && (
-                          <div className="text-[11px] text-slate-600 mt-0.5 leading-relaxed whitespace-pre-line">
+                          <div className="text-[11px] text-slate-600 mt-1 leading-snug break-words whitespace-pre-line">
                             {item.description}
                           </div>
                         )}
                       </td>
                       {showBrand && (
-                        <td className="py-2.5 px-2 text-slate-700 font-medium">
+                        <td className="py-2 px-1.5 text-slate-700 font-medium align-top break-words leading-tight">
                           {item.brand_make || '—'}
                         </td>
                       )}
                       {showModel && (
-                        <td className="py-2.5 px-2 font-mono text-slate-700">
+                        <td className="py-2 px-1.5 font-mono text-slate-700 align-top break-words leading-tight">
                           {item.model_part_no || '—'}
                         </td>
                       )}
                       {showOrigin && (
-                        <td className="py-2.5 px-2 text-slate-600">
+                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-tight">
                           {item.country_of_origin || '—'}
                         </td>
                       )}
                       {showAvailability && (
-                        <td className="py-2.5 px-2 text-slate-600">
+                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-tight">
                           {item.availability || 'Ex-Stock'}
                         </td>
                       )}
-                      <td className="py-2.5 px-2 text-center font-bold text-slate-800">
+                      <td className="py-2 px-1 text-center font-bold text-slate-800 align-top">
                         {item.quantity}
                       </td>
-                      <td className="py-2.5 px-2 text-center text-slate-600 uppercase text-[11px]">
+                      <td className="py-2 px-1 text-center text-slate-600 uppercase text-[11px] align-top">
                         {item.unit || 'pcs'}
                       </td>
                       {showUnitPrice && (
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                        <td className="py-2 px-2 text-right font-mono text-slate-700 align-top">
                           {Number(item.unit_price || 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
                         </td>
                       )}
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                      <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900 align-top">
                         {item.is_optional ? (
                           <span className="text-amber-700 text-[11px] italic font-normal">
                             [Excluded]
