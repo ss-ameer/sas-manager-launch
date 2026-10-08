@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 export interface WorkspaceDocumentProfileSettingsProps {
-  activeWorkspace: Workspace;
+  activeWorkspace?: Workspace | null;
   user: UserProfile;
   isAdmin: boolean;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;

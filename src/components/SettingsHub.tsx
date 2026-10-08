@@ -368,8 +368,8 @@ export default function SettingsHub({
   // If activeSubTab points to a restricted tab and user is not an Admin, reset to authorized tab
   useEffect(() => {
     const authorizedTabIds = isAdmin
-      ? ['workspace', 'users', 'dropdowns', 'taxonomy', 'simulator', 'docs', 'account', 'api_db', 'invites', 'cloud']
-      : ['account', 'workspace', 'docs'];
+      ? ['workspace', 'branding', 'users', 'dropdowns', 'taxonomy', 'simulator', 'docs', 'account', 'api_db', 'invites', 'cloud']
+      : ['account', 'workspace', 'branding', 'docs'];
 
     if (!authorizedTabIds.includes(activeSubTab)) {
       setActiveSubTab(isAdmin ? 'workspace' : 'account');
@@ -2154,7 +2154,7 @@ export default function SettingsHub({
           </CardPanel>
         )}
 
-        {activeSubTab === 'branding' && activeWorkspace && (
+        {activeSubTab === 'branding' && (
           <WorkspaceDocumentProfileSettings
             activeWorkspace={activeWorkspace}
             user={user}
