@@ -270,6 +270,7 @@ async function runTestSuite() {
         {
           id: 'bank_1',
           bank_name: 'ENBD',
+          account_name: 'Alpha Trading LLC',
           account_number: '12345678',
           currency: 'AED',
           is_default: true
@@ -295,7 +296,14 @@ async function runTestSuite() {
       preset_name: 'Temporary Preset',
       default_tax_mode: 'taxes_extra',
       default_validity_days: 15,
-      signatory_mode: 'single'
+      signatory_mode: 'single',
+      visible_columns: {
+        brand: true,
+        model: true,
+        origin: true,
+        availability: true,
+        unit_price: true
+      }
     });
 
     assert.ok(preset.id);

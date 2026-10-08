@@ -308,7 +308,8 @@ export function areRowPropsEqual(
       prevE.lostAt !== nextE.lostAt ||
       prevE.updatedAt !== nextE.updatedAt ||
       prevE.is_gap_placeholder !== nextE.is_gap_placeholder ||
-      prevE.is_deleted !== nextE.is_deleted
+      prevE.is_deleted !== nextE.is_deleted ||
+      prevE.attachments?.length !== nextE.attachments?.length
     ) {
       return false;
     }
@@ -439,9 +440,28 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
       <td className="py-2.5 px-3 whitespace-nowrap">
-        <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
-          {e.quote_ref_no || '—'}
-        </span>
+        <div className="flex flex-col items-start gap-1">
+          <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
+            {e.quote_ref_no || '—'}
+          </span>
+          {(() => {
+            // Find issued formal quotation attachment reference if present
+            const quoteDoc = e.attachments?.find((att) =>
+              att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
+            );
+            if (!quoteDoc) return null;
+            const refName = quoteDoc.name.replace('.pdf', '');
+            return (
+              <span
+                className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60"
+                title={`Formal Quotation Issued: ${refName}`}
+              >
+                <FileText className="w-2.5 h-2.5" />
+                <span>{refName}</span>
+              </span>
+            );
+          })()}
+        </div>
       </td>
       <td className="py-2.5 px-3 whitespace-nowrap">
         <span

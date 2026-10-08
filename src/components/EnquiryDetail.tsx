@@ -12,6 +12,7 @@ import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
 import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { Quotation, WorkspaceDocumentProfile } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
@@ -59,7 +60,8 @@ import {
   Calendar,
   Truck,
   Wrench,
-  Package
+  Package,
+  Printer
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -1752,6 +1754,18 @@ export default function EnquiryDetail({
                               <Eye className="w-3.5 h-3.5" />
                               <span>View</span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingQuotation(q);
+                                setTimeout(() => window.print(), 150);
+                              }}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              title="Direct Print or Save as PDF"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Print</span>
+                            </button>
                             {!isSuperseded && (
                               <button
                                 type="button"
@@ -3212,10 +3226,73 @@ export default function EnquiryDetail({
           activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
           activeWorkspace={activeWorkspace}
           user={user}
-          onQuotationCreated={(newQuote) => {
+          onQuotationCreated={async (newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
+
             if (newQuote.status === 'Sent') {
               handleStatusTransition('Sent / Pending Client');
+
+              // 1. Append immutable activity log entry for the issued formal quote
+              try {
+                const activityId = `act_quote_${Date.now()}`;
+                const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+                const formattedVal = `${newQuote.currency || 'AED'} ${Number(newQuote.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+                await ActivityLogRepository.saveLocalOnly({
+                  id: activityId,
+                  workspace_id: wsId,
+                  company_id: currentEnquiry.company_id || '',
+                  contact_id: currentEnquiry.contact_id || '',
+                  enquiry_id: currentEnquiry.id || '',
+                  enquiry_quote_ref: newQuote.formatted_quote_ref,
+                  channel: 'Email',
+                  status: 'Completed',
+                  outcome: 'Enquiry Received',
+                  notes: `Formal Commercial Offer Issued: ${newQuote.formatted_quote_ref} (Value: ${formattedVal}, Revision: R${newQuote.revision_number})`,
+                  logged_by: user?.full_name || user?.username || 'User',
+                  date: new Date().toISOString()
+                });
+              } catch (actErr) {
+                console.warn('[EnquiryDetail] Failed creating activity log for issued quotation:', actErr);
+              }
+
+              // 2. Register document / attachment reference on the enquiry record
+              try {
+                if (currentEnquiry?.id) {
+                  const newDocAttachment: Attachment = {
+                    name: `${newQuote.formatted_quote_ref}.pdf`,
+                    size: 0,
+                    type: 'application/pdf',
+                    url: `quotations/${newQuote.formatted_quote_ref}.pdf`,
+                    storageProvider: 'local',
+                    uploadedAt: new Date().toISOString(),
+                    uploadedByUserName: user?.full_name || user?.username || 'System'
+                  };
+
+                  const existingAttachments = currentEnquiry.attachments || [];
+                  const updatedAttachments = [
+                    ...existingAttachments.filter(
+                      (a) => a.name !== newDocAttachment.name
+                    ),
+                    newDocAttachment
+                  ];
+
+                  await safeUpdateDoc('enquiries', currentEnquiry.id, {
+                    attachments: updatedAttachments,
+                    updated_at: new Date().toISOString()
+                  });
+
+                  setCurrentEnquiry((prev) =>
+                    prev ? { ...prev, attachments: updatedAttachments } : prev
+                  );
+
+                  if (onUpdateEnquiry) {
+                    onUpdateEnquiry({ ...currentEnquiry, attachments: updatedAttachments });
+                  }
+                }
+              } catch (attErr) {
+                console.warn('[EnquiryDetail] Failed registering quotation document attachment:', attErr);
+              }
             }
           }}
           triggerToast={triggerToast}
