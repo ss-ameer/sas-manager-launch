@@ -12,6 +12,10 @@ import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
 import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { Quotation, WorkspaceDocumentProfile } from '../types';
+import { QuotationStudioModal } from './quotations/QuotationStudioModal';
+import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 import { createProjectFromEnquiry, getProjectForEnquiry, getDefaultMilestones, ProjectConversionOptions } from '../services/projectService';
@@ -141,6 +145,31 @@ export default function EnquiryDetail({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
   const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
   const [linkedProject, setLinkedProject] = useState<Project | null>(null);
+
+  // Quotation Studio & Formal Quotes State
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
+  const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
+
+  // Load Quotations for this enquiry
+  useEffect(() => {
+    let isMounted = true;
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+    if (currentEnquiry?.id) {
+      QuotationRepository.getQuotationsForEnquiry(currentEnquiry.id, wsId)
+        .then((quotes) => {
+          if (isMounted) {
+            setQuotations(quotes);
+          }
+        })
+        .catch((err) => {
+          console.warn('[EnquiryDetail] Failed fetching quotations:', err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
 
   // Check if a project document is already attached to this enquiry
   useEffect(() => {
@@ -1295,6 +1324,16 @@ export default function EnquiryDetail({
               <Phone className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Log Activity</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIsQuotationStudioOpen(true)}
+              className="px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
+              title="Open Quotation Studio to generate or customize formal commercial offer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Create Quotation</span>
+              <span className="sm:hidden">Quote</span>
+            </button>
             {canEditEnquiry(user, activeWorkspace, enquiry) && (
               <button
                 type="button"
@@ -1625,6 +1664,137 @@ export default function EnquiryDetail({
                   </div>
                 </div>
               )}
+
+              {/* Formal Quotations & Revisions Section */}
+              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                      <FileText className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
+                      Formal Quotations & Revisions ({quotations.length})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuotationStudioOpen(true)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition hover:underline"
+                  >
+                    <span>+ New Formal Offer</span>
+                  </button>
+                </div>
+
+                {quotations.length > 0 ? (
+                  <div className="space-y-2 pt-1">
+                    {quotations.map((q) => {
+                      const isSuperseded = q.status === 'Superseded';
+                      const isApproved = q.status === 'Approved';
+                      const isSent = q.status === 'Sent';
+
+                      return (
+                        <div
+                          key={q.id || q.formatted_quote_ref}
+                          className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
+                            isSuperseded
+                              ? 'bg-slate-100/70 border-slate-200 text-slate-500 opacity-80'
+                              : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${
+                                isSuperseded
+                                  ? 'bg-slate-200 text-slate-600'
+                                  : isApproved
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isSent
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              R{q.revision_number}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-mono font-bold text-xs text-slate-900 truncate">
+                                  {q.formatted_quote_ref}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded ${
+                                    isSuperseded
+                                      ? 'bg-slate-100 text-slate-500'
+                                      : isApproved
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {q.status}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Issued: {new Date(q.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                {q.valid_until && ` • Valid: ${new Date(q.valid_until).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-3 shrink-0">
+                            <span className="font-mono font-bold text-xs text-slate-800">
+                              {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setViewingQuotation(q)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              title="Preview Quotation Document"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                            {!isSuperseded && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const nextRev = await QuotationRepository.createRevision(q.id!);
+                                    setQuotations((prev) => [nextRev, ...prev.filter((item) => item.id !== nextRev.id)]);
+                                    if (triggerToast) {
+                                      triggerToast(`Created revision ${nextRev.formatted_quote_ref}`, 'success');
+                                    }
+                                  } catch (err: any) {
+                                    if (triggerToast) {
+                                      triggerToast(err?.message || 'Failed to create revision', 'error');
+                                    }
+                                  }
+                                }}
+                                className="p-1 hover:bg-slate-200 text-slate-500 hover:text-slate-800 rounded-lg transition cursor-pointer"
+                                title="Create new child revision"
+                              >
+                                <GitFork className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-1.5">
+                    <p className="text-xs text-slate-500">
+                      No formal quotation generated yet for this enquiry.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuotationStudioOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Launch Quotation Studio</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Company switchboard metadata */}
               {matchedCompany && (
@@ -3027,6 +3197,65 @@ export default function EnquiryDetail({
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quotation Studio Drawer / Modal */}
+      {isQuotationStudioOpen && (
+        <QuotationStudioModal
+          isOpen={isQuotationStudioOpen}
+          onClose={() => setIsQuotationStudioOpen(false)}
+          enquiry={currentEnquiry}
+          salespersonName={resolveSalespersonName(currentEnquiry)}
+          activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
+          user={user}
+          onQuotationCreated={(newQuote) => {
+            setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
+            if (newQuote.status === 'Sent') {
+              handleStatusTransition('Sent / Pending Client');
+            }
+          }}
+          triggerToast={triggerToast}
+        />
+      )}
+
+      {/* Standalone Quotation Document View Modal */}
+      {viewingQuotation && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden">
+          <div className="bg-slate-100 w-full max-w-[1000px] h-[92vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden">
+            <header className="px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <FileText className="w-5 h-5 text-indigo-600" />
+                <span className="font-mono font-bold text-sm text-slate-800">
+                  {viewingQuotation.formatted_quote_ref}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600">
+                  {viewingQuotation.status}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition"
+                >
+                  Print / Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingQuotation(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </header>
+            <div className="flex-1 overflow-auto p-4 flex justify-center">
+              <div className="w-full max-w-[210mm] shadow-xl">
+                <QuotationDocument quotation={viewingQuotation} />
+              </div>
             </div>
           </div>
         </div>
