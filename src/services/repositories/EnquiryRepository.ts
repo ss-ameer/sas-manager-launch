@@ -153,6 +153,92 @@ export class EnquiryRepository {
     return this.save(enquiry);
   }
 
+  /**
+   * Syncs quotation acceptance onto the parent enquiry:
+   * Updates status to 'Won / Order Confirmed', pins quote_ref_no, updates value_aed,
+   * records status history and timestamps, and persists to local cache + sync engine.
+   */
+  public static async syncAcceptedQuotation(
+    enquiryId: string,
+    quoteRef: string,
+    dealValueAed: number,
+    user?: { uid?: string; name?: string }
+  ): Promise<Enquiry | null> {
+    const existing = await this.getEnquiryById(enquiryId);
+    if (!existing) return null;
+
+    const nowIso = new Date().toISOString();
+    const oldStatus = existing.status;
+    const newStatus = 'Won / Order Confirmed';
+
+    const historyEntry = {
+      from: oldStatus,
+      to: newStatus,
+      timestamp: nowIso,
+      updatedBy: user?.name || user?.uid || 'User'
+    };
+
+    const updated: Enquiry = {
+      ...existing,
+      status: newStatus,
+      quote_ref_no: quoteRef,
+      value_aed: dealValueAed,
+      wonAt: nowIso,
+      statusUpdatedAt: nowIso,
+      statusUpdatedBy: user?.name || user?.uid || 'User',
+      statusHistory: [...(existing.statusHistory || []), historyEntry],
+      updated_at: nowIso,
+      updatedAt: nowIso
+    };
+
+    await this.save(updated);
+    return updated;
+  }
+
+  /**
+   * Syncs quotation decline / rejection onto the parent enquiry:
+   * Updates status to 'Lost / Cancelled', records loss reason and notes,
+   * tracks status history and timestamps, and persists changes.
+   */
+  public static async syncDeclinedQuotation(
+    enquiryId: string,
+    quoteRef: string,
+    reason: string,
+    notes?: string,
+    user?: { uid?: string; name?: string }
+  ): Promise<Enquiry | null> {
+    const existing = await this.getEnquiryById(enquiryId);
+    if (!existing) return null;
+
+    const nowIso = new Date().toISOString();
+    const oldStatus = existing.status;
+    const newStatus = 'Lost / Cancelled';
+
+    const historyEntry = {
+      from: oldStatus,
+      to: newStatus,
+      timestamp: nowIso,
+      updatedBy: user?.name || user?.uid || 'User'
+    };
+
+    const updated: Enquiry = {
+      ...existing,
+      status: newStatus,
+      quote_ref_no: quoteRef,
+      lost_reason: reason,
+      lost_notes: notes || '',
+      lostAt: nowIso,
+      statusUpdatedAt: nowIso,
+      statusUpdatedBy: user?.name || user?.uid || 'User',
+      statusHistory: [...(existing.statusHistory || []), historyEntry],
+      updated_at: nowIso,
+      updatedAt: nowIso
+    };
+
+    await this.save(updated);
+    return updated;
+  }
+
   public static async softDelete(id: string, user?: { uid: string; name: string }): Promise<void> {
     const current = await this.getAllLocal();
     const idx = current.findIndex((item) => item.id === id);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
@@ -61,7 +61,9 @@ import {
   Truck,
   Wrench,
   Package,
-  Printer
+  Printer,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -178,6 +180,251 @@ export default function EnquiryDetail({
     }
   };
 
+  // Prompt confirmation to mark quotation as Client Accepted & Win Enquiry
+  const promptAcceptQuotation = (quote: Quotation) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Accept Commercial Offer & Confirm Order',
+      message: `Mark ${quote.formatted_quote_ref} as Client Accepted? This will update the enquiry status and sync the deal value.`,
+      confirmText: 'Accept Quote / Won',
+      cancelText: 'Cancel',
+      variant: 'success',
+      onConfirm: () => handleAcceptQuotation(quote)
+    });
+  };
+
+  const handleAcceptQuotation = async (quote: Quotation) => {
+    if (!currentEnquiry?.id || !quote.id) return;
+    try {
+      // 1. Update quotation status to 'Approved'
+      await QuotationRepository.acceptQuotation(quote.id);
+      setQuotations((prev) =>
+        prev.map((q) => (q.id === quote.id ? { ...q, status: 'Approved' as const } : q))
+      );
+      if (viewingQuotation && viewingQuotation.id === quote.id) {
+        setViewingQuotation({ ...viewingQuotation, status: 'Approved' });
+      }
+
+      // 2. Sync deal value, status, and quote ref to parent enquiry
+      const dealValueAed = Number(quote.grand_total || 0);
+      const updatedEnquiry = await EnquiryRepository.syncAcceptedQuotation(
+        currentEnquiry.id,
+        quote.formatted_quote_ref,
+        dealValueAed,
+        user ? { uid: user.uid, name: user.full_name || user.username } : undefined
+      );
+
+      if (updatedEnquiry) {
+        setCurrentEnquiry(updatedEnquiry);
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry(updatedEnquiry);
+        }
+      }
+
+      // Auto-reserve stock if applicable upon transition to Won
+      try {
+        await reserveEnquiryStock(currentEnquiry, user);
+        if (onStockUpdated) {
+          onStockUpdated();
+        }
+      } catch (stockErr) {
+        console.warn('[EnquiryDetail] Stock auto-reserve notice:', stockErr);
+      }
+
+      // 3. Record immutable activity timeline entry
+      try {
+        const activityId = `act_quote_won_${Date.now()}`;
+        const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+        const formattedVal = `AED ${dealValueAed.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+        const noteText = `Commercial Offer ${quote.formatted_quote_ref} Accepted by Client. Confirmed Value: ${formattedVal}`;
+
+        await ActivityLogRepository.saveLocalOnly({
+          id: activityId,
+          workspace_id: wsId,
+          company_id: currentEnquiry.company_id || '',
+          contact_id: currentEnquiry.contact_id || '',
+          enquiry_id: currentEnquiry.id,
+          enquiry_quote_ref: quote.formatted_quote_ref,
+          channel: 'Email',
+          status: 'Completed',
+          outcome: 'Order Received',
+          notes: noteText,
+          logged_by: user?.full_name || user?.username || 'User',
+          date: new Date().toISOString()
+        });
+
+        // Also record an audit_logs document so it shows in the audit timeline
+        const auditPayload = sanitizeAuditPayload({
+          workspace_id: wsId,
+          user_id: user?.uid || 'system',
+          user_name: user?.full_name || user?.username || 'User',
+          action: 'UPDATE',
+          target_entity: 'ENQUIRY',
+          target_id: currentEnquiry.id,
+          timestamp: new Date().toISOString(),
+          changes: [
+            {
+              field: 'quotation_acceptance',
+              old_value: currentEnquiry.status,
+              new_value: noteText
+            }
+          ]
+        });
+        await safeAddDoc('audit_logs', auditPayload);
+      } catch (actErr) {
+        console.warn('[EnquiryDetail] Failed creating activity log for accepted quote:', actErr);
+      }
+
+      if (triggerToast) {
+        triggerToast(
+          `Quotation ${quote.formatted_quote_ref} Accepted! Enquiry marked Won / Order Confirmed with value AED ${dealValueAed.toLocaleString('en-US', { minimumFractionDigits: 2 })}.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to accept quotation:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to accept quotation', 'error');
+      }
+    }
+  };
+
+  // Decline Quotation / Mark as Lost Modal State & Handlers
+  const [declineModalState, setDeclineModalState] = useState<{
+    isOpen: boolean;
+    quotation: Quotation | null;
+    reason: string;
+    notes: string;
+    isSubmitting: boolean;
+  }>({
+    isOpen: false,
+    quotation: null,
+    reason: 'Price / Competitor Cheaper',
+    notes: '',
+    isSubmitting: false
+  });
+
+  const openDeclineModal = (quote: Quotation) => {
+    setDeclineModalState({
+      isOpen: true,
+      quotation: quote,
+      reason: 'Price / Competitor Cheaper',
+      notes: '',
+      isSubmitting: false
+    });
+  };
+
+  const handleConfirmDecline = async () => {
+    const quote = declineModalState.quotation;
+    if (!quote?.id || !currentEnquiry?.id) return;
+
+    setDeclineModalState((prev) => ({ ...prev, isSubmitting: true }));
+    try {
+      const reason = declineModalState.reason;
+      const notes = declineModalState.notes.trim();
+
+      // 1. Update quotation status to 'Declined' in repository
+      await QuotationRepository.declineQuotation(quote.id, reason, notes);
+      setQuotations((prev) =>
+        prev.map((q) =>
+          q.id === quote.id
+            ? { ...q, status: 'Declined' as const, decline_reason: reason, decline_notes: notes }
+            : q
+        )
+      );
+      if (viewingQuotation && viewingQuotation.id === quote.id) {
+        setViewingQuotation({
+          ...viewingQuotation,
+          status: 'Declined',
+          decline_reason: reason,
+          decline_notes: notes
+        });
+      }
+
+      // 2. Sync parent enquiry status to 'Lost / Cancelled'
+      const updatedEnquiry = await EnquiryRepository.syncDeclinedQuotation(
+        currentEnquiry.id,
+        quote.formatted_quote_ref,
+        reason,
+        notes,
+        user ? { uid: user.uid, name: user.full_name || user.username } : undefined
+      );
+
+      if (updatedEnquiry) {
+        setCurrentEnquiry(updatedEnquiry);
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry(updatedEnquiry);
+        }
+      }
+
+      // Auto-release stock if applicable upon transition to Lost / Cancelled
+      try {
+        await releaseEnquiryStock(currentEnquiry, user);
+        if (onStockUpdated) {
+          onStockUpdated();
+        }
+      } catch (stockErr) {
+        console.warn('[EnquiryDetail] Stock auto-release notice:', stockErr);
+      }
+
+      // 3. Record immutable activity timeline entry & audit log
+      const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+      const logNote = `Commercial Offer ${quote.formatted_quote_ref} Declined by Client. Reason: ${reason}. Notes: ${notes || 'None'}`;
+
+      try {
+        const activityId = `act_quote_declined_${Date.now()}`;
+        await ActivityLogRepository.saveLocalOnly({
+          id: activityId,
+          workspace_id: wsId,
+          company_id: currentEnquiry.company_id || '',
+          contact_id: currentEnquiry.contact_id || '',
+          enquiry_id: currentEnquiry.id,
+          enquiry_quote_ref: quote.formatted_quote_ref,
+          channel: 'Email',
+          status: 'Completed',
+          outcome: 'Lost',
+          notes: logNote,
+          logged_by: user?.full_name || user?.username || 'User',
+          date: new Date().toISOString()
+        });
+
+        const auditPayload = sanitizeAuditPayload({
+          workspace_id: wsId,
+          user_id: user?.uid || 'system',
+          user_name: user?.full_name || user?.username || 'User',
+          action: 'UPDATE',
+          target_entity: 'ENQUIRY',
+          target_id: currentEnquiry.id,
+          timestamp: new Date().toISOString(),
+          changes: [
+            {
+              field: 'quotation_declined',
+              old_value: currentEnquiry.status,
+              new_value: logNote
+            }
+          ]
+        });
+        await safeAddDoc('audit_logs', auditPayload);
+      } catch (actErr) {
+        console.warn('[EnquiryDetail] Failed logging activity for declined quote:', actErr);
+      }
+
+      setDeclineModalState((prev) => ({ ...prev, isOpen: false, isSubmitting: false }));
+      if (triggerToast) {
+        triggerToast(
+          `Quotation ${quote.formatted_quote_ref} marked as Declined. Enquiry set to Lost / Cancelled.`,
+          'info'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to decline quotation:', err);
+      setDeclineModalState((prev) => ({ ...prev, isSubmitting: false }));
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to decline quotation', 'error');
+      }
+    }
+  };
+
   // Load Workspace Document Profile for quotation rendering
   useEffect(() => {
     let isMounted = true;
@@ -215,6 +462,19 @@ export default function EnquiryDetail({
       isMounted = false;
     };
   }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
+
+  // Derived sorted quotations: pin approved quotation at top, then sort descending by revision number
+  const sortedQuotations = useMemo(() => {
+    return [...quotations].sort((a, b) => {
+      if (a.status === 'Approved' && b.status !== 'Approved') return -1;
+      if (b.status === 'Approved' && a.status !== 'Approved') return 1;
+      return (b.revision_number ?? 0) - (a.revision_number ?? 0);
+    });
+  }, [quotations]);
+
+  const hasApprovedQuotation = useMemo(() => {
+    return quotations.some((q) => q.status === 'Approved');
+  }, [quotations]);
 
   // Check if a project document is already attached to this enquiry
   useEffect(() => {
@@ -955,7 +1215,7 @@ export default function EnquiryDetail({
     confirmText?: string;
     cancelText?: string;
     isDestructive?: boolean;
-    variant?: 'destructive' | 'warning' | 'default';
+    variant?: 'destructive' | 'warning' | 'success' | 'default';
   }>({
     isOpen: false,
     title: '',
@@ -1735,9 +1995,10 @@ export default function EnquiryDetail({
 
                 {quotations.length > 0 ? (
                   <div className="space-y-2 pt-1">
-                    {quotations.map((q) => {
+                    {sortedQuotations.map((q) => {
                       const isSuperseded = q.status === 'Superseded';
                       const isApproved = q.status === 'Approved';
+                      const isDeclined = q.status === 'Declined';
                       const isSent = q.status === 'Sent';
                       const isDraft = q.status === 'Draft' || !q.status;
 
@@ -1745,7 +2006,11 @@ export default function EnquiryDetail({
                         <div
                           key={q.id || q.formatted_quote_ref}
                           className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
-                            isSuperseded
+                            isApproved
+                              ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/40 shadow-2xs'
+                              : isDeclined
+                              ? 'bg-rose-50/40 border-rose-200 text-slate-700 opacity-90'
+                              : isSuperseded
                               ? 'bg-slate-100/70 border-slate-200 text-slate-500 opacity-80'
                               : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
                           }`}
@@ -1753,10 +2018,12 @@ export default function EnquiryDetail({
                           <div className="flex items-center space-x-3 min-w-0">
                             <span
                               className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${
-                                isSuperseded
+                                isApproved
+                                  ? 'bg-emerald-200 text-emerald-900 font-extrabold'
+                                  : isDeclined
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : isSuperseded
                                   ? 'bg-slate-200 text-slate-600'
-                                  : isApproved
-                                  ? 'bg-emerald-100 text-emerald-800'
                                   : isSent
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-amber-100 text-amber-800'
@@ -1769,23 +2036,36 @@ export default function EnquiryDetail({
                                 <span className="font-mono font-bold text-xs text-slate-900 truncate">
                                   {q.formatted_quote_ref}
                                 </span>
-                                <span
-                                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                                    isSent
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : isSuperseded
-                                      ? 'bg-slate-100 text-slate-500 border-slate-200 opacity-80'
-                                      : isApproved
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                                  }`}
-                                >
-                                  {q.status || 'Draft'}
-                                </span>
+                                {isApproved ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    Approved / Won
+                                  </span>
+                                ) : isDeclined ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 shadow-2xs">
+                                    <XCircle className="w-3 h-3 text-rose-600" />
+                                    Declined
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                      isSent
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : isSuperseded
+                                        ? 'bg-slate-100 text-slate-500 border-slate-200 opacity-80'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                    }`}
+                                  >
+                                    {q.status || 'Draft'}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[11px] text-slate-400 mt-0.5">
                                 Issued: {new Date(q.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                 {q.valid_until && ` • Valid: ${new Date(q.valid_until).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
+                                {isDeclined && q.decline_reason && (
+                                  <span className="text-rose-600 font-medium"> • Loss Reason: {q.decline_reason}</span>
+                                )}
                               </p>
                             </div>
                           </div>
@@ -1795,7 +2075,7 @@ export default function EnquiryDetail({
                               {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </span>
 
-                            {isDraft && !isSuperseded && (
+                            {isDraft && !isSuperseded && !isDeclined && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1808,6 +2088,29 @@ export default function EnquiryDetail({
                                 <Edit2 className="w-3.5 h-3.5" />
                                 <span>Edit</span>
                               </button>
+                            )}
+
+                            {isSent && !isSuperseded && !isDeclined && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => promptAcceptQuotation(q)}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title={`Mark ${q.formatted_quote_ref} as Client Accepted & Win Enquiry`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Accept / Won</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDeclineModal(q)}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title={`Mark ${q.formatted_quote_ref} as Declined / Lost`}
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  <span>Decline</span>
+                                </button>
+                              </>
                             )}
 
                             <button
@@ -1833,7 +2136,7 @@ export default function EnquiryDetail({
                               <span>Print</span>
                             </button>
 
-                            {!isSuperseded && (isSent || isApproved) && (
+                            {!isSuperseded && !isDeclined && (isApproved || (isSent && !hasApprovedQuotation)) && (
                               <button
                                 type="button"
                                 onClick={() => handleCreateQuotationRevision(q)}
@@ -2921,7 +3224,9 @@ export default function EnquiryDetail({
                   setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
                 }}
                 className={`py-2 px-4 rounded-xl text-xs font-bold text-white transition cursor-pointer ${
-                  confirmDialog.variant === 'warning'
+                  confirmDialog.variant === 'success'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : confirmDialog.variant === 'warning'
                     ? 'bg-amber-600 hover:bg-amber-700'
                     : confirmDialog.isDestructive
                     ? 'bg-rose-600 hover:bg-rose-700'
@@ -3400,8 +3705,14 @@ export default function EnquiryDetail({
                     Superseded
                   </span>
                 ) : viewingQuotation.status === 'Approved' ? (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                    Approved
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Approved / Won
+                  </span>
+                ) : viewingQuotation.status === 'Declined' ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1 shadow-2xs">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    Declined
                   </span>
                 ) : (
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200">
@@ -3410,7 +3721,29 @@ export default function EnquiryDetail({
                 )}
               </div>
               <div className="flex items-center space-x-2">
-                {(viewingQuotation.status === 'Sent' || viewingQuotation.status === 'Approved') && (
+                {viewingQuotation.status === 'Sent' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openDeclineModal(viewingQuotation)}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                      title="Mark this quotation as Declined / Lost"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Decline / Lost</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => promptAcceptQuotation(viewingQuotation)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                      title="Mark this quotation as Client Accepted and confirm order"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Accept Quote / Won</span>
+                    </button>
+                  </>
+                )}
+                {((viewingQuotation.status === 'Sent' && !hasApprovedQuotation) || viewingQuotation.status === 'Approved') && (
                   <button
                     type="button"
                     onClick={() => handleCreateQuotationRevision(viewingQuotation)}
@@ -3458,6 +3791,109 @@ export default function EnquiryDetail({
               <div className="w-full max-w-[210mm] shadow-xl">
                 <QuotationDocument quotation={viewingQuotation} profile={documentProfile} />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Decline Quotation / Mark as Lost Modal */}
+      {declineModalState.isOpen && declineModalState.quotation && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-sans">
+                    Decline Commercial Offer
+                  </h3>
+                  <p className="text-xs font-mono font-bold text-rose-600">
+                    {declineModalState.quotation.formatted_quote_ref}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeclineModalState((prev) => ({ ...prev, isOpen: false }))}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                disabled={declineModalState.isSubmitting}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 font-sans">
+              Mark this quotation as declined by the client. This will set the parent enquiry to{' '}
+              <strong className="text-slate-700">Lost / Cancelled</strong> and log the loss reason for tracking.
+            </p>
+
+            <div className="space-y-3 font-sans">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Loss Reason <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={declineModalState.reason}
+                  onChange={(e) =>
+                    setDeclineModalState((prev) => ({ ...prev, reason: e.target.value }))
+                  }
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 font-sans text-slate-800"
+                >
+                  <option value="Price / Competitor Cheaper">Price / Competitor Cheaper</option>
+                  <option value="Delivery Lead Time Too Long">Delivery Lead Time Too Long</option>
+                  <option value="Technical / Specification Mismatch">
+                    Technical / Specification Mismatch
+                  </option>
+                  <option value="Project Cancelled / Postponed">Project Cancelled / Postponed</option>
+                  <option value="Other / Unresponsive">Other / Unresponsive</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Client Feedback / Notes <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={declineModalState.notes}
+                  onChange={(e) =>
+                    setDeclineModalState((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                  placeholder="Provide competitor details, client comments, or feedback..."
+                  className="w-full text-xs px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 font-sans text-slate-800 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100 font-sans">
+              <button
+                type="button"
+                onClick={() => setDeclineModalState((prev) => ({ ...prev, isOpen: false }))}
+                className="py-2 px-4 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition cursor-pointer"
+                disabled={declineModalState.isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDecline}
+                disabled={declineModalState.isSubmitting}
+                className="py-2 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              >
+                {declineModalState.isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Confirm Decline</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

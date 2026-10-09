@@ -605,6 +605,8 @@ export interface Enquiry extends SoftDeleteFields {
   sentAt?: string;
   wonAt?: string;
   lostAt?: string;
+  lost_reason?: string;
+  lost_notes?: string;
   statusHistory?: EnquiryStatusHistoryEntry[];
 }
 
@@ -1039,5 +1041,8 @@ export interface Quotation extends SoftDeleteFields {
   valid_until?: string;
   parent_quote_id?: string; // Link to parent quote when revisioned
   currency?: string;
+  decline_reason?: string;
+  decline_notes?: string;
+  declined_at?: string;
 }
 

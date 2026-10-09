@@ -266,6 +266,32 @@ export class QuotationRepository {
   }
 
   /**
+   * Accepts / approves a quotation: sets status to 'Approved' and updatedAt timestamp.
+   */
+  public static async acceptQuotation(id: string): Promise<Quotation | null> {
+    return this.updateQuotation(id, {
+      status: 'Approved'
+    });
+  }
+
+  /**
+   * Declines / rejects a quotation: sets status to 'Declined' with decline_reason and optional notes.
+   */
+  public static async declineQuotation(
+    id: string,
+    reason: string,
+    notes?: string
+  ): Promise<Quotation | null> {
+    const now = new Date().toISOString();
+    return this.updateQuotation(id, {
+      status: 'Declined',
+      decline_reason: reason,
+      decline_notes: notes || '',
+      declined_at: now
+    });
+  }
+
+  /**
    * Saves or overwrites an entire quotation document.
    */
   public static async saveQuotation(quotation: Quotation): Promise<Quotation> {
