@@ -47,6 +47,7 @@ export interface QuotationStudioModalProps {
   activeWorkspace?: Workspace;
   user: UserProfile;
   profile?: WorkspaceDocumentProfile | null;
+  editingQuotation?: Quotation | null;
   onQuotationCreated?: (quotation: Quotation) => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -60,6 +61,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   activeWorkspace,
   user,
   profile,
+  editingQuotation,
   onQuotationCreated,
   triggerToast
 }) => {
@@ -80,27 +82,81 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   });
 
   // Financial & Tax adjustments
-  const [freightAmount, setFreightAmount] = useState<number>(0);
-  const [taxMode, setTaxMode] = useState<QuotationTaxMode>('taxes_extra');
-  const [taxRatePercent, setTaxRatePercent] = useState<number>(5);
+  const [freightAmount, setFreightAmount] = useState<number>(
+    editingQuotation?.freight_amount ?? 0
+  );
+  const [taxMode, setTaxMode] = useState<QuotationTaxMode>(
+    editingQuotation?.tax_mode ?? 'taxes_extra'
+  );
+  const [taxRatePercent, setTaxRatePercent] = useState<number>(
+    editingQuotation?.tax_rate_percent ?? 5
+  );
 
   // Commercial terms
   const [priceBasis, setPriceBasis] = useState<string>('Ex-Works / Delivered Site');
   const [paymentTerms, setPaymentTerms] = useState<string>('100% Advance against PI / Approved Credit');
   const [validityDays, setValidityDays] = useState<number>(30);
-  const [customNotes, setCustomNotes] = useState<string>('');
+  const [customNotes, setCustomNotes] = useState<string>(
+    editingQuotation?.applied_terms ?? ''
+  );
 
   // Signatory & Remittance choices
-  const [signatoryMode, setSignatoryMode] = useState<QuotationSignatoryMode>('single');
-  const [signatoryName, setSignatoryName] = useState<string>(
-    salespersonName || user.displayName || user.name || 'Sales Representative'
+  const [signatoryMode, setSignatoryMode] = useState<QuotationSignatoryMode>(
+    editingQuotation?.signatories && editingQuotation.signatories.length > 1
+      ? 'dual'
+      : 'single'
   );
-  const [signatoryTitle, setSignatoryTitle] = useState<string>('Account Manager');
-  const [secondarySignatoryName, setSecondarySignatoryName] = useState<string>('Branch Manager');
-  const [secondarySignatoryTitle, setSecondarySignatoryTitle] = useState<string>('Authorized Signatory');
+  const [signatoryName, setSignatoryName] = useState<string>(
+    editingQuotation?.signatories?.[0]?.name ||
+      salespersonName ||
+      user.displayName ||
+      user.name ||
+      'Sales Representative'
+  );
+  const [signatoryTitle, setSignatoryTitle] = useState<string>(
+    editingQuotation?.signatories?.[0]?.designation || 'Account Manager'
+  );
+  const [secondarySignatoryName, setSecondarySignatoryName] = useState<string>(
+    editingQuotation?.signatories?.[1]?.name || 'Branch Manager'
+  );
+  const [secondarySignatoryTitle, setSecondarySignatoryTitle] = useState<string>(
+    editingQuotation?.signatories?.[1]?.designation || 'Authorized Signatory'
+  );
 
   // Bank selection
-  const [selectedBankId, setSelectedBankId] = useState<string>('');
+  const [selectedBankId, setSelectedBankId] = useState<string>(
+    editingQuotation?.applied_bank_account?.id || ''
+  );
+
+  // Hydrate state when editingQuotation changes
+  useEffect(() => {
+    if (editingQuotation) {
+      if (typeof editingQuotation.freight_amount === 'number') {
+        setFreightAmount(editingQuotation.freight_amount);
+      }
+      if (editingQuotation.tax_mode) {
+        setTaxMode(editingQuotation.tax_mode);
+      }
+      if (typeof editingQuotation.tax_rate_percent === 'number') {
+        setTaxRatePercent(editingQuotation.tax_rate_percent);
+      }
+      if (editingQuotation.applied_terms) {
+        setCustomNotes(editingQuotation.applied_terms);
+      }
+      if (editingQuotation.applied_bank_account?.id) {
+        setSelectedBankId(editingQuotation.applied_bank_account.id);
+      }
+      if (editingQuotation.signatories && editingQuotation.signatories.length > 0) {
+        setSignatoryMode(editingQuotation.signatories.length > 1 ? 'dual' : 'single');
+        setSignatoryName(editingQuotation.signatories[0].name);
+        setSignatoryTitle(editingQuotation.signatories[0].designation || 'Account Manager');
+        if (editingQuotation.signatories[1]) {
+          setSecondarySignatoryName(editingQuotation.signatories[1].name);
+          setSecondarySignatoryTitle(editingQuotation.signatories[1].designation || 'Authorized Signatory');
+        }
+      }
+    }
+  }, [editingQuotation]);
 
   // Zoom / Preview scale controls
   const [zoomScale, setZoomScale] = useState<number>(0.85);
@@ -189,8 +245,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.notes_template) setCustomNotes(preset.notes_template);
   };
 
-  // Convert enquiry.line_items to QuotationLineItem array
+  // Convert enquiry.line_items or editingQuotation.line_items to QuotationLineItem array
   const quotationLineItems = useMemo(() => {
+    if (editingQuotation?.line_items && editingQuotation.line_items.length > 0) {
+      return editingQuotation.line_items;
+    }
     const rawItems: LineItem[] = enquiry.line_items || [];
     return rawItems.map((li, idx) => {
       const qty = Number(li.quantity) || 1;
@@ -217,7 +276,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         is_optional: false
       };
     });
-  }, [enquiry.line_items]);
+  }, [editingQuotation, enquiry.line_items]);
 
   // Calculate live financial figures
   const financialTotals = useMemo(() => {
@@ -266,18 +325,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Constructed live Quotation object for preview
   const liveQuotation: Quotation = useMemo(() => {
-    const rawQuoteNumber = enquiry.quote_ref_no || `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
+    const rawQuoteNumber =
+      editingQuotation?.quote_number ||
+      enquiry.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/, '');
+    const revNum = editingQuotation?.revision_number ?? 0;
+    const formattedQuoteRef =
+      editingQuotation?.formatted_quote_ref || `${cleanQuoteNumber}-R${revNum}`;
 
     return {
-      id: 'preview_draft',
+      id: editingQuotation?.id || 'preview_draft',
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
       enquiry_id: enquiry.id || '',
       quote_number: cleanQuoteNumber,
-      revision_number: 0,
-      formatted_quote_ref: `${cleanQuoteNumber}-R0`,
-      status: 'Draft',
+      revision_number: revNum,
+      formatted_quote_ref: formattedQuoteRef,
+      parent_quote_id: editingQuotation?.parent_quote_id,
+      status: editingQuotation?.status || 'Draft',
       client_snapshot: {
         entity_name: enquiry.company_name || enquiry.client_company || 'Valued Client',
         contact_person: enquiry.concerned_person || undefined,
@@ -319,11 +385,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       ].join('\n'),
       applied_bank_account: activeBankAccount,
       signatories: signatories,
-      created_at: new Date().toISOString(),
+      created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
     };
   }, [
+    editingQuotation,
     activeWorkspaceId,
     activeWorkspace,
     enquiry,
@@ -345,13 +412,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const payload: Omit<Quotation, 'id'> = {
+      const quoteId =
+        editingQuotation?.id ||
+        `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      const payload: Quotation = {
+        id: quoteId,
         workspace_id: activeWorkspaceId,
         workspaceId: activeWorkspaceId,
         enquiry_id: enquiry.id || '',
         quote_number: liveQuotation.quote_number,
-        revision_number: 0,
+        revision_number: liveQuotation.revision_number,
         formatted_quote_ref: liveQuotation.formatted_quote_ref,
+        parent_quote_id: liveQuotation.parent_quote_id,
         status: status,
         client_snapshot: liveQuotation.client_snapshot,
         sender_snapshot: liveQuotation.sender_snapshot,
@@ -365,24 +438,37 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         applied_terms: liveQuotation.applied_terms,
         applied_bank_account: liveQuotation.applied_bank_account,
         signatories: liveQuotation.signatories,
-        created_at: new Date().toISOString(),
+        created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
       };
 
-      const created = await QuotationRepository.createQuotation(payload);
+      const saved = editingQuotation?.id
+        ? await QuotationRepository.saveQuotation(payload)
+        : await QuotationRepository.createQuotation(payload);
+
+      // If issuing a revision with a parent quotation, ensure predecessor parent is marked 'Superseded'
+      if (status === 'Sent' && payload.parent_quote_id) {
+        try {
+          await QuotationRepository.updateQuotation(payload.parent_quote_id, {
+            status: 'Superseded'
+          });
+        } catch (supErr) {
+          console.warn('[QuotationStudioModal] Predecessor update notice:', supErr);
+        }
+      }
 
       if (triggerToast) {
         triggerToast(
           status === 'Sent'
-            ? `Quotation ${created.formatted_quote_ref} issued successfully!`
-            : `Draft quote ${created.formatted_quote_ref} saved.`,
+            ? `Quotation ${saved.formatted_quote_ref} issued successfully!`
+            : `Draft quote ${saved.formatted_quote_ref} saved.`,
           'success'
         );
       }
 
       if (onQuotationCreated) {
-        onQuotationCreated(created);
+        onQuotationCreated(saved);
       }
 
       onClose();

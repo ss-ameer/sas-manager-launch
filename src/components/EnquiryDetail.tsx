@@ -153,6 +153,30 @@ export default function EnquiryDetail({
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
   const [documentProfile, setDocumentProfile] = useState<WorkspaceDocumentProfile | null>(null);
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
+
+  // Fork a new quotation revision from an existing quotation and open inside QuotationStudioModal
+  const handleCreateQuotationRevision = async (sourceQuote: Quotation) => {
+    try {
+      const nextRev = await QuotationRepository.createRevision(sourceQuote.id!);
+      setQuotations((prev) => [
+        nextRev,
+        ...prev.map((item) =>
+          item.id === sourceQuote.id ? { ...item, status: 'Superseded' as const } : item
+        )
+      ]);
+      setViewingQuotation(null);
+      setEditingQuotation(nextRev);
+      setIsQuotationStudioOpen(true);
+      if (triggerToast) {
+        triggerToast(`Forked new revision ${nextRev.formatted_quote_ref} draft`, 'success');
+      }
+    } catch (err: any) {
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to create revision', 'error');
+      }
+    }
+  };
 
   // Load Workspace Document Profile for quotation rendering
   useEffect(() => {
@@ -1699,7 +1723,10 @@ export default function EnquiryDetail({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsQuotationStudioOpen(true)}
+                    onClick={() => {
+                      setEditingQuotation(null);
+                      setIsQuotationStudioOpen(true);
+                    }}
                     className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition hover:underline"
                   >
                     <span>+ New Formal Offer</span>
@@ -1712,6 +1739,7 @@ export default function EnquiryDetail({
                       const isSuperseded = q.status === 'Superseded';
                       const isApproved = q.status === 'Approved';
                       const isSent = q.status === 'Sent';
+                      const isDraft = q.status === 'Draft' || !q.status;
 
                       return (
                         <div
@@ -1742,15 +1770,17 @@ export default function EnquiryDetail({
                                   {q.formatted_quote_ref}
                                 </span>
                                 <span
-                                  className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded ${
-                                    isSuperseded
-                                      ? 'bg-slate-100 text-slate-500'
+                                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                    isSent
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : isSuperseded
+                                      ? 'bg-slate-100 text-slate-500 border-slate-200 opacity-80'
                                       : isApproved
-                                      ? 'bg-emerald-50 text-emerald-700'
-                                      : 'bg-slate-100 text-slate-600'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
                                   }`}
                                 >
-                                  {q.status}
+                                  {q.status || 'Draft'}
                                 </span>
                               </div>
                               <p className="text-[11px] text-slate-400 mt-0.5">
@@ -1760,10 +1790,26 @@ export default function EnquiryDetail({
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-3 shrink-0">
-                            <span className="font-mono font-bold text-xs text-slate-800">
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <span className="font-mono font-bold text-xs text-slate-800 mr-1">
                               {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </span>
+
+                            {isDraft && !isSuperseded && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQuotation(q);
+                                  setIsQuotationStudioOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Edit Draft Quotation"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => setViewingQuotation(q)}
@@ -1773,6 +1819,7 @@ export default function EnquiryDetail({
                               <Eye className="w-3.5 h-3.5" />
                               <span>View</span>
                             </button>
+
                             <button
                               type="button"
                               onClick={() => {
@@ -1785,26 +1832,16 @@ export default function EnquiryDetail({
                               <Printer className="w-3.5 h-3.5 text-slate-500" />
                               <span>Print</span>
                             </button>
-                            {!isSuperseded && (
+
+                            {!isSuperseded && (isSent || isApproved) && (
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  try {
-                                    const nextRev = await QuotationRepository.createRevision(q.id!);
-                                    setQuotations((prev) => [nextRev, ...prev.filter((item) => item.id !== nextRev.id)]);
-                                    if (triggerToast) {
-                                      triggerToast(`Created revision ${nextRev.formatted_quote_ref}`, 'success');
-                                    }
-                                  } catch (err: any) {
-                                    if (triggerToast) {
-                                      triggerToast(err?.message || 'Failed to create revision', 'error');
-                                    }
-                                  }
-                                }}
-                                className="p-1 hover:bg-slate-200 text-slate-500 hover:text-slate-800 rounded-lg transition cursor-pointer"
-                                title="Create new child revision"
+                                onClick={() => handleCreateQuotationRevision(q)}
+                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Fork this quote into new revision (R1, R2...)"
                               >
                                 <GitFork className="w-3.5 h-3.5" />
+                                <span>Revise</span>
                               </button>
                             )}
                           </div>
@@ -1819,7 +1856,10 @@ export default function EnquiryDetail({
                     </p>
                     <button
                       type="button"
-                      onClick={() => setIsQuotationStudioOpen(true)}
+                      onClick={() => {
+                        setEditingQuotation(null);
+                        setIsQuotationStudioOpen(true);
+                      }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
                     >
                       <FileText className="w-3.5 h-3.5" />
@@ -3239,18 +3279,40 @@ export default function EnquiryDetail({
       {isQuotationStudioOpen && (
         <QuotationStudioModal
           isOpen={isQuotationStudioOpen}
-          onClose={() => setIsQuotationStudioOpen(false)}
+          onClose={() => {
+            setIsQuotationStudioOpen(false);
+            setEditingQuotation(null);
+          }}
           enquiry={currentEnquiry}
           salespersonName={resolveSalespersonName(currentEnquiry)}
           activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
           activeWorkspace={activeWorkspace}
           user={user}
           profile={documentProfile}
+          editingQuotation={editingQuotation}
           onQuotationCreated={async (newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
 
             if (newQuote.status === 'Sent') {
               handleStatusTransition('Sent / Pending Client');
+
+              // If new revision has a parent quotation, ensure predecessor is updated to Superseded
+              if (newQuote.parent_quote_id) {
+                try {
+                  await QuotationRepository.updateQuotation(newQuote.parent_quote_id, {
+                    status: 'Superseded'
+                  });
+                  setQuotations((prev) =>
+                    prev.map((q) =>
+                      q.id === newQuote.parent_quote_id
+                        ? { ...q, status: 'Superseded' as const }
+                        : q
+                    )
+                  );
+                } catch (supErr) {
+                  console.warn('[EnquiryDetail] Failed superseding predecessor quotation:', supErr);
+                }
+              }
 
               // 1. Append immutable activity log entry for the issued formal quote
               try {
@@ -3319,7 +3381,7 @@ export default function EnquiryDetail({
         />
       )}
 
-      {/* Standalone Quotation Document View Modal */}
+      {/* Standalone Quotation Document View Modal (Inspection) */}
       {viewingQuotation && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden">
           <div className="bg-slate-100 w-full max-w-[1000px] h-[92vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden">
@@ -3329,22 +3391,64 @@ export default function EnquiryDetail({
                 <span className="font-mono font-bold text-sm text-slate-800">
                   {viewingQuotation.formatted_quote_ref}
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600">
-                  {viewingQuotation.status}
-                </span>
+                {viewingQuotation.status === 'Sent' ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Sent
+                  </span>
+                ) : viewingQuotation.status === 'Superseded' ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                    Superseded
+                  </span>
+                ) : viewingQuotation.status === 'Approved' ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                    Approved
+                  </span>
+                ) : (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    {viewingQuotation.status || 'Draft'}
+                  </span>
+                )}
               </div>
               <div className="flex items-center space-x-2">
+                {(viewingQuotation.status === 'Sent' || viewingQuotation.status === 'Approved') && (
+                  <button
+                    type="button"
+                    onClick={() => handleCreateQuotationRevision(viewingQuotation)}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                    title="Fork this quote into a new revision draft (R1, R2...)"
+                  >
+                    <GitFork className="w-3.5 h-3.5" />
+                    <span>Create Revision</span>
+                  </button>
+                )}
+                {viewingQuotation.status === 'Draft' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const toEdit = viewingQuotation;
+                      setViewingQuotation(null);
+                      setEditingQuotation(toEdit);
+                      setIsQuotationStudioOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Draft</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition"
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  Print / Export
+                  <Printer className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Print / Export</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewingQuotation(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition"
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition cursor-pointer"
+                  title="Close inspection modal"
                 >
                   <X className="w-5 h-5" />
                 </button>

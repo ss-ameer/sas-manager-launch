@@ -154,7 +154,7 @@ export class QuotationRepository {
    * 1. Marks the parent quote as 'Superseded'.
    * 2. Increments revision_number (R0 -> R1, R1 -> R2, etc.).
    * 3. Formats updated quote reference (e.g., QT-2026-0042-R1).
-   * 4. Copies parent quote state with optional overrides.
+   * 4. Copies parent quote state, pricing adjustments, tax mode, validity, payment terms, and line items.
    */
   public static async createRevision(
     parentQuoteId: string,
@@ -179,10 +179,27 @@ export class QuotationRepository {
       });
     } catch (_) {}
 
-    const newRevisionNumber = (parent.revision_number ?? 0) + 1;
-    const newFormattedRef = `${parent.quote_number}-R${newRevisionNumber}`;
+    // Parse revision number
+    let currentRevNum = parent.revision_number;
+    if (typeof currentRevNum !== 'number') {
+      const match = (parent.formatted_quote_ref || '').match(/-R(\d+)$/);
+      currentRevNum = match ? parseInt(match[1], 10) : 0;
+    }
+    const newRevisionNumber = currentRevNum + 1;
+    const cleanQuoteNumber = (parent.quote_number || 'QT-0001').replace(/-R\d+$/, '');
+    const newFormattedRef = `${cleanQuoteNumber}-R${newRevisionNumber}`;
     const newQuoteId = `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const wsId = updates?.workspace_id || updates?.workspaceId || parent.workspace_id || parent.workspaceId;
+
+    // Clone line items non-destructively
+    const clonedLineItems =
+      updates?.line_items ||
+      (parent.line_items
+        ? parent.line_items.map((li, idx) => ({
+            ...li,
+            id: li.id ? `${li.id}_r${newRevisionNumber}` : `item_${idx}_r${newRevisionNumber}`
+          }))
+        : []);
 
     const childQuotation: Quotation = {
       ...parent,
@@ -190,12 +207,13 @@ export class QuotationRepository {
       id: newQuoteId,
       workspace_id: wsId,
       workspaceId: wsId,
-      quote_number: parent.quote_number,
+      quote_number: cleanQuoteNumber,
       revision_number: newRevisionNumber,
       formatted_quote_ref: newFormattedRef,
       status: updates?.status || 'Draft',
       created_at: new Date().toISOString(),
-      parent_quote_id: parentQuoteId
+      parent_quote_id: parentQuoteId,
+      line_items: clonedLineItems
     };
 
     try {
@@ -213,6 +231,64 @@ export class QuotationRepository {
     } catch (_) {}
 
     return childQuotation;
+  }
+
+  /**
+   * Updates an existing quotation document by ID.
+   */
+  public static async updateQuotation(
+    id: string,
+    updates: Partial<Quotation>
+  ): Promise<Quotation | null> {
+    const existing = await this.getQuotationById(id);
+    if (!existing) return null;
+
+    const updatedQuote: Quotation = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      await safeUpdateDoc('quotations', id, {
+        ...updates,
+        updatedAt: updatedQuote.updatedAt
+      });
+    } catch (_) {}
+
+    try {
+      const all = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const refreshed = all.map((q) => (q.id === id ? updatedQuote : q));
+      await saveToLocalStore(this.QUOTATIONS_STORE, refreshed);
+    } catch (_) {}
+
+    return updatedQuote;
+  }
+
+  /**
+   * Saves or overwrites an entire quotation document.
+   */
+  public static async saveQuotation(quotation: Quotation): Promise<Quotation> {
+    const wsId = quotation.workspace_id || quotation.workspaceId || 'ws_default';
+    const now = new Date().toISOString();
+    const toSave: Quotation = {
+      ...quotation,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      updatedAt: now
+    };
+
+    try {
+      await safeSetDoc('quotations', toSave.id!, toSave);
+    } catch (_) {}
+
+    try {
+      const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const updated = existing.filter((q) => q.id !== toSave.id).concat(toSave);
+      await saveToLocalStore(this.QUOTATIONS_STORE, updated);
+    } catch (_) {}
+
+    return toSave;
   }
 
   /**
