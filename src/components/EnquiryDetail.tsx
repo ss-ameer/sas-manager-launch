@@ -152,6 +152,25 @@ export default function EnquiryDetail({
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
+  const [documentProfile, setDocumentProfile] = useState<WorkspaceDocumentProfile | null>(null);
+
+  // Load Workspace Document Profile for quotation rendering
+  useEffect(() => {
+    let isMounted = true;
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+    QuotationRepository.getWorkspaceDocumentProfile(wsId)
+      .then((prof) => {
+        if (isMounted) {
+          setDocumentProfile(prof);
+        }
+      })
+      .catch((err) => {
+        console.warn('[EnquiryDetail] Failed fetching workspace document profile:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentEnquiry?.workspace_id, activeWorkspaceId]);
 
   // Load Quotations for this enquiry
   useEffect(() => {
@@ -3226,6 +3245,7 @@ export default function EnquiryDetail({
           activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
           activeWorkspace={activeWorkspace}
           user={user}
+          profile={documentProfile}
           onQuotationCreated={async (newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
 
@@ -3332,7 +3352,7 @@ export default function EnquiryDetail({
             </header>
             <div className="flex-1 overflow-auto p-4 flex justify-center">
               <div className="w-full max-w-[210mm] shadow-xl">
-                <QuotationDocument quotation={viewingQuotation} />
+                <QuotationDocument quotation={viewingQuotation} profile={documentProfile} />
               </div>
             </div>
           </div>

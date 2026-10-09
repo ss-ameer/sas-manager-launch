@@ -128,15 +128,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     };
   }, [activeWorkspaceId]);
 
+  // Hydrated workspace document profile state
+  const [workspaceProfile, setWorkspaceProfile] = useState<WorkspaceDocumentProfile | null>(profile || null);
+
+  useEffect(() => {
+    if (profile) {
+      setWorkspaceProfile(profile);
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (activeWorkspaceId) {
+      QuotationRepository.getWorkspaceDocumentProfile(activeWorkspaceId)
+        .then((loaded) => {
+          if (!isMounted) return;
+          if (loaded) {
+            setWorkspaceProfile(loaded);
+          }
+        })
+        .catch((err) => {
+          console.warn('[QuotationStudioModal] Failed loading workspace document profile:', err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [activeWorkspaceId]);
+
+  // Resolved active document profile prioritizing prop then hydrated repository profile
+  const activeProfile = profile || workspaceProfile;
+
   // Set default bank if profile exists
   useEffect(() => {
-    if (profile?.bank_accounts && profile.bank_accounts.length > 0) {
-      const def = profile.bank_accounts.find((b) => b.is_default) || profile.bank_accounts[0];
+    if (activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0) {
+      const def = activeProfile.bank_accounts.find((b) => b.is_default) || activeProfile.bank_accounts[0];
       if (def?.id) {
         setSelectedBankId(def.id);
       }
     }
-  }, [profile]);
+  }, [activeProfile]);
 
   // Apply chosen preset
   const applyPreset = (preset: QuotationPreset) => {
@@ -200,13 +231,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Selected bank account
   const activeBankAccount: DocumentProfileBankAccount | undefined = useMemo(() => {
-    if (!profile?.bank_accounts) return undefined;
+    if (!activeProfile?.bank_accounts) return undefined;
     return (
-      profile.bank_accounts.find((b) => b.id === selectedBankId) ||
-      profile.bank_accounts.find((b) => b.is_default) ||
-      profile.bank_accounts[0]
+      activeProfile.bank_accounts.find((b) => b.id === selectedBankId) ||
+      activeProfile.bank_accounts.find((b) => b.is_default) ||
+      activeProfile.bank_accounts[0]
     );
-  }, [profile, selectedBankId]);
+  }, [activeProfile, selectedBankId]);
 
   // Resolved Signatories array
   const signatories = useMemo(() => {
@@ -254,11 +285,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         trn: undefined
       },
       sender_snapshot: {
-        entity_name: profile?.legal_entity_name || activeWorkspace?.name || 'Commercial Entity LLC',
-        trn: profile?.trn,
-        address: [profile?.address_line_1, profile?.address_line_2, profile?.city, profile?.country].filter(Boolean).join(', ') || undefined,
-        phone: profile?.phone,
-        email: profile?.email
+        entity_name:
+          activeProfile?.legal_entity_name ||
+          (activeProfile as any)?.company_name ||
+          activeWorkspace?.name ||
+          'Commercial Entity LLC',
+        trn: activeProfile?.trn || (activeProfile as any)?.trn_vat_number,
+        address:
+          (activeProfile as any)?.registered_address ||
+          [
+            activeProfile?.address_line_1,
+            activeProfile?.address_line_2,
+            activeProfile?.city,
+            activeProfile?.country
+          ]
+            .filter(Boolean)
+            .join(', ') ||
+          undefined,
+        phone: activeProfile?.phone,
+        email: activeProfile?.email
       },
       line_items: quotationLineItems,
       tax_mode: taxMode,
@@ -280,8 +325,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     };
   }, [
     activeWorkspaceId,
+    activeWorkspace,
     enquiry,
-    profile,
+    activeProfile,
     quotationLineItems,
     taxMode,
     financialTotals,
@@ -662,7 +708,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     )}
 
-                    {profile?.bank_accounts && profile.bank_accounts.length > 0 && (
+                    {activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0 && (
                       <div className="pt-2 border-t border-slate-100">
                         <label className="block text-slate-500 font-medium mb-1">Remittance Bank</label>
                         <select
@@ -670,7 +716,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           onChange={(e) => setSelectedBankId(e.target.value)}
                           className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                         >
-                          {profile.bank_accounts.map((b) => (
+                          {activeProfile.bank_accounts.map((b) => (
                             <option key={b.id || b.account_number} value={b.id || ''}>
                               {b.bank_name} ({b.account_number}) - {b.currency || 'AED'}
                             </option>
@@ -777,7 +823,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               >
                 <QuotationDocument
                   quotation={liveQuotation}
-                  profile={profile}
+                  profile={activeProfile}
                   visibleColumns={visibleColumns}
                   showBankDetails={true}
                   showStampAndSignatures={signatoryMode !== 'none'}

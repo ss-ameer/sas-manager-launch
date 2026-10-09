@@ -1,37 +1,37 @@
 /* Print and vector layout styles for QuotationDocument */
 
 @media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #quotation-printable-document,
+  #quotation-printable-document * {
+    visibility: visible !important;
+  }
+
+  #quotation-printable-document {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 12mm !important;
+    box-shadow: none !important;
+    background: white !important;
+    z-index: 99999 !important;
+  }
+
   @page {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 0;
   }
 
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     background: #ffffff !important;
-  }
-
-  /* Hide backdrop overlays, sticky toolbars, app headers and sidebars during print */
-  header, nav, aside, .no-print, [role="dialog"] > header, button {
-    display: none !important;
-  }
-
-  .quotation-document-container {
-    padding: 0 !important;
-    margin: 0 !important;
-    background: transparent !important;
-    display: block !important;
-  }
-
-  .quotation-a4-sheet {
-    box-shadow: none !important;
-    border: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-height: auto !important;
   }
 
   .break-inside-avoid {

@@ -80,24 +80,107 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showAvailability = visibleColumns.availability ?? true;
   const showUnitPrice = visibleColumns.unit_price ?? true;
 
+  // Active optional columns count for dynamic width distribution
+  const activeOptionalCount = [showBrand, showModel, showOrigin, showAvailability].filter(Boolean).length;
+
+  // Proportional dynamic column width distribution ensuring Item & Description is never squashed
+  // (minimum 35% when all 4 options are active, up to 61%-65% when optional columns are disabled)
+  const colWidths = React.useMemo(() => {
+    if (activeOptionalCount === 4) {
+      return {
+        sl: 'w-[4%]',
+        desc: 'w-[35%]',
+        brand: 'w-[8%]',
+        model: 'w-[9%]',
+        origin: 'w-[7%]',
+        delivery: 'w-[8%]',
+        qty: 'w-[5%]',
+        uom: 'w-[5%]',
+        unitPrice: 'w-[9%]',
+        total: 'w-[10%]'
+      };
+    } else if (activeOptionalCount === 3) {
+      return {
+        sl: 'w-[5%]',
+        desc: 'w-[39%]',
+        brand: 'w-[8%]',
+        model: 'w-[9%]',
+        origin: 'w-[7%]',
+        delivery: 'w-[8%]',
+        qty: 'w-[6%]',
+        uom: 'w-[6%]',
+        unitPrice: 'w-[9%]',
+        total: 'w-[11%]'
+      };
+    } else if (activeOptionalCount === 2) {
+      return {
+        sl: 'w-[5%]',
+        desc: 'w-[45%]',
+        brand: 'w-[9%]',
+        model: 'w-[10%]',
+        origin: 'w-[8%]',
+        delivery: 'w-[9%]',
+        qty: 'w-[6%]',
+        uom: 'w-[6%]',
+        unitPrice: 'w-[10%]',
+        total: 'w-[12%]'
+      };
+    } else if (activeOptionalCount === 1) {
+      return {
+        sl: 'w-[5%]',
+        desc: 'w-[53%]',
+        brand: 'w-[9%]',
+        model: 'w-[10%]',
+        origin: 'w-[8%]',
+        delivery: 'w-[9%]',
+        qty: 'w-[6%]',
+        uom: 'w-[6%]',
+        unitPrice: 'w-[10%]',
+        total: 'w-[12%]'
+      };
+    } else {
+      return {
+        sl: 'w-[5%]',
+        desc: 'w-[61%]',
+        brand: 'w-[9%]',
+        model: 'w-[10%]',
+        origin: 'w-[8%]',
+        delivery: 'w-[9%]',
+        qty: 'w-[6%]',
+        uom: 'w-[6%]',
+        unitPrice: 'w-[10%]',
+        total: 'w-[12%]'
+      };
+    }
+  }, [activeOptionalCount]);
+
   // Resolve sender info from profile with fallback to quotation.sender_snapshot
   const senderEntityName =
-    profile?.legal_entity_name || quotation.sender_snapshot?.entity_name || 'Commercial Entity';
-  const senderTrn = profile?.trn || quotation.sender_snapshot?.trn;
-  const senderAddress = [
-    profile?.address_line_1 || quotation.sender_snapshot?.address,
-    profile?.address_line_2,
-    profile?.city,
-    profile?.country
-  ]
-    .filter(Boolean)
-    .join(', ');
+    profile?.legal_entity_name ||
+    (profile as any)?.company_name ||
+    quotation.sender_snapshot?.entity_name ||
+    'Commercial Entity';
+  const senderTrn =
+    profile?.trn ||
+    (profile as any)?.trn_vat_number ||
+    quotation.sender_snapshot?.trn;
+  const senderAddress =
+    (profile as any)?.registered_address ||
+    [
+      profile?.address_line_1 || quotation.sender_snapshot?.address,
+      profile?.address_line_2,
+      profile?.city,
+      profile?.country
+    ]
+      .filter(Boolean)
+      .join(', ');
   const senderPhone = profile?.phone || quotation.sender_snapshot?.phone;
   const senderEmail = profile?.email || quotation.sender_snapshot?.email;
   const senderWebsite = profile?.website;
 
   return (
     <div
+      id="quotation-printable-document"
       className="quotation-document-container w-full bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 print:p-0 print:bg-white"
       style={{ colorScheme: 'light' }}
     >
@@ -292,18 +375,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <table className="w-full table-fixed text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <th className="py-2 px-1.5 w-[5%] text-center">#</th>
-                  <th className="py-2 px-2.5 break-words">Item & Description</th>
-                  {showBrand && <th className="py-2 px-1.5 w-[12%] break-words">Brand</th>}
-                  {showModel && <th className="py-2 px-1.5 w-[13%] break-words">Model / Part</th>}
-                  {showOrigin && <th className="py-2 px-1.5 w-[10%] break-words">Origin</th>}
-                  {showAvailability && <th className="py-2 px-1.5 w-[12%] break-words">Delivery</th>}
-                  <th className="py-2 px-1 w-[7%] text-center">Qty</th>
-                  <th className="py-2 px-1 w-[6%] text-center">UOM</th>
+                  <th className={`py-2 px-1.5 ${colWidths.sl} text-center`}>#</th>
+                  <th className={`py-2 px-2.5 ${colWidths.desc} break-words`}>Item & Description</th>
+                  {showBrand && <th className={`py-2 px-1.5 ${colWidths.brand} break-words`}>Brand</th>}
+                  {showModel && <th className={`py-2 px-1.5 ${colWidths.model} break-words`}>Model / Part</th>}
+                  {showOrigin && <th className={`py-2 px-1.5 ${colWidths.origin} break-words`}>Origin</th>}
+                  {showAvailability && <th className={`py-2 px-1.5 ${colWidths.delivery} break-words`}>Delivery</th>}
+                  <th className={`py-2 px-1 ${colWidths.qty} text-center`}>Qty</th>
+                  <th className={`py-2 px-1 ${colWidths.uom} text-center`}>UOM</th>
                   {showUnitPrice && (
-                    <th className="py-2 px-2 w-[13%] text-right">Unit Price</th>
+                    <th className={`py-2 px-2 ${colWidths.unitPrice} text-right`}>Unit Price</th>
                   )}
-                  <th className="py-2 px-2.5 w-[15%] text-right">Total ({currency})</th>
+                  <th className={`py-2 px-2.5 ${colWidths.total} text-right`}>Total ({currency})</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -317,61 +400,61 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           : 'hover:bg-slate-50/60'
                       }`}
                     >
-                      <td className="py-2 px-1.5 text-center font-mono text-slate-500 align-top">
+                      <td className="py-2 px-1.5 text-center font-mono text-slate-500 align-top text-xs">
                         {idx + 1}
                       </td>
                       <td className="py-2 px-2.5 align-top break-words">
-                        <div className="font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-tight">
+                        <div className="font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug text-xs break-words">
                           <span>{item.item_name || 'Standard Line Item'}</span>
                           {item.is_optional && (
-                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded">
+                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
                               Optional
                             </span>
                           )}
                         </div>
                         {item.description && (
-                          <div className="text-[11px] text-slate-600 mt-1 leading-snug break-words whitespace-pre-line">
+                          <div className="text-xs text-slate-600 mt-1 leading-snug break-words whitespace-pre-line">
                             {item.description}
                           </div>
                         )}
                       </td>
                       {showBrand && (
-                        <td className="py-2 px-1.5 text-slate-700 font-medium align-top break-words leading-tight">
+                        <td className="py-2 px-1.5 text-slate-700 font-medium align-top break-words leading-snug text-xs">
                           {item.brand_make || '—'}
                         </td>
                       )}
                       {showModel && (
-                        <td className="py-2 px-1.5 font-mono text-slate-700 align-top break-words leading-tight">
+                        <td className="py-2 px-1.5 font-mono text-slate-700 align-top break-words leading-snug text-xs">
                           {item.model_part_no || '—'}
                         </td>
                       )}
                       {showOrigin && (
-                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-tight">
+                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-snug text-xs">
                           {item.country_of_origin || '—'}
                         </td>
                       )}
                       {showAvailability && (
-                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-tight">
+                        <td className="py-2 px-1.5 text-slate-600 align-top break-words leading-snug text-xs">
                           {item.availability || 'Ex-Stock'}
                         </td>
                       )}
-                      <td className="py-2 px-1 text-center font-bold text-slate-800 align-top">
+                      <td className="py-2 px-1 text-center font-bold text-slate-800 align-top text-xs">
                         {item.quantity}
                       </td>
-                      <td className="py-2 px-1 text-center text-slate-600 uppercase text-[11px] align-top">
+                      <td className="py-2 px-1 text-center text-slate-600 uppercase text-xs align-top">
                         {item.unit || 'pcs'}
                       </td>
                       {showUnitPrice && (
-                        <td className="py-2 px-2 text-right font-mono text-slate-700 align-top">
+                        <td className="py-2 px-2 text-right font-mono text-slate-700 align-top text-xs">
                           {Number(item.unit_price || 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
                         </td>
                       )}
-                      <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900 align-top">
+                      <td className="py-2 px-2.5 text-right font-mono font-bold text-slate-900 align-top text-xs">
                         {item.is_optional ? (
-                          <span className="text-amber-700 text-[11px] italic font-normal">
+                          <span className="text-amber-700 text-xs italic font-normal">
                             [Excluded]
                           </span>
                         ) : (
