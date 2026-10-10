@@ -483,10 +483,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden">
-      <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:p-0 print:bg-transparent">
+      <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:w-full print:h-auto print:bg-transparent">
         {/* Modal Top Bar */}
-        <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+        <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 print:hidden">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <FileText className="w-5 h-5" />
@@ -517,9 +517,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         </header>
 
         {/* Modal Body: Two-Pane Split Layout */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden print:overflow-visible print:block">
           {/* Left Column: Form Controls & Customization */}
-          <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto">
+          <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden">
             <div className="p-5 space-y-6">
               {/* Preset Selector */}
               <div>
@@ -851,9 +851,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           </div>
 
           {/* Right Column: Live A4 Document Preview */}
-          <div className="flex-1 bg-slate-200/80 flex flex-col overflow-hidden">
+          <div className="flex-1 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible">
             {/* Preview Toolbar */}
-            <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0">
+            <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden">
               <div className="flex items-center space-x-2">
                 <span className="font-semibold text-slate-700">Live Preview:</span>
                 <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600">
@@ -898,14 +898,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             </div>
 
             {/* Scaled Preview Canvas */}
-            <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start">
+            <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:p-0 print:overflow-visible">
               <div
                 style={{
                   transform: `scale(${zoomScale})`,
                   transformOrigin: 'top center',
                   transition: 'transform 0.1s ease-out'
                 }}
-                className="w-full max-w-[210mm] shadow-2xl"
+                className="w-full max-w-[210mm] shadow-2xl print:shadow-none print:transform-none print:max-w-none"
               >
                 <QuotationDocument
                   quotation={liveQuotation}

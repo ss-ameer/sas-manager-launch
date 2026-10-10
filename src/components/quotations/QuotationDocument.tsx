@@ -40,6 +40,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   showBankDetails = true,
   showStampAndSignatures = true
 }: QuotationDocumentProps) => {
+  const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
   const accentColor = profile?.accent_color || '#1e3a8a'; // Corporate Navy by default
 
@@ -205,11 +206,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             {/* Left: Organization Branding & Details */}
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-3">
-                {profile?.logo_url ? (
+                {profile?.logo_url && !logoLoadFailed ? (
                   <img
                     src={profile.logo_url}
                     alt={senderEntityName}
                     className="h-14 max-w-[200px] object-contain"
+                    onError={() => setLogoLoadFailed(true)}
                   />
                 ) : (
                   <div
@@ -604,7 +606,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   </p>
                   <p>
                     <span className="text-slate-500">Beneficiary:</span>{' '}
-                    <span className="font-medium text-slate-800">{bankAccount.account_name}</span>
+                    <span className="font-medium text-slate-800">
+                      {bankAccount.account_name ||
+                        (bankAccount as any)?.beneficiary_name ||
+                        profile?.legal_entity_name ||
+                        (profile as any)?.company_legal_name ||
+                        senderEntityName}
+                    </span>
                   </p>
                   <p>
                     <span className="text-slate-500">Account No:</span>{' '}
@@ -647,6 +655,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         src={profile.stamp_seal_url}
                         alt="Official Seal"
                         className="h-20 w-20 object-contain opacity-90 mix-blend-multiply"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
                       />
                       <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
                         Company Seal

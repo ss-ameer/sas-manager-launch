@@ -1636,19 +1636,23 @@ export default function EnquiryDetail({
               title="Open Quotation Studio to generate or customize formal commercial offer"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Create Quotation</span>
-              <span className="sm:hidden">Quote</span>
+              <span className="hidden sm:inline">
+                {quotations && quotations.length > 0 ? 'Quotation Studio' : 'Create Quotation'}
+              </span>
+              <span className="sm:hidden">
+                {quotations && quotations.length > 0 ? 'Studio' : 'Quote'}
+              </span>
             </button>
             {canEditEnquiry(user, activeWorkspace, enquiry) && (
               <button
                 type="button"
                 onClick={handleCreateRevision}
                 className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
-                title="Create a new quote revision (clones line items, links, currency & value)"
+                title="Clone Enquiry to create a revision (clones line items, links, currency & value)"
               >
                 <GitFork className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">📄 + Create Revision</span>
-                <span className="sm:hidden">Revision</span>
+                <span className="hidden sm:inline">Clone Enquiry</span>
+                <span className="sm:hidden">Clone</span>
               </button>
             )}
             <button

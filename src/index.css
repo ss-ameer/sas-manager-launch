@@ -33,3 +33,30 @@ input, select, textarea {
 .animate-marquee-hover {
   animation: marquee-slide-back-forth var(--marquee-duration, 3s) ease-in-out infinite;
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #quotation-printable-document,
+  #quotation-printable-document * {
+    visibility: visible !important;
+  }
+  #quotation-printable-document {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 12mm !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    z-index: 999999 !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
