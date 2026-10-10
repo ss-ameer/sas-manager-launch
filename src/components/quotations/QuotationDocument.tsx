@@ -187,7 +187,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     >
       {/* Decoupled A4 Page Sheet */}
       <article
-        className="quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:shadow-none print:border-none print:m-0 print:p-10"
+        className="quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:h-[297mm] print:min-h-[297mm] print:max-w-none print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
         style={{
           boxSizing: 'border-box'
         }}
