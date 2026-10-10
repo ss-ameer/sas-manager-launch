@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, Quotation } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -26,6 +26,7 @@ import {
 import SearchResultCounter from './common/SearchResultCounter';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
 import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { PageHeader, PageBody } from './layout/UiContainer';
@@ -243,6 +244,7 @@ export interface EnquiryTableRowProps {
   onDeleteEnquiry: (enquiry: Enquiry) => void;
   onStatusChange: (enquiry: Enquiry, newStatus: string) => void;
   onCompanyClick: (enquiry: Enquiry) => void;
+  activeQuotation?: Quotation | null;
 }
 
 export function areRowPropsEqual(
@@ -255,6 +257,21 @@ export function areRowPropsEqual(
   if (prevProps.canEdit !== nextProps.canEdit) return false;
   if (prevProps.canDelete !== nextProps.canDelete) return false;
   if (prevProps.companyName !== nextProps.companyName) return false;
+
+  // Active quotation status and value changes check
+  if (prevProps.activeQuotation !== nextProps.activeQuotation) {
+    if (
+      prevProps.activeQuotation?.id !== nextProps.activeQuotation?.id ||
+      prevProps.activeQuotation?.status !== nextProps.activeQuotation?.status ||
+      prevProps.activeQuotation?.grand_total !== nextProps.activeQuotation?.grand_total ||
+      prevProps.activeQuotation?.formatted_quote_ref !== nextProps.activeQuotation?.formatted_quote_ref ||
+      prevProps.activeQuotation?.revision_number !== nextProps.activeQuotation?.revision_number ||
+      prevProps.activeQuotation?.currency !== nextProps.activeQuotation?.currency ||
+      prevProps.activeQuotation?.updatedAt !== nextProps.activeQuotation?.updatedAt
+    ) {
+      return false;
+    }
+  }
 
   if (prevProps.resolvedCompany !== nextProps.resolvedCompany) {
     if (
@@ -343,7 +360,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   onEditEnquiry,
   onDeleteEnquiry,
   onStatusChange,
-  onCompanyClick
+  onCompanyClick,
+  activeQuotation
 }: EnquiryTableRowProps) {
   const isGapReserved = Boolean(
     e.is_gap_placeholder ||
@@ -441,23 +459,86 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       </td>
       <td className="py-2.5 px-3 whitespace-nowrap">
         <div className="flex flex-col items-start gap-1">
-          <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
-            {e.quote_ref_no || '—'}
-          </span>
           {(() => {
             // Find issued formal quotation attachment reference if present
             const quoteDoc = e.attachments?.find((att) =>
               att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
             );
-            if (!quoteDoc) return null;
-            const refName = quoteDoc.name.replace('.pdf', '');
+            const docRefName = quoteDoc ? quoteDoc.name.replace('.pdf', '') : null;
+
+            const formalRef =
+              activeQuotation?.formatted_quote_ref ||
+              docRefName ||
+              (e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no) ? e.quote_ref_no : null);
+
+            const hasFormalQuote = Boolean(
+              (activeQuotation && activeQuotation.status !== 'Draft') ||
+              docRefName ||
+              (e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no))
+            );
+
+            if (hasFormalQuote && formalRef) {
+              const quoteStatus =
+                activeQuotation?.status ||
+                (e.status === 'Won / Order Confirmed' || e.status === 'Won / Approved'
+                  ? 'Approved'
+                  : e.status === 'Lost / Cancelled' || e.status === 'Lost'
+                  ? 'Declined'
+                  : 'Sent');
+
+              const isApproved = quoteStatus === 'Approved';
+              const isDeclined = quoteStatus === 'Declined';
+
+              const totalVal = activeQuotation
+                ? Number(activeQuotation.grand_total || 0)
+                : Number(e.value_aed || 0);
+              const currency = activeQuotation?.currency || e.currency || 'AED';
+
+              const formattedVal =
+                totalVal > 0
+                  ? `${currency} ${totalVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : null;
+
+              const badgeColorClass = isApproved
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
+                : isDeclined
+                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60'
+                : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
+
+              return (
+                <div className="flex flex-col items-start gap-0.5">
+                  <span
+                    className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded border transition-colors ${badgeColorClass}`}
+                    title={`Formal Quotation (${quoteStatus}): ${formalRef}${formattedVal ? ` • ${formattedVal}` : ''}`}
+                  >
+                    <FileText
+                      className={`w-3 h-3 shrink-0 ${
+                        isApproved
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : isDeclined
+                          ? 'text-rose-500 dark:text-rose-400'
+                          : 'text-indigo-600 dark:text-indigo-400'
+                      }`}
+                    />
+                    <span>
+                      {formalRef}
+                      {formattedVal ? ` • ${formattedVal}` : ''}
+                    </span>
+                  </span>
+                  {e.quote_ref_no &&
+                    e.quote_ref_no !== formalRef &&
+                    !formalRef.includes(e.quote_ref_no) && (
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-0.5">
+                        Ref: {e.quote_ref_no}
+                      </span>
+                    )}
+                </div>
+              );
+            }
+
             return (
-              <span
-                className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60"
-                title={`Formal Quotation Issued: ${refName}`}
-              >
-                <FileText className="w-2.5 h-2.5" />
-                <span>{refName}</span>
+              <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
+                {e.quote_ref_no || '—'}
               </span>
             );
           })()}
@@ -571,6 +652,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   );
 }, areRowPropsEqual);
 
+export const EnquiryRowMemo = EnquiryTableRow;
+
+export type QuoteLifecycleFilter = 'all' | 'pending' | 'won' | 'lost' | 'unquoted';
+
 interface EnquiryListProps {
   enquiries: Enquiry[];
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -650,6 +735,35 @@ export default function EnquiryList({
   const [salesPersonFilter, setSalesPersonFilter] = useState<string>('All');
   const [urgencyFilter, setUrgencyFilter] = useState<'All' | 'Overdue'>('All');
   const [sourceFilter, setSourceFilter] = useState<string>('All');
+  const [quoteLifecycleFilter, setQuoteLifecycleFilter] = useState<QuoteLifecycleFilter>('all');
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+
+  // Load and refresh workspace quotations for real-time badge and lifecycle syncing
+  React.useEffect(() => {
+    let isMounted = true;
+    const wsId = activeWorkspace?.id || activeWorkspace?.workspace_id || 'ws_default';
+    QuotationRepository.getQuotationsForWorkspace(wsId)
+      .then((data) => {
+        if (isMounted) setQuotations(data);
+      })
+      .catch((err) => {
+        console.warn('[EnquiryList] Failed loading workspace quotations:', err);
+      });
+
+    const onFocus = () => {
+      QuotationRepository.getQuotationsForWorkspace(wsId)
+        .then((data) => {
+          if (isMounted) setQuotations(data);
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('focus', onFocus);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [activeWorkspace?.id, activeWorkspace?.workspace_id, enquiries]);
 
   // Debounce search input updates to eliminate typing lag
   React.useEffect(() => {
@@ -687,7 +801,7 @@ export default function EnquiryList({
   // Reset page to 1 when filters change to prevent empty states
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter]);
+  }, [searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, quoteLifecycleFilter]);
 
   // Excel/CSV Advanced Column-Mapping Preview Importer state
   const [showImport, setShowImport] = useState(false);
@@ -912,6 +1026,110 @@ export default function EnquiryList({
     return Array.from(set).sort();
   }, [authorizedEnquiries]);
 
+  // Memoized map: enquiry_id -> active Quotation
+  const activeQuotationByEnquiryId = React.useMemo(() => {
+    const map = new Map<string, Quotation>();
+
+    // Group all quotations by enquiry_id
+    const grouped = new Map<string, Quotation[]>();
+    for (const q of quotations) {
+      if (!q.enquiry_id || q.is_deleted) continue;
+      const list = grouped.get(q.enquiry_id) || [];
+      list.push(q);
+      grouped.set(q.enquiry_id, list);
+    }
+
+    // For each enquiry_id, resolve the active quotation
+    grouped.forEach((quotes, enquiryId) => {
+      // 1. Check if there's an Approved quotation (the winning quote)
+      const approved = quotes.find((q) => q.status === 'Approved');
+      if (approved) {
+        map.set(enquiryId, approved);
+        return;
+      }
+      // 2. Check if there's an active Sent quotation (latest revision)
+      const sentQuotes = quotes.filter((q) => q.status === 'Sent');
+      if (sentQuotes.length > 0) {
+        sentQuotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+        map.set(enquiryId, sentQuotes[0]);
+        return;
+      }
+      // 3. Check if all quotes are Declined
+      const declinedQuotes = quotes.filter((q) => q.status === 'Declined');
+      const draftQuotes = quotes.filter((q) => q.status === 'Draft');
+      if (declinedQuotes.length > 0 && draftQuotes.length === 0) {
+        declinedQuotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+        map.set(enquiryId, declinedQuotes[0]);
+        return;
+      }
+      // 4. Otherwise, pick highest revision non-superseded or first quote
+      const nonSuperseded = quotes.filter((q) => q.status !== 'Superseded');
+      if (nonSuperseded.length > 0) {
+        nonSuperseded.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+        map.set(enquiryId, nonSuperseded[0]);
+      } else if (quotes.length > 0) {
+        quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+        map.set(enquiryId, quotes[0]);
+      }
+    });
+
+    return map;
+  }, [quotations]);
+
+  // Aggregate lifecycle counts across authorized enquiries
+  const lifecycleCounts = React.useMemo(() => {
+    let pending = 0;
+    let won = 0;
+    let lost = 0;
+    let unquoted = 0;
+
+    (authorizedEnquiries || []).forEach((e) => {
+      if (!e) return;
+      const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+      const normStatus = normalizeEnquiryStatus(e.status);
+      const isWon =
+        quote?.status === 'Approved' ||
+        normStatus === 'Won / Order Confirmed' ||
+        normStatus === 'Won / Approved' ||
+        e.status === 'Won / Order Confirmed' ||
+        e.status === 'Won / Approved';
+
+      const isLost =
+        quote?.status === 'Declined' ||
+        normStatus === 'Lost / Cancelled' ||
+        e.status === 'Lost / Cancelled' ||
+        e.status === 'Lost';
+
+      const isPending =
+        !isWon &&
+        !isLost &&
+        (quote?.status === 'Sent' ||
+          (normStatus === 'Sent / Pending Client' &&
+            (quote ||
+              e.attachments?.some((a) => a.name?.startsWith('QT-')) ||
+              (e.quote_ref_no && e.quote_ref_no.startsWith('QT-')))));
+
+      const hasFormal =
+        (quote && quote.status !== 'Draft') ||
+        e.attachments?.some((a) => a.name?.startsWith('QT-') && a.name?.endsWith('.pdf')) ||
+        Boolean(e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no));
+
+      if (isWon) won++;
+      else if (isLost) lost++;
+      else if (isPending) pending++;
+
+      if (!hasFormal) unquoted++;
+    });
+
+    return {
+      all: authorizedEnquiries.length,
+      pending,
+      won,
+      lost,
+      unquoted
+    };
+  }, [authorizedEnquiries, activeQuotationByEnquiryId]);
+
   // Filter Logic (Memoized)
   const filteredEnquiries = React.useMemo(() => {
     const q = (searchInput || searchQuery || '').toLowerCase().trim();
@@ -971,9 +1189,59 @@ export default function EnquiryList({
         sourceFilter === 'All' ||
         normalizeEnquirySource(e.enquiry_source) === sourceFilter;
 
-      return matchText && matchStatus && matchRep && matchUrgency && matchSource;
+      // 6. Quotation Lifecycle Filter
+      let matchQuoteLifecycle = true;
+      if (quoteLifecycleFilter === 'pending') {
+        const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+        const normStatus = normalizeEnquiryStatus(e.status);
+        const isWon =
+          quote?.status === 'Approved' ||
+          normStatus === 'Won / Order Confirmed' ||
+          normStatus === 'Won / Approved' ||
+          e.status === 'Won / Order Confirmed' ||
+          e.status === 'Won / Approved';
+        const isLost =
+          quote?.status === 'Declined' ||
+          normStatus === 'Lost / Cancelled' ||
+          e.status === 'Lost / Cancelled' ||
+          e.status === 'Lost';
+        matchQuoteLifecycle =
+          !isWon &&
+          !isLost &&
+          (quote?.status === 'Sent' ||
+            (normStatus === 'Sent / Pending Client' &&
+              (quote ||
+                e.attachments?.some((a) => a.name?.startsWith('QT-')) ||
+                (e.quote_ref_no && e.quote_ref_no.startsWith('QT-')))));
+      } else if (quoteLifecycleFilter === 'won') {
+        const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+        const normStatus = normalizeEnquiryStatus(e.status);
+        matchQuoteLifecycle =
+          quote?.status === 'Approved' ||
+          normStatus === 'Won / Order Confirmed' ||
+          normStatus === 'Won / Approved' ||
+          e.status === 'Won / Order Confirmed' ||
+          e.status === 'Won / Approved';
+      } else if (quoteLifecycleFilter === 'lost') {
+        const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+        const normStatus = normalizeEnquiryStatus(e.status);
+        matchQuoteLifecycle =
+          quote?.status === 'Declined' ||
+          normStatus === 'Lost / Cancelled' ||
+          e.status === 'Lost / Cancelled' ||
+          e.status === 'Lost';
+      } else if (quoteLifecycleFilter === 'unquoted') {
+        const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+        const hasFormal =
+          (quote && quote.status !== 'Draft') ||
+          e.attachments?.some((a) => a.name?.startsWith('QT-') && a.name?.endsWith('.pdf')) ||
+          Boolean(e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no));
+        matchQuoteLifecycle = !hasFormal;
+      }
+
+      return matchText && matchStatus && matchRep && matchUrgency && matchSource && matchQuoteLifecycle;
     });
-  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, companyMap, salespersonMap, salespersons]);
+  }, [authorizedEnquiries, searchInput, searchQuery, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, quoteLifecycleFilter, activeQuotationByEnquiryId, companyMap, salespersonMap, salespersons]);
 
   // Sort Pipeline (Memoized independently from filtering)
   const sortedEnquiries = React.useMemo(() => {
@@ -994,6 +1262,16 @@ export default function EnquiryList({
 
   const activeEnquiryFilterLabels = React.useMemo(() => {
     const labels: string[] = [];
+    if (quoteLifecycleFilter !== 'all') {
+      const pillMap: Record<QuoteLifecycleFilter, string> = {
+        all: '',
+        pending: 'Quotes: Pending',
+        won: 'Quotes: Won / Accepted',
+        lost: 'Quotes: Lost / Declined',
+        unquoted: 'Quotes: Unquoted'
+      };
+      if (pillMap[quoteLifecycleFilter]) labels.push(pillMap[quoteLifecycleFilter]);
+    }
     if (statusFilter !== 'All') labels.push(`Status: ${statusFilter}`);
     if (salesPersonFilter !== 'All') {
       const sp = (salespersons || []).find(s => s && ((s.id || s.initials) === salesPersonFilter));
@@ -1002,7 +1280,7 @@ export default function EnquiryList({
     if (sourceFilter !== 'All') labels.push(`Source: ${sourceFilter}`);
     if (urgencyFilter === 'Overdue') labels.push('Overdue Only');
     return labels;
-  }, [statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, salespersons]);
+  }, [quoteLifecycleFilter, statusFilter, salesPersonFilter, urgencyFilter, sourceFilter, salespersons]);
 
   const handleClearEnquiryFilters = () => {
     setSearchInput('');
@@ -1011,6 +1289,7 @@ export default function EnquiryList({
     setSalesPersonFilter('All');
     setUrgencyFilter('All');
     setSourceFilter('All');
+    setQuoteLifecycleFilter('all');
   };
 
   // Calculate pagination details
@@ -1614,6 +1893,42 @@ export default function EnquiryList({
           </div>
         </div>
 
+        {/* Quotation Lifecycle Filter Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {[
+            { id: 'all', label: 'All Enquiries', count: lifecycleCounts.all },
+            { id: 'pending', label: 'Pending Quotes', count: lifecycleCounts.pending },
+            { id: 'won', label: 'Won / Accepted', count: lifecycleCounts.won },
+            { id: 'lost', label: 'Lost / Declined', count: lifecycleCounts.lost },
+            { id: 'unquoted', label: 'Unquoted', count: lifecycleCounts.unquoted }
+          ].map((pill) => {
+            const isActive = quoteLifecycleFilter === pill.id;
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => setQuoteLifecycleFilter(pill.id as QuoteLifecycleFilter)}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-xs ring-2 ring-slate-900/10 dark:ring-white/10'
+                    : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <span>{pill.label}</span>
+                <span
+                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                    isActive
+                      ? 'bg-white/20 text-current'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  {pill.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 w-full">
           {/* Text search */}
           <div className="relative flex-1 min-w-[220px]">
@@ -1865,6 +2180,7 @@ export default function EnquiryList({
                         onDeleteEnquiry={handleDeleteRow}
                         onStatusChange={handleStatusChange}
                         onCompanyClick={handleCompanyClick}
+                        activeQuotation={e.id ? activeQuotationByEnquiryId.get(e.id) : null}
                       />
                     </React.Fragment>
                   );
@@ -1952,7 +2268,7 @@ export default function EnquiryList({
         ) : (
           <div className="py-24 text-center text-slate-400 font-sans">
             <p>No enquiries matched your filter conditions in this log.</p>
-            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All' || sourceFilter !== 'All') && (
+            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All' || sourceFilter !== 'All' || quoteLifecycleFilter !== 'all') && (
               <button
                 type="button"
                 onClick={handleClearEnquiryFilters}

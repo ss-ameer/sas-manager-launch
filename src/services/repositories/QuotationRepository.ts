@@ -386,6 +386,43 @@ export class QuotationRepository {
   }
 
   /**
+   * Retrieves all quotations for a workspace, strictly isolated by workspace.
+   */
+  public static async getQuotationsForWorkspace(workspaceId: string): Promise<Quotation[]> {
+    const wsId = workspaceId || 'ws_default';
+    let quotes: Quotation[] = [];
+
+    // Query remote Firestore
+    try {
+      const snap = await safeGetDocs('quotations');
+      if (snap && !snap.empty) {
+        snap.forEach((d) => {
+          const item = this.docToQuotation(d.id, d.data());
+          const itemWsId = item.workspace_id || item.workspaceId;
+          if ((!workspaceId || itemWsId === wsId) && !item.is_deleted) {
+            quotes.push(item);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // Fallback or union with IndexedDB store
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const remoteIds = new Set(quotes.map((q) => q.id));
+      for (const raw of local) {
+        const item = this.docToQuotation(raw.id!, raw);
+        const itemWsId = item.workspace_id || item.workspaceId;
+        if ((!workspaceId || itemWsId === wsId) && !item.is_deleted && !remoteIds.has(item.id)) {
+          quotes.push(item);
+        }
+      }
+    } catch (_) {}
+
+    return quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+  }
+
+  /**
    * Saves or persists a reusable quotation preset.
    */
   public static async savePreset(
