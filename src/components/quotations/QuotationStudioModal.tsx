@@ -905,7 +905,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   transformOrigin: 'top center',
                   transition: 'transform 0.1s ease-out'
                 }}
-                className="w-full max-w-[210mm] shadow-2xl print:shadow-none print:transform-none print:max-w-none"
+                className="w-full max-w-[210mm] shadow-2xl print:shadow-none print:!transform-none print:max-w-none"
               >
                 <QuotationDocument
                   quotation={liveQuotation}
