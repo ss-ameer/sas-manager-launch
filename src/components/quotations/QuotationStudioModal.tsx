@@ -11,10 +11,15 @@ import {
   Salesperson,
   UserProfile,
   LineItem,
-  Workspace
+  Workspace,
+  QuotationThemeAccent,
+  QuotationSignatureStyle,
+  QuotationLogoPosition,
+  QuotationHeaderLayout,
+  QuotationTableDensity
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
-import { QuotationDocument } from './QuotationDocument';
+import { QuotationDocument, QUOTATION_THEMES } from './QuotationDocument';
 import {
   X,
   FileText,
@@ -35,7 +40,17 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
-  FileCheck
+  FileCheck,
+  Palette,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Layout,
+  Columns,
+  Plus,
+  BookmarkPlus,
+  Layers,
+  Stamp
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -92,6 +107,44 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.tax_rate_percent ?? 5
   );
 
+  // Executive Styling & Layout Controls
+  const [headerLayout, setHeaderLayout] = useState<QuotationHeaderLayout>(
+    editingQuotation?.header_layout || profile?.header_layout || 'split'
+  );
+  const [tableDensity, setTableDensity] = useState<QuotationTableDensity>(
+    editingQuotation?.table_density || profile?.table_density || 'comfortable'
+  );
+  const [showBankDetails, setShowBankDetails] = useState<boolean>(
+    editingQuotation?.show_bank_details ?? profile?.show_bank_details ?? true
+  );
+  const [showCommercialTerms, setShowCommercialTerms] = useState<boolean>(
+    editingQuotation?.show_commercial_terms ?? profile?.show_commercial_terms ?? true
+  );
+  const [showCompanySeal, setShowCompanySeal] = useState<boolean>(
+    editingQuotation?.show_company_seal ?? profile?.show_company_seal ?? true
+  );
+
+  const [themeAccent, setThemeAccent] = useState<QuotationThemeAccent>(
+    editingQuotation?.theme_accent || profile?.theme_accent || 'navy'
+  );
+  const [logoPosition, setLogoPosition] = useState<QuotationLogoPosition>(
+    editingQuotation?.logo_position || profile?.logo_position || 'left'
+  );
+  const [amountInWordsEnabled, setAmountInWordsEnabled] = useState<boolean>(
+    editingQuotation?.amount_in_words_enabled ?? profile?.amount_in_words_enabled ?? true
+  );
+  const [customerAcceptanceEnabled, setCustomerAcceptanceEnabled] = useState<boolean>(
+    editingQuotation?.customer_acceptance_enabled ?? profile?.customer_acceptance_enabled ?? true
+  );
+  const [signatureStyle, setSignatureStyle] = useState<QuotationSignatureStyle>(
+    editingQuotation?.signature_style || profile?.signature_style || 'script'
+  );
+
+  // Template Preset Saving Modal
+  const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState<boolean>(false);
+  const [newPresetName, setNewPresetName] = useState<string>('');
+  const [isSavingPreset, setIsSavingPreset] = useState<boolean>(false);
+
   // Commercial terms
   const [priceBasis, setPriceBasis] = useState<string>('Ex-Works / Delivered Site');
   const [paymentTerms, setPaymentTerms] = useState<string>('100% Advance against PI / Approved Credit');
@@ -101,26 +154,41 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   );
 
   // Signatory & Remittance choices
+  const [signatoryType, setSignatoryType] = useState<'single' | 'dual'>(
+    editingQuotation?.signatory_type ||
+      (editingQuotation?.signatories && editingQuotation.signatories.length > 1 ? 'dual' : 'single')
+  );
   const [signatoryMode, setSignatoryMode] = useState<QuotationSignatoryMode>(
     editingQuotation?.signatories && editingQuotation.signatories.length > 1
       ? 'dual'
       : 'single'
   );
   const [signatoryName, setSignatoryName] = useState<string>(
-    editingQuotation?.signatories?.[0]?.name ||
+    editingQuotation?.primary_signatory_name ||
+      editingQuotation?.signatories?.[0]?.name ||
+      profile?.primary_signatory_name ||
       salespersonName ||
       user.displayName ||
       user.name ||
       'Sales Representative'
   );
   const [signatoryTitle, setSignatoryTitle] = useState<string>(
-    editingQuotation?.signatories?.[0]?.designation || 'Account Manager'
+    editingQuotation?.primary_signatory_title ||
+      editingQuotation?.signatories?.[0]?.designation ||
+      profile?.primary_signatory_title ||
+      'Account Manager'
   );
   const [secondarySignatoryName, setSecondarySignatoryName] = useState<string>(
-    editingQuotation?.signatories?.[1]?.name || 'Branch Manager'
+    editingQuotation?.secondary_signatory_name ||
+      editingQuotation?.signatories?.[1]?.name ||
+      profile?.secondary_signatory_name ||
+      'Authorized Director'
   );
   const [secondarySignatoryTitle, setSecondarySignatoryTitle] = useState<string>(
-    editingQuotation?.signatories?.[1]?.designation || 'Authorized Signatory'
+    editingQuotation?.secondary_signatory_title ||
+      editingQuotation?.signatories?.[1]?.designation ||
+      profile?.secondary_signatory_title ||
+      'Commercial Approver'
   );
 
   // Bank selection
@@ -146,14 +214,59 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       if (editingQuotation.applied_bank_account?.id) {
         setSelectedBankId(editingQuotation.applied_bank_account.id);
       }
-      if (editingQuotation.signatories && editingQuotation.signatories.length > 0) {
-        setSignatoryMode(editingQuotation.signatories.length > 1 ? 'dual' : 'single');
+      if (editingQuotation.header_layout) {
+        setHeaderLayout(editingQuotation.header_layout);
+      }
+      if (editingQuotation.table_density) {
+        setTableDensity(editingQuotation.table_density);
+      }
+      if (typeof editingQuotation.show_bank_details === 'boolean') {
+        setShowBankDetails(editingQuotation.show_bank_details);
+      }
+      if (typeof editingQuotation.show_commercial_terms === 'boolean') {
+        setShowCommercialTerms(editingQuotation.show_commercial_terms);
+      }
+      if (typeof editingQuotation.show_company_seal === 'boolean') {
+        setShowCompanySeal(editingQuotation.show_company_seal);
+      }
+      if (editingQuotation.theme_accent) {
+        setThemeAccent(editingQuotation.theme_accent);
+      }
+      if (editingQuotation.logo_position) {
+        setLogoPosition(editingQuotation.logo_position);
+      }
+      if (typeof editingQuotation.amount_in_words_enabled === 'boolean') {
+        setAmountInWordsEnabled(editingQuotation.amount_in_words_enabled);
+      }
+      if (typeof editingQuotation.customer_acceptance_enabled === 'boolean') {
+        setCustomerAcceptanceEnabled(editingQuotation.customer_acceptance_enabled);
+      }
+      if (editingQuotation.signatory_type) {
+        setSignatoryType(editingQuotation.signatory_type);
+        setSignatoryMode(editingQuotation.signatory_type);
+      }
+      if (editingQuotation.signature_style) {
+        setSignatureStyle(editingQuotation.signature_style);
+      }
+      if (editingQuotation.primary_signatory_name) {
+        setSignatoryName(editingQuotation.primary_signatory_name);
+      } else if (editingQuotation.signatories?.[0]?.name) {
         setSignatoryName(editingQuotation.signatories[0].name);
-        setSignatoryTitle(editingQuotation.signatories[0].designation || 'Account Manager');
-        if (editingQuotation.signatories[1]) {
-          setSecondarySignatoryName(editingQuotation.signatories[1].name);
-          setSecondarySignatoryTitle(editingQuotation.signatories[1].designation || 'Authorized Signatory');
-        }
+      }
+      if (editingQuotation.primary_signatory_title) {
+        setSignatoryTitle(editingQuotation.primary_signatory_title);
+      } else if (editingQuotation.signatories?.[0]?.designation) {
+        setSignatoryTitle(editingQuotation.signatories[0].designation);
+      }
+      if (editingQuotation.secondary_signatory_name) {
+        setSecondarySignatoryName(editingQuotation.secondary_signatory_name);
+      } else if (editingQuotation.signatories?.[1]?.name) {
+        setSecondarySignatoryName(editingQuotation.signatories[1].name);
+      }
+      if (editingQuotation.secondary_signatory_title) {
+        setSecondarySignatoryTitle(editingQuotation.secondary_signatory_title);
+      } else if (editingQuotation.signatories?.[1]?.designation) {
+        setSecondarySignatoryTitle(editingQuotation.signatories[1].designation);
       }
     }
   }, [editingQuotation]);
@@ -162,8 +275,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [zoomScale, setZoomScale] = useState<number>(0.85);
 
   // Collapsible accordions
-  const [isTermsOpen, setIsTermsOpen] = useState<boolean>(true);
-  const [isSignatoryOpen, setIsSignatoryOpen] = useState<boolean>(true);
+  const [isLayoutOpen, setIsLayoutOpen] = useState<boolean>(true);
+  const [isBrandingOpen, setIsBrandingOpen] = useState<boolean>(false);
+  const [isTermsOpen, setIsTermsOpen] = useState<boolean>(false);
+  const [isSignatoryOpen, setIsSignatoryOpen] = useState<boolean>(false);
 
   // Load Presets on Mount
   useEffect(() => {
@@ -241,8 +356,28 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
     if (preset.default_payment_terms) setPaymentTerms(preset.default_payment_terms);
     if (preset.default_validity_days) setValidityDays(preset.default_validity_days);
-    if (preset.signatory_mode) setSignatoryMode(preset.signatory_mode);
+    if (preset.signatory_mode) {
+      setSignatoryMode(preset.signatory_mode);
+      if (preset.signatory_mode === 'dual' || preset.signatory_mode === 'single') {
+        setSignatoryType(preset.signatory_mode);
+      }
+    }
     if (preset.notes_template) setCustomNotes(preset.notes_template);
+    if (preset.header_layout) setHeaderLayout(preset.header_layout);
+    if (preset.table_density) setTableDensity(preset.table_density);
+    if (typeof preset.show_bank_details === 'boolean') setShowBankDetails(preset.show_bank_details);
+    if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
+    if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
+    if (preset.theme_accent) setThemeAccent(preset.theme_accent);
+    if (typeof preset.amount_in_words_enabled === 'boolean') setAmountInWordsEnabled(preset.amount_in_words_enabled);
+    if (typeof preset.customer_acceptance_enabled === 'boolean') setCustomerAcceptanceEnabled(preset.customer_acceptance_enabled);
+    if (preset.signatory_type) setSignatoryType(preset.signatory_type);
+    if (preset.signature_style) setSignatureStyle(preset.signature_style);
+    if (preset.logo_position) setLogoPosition(preset.logo_position);
+    if (preset.primary_signatory_name) setSignatoryName(preset.primary_signatory_name);
+    if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
+    if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
+    if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
   };
 
   // Convert enquiry.line_items or editingQuotation.line_items to QuotationLineItem array
@@ -385,6 +520,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       ].join('\n'),
       applied_bank_account: activeBankAccount,
       signatories: signatories,
+      header_layout: headerLayout,
+      table_density: tableDensity,
+      show_bank_details: showBankDetails,
+      show_commercial_terms: showCommercialTerms,
+      show_company_seal: showCompanySeal,
+      theme_accent: themeAccent,
+      logo_position: logoPosition,
+      amount_in_words_enabled: amountInWordsEnabled,
+      customer_acceptance_enabled: customerAcceptanceEnabled,
+      signatory_type: signatoryType,
+      primary_signatory_name: signatoryName,
+      primary_signatory_title: signatoryTitle,
+      secondary_signatory_name: secondarySignatoryName,
+      secondary_signatory_title: secondarySignatoryTitle,
+      signature_style: signatureStyle,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -404,7 +554,22 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     validityDays,
     activeBankAccount,
     signatories,
-    validUntilDate
+    validUntilDate,
+    headerLayout,
+    tableDensity,
+    showBankDetails,
+    showCommercialTerms,
+    showCompanySeal,
+    themeAccent,
+    logoPosition,
+    amountInWordsEnabled,
+    customerAcceptanceEnabled,
+    signatoryType,
+    signatoryName,
+    signatoryTitle,
+    secondarySignatoryName,
+    secondarySignatoryTitle,
+    signatureStyle
   ]);
 
   // Handle Save (Draft or Issued)
@@ -438,6 +603,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         applied_terms: liveQuotation.applied_terms,
         applied_bank_account: liveQuotation.applied_bank_account,
         signatories: liveQuotation.signatories,
+        header_layout: headerLayout,
+        table_density: tableDensity,
+        show_bank_details: showBankDetails,
+        show_commercial_terms: showCommercialTerms,
+        show_company_seal: showCompanySeal,
+        theme_accent: themeAccent,
+        logo_position: logoPosition,
+        amount_in_words_enabled: amountInWordsEnabled,
+        customer_acceptance_enabled: customerAcceptanceEnabled,
+        signatory_type: signatoryType,
+        primary_signatory_name: signatoryName,
+        primary_signatory_title: signatoryTitle,
+        secondary_signatory_name: secondarySignatoryName,
+        secondary_signatory_title: secondarySignatoryTitle,
+        signature_style: signatureStyle,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -458,27 +638,73 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         }
       }
 
-      if (triggerToast) {
-        triggerToast(
-          status === 'Sent'
-            ? `Quotation ${saved.formatted_quote_ref} issued successfully!`
-            : `Draft quote ${saved.formatted_quote_ref} saved.`,
-          'success'
-        );
-      }
+      triggerToast?.(
+        status === 'Sent'
+          ? `Quotation #${saved.formatted_quote_ref} issued successfully!`
+          : `Quotation #${saved.formatted_quote_ref} draft saved!`,
+        'success'
+      );
 
       if (onQuotationCreated) {
         onQuotationCreated(saved);
       }
-
       onClose();
-    } catch (err: any) {
-      console.error('Error saving quotation:', err);
-      if (triggerToast) {
-        triggerToast(err?.message || 'Failed to save quotation', 'error');
-      }
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error saving quotation:', err);
+      triggerToast?.('Failed to save quotation. Please try again.', 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Handle Save as New Template Preset
+  const handleSaveNewPreset = async () => {
+    if (!newPresetName.trim()) {
+      triggerToast?.('Please enter a preset name.', 'error');
+      return;
+    }
+    setIsSavingPreset(true);
+    try {
+      const presetData: Omit<QuotationPreset, 'id'> = {
+        workspace_id: activeWorkspaceId,
+        workspaceId: activeWorkspaceId,
+        preset_name: newPresetName.trim(),
+        header_profile_id: activeProfile?.id,
+        visible_columns: visibleColumns,
+        default_tax_mode: taxMode,
+        default_price_basis: priceBasis,
+        default_payment_terms: paymentTerms,
+        default_validity_days: validityDays,
+        signatory_mode: signatoryMode,
+        notes_template: customNotes,
+        header_layout: headerLayout,
+        table_density: tableDensity,
+        show_bank_details: showBankDetails,
+        show_commercial_terms: showCommercialTerms,
+        show_company_seal: showCompanySeal,
+        theme_accent: themeAccent,
+        amount_in_words_enabled: amountInWordsEnabled,
+        customer_acceptance_enabled: customerAcceptanceEnabled,
+        signatory_type: signatoryType,
+        primary_signatory_name: signatoryName,
+        primary_signatory_title: signatoryTitle,
+        secondary_signatory_name: secondarySignatoryName,
+        secondary_signatory_title: secondarySignatoryTitle,
+        signature_style: signatureStyle,
+        logo_position: logoPosition
+      };
+
+      const saved = await QuotationRepository.savePreset(presetData);
+      setPresets((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
+      setSelectedPresetId(saved.id || '');
+      setIsSavePresetModalOpen(false);
+      setNewPresetName('');
+      triggerToast?.(`Template preset "${saved.preset_name}" saved successfully!`, 'success');
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error saving preset:', err);
+      triggerToast?.('Failed to save preset.', 'error');
+    } finally {
+      setIsSavingPreset(false);
     }
   };
 
@@ -523,9 +749,22 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             <div className="p-5 space-y-6">
               {/* Preset Selector */}
               <div>
-                <label className="block text-xs font-mono font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Document Preset
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-mono font-bold text-slate-500 uppercase tracking-wider">
+                    Document Preset
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewPresetName('');
+                      setIsSavePresetModalOpen(true);
+                    }}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition cursor-pointer hover:underline"
+                  >
+                    <BookmarkPlus className="w-3.5 h-3.5" />
+                    <span>+ Save as New Preset</span>
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <select
                     value={selectedPresetId}
@@ -543,6 +782,224 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Layout Engine & Section Toggles Accordion */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsLayoutOpen(!isLayoutOpen)}
+                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Layout className="w-3.5 h-3.5 text-slate-500" />
+                    Header Layout & Density
+                  </span>
+                  {isLayoutOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                </button>
+                {isLayoutOpen && (
+                  <div className="p-4 space-y-4 bg-white text-xs border-t border-slate-200">
+                    {/* Header Layout Selector */}
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1.5">
+                        Header Layout Architecture
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: 'split', label: 'Classic Split', desc: 'Side-by-side' },
+                          { id: 'centered_banner', label: 'Centered Banner', desc: 'Full-width top' },
+                          { id: 'modern_compact', label: 'Modern Compact', desc: 'Slim header bar' }
+                        ].map((layout) => {
+                          const isSelected = headerLayout === layout.id;
+                          return (
+                            <button
+                              key={layout.id}
+                              type="button"
+                              onClick={() => setHeaderLayout(layout.id as QuotationHeaderLayout)}
+                              className={`p-2 rounded-lg border flex flex-col items-center justify-center text-center transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-[11px] font-bold block">{layout.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{layout.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Table Density Switch */}
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1.5">
+                        Itemized Table Density
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'comfortable', label: 'Comfortable', desc: 'Spacious padding' },
+                          { id: 'compact', label: 'Compact', desc: 'Tighter lines (Fit more)' }
+                        ].map((d) => {
+                          const isSelected = tableDensity === d.id;
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
+                              className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span>{d.label}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">{d.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Modular Section Toggles */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <label className="block text-slate-500 font-medium mb-1">
+                        Modular Document Sections
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={showBankDetails}
+                          onChange={(e) => setShowBankDetails(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-700 font-medium">Bank Remittance & Wire Details</span>
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={showCommercialTerms}
+                          onChange={(e) => setShowCommercialTerms(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-700 font-medium">Commercial Terms & Conditions</span>
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={showCompanySeal}
+                          onChange={(e) => setShowCompanySeal(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-700 font-medium">Official Company Seal Stamp</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Branding, Themes & Presentation Accordion */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsBrandingOpen(!isBrandingOpen)}
+                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Palette className="w-3.5 h-3.5 text-slate-500" />
+                    Branding, Themes & Presentation
+                  </span>
+                  {isBrandingOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                </button>
+                {isBrandingOpen && (
+                  <div className="p-4 space-y-4 bg-white text-xs border-t border-slate-200">
+                    {/* Theme Accent Swatches */}
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1.5">
+                        Color Theme Accent
+                      </label>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {(['navy', 'emerald', 'blue', 'crimson', 'slate'] as QuotationThemeAccent[]).map((themeKey) => {
+                          const t = QUOTATION_THEMES[themeKey];
+                          const isSelected = themeAccent === themeKey;
+                          return (
+                            <button
+                              key={themeKey}
+                              type="button"
+                              onClick={() => setThemeAccent(themeKey)}
+                              className={`flex flex-col items-center p-2 rounded-lg border text-center transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-slate-900 bg-slate-50 ring-2 ring-slate-900/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }`}
+                            >
+                              <div
+                                className="w-5 h-5 rounded-full shadow-xs mb-1"
+                                style={{ backgroundColor: t.primaryHex }}
+                              />
+                              <span className="text-[10px] font-bold capitalize text-slate-700">
+                                {themeKey}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Logo Alignment */}
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1.5">
+                        Logo Alignment
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: 'left', label: 'Left', icon: AlignLeft },
+                          { id: 'center', label: 'Center', icon: AlignCenter },
+                          { id: 'right', label: 'Right', icon: AlignRight }
+                        ].map((pos) => {
+                          const Icon = pos.icon;
+                          const isSelected = logoPosition === pos.id;
+                          return (
+                            <button
+                              key={pos.id}
+                              type="button"
+                              onClick={() => setLogoPosition(pos.id as QuotationLogoPosition)}
+                              className={`py-1.5 px-2 rounded-lg border flex items-center justify-center gap-1.5 text-xs font-medium transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                              <span>{pos.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Document Options Toggles */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={amountInWordsEnabled}
+                          onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-700 font-medium">Amount in Words (Total Spelled Out)</span>
+                      </label>
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={customerAcceptanceEnabled}
+                          onChange={(e) => setCustomerAcceptanceEnabled(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-700 font-medium">Customer Acceptance Signature Box</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Column Visibility Toggles */}
@@ -728,68 +1185,93 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span className="flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
-                    Signatory & Remittance Account
+                    Signatories & Remittance Account
                   </span>
                   {isSignatoryOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
                 </button>
                 {isSignatoryOpen && (
-                  <div className="p-4 space-y-3 bg-white text-xs border-t border-slate-200">
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1">Signatory Mode</label>
-                      <select
-                        value={signatoryMode}
-                        onChange={(e) => setSignatoryMode(e.target.value as QuotationSignatoryMode)}
-                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
-                      >
-                        <option value="single">Single Signatory (Deal Owner)</option>
-                        <option value="dual">Dual Signatory (Owner + Manager)</option>
-                        <option value="stamp_only">Company Seal Only</option>
-                        <option value="none">None / Plain Document</option>
-                      </select>
+                  <div className="p-4 space-y-3.5 bg-white text-xs border-t border-slate-200">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Signatory Count</label>
+                        <select
+                          value={signatoryType}
+                          onChange={(e) => {
+                            const val = e.target.value as 'single' | 'dual';
+                            setSignatoryType(val);
+                            setSignatoryMode(val);
+                          }}
+                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                        >
+                          <option value="single">Single Signatory</option>
+                          <option value="dual">Dual Signatory</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Signature Style</label>
+                        <select
+                          value={signatureStyle}
+                          onChange={(e) => setSignatureStyle(e.target.value as QuotationSignatureStyle)}
+                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                        >
+                          <option value="script">Script (Cursive Autopen)</option>
+                          <option value="line">Classic Sign Line</option>
+                          <option value="image">Digital Image / Box</option>
+                        </select>
+                      </div>
                     </div>
 
-                    {(signatoryMode === 'single' || signatoryMode === 'dual') && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Primary Signatory</span>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-slate-500 font-medium mb-1">Signatory Name</label>
+                          <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
                           <input
                             type="text"
                             value={signatoryName}
                             onChange={(e) => setSignatoryName(e.target.value)}
+                            placeholder="e.g. Syed Ameer Sibuma"
                             className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 font-medium mb-1">Designation</label>
+                          <label className="block text-slate-400 text-[10px] mb-0.5">Designation</label>
                           <input
                             type="text"
                             value={signatoryTitle}
                             onChange={(e) => setSignatoryTitle(e.target.value)}
+                            placeholder="e.g. Account Manager"
                             className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                           />
                         </div>
                       </div>
-                    )}
+                    </div>
 
-                    {signatoryMode === 'dual' && (
-                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                        <div>
-                          <label className="block text-slate-500 font-medium mb-1">Co-Signatory Name</label>
-                          <input
-                            type="text"
-                            value={secondarySignatoryName}
-                            onChange={(e) => setSecondarySignatoryName(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-500 font-medium mb-1">Co-Designation</label>
-                          <input
-                            type="text"
-                            value={secondarySignatoryTitle}
-                            onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
-                          />
+                    {signatoryType === 'dual' && (
+                      <div className="pt-2 border-t border-slate-100">
+                        <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Secondary Signatory</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
+                            <input
+                              type="text"
+                              value={secondarySignatoryName}
+                              onChange={(e) => setSecondarySignatoryName(e.target.value)}
+                              placeholder="e.g. Authorized Director"
+                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 text-[10px] mb-0.5">Designation</label>
+                            <input
+                              type="text"
+                              value={secondarySignatoryTitle}
+                              onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
+                              placeholder="e.g. Commercial Approver"
+                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                            />
+                          </div>
                         </div>
                       </div>
                     )}
@@ -911,14 +1393,82 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   quotation={liveQuotation}
                   profile={activeProfile}
                   visibleColumns={visibleColumns}
-                  showBankDetails={true}
-                  showStampAndSignatures={signatoryMode !== 'none'}
+                  isCompactView={tableDensity === 'compact'}
+                  showBankDetails={showBankDetails}
+                  showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
                 />
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Save as New Template Preset Modal */}
+      {isSavePresetModalOpen && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <BookmarkPlus className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-sm">Save as New Template Preset</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSavePresetModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Save your current layout (<strong className="capitalize">{headerLayout.replace('_', ' ')}</strong>),
+              density (<strong className="capitalize">{tableDensity}</strong>), color theme (<strong className="capitalize">{themeAccent}</strong>),
+              and section toggles as a reusable preset across your workspace.
+            </p>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Preset Name
+              </label>
+              <input
+                type="text"
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                placeholder="e.g. Modern Executive Offer, Rapid Delivery Quick Quote"
+                className="w-full text-xs rounded-xl border border-slate-300 p-2.5 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveNewPreset();
+                  }
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsSavePresetModalOpen(false)}
+                disabled={isSavingPreset}
+                className="px-3.5 py-1.5 border border-slate-300 text-slate-700 text-xs font-medium rounded-xl hover:bg-slate-50 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewPreset}
+                disabled={isSavingPreset || !newPresetName.trim()}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingPreset ? 'Saving...' : 'Save Preset'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -918,6 +918,12 @@ export type QuotationTaxMode = 'tax_calculated' | 'taxes_extra' | 'tax_exempt';
 
 export type QuotationSignatoryMode = 'single' | 'dual' | 'stamp_only' | 'none';
 
+export type QuotationThemeAccent = 'navy' | 'emerald' | 'blue' | 'crimson' | 'slate';
+export type QuotationSignatureStyle = 'script' | 'line' | 'image';
+export type QuotationLogoPosition = 'left' | 'center' | 'right';
+export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact';
+export type QuotationTableDensity = 'compact' | 'comfortable';
+
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
 
 export interface QuotationLineItem {
@@ -964,11 +970,28 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   logo_url?: string;
   stamp_seal_url?: string;
   accent_color?: string; // Hex color code
+  theme_accent?: QuotationThemeAccent;
+  amount_in_words_enabled?: boolean;
+  customer_acceptance_enabled?: boolean;
+  signatory_type?: 'single' | 'dual';
+  primary_signatory_name?: string;
+  primary_signatory_title?: string;
+  secondary_signatory_name?: string;
+  secondary_signatory_title?: string;
+  signature_style?: QuotationSignatureStyle;
+  logo_position?: QuotationLogoPosition;
+  header_layout?: QuotationHeaderLayout;
+  table_density?: QuotationTableDensity;
+  show_bank_details?: boolean;
+  show_commercial_terms?: boolean;
+  show_company_seal?: boolean;
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
+
+export type QuotationDocumentProfile = WorkspaceDocumentProfile;
 
 export interface QuotationPresetColumns {
   brand?: boolean;
@@ -992,6 +1015,21 @@ export interface QuotationPreset extends SoftDeleteFields {
   signatory_mode: QuotationSignatoryMode;
   flyer_attachments?: Attachment[];
   notes_template?: string;
+  header_layout?: QuotationHeaderLayout;
+  table_density?: QuotationTableDensity;
+  show_bank_details?: boolean;
+  show_commercial_terms?: boolean;
+  show_company_seal?: boolean;
+  theme_accent?: QuotationThemeAccent;
+  amount_in_words_enabled?: boolean;
+  customer_acceptance_enabled?: boolean;
+  signatory_type?: 'single' | 'dual';
+  primary_signatory_name?: string;
+  primary_signatory_title?: string;
+  secondary_signatory_name?: string;
+  secondary_signatory_title?: string;
+  signature_style?: QuotationSignatureStyle;
+  logo_position?: QuotationLogoPosition;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1033,6 +1071,21 @@ export interface Quotation extends SoftDeleteFields {
   applied_terms?: string;
   applied_bank_account?: DocumentProfileBankAccount;
   signatories?: QuotationSignatory[];
+  theme_accent?: QuotationThemeAccent;
+  amount_in_words_enabled?: boolean;
+  customer_acceptance_enabled?: boolean;
+  signatory_type?: 'single' | 'dual';
+  primary_signatory_name?: string;
+  primary_signatory_title?: string;
+  secondary_signatory_name?: string;
+  secondary_signatory_title?: string;
+  signature_style?: QuotationSignatureStyle;
+  logo_position?: QuotationLogoPosition;
+  header_layout?: QuotationHeaderLayout;
+  table_density?: QuotationTableDensity;
+  show_bank_details?: boolean;
+  show_commercial_terms?: boolean;
+  show_company_seal?: boolean;
   pdf_storage_path?: string;
   pdf_download_url?: string;
   created_at: string;
