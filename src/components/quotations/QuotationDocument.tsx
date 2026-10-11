@@ -186,72 +186,72 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const activeOptionalCount = [showBrand, showModel, showOrigin, showAvailability].filter(Boolean).length;
 
   // Proportional dynamic column width distribution ensuring Item & Description is never squashed
-  // (minimum 35% when all 4 options are active, up to 61%-65% when optional columns are disabled)
+  // (minimum 38% when all 4 options are active, up to 58% when optional columns are disabled)
   const colWidths = React.useMemo(() => {
     if (activeOptionalCount === 4) {
       return {
-        sl: 'w-[4%]',
-        desc: 'w-[35%]',
-        brand: 'w-[8%]',
-        model: 'w-[9%]',
-        origin: 'w-[7%]',
-        delivery: 'w-[8%]',
-        qty: 'w-[5%]',
-        uom: 'w-[5%]',
-        unitPrice: 'w-[9%]',
-        total: 'w-[10%]'
+        sl: 'w-[5%] min-w-[28px]',
+        desc: 'w-[38%] min-w-[180px]',
+        brand: 'w-[8%] min-w-[65px]',
+        model: 'w-[8%] min-w-[65px]',
+        origin: 'w-[8%] min-w-[65px]',
+        delivery: 'w-[8%] min-w-[65px]',
+        qty: 'w-[6%] min-w-[40px]',
+        uom: 'w-[6%] min-w-[40px]',
+        unitPrice: 'w-[12%] min-w-[70px]',
+        total: 'w-[13%] min-w-[80px]'
       };
     } else if (activeOptionalCount === 3) {
       return {
-        sl: 'w-[5%]',
-        desc: 'w-[39%]',
-        brand: 'w-[8%]',
-        model: 'w-[9%]',
-        origin: 'w-[7%]',
-        delivery: 'w-[8%]',
-        qty: 'w-[6%]',
-        uom: 'w-[6%]',
-        unitPrice: 'w-[9%]',
-        total: 'w-[11%]'
+        sl: 'w-[5%] min-w-[28px]',
+        desc: 'w-[42%] min-w-[180px]',
+        brand: 'w-[8%] min-w-[65px]',
+        model: 'w-[9%] min-w-[65px]',
+        origin: 'w-[8%] min-w-[65px]',
+        delivery: 'w-[8%] min-w-[65px]',
+        qty: 'w-[6%] min-w-[40px]',
+        uom: 'w-[6%] min-w-[40px]',
+        unitPrice: 'w-[12%] min-w-[70px]',
+        total: 'w-[13%] min-w-[80px]'
       };
     } else if (activeOptionalCount === 2) {
       return {
-        sl: 'w-[5%]',
-        desc: 'w-[45%]',
-        brand: 'w-[9%]',
-        model: 'w-[10%]',
-        origin: 'w-[8%]',
-        delivery: 'w-[9%]',
-        qty: 'w-[6%]',
-        uom: 'w-[6%]',
-        unitPrice: 'w-[10%]',
-        total: 'w-[12%]'
+        sl: 'w-[5%] min-w-[28px]',
+        desc: 'w-[46%] min-w-[180px]',
+        brand: 'w-[9%] min-w-[65px]',
+        model: 'w-[9%] min-w-[65px]',
+        origin: 'w-[9%] min-w-[65px]',
+        delivery: 'w-[9%] min-w-[65px]',
+        qty: 'w-[6%] min-w-[40px]',
+        uom: 'w-[6%] min-w-[40px]',
+        unitPrice: 'w-[12%] min-w-[70px]',
+        total: 'w-[13%] min-w-[80px]'
       };
     } else if (activeOptionalCount === 1) {
       return {
-        sl: 'w-[5%]',
-        desc: 'w-[53%]',
-        brand: 'w-[9%]',
-        model: 'w-[10%]',
-        origin: 'w-[8%]',
-        delivery: 'w-[9%]',
-        qty: 'w-[6%]',
-        uom: 'w-[6%]',
-        unitPrice: 'w-[10%]',
-        total: 'w-[12%]'
+        sl: 'w-[5%] min-w-[28px]',
+        desc: 'w-[52%] min-w-[180px]',
+        brand: 'w-[9%] min-w-[65px]',
+        model: 'w-[9%] min-w-[65px]',
+        origin: 'w-[9%] min-w-[65px]',
+        delivery: 'w-[9%] min-w-[65px]',
+        qty: 'w-[6%] min-w-[40px]',
+        uom: 'w-[6%] min-w-[40px]',
+        unitPrice: 'w-[12%] min-w-[70px]',
+        total: 'w-[13%] min-w-[80px]'
       };
     } else {
       return {
-        sl: 'w-[5%]',
-        desc: 'w-[61%]',
-        brand: 'w-[9%]',
-        model: 'w-[10%]',
-        origin: 'w-[8%]',
-        delivery: 'w-[9%]',
-        qty: 'w-[6%]',
-        uom: 'w-[6%]',
-        unitPrice: 'w-[10%]',
-        total: 'w-[12%]'
+        sl: 'w-[5%] min-w-[28px]',
+        desc: 'w-[58%] min-w-[180px]',
+        brand: 'w-[9%] min-w-[65px]',
+        model: 'w-[9%] min-w-[65px]',
+        origin: 'w-[9%] min-w-[65px]',
+        delivery: 'w-[9%] min-w-[65px]',
+        qty: 'w-[6%] min-w-[40px]',
+        uom: 'w-[6%] min-w-[40px]',
+        unitPrice: 'w-[12%] min-w-[70px]',
+        total: 'w-[13%] min-w-[80px]'
       };
     }
   }, [activeOptionalCount]);
@@ -283,11 +283,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
     const list: Array<{ name: string; title: string; signature_url?: string }> = [];
-    const pName =
+    const rawPName =
       quotation.primary_signatory_name ||
       quotation.signatories?.[0]?.name ||
-      profile?.primary_signatory_name ||
-      'Authorized Signatory';
+      profile?.primary_signatory_name;
+    let pName = rawPName;
+    if (!pName || pName.trim().length <= 3) {
+      if (profile?.primary_signatory_name && profile.primary_signatory_name.trim().length > 3) {
+        pName = profile.primary_signatory_name.trim();
+      } else {
+        pName = (pName && pName.trim().length > 0) ? pName.trim() : 'Authorized Signatory';
+      }
+    }
     const pTitle =
       quotation.primary_signatory_title ||
       quotation.signatories?.[0]?.designation ||
@@ -295,7 +302,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       'Account Manager';
     const pUrl = quotation.signatories?.[0]?.signature_url;
 
-    list.push({ name: pName, title: pTitle, signature_url: pUrl });
+    list.push({ name: pName || 'Authorized Signatory', title: pTitle, signature_url: pUrl });
 
     if (signatoryType === 'dual') {
       const sName =
@@ -371,38 +378,63 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
                 {senderEntityName}
               </h1>
-              {senderTrn && (
-                <p className="text-xs font-semibold text-slate-600">
-                  TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
-                </p>
-              )}
-              {/* Centered Address & Contact Details */}
-              <div className="flex flex-wrap justify-center items-center gap-x-4 gap-y-1 text-xs text-slate-600 pt-0.5">
-                {senderAddress && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>{senderAddress}</span>
-                  </span>
-                )}
-                {senderPhone && (
-                  <span className="flex items-center gap-1">
-                    <Phone className="w-3 h-3 text-slate-400" />
-                    <span>{senderPhone}</span>
-                  </span>
-                )}
-                {senderEmail && (
-                  <span className="flex items-center gap-1">
-                    <Mail className="w-3 h-3 text-slate-400" />
-                    <span>{senderEmail}</span>
-                  </span>
-                )}
-                {senderWebsite && (
-                  <span className="flex items-center gap-1">
-                    <Globe className="w-3 h-3 text-slate-400" />
-                    <span>{senderWebsite}</span>
-                  </span>
-                )}
-              </div>
+              {/* Centered Address, Contact & TRN Details with divider dots */}
+              {(() => {
+                const contactSegments: React.ReactNode[] = [];
+                if (senderAddress) {
+                  contactSegments.push(
+                    <span key="addr" className="inline-flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{senderAddress}</span>
+                    </span>
+                  );
+                }
+                if (senderPhone) {
+                  contactSegments.push(
+                    <span key="phone" className="inline-flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderPhone}</span>
+                    </span>
+                  );
+                }
+                if (senderEmail) {
+                  contactSegments.push(
+                    <span key="email" className="inline-flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderEmail}</span>
+                    </span>
+                  );
+                }
+                if (senderTrn) {
+                  contactSegments.push(
+                    <span key="trn" className="inline-flex items-center gap-1">
+                      <span className="text-slate-400 font-medium">TRN:</span>
+                      <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
+                    </span>
+                  );
+                }
+                if (senderWebsite) {
+                  contactSegments.push(
+                    <span key="web" className="inline-flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderWebsite}</span>
+                    </span>
+                  );
+                }
+
+                if (contactSegments.length === 0) return null;
+
+                return (
+                  <div className="flex flex-wrap justify-center items-center gap-x-3 gap-y-1 text-xs text-slate-500 pt-1 leading-relaxed">
+                    {contactSegments.map((segment, idx) => (
+                      <React.Fragment key={idx}>
+                        {idx > 0 && <span className="text-slate-300 font-bold select-none">•</span>}
+                        {segment}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Accent Separator Line */}
@@ -797,7 +829,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
            ======================================================== */}
         <section className="flex-1 my-2">
           <div className="rounded-lg border border-slate-200 overflow-hidden">
-            <table className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}>
+            <table
+              className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}
+              style={{ tableLayout: 'fixed', width: '100%' }}
+            >
               <thead>
                 <tr
                   className="font-semibold text-white border-b"
@@ -806,18 +841,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     borderColor: theme.borderColor
                   }}
                 >
-                  <th className={`${thPad} px-1.5 ${colWidths.sl} text-center`}>#</th>
-                  <th className={`${thPad} px-2.5 ${colWidths.desc} break-words`}>Item & Description</th>
-                  {showBrand && <th className={`${thPad} px-1.5 ${colWidths.brand} break-words`}>Brand</th>}
-                  {showModel && <th className={`${thPad} px-1.5 ${colWidths.model} break-words`}>Model / Part</th>}
-                  {showOrigin && <th className={`${thPad} px-1.5 ${colWidths.origin} break-words`}>Origin</th>}
-                  {showAvailability && <th className={`${thPad} px-1.5 ${colWidths.delivery} break-words`}>Delivery</th>}
-                  <th className={`${thPad} px-1 ${colWidths.qty} text-center`}>Qty</th>
-                  <th className={`${thPad} px-1 ${colWidths.uom} text-center`}>UOM</th>
+                  <th className={`${thPad} px-1.5 ${colWidths.sl} text-center whitespace-nowrap`}>#</th>
+                  <th className={`${thPad} px-2.5 ${colWidths.desc} text-left break-words`}>Item & Description</th>
+                  {showBrand && <th className={`${thPad} px-1.5 ${colWidths.brand} text-center whitespace-nowrap`}>Brand</th>}
+                  {showModel && <th className={`${thPad} px-1.5 ${colWidths.model} text-center whitespace-nowrap`}>Model / Part</th>}
+                  {showOrigin && <th className={`${thPad} px-1.5 ${colWidths.origin} text-center whitespace-nowrap`}>Origin</th>}
+                  {showAvailability && <th className={`${thPad} px-1.5 ${colWidths.delivery} text-center whitespace-nowrap`}>Delivery</th>}
+                  <th className={`${thPad} px-1 ${colWidths.qty} text-center whitespace-nowrap`}>Qty</th>
+                  <th className={`${thPad} px-1 ${colWidths.uom} text-center whitespace-nowrap`}>UOM</th>
                   {showUnitPrice && (
-                    <th className={`${thPad} px-2 ${colWidths.unitPrice} text-right`}>Unit Price</th>
+                    <th className={`${thPad} px-2 ${colWidths.unitPrice} text-right whitespace-nowrap`}>Unit Price</th>
                   )}
-                  <th className={`${thPad} px-2.5 ${colWidths.total} text-right`}>Total ({currency})</th>
+                  <th className={`${thPad} px-2.5 ${colWidths.total} text-right whitespace-nowrap`}>Total ({currency})</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -831,7 +866,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           : 'hover:bg-slate-50/60'
                       }`}
                     >
-                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize}`}>
+                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
                         {idx + 1}
                       </td>
                       <td className={`${tdPad} px-2.5 align-top break-words`}>
@@ -850,40 +885,40 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         )}
                       </td>
                       {showBrand && (
-                        <td className={`${tdPad} px-1.5 text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize}`}>
                           {item.brand_make || '—'}
                         </td>
                       )}
                       {showModel && (
-                        <td className={`${tdPad} px-1.5 font-mono text-slate-700 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-700 align-top break-words leading-snug ${tableFontSize}`}>
                           {item.model_part_no || '—'}
                         </td>
                       )}
                       {showOrigin && (
-                        <td className={`${tdPad} px-1.5 text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
                           {item.country_of_origin || '—'}
                         </td>
                       )}
                       {showAvailability && (
-                        <td className={`${tdPad} px-1.5 text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
                           {item.availability || 'Ex-Stock'}
                         </td>
                       )}
-                      <td className={`${tdPad} px-1 text-center font-bold text-slate-800 align-top ${tableFontSize}`}>
+                      <td className={`${tdPad} px-1 text-center font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                         {item.quantity}
                       </td>
-                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top`}>
+                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top whitespace-nowrap`}>
                         {item.unit || 'pcs'}
                       </td>
                       {showUnitPrice && (
-                        <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize}`}>
+                        <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} whitespace-nowrap`}>
                           {Number(item.unit_price || 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
                         </td>
                       )}
-                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize}`}>
+                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} whitespace-nowrap`}>
                         {item.is_optional ? (
                           <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
                             [Excluded]

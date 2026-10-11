@@ -153,6 +153,27 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.applied_terms ?? ''
   );
 
+  // Helper to resolve full rep name, protecting against lone initials (length <= 3, e.g. "SS")
+  const resolveRepFullName = (candidate?: string | null): string => {
+    if (candidate && candidate.trim().length > 3) {
+      return candidate.trim();
+    }
+    // Candidate is missing or merely initials (<= 3 chars, e.g. "SS")
+    // Fall back to full display name from session context, profile, or workspace
+    const fullCandidates = [
+      user?.displayName,
+      user?.name,
+      profile?.primary_signatory_name,
+      activeWorkspace?.name
+    ];
+    for (const name of fullCandidates) {
+      if (name && name.trim().length > 3) {
+        return name.trim();
+      }
+    }
+    return candidate?.trim() || user?.displayName || user?.name || 'Sales Representative';
+  };
+
   // Signatory & Remittance choices
   const [signatoryType, setSignatoryType] = useState<'single' | 'dual'>(
     editingQuotation?.signatory_type ||
@@ -163,15 +184,26 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       ? 'dual'
       : 'single'
   );
-  const [signatoryName, setSignatoryName] = useState<string>(
-    editingQuotation?.primary_signatory_name ||
+  const [signatoryName, setSignatoryName] = useState<string>(() => {
+    const rawCandidate =
+      editingQuotation?.primary_signatory_name ||
       editingQuotation?.signatories?.[0]?.name ||
       profile?.primary_signatory_name ||
       salespersonName ||
-      user.displayName ||
-      user.name ||
-      'Sales Representative'
-  );
+      user?.displayName ||
+      user?.name;
+
+    if (rawCandidate && rawCandidate.trim().length > 3) {
+      return rawCandidate.trim();
+    }
+    const fullFallback =
+      (user?.displayName && user.displayName.trim().length > 3 ? user.displayName.trim() : null) ||
+      (user?.name && user.name.trim().length > 3 ? user.name.trim() : null) ||
+      (profile?.primary_signatory_name && profile.primary_signatory_name.trim().length > 3 ? profile.primary_signatory_name.trim() : null) ||
+      rawCandidate?.trim() ||
+      'Sales Representative';
+    return fullFallback;
+  });
   const [signatoryTitle, setSignatoryTitle] = useState<string>(
     editingQuotation?.primary_signatory_title ||
       editingQuotation?.signatories?.[0]?.designation ||
@@ -249,9 +281,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         setSignatureStyle(editingQuotation.signature_style);
       }
       if (editingQuotation.primary_signatory_name) {
-        setSignatoryName(editingQuotation.primary_signatory_name);
+        setSignatoryName(resolveRepFullName(editingQuotation.primary_signatory_name));
       } else if (editingQuotation.signatories?.[0]?.name) {
-        setSignatoryName(editingQuotation.signatories[0].name);
+        setSignatoryName(resolveRepFullName(editingQuotation.signatories[0].name));
       }
       if (editingQuotation.primary_signatory_title) {
         setSignatoryTitle(editingQuotation.primary_signatory_title);
@@ -374,7 +406,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.signatory_type) setSignatoryType(preset.signatory_type);
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
-    if (preset.primary_signatory_name) setSignatoryName(preset.primary_signatory_name);
+    if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
     if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
     if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
