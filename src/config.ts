@@ -10,11 +10,11 @@ export interface BrandConfig {
 }
 
 export const BRAND_CONFIG: BrandConfig = {
-  appName: "Enquiry Manager",
-  shortName: "Enquiry",
-  logoText: "Enquiry Manager",
+  appName: "SAS Manager",
+  shortName: "SAS",
+  logoText: "SAS Manager",
   tagline: "Track sales proposals, manage delivery lead times, and monitor customer conversions with absolute precision.",
-  copyright: "Enquiry Manager. All rights reserved.",
+  copyright: "SAS Manager. All rights reserved.",
   defaultClientName: "General Client",
   placeholderSearchText: "Type to search customer accounts...",
   catalogTitle: "Standard Component Catalog"

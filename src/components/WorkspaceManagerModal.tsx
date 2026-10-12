@@ -876,7 +876,7 @@ export default function WorkspaceManagerModal({
                   ) : (
                     <div>
                       <p className="text-xs font-bold text-slate-800">Click to choose workspace JSON backup</p>
-                      <p className="text-[11px] text-slate-500">Supports .json files exported from Enquiry Manager</p>
+                      <p className="text-[11px] text-slate-500">Supports .json files exported from SAS Manager</p>
                     </div>
                   )}
                 </div>
