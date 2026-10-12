@@ -337,10 +337,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             size: A4 portrait;
             margin: 0mm !important;
           }
-          body {
+          body, #root, .quotation-modal-container {
+            width: 100% !important;
+            max-width: none !important;
             margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+          #quotation-printable-document,
+          .quotation-document-container {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            background: #ffffff !important;
+            box-sizing: border-box !important;
+          }
+          .preview-canvas-wrapper {
+            transform: none !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           .quotation-print-sheet {
             height: auto !important;
@@ -350,30 +373,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             margin: 0 auto !important;
             padding: 12mm !important;
             width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: none !important;
+            box-sizing: border-box !important;
+          }
+          .quotation-print-sheet table,
+          .quotation-print-sheet .terms-card,
+          .quotation-print-sheet .remittance-card,
+          .quotation-print-sheet header,
+          .quotation-print-sheet footer,
+          .quotation-print-sheet section,
+          .quotation-print-sheet .top-accent-bar,
+          .quotation-print-sheet .header-flex-container {
+            width: 100% !important;
+            max-width: 100% !important;
           }
         }
       `}</style>
 
       {/* Decoupled A4 Page Sheet */}
       <article
-        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:h-auto print:min-h-0 print:max-w-none print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
+        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:min-w-[210mm] print:max-w-none print:h-auto print:min-h-0 print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
         style={{
           boxSizing: 'border-box'
         }}
       >
         {/* Top Accent Stripe */}
         <div
-          className="absolute top-0 left-0 right-0 h-2"
-          style={{ backgroundColor: accentColor }}
+          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full print:max-w-none"
+          style={{ backgroundColor: accentColor, width: '100%', maxWidth: '100%' }}
         />
 
         {/* ========================================================
             HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
            ======================================================== */}
         {headerLayout === 'centered_banner' ? (
-          <header className="border-b border-slate-200 pb-5 mb-5">
+          <header className="border-b border-slate-200 pb-5 mb-5 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
             {/* Centered Top Banner */}
-            <div className="flex flex-col items-center text-center space-y-1.5">
+            <div className="flex flex-col items-center text-center space-y-1.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
               <div className="pb-1">
                 {profile?.logo_url && !logoLoadFailed ? (
                   <img
@@ -462,9 +499,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             />
 
             {/* Two-Column Balanced Strip: Client Snapshot (Left) + Quotation Meta (Right) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch w-full" style={{ width: '100%', maxWidth: '100%' }}>
               {/* Client Snapshot Card */}
-              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between">
+              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full" style={{ width: '100%', maxWidth: '100%' }}>
                 <div>
                   <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
                     Submitted To / Attention To
@@ -500,7 +537,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
 
               {/* Quotation Meta Identity Card */}
-              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between">
+              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full" style={{ width: '100%', maxWidth: '100%' }}>
                 <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
                   <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
                     Commercial Offer
@@ -531,9 +568,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           </header>
         ) : headerLayout === 'modern_compact' ? (
-          <header className="border-b border-slate-200 pb-3.5 mb-4">
+          <header className="border-b border-slate-200 pb-3.5 mb-4 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
             {/* Top Bar: Compact Branding & Document Ref */}
-            <div className="flex items-center justify-between gap-4 pb-2.5">
+            <div className="flex items-center justify-between gap-4 pb-2.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
               <div className="flex items-center gap-3">
                 {profile?.logo_url && !logoLoadFailed ? (
                   <img
@@ -581,7 +618,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
 
             {/* Inline Sleek Metadata Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1.5 border-y border-slate-100 text-[11px] text-slate-600 bg-slate-50/60 px-2.5 rounded-md">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1.5 border-y border-slate-100 text-[11px] text-slate-600 bg-slate-50/60 px-2.5 rounded-md w-full" style={{ width: '100%', maxWidth: '100%' }}>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                 {senderAddress && <span>{senderAddress}</span>}
                 {senderPhone && <span>• Tel: {senderPhone}</span>}
@@ -596,7 +633,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
 
             {/* Sleek Client Strip */}
-            <div className="mt-2.5 py-2 px-3 bg-slate-50/80 border border-slate-200/70 rounded-lg text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div className="mt-2.5 py-2 px-3 bg-slate-50/80 border border-slate-200/70 rounded-lg text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 w-full" style={{ width: '100%', maxWidth: '100%' }}>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-2">Client:</span>
                 <span className="font-bold text-slate-900">{quotation.client_snapshot?.entity_name || 'Valued Client'}</span>
@@ -615,8 +652,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </header>
         ) : (
           /* 'split' (Classic) Default Layout */
-          <header className="border-b border-slate-200 pb-6 mb-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start gap-6">
+          <header className="border-b border-slate-200 pb-6 mb-6 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
+            <div className="flex flex-col sm:flex-row justify-between items-start gap-6 w-full" style={{ width: '100%', maxWidth: '100%' }}>
               {/* Left: Organization Branding & Details */}
               <div className="flex-1 space-y-2">
                 {logoPosition === 'center' ? (
@@ -788,7 +825,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
 
             {/* Client Snapshot Card */}
-            <div className="mt-6 bg-slate-50/70 border border-slate-200/70 rounded-lg p-4">
+            <div className="mt-6 bg-slate-50/70 border border-slate-200/70 rounded-lg p-4 w-full" style={{ width: '100%', maxWidth: '100%' }}>
               <div className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 mb-2">
                 Submitted To / Attention To
               </div>
@@ -845,11 +882,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             ITEMIZED TABLE
            ======================================================== */}
-        <section className="flex-1 my-2">
-          <div className="rounded-lg border border-slate-200 overflow-hidden">
+        <section className="flex-1 my-2 w-full" style={{ width: '100%', maxWidth: '100%' }}>
+          <div className="rounded-lg border border-slate-200 overflow-hidden w-full" style={{ width: '100%', maxWidth: '100%' }}>
             <table
               className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}
-              style={{ tableLayout: 'fixed', width: '100%', boxSizing: 'border-box' }}
+              style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
             >
               <thead>
                 <tr
@@ -1051,7 +1088,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       <td className={`${tdPad} px-1 text-center font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                         {item.quantity}
                       </td>
-                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top whitespace-nowrap`}>
+                      <td
+                        className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top whitespace-nowrap overflow-hidden text-ellipsis`}
+                        style={{ maxWidth: colWidths.unit.style.width }}
+                        title={item.unit || 'pcs'}
+                      >
                         {item.unit || 'pcs'}
                       </td>
                       {showUnitPrice && (
@@ -1094,17 +1135,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             COMMERCIAL TERMS & TOTALS SECTION
            ======================================================== */}
-        <section className="my-4 break-inside-avoid">
+        <section className="my-4 break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%' }}>
           <div
             className={
               resolvedShowCommercialTerms
-                ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-start'
-                : 'flex justify-end'
+                ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-start w-full'
+                : 'flex justify-end w-full'
             }
+            style={{ width: '100%', maxWidth: '100%' }}
           >
             {/* Left Column: Commercial & Delivery Terms */}
             {resolvedShowCommercialTerms && (
-              <div className="md:col-span-7 bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs space-y-2.5">
+              <div
+                className="terms-card md:col-span-7 bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs space-y-2.5 w-full"
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
                 <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[11px] pb-1 border-b border-slate-200">
                   <FileCheck className="w-3.5 h-3.5 text-slate-500" />
                   Commercial Terms & Conditions
@@ -1142,9 +1187,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <div
               className={
                 resolvedShowCommercialTerms
-                  ? 'md:col-span-5 bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-xs space-y-2'
+                  ? 'md:col-span-5 bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-xs space-y-2 w-full'
                   : 'w-full max-w-sm bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-xs space-y-2'
               }
+              style={resolvedShowCommercialTerms ? { width: '100%', maxWidth: '100%' } : undefined}
             >
               <div className="flex justify-between text-slate-600 py-1">
                 <span>Subtotal:</span>
@@ -1223,7 +1269,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {/* Customer Acceptance Block */}
         {customerAcceptanceEnabled && (
-          <div className="my-3 p-3 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-xs break-inside-avoid">
+          <div
+            className="my-3 p-3 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-xs break-inside-avoid w-full"
+            style={{ width: '100%', maxWidth: '100%' }}
+          >
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
               <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
                 <FileCheck className="w-3.5 h-3.5 text-slate-600" />
@@ -1260,11 +1309,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             REMITTANCE & SIGNATORY BLOCK
            ======================================================== */}
-        <footer className="mt-4 pt-4 border-t border-slate-200 text-xs break-inside-avoid">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
+        <footer className="mt-4 pt-4 border-t border-slate-200 text-xs break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%' }}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end w-full" style={{ width: '100%', maxWidth: '100%' }}>
             {/* Left: Remittance Bank Accounts */}
             {resolvedShowBankDetails && bankAccount ? (
-              <div className="md:col-span-6 bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1">
+              <div
+                className="remittance-card md:col-span-6 bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1 w-full"
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
                 <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1">
                   <Landmark className="w-3.5 h-3.5 text-slate-500" />
                   Bank Remittance Details
@@ -1309,7 +1361,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
               </div>
             ) : resolvedShowBankDetails ? (
-              <div className="md:col-span-6 text-[11px] text-slate-500 italic">
+              <div className="md:col-span-6 text-[11px] text-slate-500 italic w-full">
                 Thank you for your business. Please contact us for electronic wire instructions.
               </div>
             ) : (
@@ -1318,7 +1370,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
             {/* Right: Signatory & Seal Authorization */}
             {showStampAndSignatures && (
-              <div className="md:col-span-6 flex flex-col items-end text-right space-y-3">
+              <div className="md:col-span-6 flex flex-col items-end text-right space-y-3 w-full" style={{ width: '100%', maxWidth: '100%' }}>
                 <div className="flex items-center justify-end gap-6 w-full">
                   {/* Official Stamp / Seal */}
                   {resolvedShowCompanySeal && profile?.stamp_seal_url && (
@@ -1373,7 +1425,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </div>
 
           {/* System Footer Note */}
-          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-400">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-400 w-full" style={{ width: '100%', maxWidth: '100%' }}>
             <span>
               Generated via Omni Suite Quotation Engine • Ref: {quotation.formatted_quote_ref}
             </span>
