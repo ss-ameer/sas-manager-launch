@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
@@ -3905,7 +3906,7 @@ export default function EnquiryDetail({
 
       {/* Standalone Quotation Document View Modal (Inspection) */}
       {viewingQuotation && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
           <div className="bg-slate-100 w-full max-w-[1000px] h-[92vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden">
             <header className="px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
@@ -4006,11 +4007,63 @@ export default function EnquiryDetail({
             </header>
             <div className="flex-1 overflow-auto p-4 flex justify-center">
               <div className="w-full max-w-[210mm] shadow-xl">
-                <QuotationDocument quotation={viewingQuotation} profile={documentProfile} />
+                <QuotationDocument
+                  quotation={viewingQuotation}
+                  profile={documentProfile}
+                  user={user}
+                  signatoryName={viewingQuotation.primary_signatory_name}
+                  signatoryTitle={viewingQuotation.primary_signatory_title}
+                />
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Dedicated Root-Level Print Portal for Saved Quotations */}
+      {viewingQuotation && typeof document !== 'undefined' && createPortal(
+        <div id="quotation-print-portal" className="hidden print:block">
+          <QuotationDocument
+            quotation={viewingQuotation}
+            profile={documentProfile}
+            isCompactView={(viewingQuotation as any).presentation_preset?.density === 'compact' || viewingQuotation.table_density === 'compact'}
+            visibleColumns={(viewingQuotation as any).presentation_preset?.columns}
+            user={user}
+            signatoryName={viewingQuotation.primary_signatory_name}
+            signatoryTitle={viewingQuotation.primary_signatory_title}
+            showStampAndSignatures={true}
+            showBankDetails={true}
+            {...({
+              enquiry,
+              templatePreset: (viewingQuotation as any).presentation_preset?.theme || 'classic',
+              isPrintMode: true,
+              primarySignatoryName: viewingQuotation.primary_signatory_name,
+              primarySignatoryTitle: viewingQuotation.primary_signatory_title
+            } as any)}
+          />
+        </div>,
+        document.body
+      )}
+
+      {/* Scoped Print Portal Styles for Saved Quotation View Modal */}
+      {viewingQuotation && (
+        <style>{`
+          @media print {
+            #root {
+              display: none !important;
+            }
+            #quotation-print-portal {
+              display: block !important;
+              position: static !important;
+              width: 210mm !important;
+              min-width: 210mm !important;
+              max-width: 210mm !important;
+              margin: 0 auto !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+            }
+          }
+        `}</style>
       )}
 
       {/* Decline Quotation / Mark as Lost Modal */}
