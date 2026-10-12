@@ -95,6 +95,9 @@ export interface QuotationDocumentProps {
   isCompactView?: boolean;
   showBankDetails?: boolean;
   showStampAndSignatures?: boolean;
+  user?: { displayName?: string; name?: string; email?: string } | null;
+  signatoryName?: string;
+  signatoryTitle?: string;
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -103,7 +106,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   visibleColumns = {} as QuotationPresetColumns,
   isCompactView = true,
   showBankDetails = true,
-  showStampAndSignatures = true
+  showStampAndSignatures = true,
+  user,
+  signatoryName,
+  signatoryTitle
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
@@ -251,27 +257,40 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
     const list: Array<{ name: string; title: string; signature_url?: string }> = [];
+    const isInitialsOrSS = (val?: string | null) => {
+      if (!val) return true;
+      const trimmed = val.trim();
+      return !trimmed || trimmed === 'SS' || /^[A-Z]{2,3}$/.test(trimmed);
+    };
+
     const rawPName =
+      signatoryName ||
       quotation.primary_signatory_name ||
       quotation.signatories?.[0]?.name ||
       profile?.primary_signatory_name;
+
     let pName = rawPName;
-    const isInitials = (val?: string | null) => Boolean(val && /^[A-Z]{2,3}$/.test(val.trim()));
-    if (!pName || isInitials(pName)) {
-      if (profile?.primary_signatory_name && !isInitials(profile.primary_signatory_name)) {
+    if (isInitialsOrSS(pName)) {
+      if (profile?.primary_signatory_name && !isInitialsOrSS(profile.primary_signatory_name)) {
         pName = profile.primary_signatory_name.trim();
+      } else if (user?.displayName && !isInitialsOrSS(user.displayName)) {
+        pName = user.displayName.trim();
+      } else if (user?.name && !isInitialsOrSS(user.name)) {
+        pName = user.name.trim();
       } else {
-        pName = (pName && pName.trim().length > 0) ? pName.trim() : 'Authorized Signatory';
+        pName = 'Syed Sibuma';
       }
     }
+
     const pTitle =
+      signatoryTitle ||
       quotation.primary_signatory_title ||
       quotation.signatories?.[0]?.designation ||
       profile?.primary_signatory_title ||
-      'Account Manager';
+      'Managing Director';
     const pUrl = quotation.signatories?.[0]?.signature_url;
 
-    list.push({ name: pName || 'Authorized Signatory', title: pTitle, signature_url: pUrl });
+    list.push({ name: pName || 'Syed Sibuma', title: pTitle, signature_url: pUrl });
 
     if (signatoryType === 'dual') {
       const sName =
@@ -289,6 +308,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     }
     return list;
   }, [
+    signatoryName,
+    signatoryTitle,
+    user?.displayName,
+    user?.name,
     quotation.primary_signatory_name,
     quotation.primary_signatory_title,
     quotation.secondary_signatory_name,
@@ -307,9 +330,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       className="quotation-document-container w-full bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 print:p-0 print:bg-white"
       style={{ colorScheme: 'light' }}
     >
+      {/* Scoped Print Stylesheet */}
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0mm !important;
+          }
+          body {
+            margin: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .quotation-print-sheet {
+            height: auto !important;
+            min-height: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            margin: 0 auto !important;
+            padding: 12mm !important;
+            width: 210mm !important;
+          }
+        }
+      `}</style>
+
       {/* Decoupled A4 Page Sheet */}
       <article
-        className="quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:h-[297mm] print:min-h-[297mm] print:max-w-none print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
+        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:h-auto print:min-h-0 print:max-w-none print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
         style={{
           boxSizing: 'border-box'
         }}
@@ -806,27 +853,27 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             >
               <thead>
                 <tr
-                  className="font-semibold text-white border-b"
+                  className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
                   style={{
-                    backgroundColor: theme.primaryHex,
-                    borderColor: theme.borderColor
+                    backgroundColor: theme.subtleBg || '#f8fafc',
+                    borderColor: '#e2e8f0'
                   }}
                 >
                   <th
-                    className={`${thPad} px-1.5 ${colWidths.sl.className} text-center whitespace-nowrap`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.sl.className} text-center`}
                     style={colWidths.sl.style}
                   >
                     #
                   </th>
                   <th
-                    className={`${thPad} px-2.5 ${colWidths.desc.className} text-left break-words`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.desc.className} text-left`}
                     style={colWidths.desc.style}
                   >
-                    Item & Description
+                    Description
                   </th>
                   {showBrand && (
                     <th
-                      className={`${thPad} px-1.5 ${colWidths.brand.className} text-center whitespace-nowrap`}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.brand.className} text-center`}
                       style={colWidths.brand.style}
                     >
                       Brand
@@ -834,15 +881,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   )}
                   {showModel && (
                     <th
-                      className={`${thPad} px-1.5 ${colWidths.model.className} text-center whitespace-nowrap`}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.model.className} text-center`}
                       style={colWidths.model.style}
                     >
-                      Model / Part
+                      Model
                     </th>
                   )}
                   {showOrigin && (
                     <th
-                      className={`${thPad} px-1.5 ${colWidths.origin.className} text-center whitespace-nowrap`}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.origin.className} text-center`}
                       style={colWidths.origin.style}
                     >
                       Origin
@@ -850,34 +897,34 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   )}
                   {showAvailability && (
                     <th
-                      className={`${thPad} px-1.5 ${colWidths.delivery.className} text-center whitespace-nowrap`}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.delivery.className} text-center`}
                       style={colWidths.delivery.style}
                     >
                       Delivery
                     </th>
                   )}
                   <th
-                    className={`${thPad} px-1 ${colWidths.qty.className} text-center whitespace-nowrap`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.qty.className} text-center`}
                     style={colWidths.qty.style}
                   >
                     Qty
                   </th>
                   <th
-                    className={`${thPad} px-1 ${colWidths.uom.className} text-center whitespace-nowrap`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.uom.className} text-center`}
                     style={colWidths.uom.style}
                   >
                     UOM
                   </th>
                   {showUnitPrice && (
                     <th
-                      className={`${thPad} px-2 ${colWidths.unitPrice.className} text-right whitespace-nowrap`}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.unitPrice.className} text-right`}
                       style={colWidths.unitPrice.style}
                     >
                       Unit Price
                     </th>
                   )}
                   <th
-                    className={`${thPad} px-2.5 ${colWidths.total.className} text-right whitespace-nowrap`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.total.className} text-right`}
                     style={colWidths.total.style}
                   >
                     Total ({currency})

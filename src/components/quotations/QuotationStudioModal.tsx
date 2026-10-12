@@ -188,7 +188,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
     }
 
-    // If candidate has initials (e.g. "SS") and editing an existing quotation, preserve candidate attribution
+    // Direct SS resolution to full name
+    if (candidate === 'SS' || (candidate && candidate.trim() === 'SS')) {
+      return (
+        profile?.primary_signatory_name?.trim() ||
+        user?.displayName?.trim() ||
+        user?.name?.trim() ||
+        'Syed Sibuma'
+      );
+    }
+
+    // If candidate has initials (other than SS) and editing an existing quotation, preserve candidate attribution
     // rather than overwriting with an unrelated admin / current session user
     if (editingQuotation && candidate && candidate.trim().length > 0) {
       return candidate.trim();
@@ -203,10 +213,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
 
     return (
-      candidate?.trim() ||
+      (candidate && !isInitialsOnly(candidate) ? candidate.trim() : '') ||
+      profile?.primary_signatory_name?.trim() ||
       user?.displayName?.trim() ||
       user?.name?.trim() ||
-      'Sales Representative'
+      'Syed Sibuma'
     );
   };
 
@@ -1457,6 +1468,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   isCompactView={tableDensity === 'compact'}
                   showBankDetails={showBankDetails}
                   showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
+                  user={user}
+                  signatoryName={signatoryName}
+                  signatoryTitle={signatoryTitle}
                 />
               </div>
             </div>
