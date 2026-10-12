@@ -386,20 +386,51 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
   const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
 
+  const handleRowClick = (evt: React.MouseEvent<HTMLTableRowElement>) => {
+    // Text selection guard: If user highlighted/copied text, don't open drawer
+    const selection = window.getSelection()?.toString();
+    if (selection && selection.trim().length > 0) {
+      return;
+    }
+    if (e.id) {
+      onSelectEnquiry(e.id);
+    }
+  };
+
+  const handleRowKeyDown = (evt: React.KeyboardEvent<HTMLTableRowElement>) => {
+    if (evt.key === 'Enter' || evt.key === ' ') {
+      // Don't trigger if focus is already inside an interactive child element
+      const targetTag = (evt.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'select' || targetTag === 'button') {
+        return;
+      }
+      evt.preventDefault();
+      if (e.id) {
+        onSelectEnquiry(e.id);
+      }
+    }
+  };
+
   return (
     <tr
       key={e.id}
-      className={`border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors duration-150 group ${
+      tabIndex={0}
+      role="button"
+      aria-label={`View details for enquiry #${e.sn || ''}`}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
+      className={`cursor-pointer border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 dark:focus-visible:bg-slate-800/70 transition-colors duration-150 group ${
         isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
       } ${
         isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
       }`}
     >
       {isMarkingMode && (
-        <td className="py-2.5 px-2 text-center">
+        <td className="py-2.5 px-2 text-center" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
+            onClick={(evt) => evt.stopPropagation()}
             onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
             className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
           />
@@ -413,8 +444,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           <div className="flex items-center space-x-1.5 min-w-0">
             <span
               className={`truncate text-sm font-semibold ${isClickable ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : 'text-slate-700 dark:text-slate-300'}`}
-              onClick={() => {
+              onClick={(evt) => {
                 if (isClickable) {
+                  evt.stopPropagation();
                   onCompanyClick(e);
                 }
               }}
@@ -423,7 +455,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               {companyName}
             </span>
             {companyName && companyName !== 'Unknown Client' && (
-              <div className="shrink-0">
+              <div className="shrink-0" onClick={(evt) => evt.stopPropagation()}>
                 <GoogleSearchButton
                   companyName={companyName}
                   location={resolvedCompany?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
@@ -432,7 +464,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               </div>
             )}
           </div>
-          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1" onClick={(evt) => evt.stopPropagation()}>
             {resolvedCompany && (
               <>
                 <TemperatureBadge
@@ -605,11 +637,14 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
         </div>
       </td>
-      <td className="py-2.5 px-3 text-center whitespace-nowrap">
-        <div className="flex items-center justify-center space-x-1.5">
+      <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex items-center justify-center space-x-1.5" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
-            onClick={() => e.id && onSelectEnquiry(e.id)}
+            onClick={(evt) => {
+              evt.stopPropagation();
+              if (e.id) onSelectEnquiry(e.id);
+            }}
             className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
             title="View enquiry details"
           >
@@ -619,7 +654,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             isGapReserved ? (
               <button
                 type="button"
-                onClick={() => onEditEnquiry(e)}
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onEditEnquiry(e);
+                }}
                 className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
                 title="Claim and populate details for this reserved gap sequence"
               >
@@ -628,7 +666,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             ) : (
               <button
                 type="button"
-                onClick={() => onEditEnquiry(e)}
+                onClick={(evt) => {
+                  evt.stopPropagation();
+                  onEditEnquiry(e);
+                }}
                 className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
                 title="Edit enquiry"
               >
@@ -639,7 +680,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           {canDelete && (
             <button
               type="button"
-              onClick={() => onDeleteEnquiry(e)}
+              onClick={(evt) => {
+                evt.stopPropagation();
+                onDeleteEnquiry(e);
+              }}
               className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
               title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
             >

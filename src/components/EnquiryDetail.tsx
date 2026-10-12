@@ -18,6 +18,9 @@ import { Quotation, WorkspaceDocumentProfile } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
+import { CreateCompanyModal } from './companies/CreateCompanyModal';
+import { recordAuditLog } from '../utils/auditLogger';
+import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 import { createProjectFromEnquiry, getProjectForEnquiry, getDefaultMilestones, ProjectConversionOptions } from '../services/projectService';
 import {
@@ -48,6 +51,8 @@ import {
   Minimize2,
   ChevronsUpDown,
   Copy,
+  Link2,
+  Search,
   MessageSquare,
   Eye,
   Image as ImageIcon,
@@ -1223,8 +1228,58 @@ export default function EnquiryDetail({
     onConfirm: () => {},
   });
 
-  const matchedCompany = companies.find((c) => c.id === enquiry.company_id);
-  const matchedContact = contacts.find((c) => c.id === enquiry.contact_id);
+  const matchedCompany = companies.find((c) => c.id === (currentEnquiry.company_id || enquiry.company_id));
+  const matchedContact = contacts.find((c) => c.id === (currentEnquiry.contact_id || enquiry.contact_id));
+
+  // Company pairing & creation modal states
+  const [isCreateCompanyModalOpen, setIsCreateCompanyModalOpen] = useState(false);
+  const [isPairCompanyDropdownOpen, setIsPairCompanyDropdownOpen] = useState(false);
+  const [companySearchTerm, setCompanySearchTerm] = useState('');
+
+  // Unpaired company duplicate match check
+  const unpairedCompanyName = currentEnquiry.company_name || (currentEnquiry as any)?.company || enquiry.company_name || '';
+  const candidateCompanyMatch = useMemo(() => {
+    if (matchedCompany || !unpairedCompanyName || unpairedCompanyName.trim().length < 2) return null;
+    return findDuplicateCompany(unpairedCompanyName.trim(), companies);
+  }, [matchedCompany, unpairedCompanyName, companies]);
+
+  const handlePairCompany = async (targetCompany: Company) => {
+    if (!currentEnquiry?.id || !targetCompany?.id) return;
+    try {
+      const updatedPayload: Partial<Enquiry> = {
+        company_id: targetCompany.id,
+        company_name: targetCompany.display_name || targetCompany.canonical_name,
+        updatedAt: new Date().toISOString()
+      };
+      await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);
+      const updatedEnquiry = { ...currentEnquiry, ...updatedPayload };
+      setCurrentEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      try {
+        await recordAuditLog({
+          document_id: currentEnquiry.id,
+          entity_type: 'enquiry',
+          entity_title: `Enquiry #${currentEnquiry.sn}`,
+          action: 'update',
+          user,
+          after: updatedPayload,
+          details: `Paired enquiry #${currentEnquiry.sn} with company "${targetCompany.display_name || targetCompany.canonical_name}"`
+        });
+      } catch (aErr) {
+        console.warn('Audit error:', aErr);
+      }
+      if (triggerToast) {
+        triggerToast(`Enquiry paired with ${targetCompany.display_name || targetCompany.canonical_name}`, 'success');
+      }
+      setIsPairCompanyDropdownOpen(false);
+      setIsCreateCompanyModalOpen(false);
+    } catch (err: any) {
+      console.error('Error pairing company:', err);
+      alert('Failed to pair company: ' + err.message);
+    }
+  };
 
   // Resolve stakeholders / concerned persons with legacy string fallback
   const rawConcerned = currentEnquiry.concerned_persons || enquiry.concerned_persons;
@@ -2177,7 +2232,7 @@ export default function EnquiryDetail({
               </div>
 
               {/* Company switchboard metadata */}
-              {matchedCompany && (
+              {matchedCompany ? (
                 <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
@@ -2201,6 +2256,15 @@ export default function EnquiryDetail({
                         <Edit2 className="w-3 h-3" />
                         <span>Edit Company</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 flex items-center gap-1 cursor-pointer"
+                        title="Re-pair with another company account"
+                      >
+                        <Link2 className="w-3 h-3" />
+                        <span>Re-pair</span>
+                      </button>
                       <TemperatureBadge
                         companyId={matchedCompany.id}
                         temperature={matchedCompany.temperature}
@@ -2222,6 +2286,128 @@ export default function EnquiryDetail({
                         <span className="truncate">{matchedCompany.general_email}</span>
                       </div>
                     )}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-amber-50/70 border border-amber-200 p-5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-xs font-mono text-amber-800 uppercase tracking-widest flex items-center space-x-2 font-bold">
+                        <Building className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Unpaired Company Account</span>
+                      </h4>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCreateCompanyModalOpen(true)}
+                        className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition"
+                        title="Create new catalog account and pair"
+                      >
+                        <Building className="w-3 h-3" />
+                        <span>Create & Link</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
+                        className="text-[11px] font-semibold text-amber-800 hover:text-amber-950 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200/70 border border-amber-300 transition"
+                        title="Search and pair existing company"
+                      >
+                        <Link2 className="w-3 h-3" />
+                        <span>Pair Existing</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-slate-700 space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400 font-medium">Record Account:</span>
+                      <span className="font-bold text-slate-900 font-sans">
+                        {unpairedCompanyName || 'Unassigned Account'}
+                      </span>
+                    </div>
+
+                    {/* Candidate / Duplicate recommendation card */}
+                    {candidateCompanyMatch && candidateCompanyMatch.match && (
+                      <div className="p-3 bg-white rounded-lg border border-amber-300 flex items-center justify-between gap-3 shadow-2xs">
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[10px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono">
+                              {Math.round(candidateCompanyMatch.similarity * 100)}% Match
+                            </span>
+                            <span className="text-xs font-bold text-slate-900 truncate">
+                              {candidateCompanyMatch.match.display_name || candidateCompanyMatch.match.canonical_name}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {candidateCompanyMatch.match.city || 'UAE'} • {candidateCompanyMatch.reason}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handlePairCompany(candidateCompanyMatch.match)}
+                          className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Pair This Account</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Search & Pair Dropdown Popover */}
+              {isPairCompanyDropdownOpen && (
+                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-lg space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Select Company Account to Pair
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsPairCompanyDropdownOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Search company by name or city..."
+                      value={companySearchTerm}
+                      onChange={(e) => setCompanySearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="max-h-44 overflow-y-auto space-y-1">
+                    {companies
+                      .filter((c) => {
+                        if (!companySearchTerm.trim()) return true;
+                        const term = companySearchTerm.toLowerCase();
+                        return (
+                          c.display_name?.toLowerCase().includes(term) ||
+                          c.canonical_name?.toLowerCase().includes(term) ||
+                          c.city?.toLowerCase().includes(term)
+                        );
+                      })
+                      .slice(0, 10)
+                      .map((c) => (
+                        <div
+                          key={c.id}
+                          onClick={() => handlePairCompany(c)}
+                          className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-100 cursor-pointer text-xs transition"
+                        >
+                          <div className="font-semibold text-slate-900 truncate">
+                            {c.display_name || c.canonical_name}
+                          </div>
+                          <div className="text-[11px] text-slate-400 shrink-0 ml-2">
+                            {c.city || c.country || ''}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
@@ -3902,6 +4088,22 @@ export default function EnquiryDetail({
           </div>
         </div>
       )}
+
+      {/* Create Company & Quick-Pair Modal */}
+      <CreateCompanyModal
+        isOpen={isCreateCompanyModalOpen}
+        onClose={() => setIsCreateCompanyModalOpen(false)}
+        activeWorkspace={activeWorkspace}
+        user={user}
+        companies={companies}
+        setCompanies={setCompanies}
+        initialName={unpairedCompanyName}
+        initialCity={currentEnquiry.project_location || ''}
+        initialCountry={currentEnquiry.country || 'UAE'}
+        onCompanyCreated={handlePairCompany}
+        onCompanyPaired={handlePairCompany}
+        triggerToast={triggerToast}
+      />
     </div>
   );
 }

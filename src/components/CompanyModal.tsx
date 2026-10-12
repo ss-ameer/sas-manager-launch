@@ -1137,10 +1137,23 @@ export default function CompanyModal({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    const displayName =
-      legalSuffix === 'None / Other' || legalSuffix === 'None / To Be Added Later'
-        ? canonicalName.trim()
-        : `${canonicalName.trim()} ${legalSuffix}`;
+
+    const isNoneSuffix =
+      !legalSuffix ||
+      /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(legalSuffix).trim());
+
+    const cleanBaseName = canonicalName.trim();
+    let displayName = cleanBaseName;
+    let finalSuffix: LegalSuffix | undefined = undefined;
+
+    if (!isNoneSuffix) {
+      finalSuffix = legalSuffix as LegalSuffix;
+      const sufLower = String(legalSuffix).trim().toLowerCase();
+      const baseLower = cleanBaseName.toLowerCase();
+      displayName = (baseLower.endsWith(` ${sufLower}`) || baseLower.endsWith(sufLower))
+        ? cleanBaseName
+        : `${cleanBaseName} ${String(legalSuffix).trim()}`;
+    }
 
     if (isSavingCompany) return;
     setIsSavingCompany(true);
@@ -1165,8 +1178,9 @@ export default function CompanyModal({
 
     const rawCompany: Omit<Company, 'id'> = {
       workspace_id: activeWorkspace.id,
+      workspaceId: activeWorkspace.id,
       canonical_name: computedCanonicalName,
-      legal_suffix: legalSuffix,
+      legal_suffix: finalSuffix,
       display_name: displayName,
       aliases: aliasesArr,
       country: country.trim(),
@@ -3118,7 +3132,7 @@ export default function CompanyModal({
                       onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
                       className="w-full px-3.5 py-2.5 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans cursor-pointer truncate"
                     >
-                      {['None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((s) => (
+                      {['None (Clean Name)', 'None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'PJSC', 'PrJSC', 'None / Other'].map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>

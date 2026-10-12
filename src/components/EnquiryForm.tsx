@@ -4,7 +4,7 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
@@ -1754,8 +1754,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       if (!unregisteredEntities.companyName) return;
 
       const compName = unregisteredEntities.companyName.trim();
-      const suf = unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later';
-      const display_name = (suf === 'None / Other' || suf === 'None / To Be Added Later') ? compName : `${compName} ${suf}`;
+      const rawSuf = unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later';
+      const isNoneSuf = !rawSuf || /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(rawSuf).trim());
+      const suf = isNoneSuf ? undefined : (rawSuf as LegalSuffix);
+      const sufLower = (rawSuf || '').trim().toLowerCase();
+      const compLower = compName.toLowerCase();
+      const display_name = isNoneSuf
+        ? compName
+        : (compLower.endsWith(` ${sufLower}`) || compLower.endsWith(sufLower))
+          ? compName
+          : `${compName} ${String(rawSuf).trim()}`;
       const city = unregisteredEntities.city?.trim() || 'Dubai';
       const countryVal = unregisteredEntities.country?.trim() || 'UAE';
       const companyGeneralPhone = unregisteredEntities.phoneDestination === 'company' ? (unregisteredEntities.generalPhone || unregisteredEntities.contactMobile) : undefined;
@@ -1838,6 +1846,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         // 1. Create Company account in Firestore catalog
         const newCompPayload = {
           workspace_id: activeWorkspace.id,
+          workspaceId: activeWorkspace.id,
           canonical_name: compName,
           display_name,
           aliases: [compName],
@@ -5829,15 +5838,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     return;
                   }
                   
-                  const display_name = subLegalSuffix === 'None / Other' ? subCompanyName.trim() : `${subCompanyName.trim()} ${subLegalSuffix}`;
+                  const isNoneSubSuf =
+                    !subLegalSuffix ||
+                    /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(subLegalSuffix).trim());
+                  const cleanSubName = subCompanyName.trim();
+                  const sufLower = (subLegalSuffix || '').trim().toLowerCase();
+                  const subLower = cleanSubName.toLowerCase();
+                  const display_name = isNoneSubSuf
+                    ? cleanSubName
+                    : (subLower.endsWith(` ${sufLower}`) || subLower.endsWith(sufLower))
+                      ? cleanSubName
+                      : `${cleanSubName} ${String(subLegalSuffix).trim()}`;
+                  const finalSubSuffix = isNoneSubSuf ? undefined : (subLegalSuffix as LegalSuffix);
 
                   if (isEditingCompany) {
                     if (!companyId) return;
                     try {
                       const updatePayload = {
                         display_name,
-                        aliases: [subCompanyName.trim()],
-                        legal_suffix: subLegalSuffix,
+                        aliases: [cleanSubName],
+                        legal_suffix: finalSubSuffix,
                         city: subCity.trim(),
                         country: subCountry.trim(),
                         general_phone: subGeneralPhone.trim() || undefined,
@@ -5887,9 +5907,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     }
                     const newCompPayload = {
                       workspace_id: activeWorkspace.id,
+                      workspaceId: activeWorkspace.id,
+                      canonical_name: cleanSubName.toLowerCase(),
                       display_name,
-                      aliases: [subCompanyName.trim()],
-                      legal_suffix: subLegalSuffix,
+                      aliases: [cleanSubName],
+                      legal_suffix: finalSubSuffix,
                       city: subCity.trim(),
                       country: subCountry.trim(),
                       general_phone: subGeneralPhone.trim() || undefined,

@@ -153,25 +153,61 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.applied_terms ?? ''
   );
 
-  // Helper to resolve full rep name, protecting against lone initials (length <= 3, e.g. "SS")
+  // Helper to check if a value is strictly an uppercase initial abbreviation (2-3 chars, e.g. "SS", "PV", "ANR")
+  // Legitimate 3-letter names (e.g. "Ali", "Dan", "Tom", "Roy", "Guy", "Amy", "Joy") contain lowercase letters,
+  // so /^[A-Z]{2,3}$/.test(...) evaluates to false, ensuring valid 3-letter legal names are NEVER discarded.
+  const isInitialsOnly = (name?: string | null): boolean => {
+    if (!name) return false;
+    const trimmed = name.trim();
+    return /^[A-Z]{2,3}$/.test(trimmed);
+  };
+
+  // Helper to resolve full rep name, protecting against uppercase initials and multi-user attribution overwrites
   const resolveRepFullName = (candidate?: string | null): string => {
-    if (candidate && candidate.trim().length > 3) {
+    if (candidate && !isInitialsOnly(candidate)) {
       return candidate.trim();
     }
-    // Candidate is missing or merely initials (<= 3 chars, e.g. "SS")
-    // Fall back to full display name from session context, profile, or workspace
-    const fullCandidates = [
-      user?.displayName,
-      user?.name,
-      profile?.primary_signatory_name,
-      activeWorkspace?.name
+
+    // Candidate is missing or matches uppercase initials (e.g. "SS", "PV")
+    // Attribution Integrity Guard: First look up assigned representative fields from enquiry, team or profile
+    const assignedCandidates = [
+      enquiry?.sales_representative,
+      enquiry?.salesperson,
+      enquiry?.assignedSalesperson,
+      enquiry?.sales_person,
+      salespersonName,
+      (editingQuotation as any)?.assigned_to_name,
+      (editingQuotation as any)?.salesperson_name,
+      enquiry?.created_by_name,
+      profile?.primary_signatory_name
     ];
-    for (const name of fullCandidates) {
-      if (name && name.trim().length > 3) {
+
+    for (const name of assignedCandidates) {
+      if (name && !isInitialsOnly(name) && name.trim().length > 1) {
         return name.trim();
       }
     }
-    return candidate?.trim() || user?.displayName || user?.name || 'Sales Representative';
+
+    // If candidate has initials (e.g. "SS") and editing an existing quotation, preserve candidate attribution
+    // rather than overwriting with an unrelated admin / current session user
+    if (editingQuotation && candidate && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+
+    // Only fall back to current logged-in user if creating a brand-new quotation where no assigned rep exists
+    if (!editingQuotation && (user?.displayName || user?.name)) {
+      const sessionUser = user.displayName || user.name;
+      if (sessionUser && !isInitialsOnly(sessionUser)) {
+        return sessionUser.trim();
+      }
+    }
+
+    return (
+      candidate?.trim() ||
+      user?.displayName?.trim() ||
+      user?.name?.trim() ||
+      'Sales Representative'
+    );
   };
 
   // Signatory & Remittance choices
@@ -188,21 +224,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const rawCandidate =
       editingQuotation?.primary_signatory_name ||
       editingQuotation?.signatories?.[0]?.name ||
-      profile?.primary_signatory_name ||
       salespersonName ||
+      enquiry?.sales_representative ||
+      enquiry?.salesperson ||
+      profile?.primary_signatory_name ||
       user?.displayName ||
       user?.name;
 
-    if (rawCandidate && rawCandidate.trim().length > 3) {
-      return rawCandidate.trim();
-    }
-    const fullFallback =
-      (user?.displayName && user.displayName.trim().length > 3 ? user.displayName.trim() : null) ||
-      (user?.name && user.name.trim().length > 3 ? user.name.trim() : null) ||
-      (profile?.primary_signatory_name && profile.primary_signatory_name.trim().length > 3 ? profile.primary_signatory_name.trim() : null) ||
-      rawCandidate?.trim() ||
-      'Sales Representative';
-    return fullFallback;
+    return resolveRepFullName(rawCandidate);
   });
   const [signatoryTitle, setSignatoryTitle] = useState<string>(
     editingQuotation?.primary_signatory_title ||

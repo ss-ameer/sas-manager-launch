@@ -182,79 +182,47 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showAvailability = visibleColumns.availability ?? true;
   const showUnitPrice = visibleColumns.unit_price ?? true;
 
-  // Active optional columns count for dynamic width distribution
-  const activeOptionalCount = [showBrand, showModel, showOrigin, showAvailability].filter(Boolean).length;
-
-  // Proportional dynamic column width distribution ensuring Item & Description is never squashed
-  // (minimum 38% when all 4 options are active, up to 58% when optional columns are disabled)
+  // Dynamic 100% Table Math & A4 Canvas Budget
+  // Mathematically guarantees the sum of all active columns is ALWAYS exactly 100%,
+  // while keeping total min-width (~545px) well within the 186mm A4 canvas (703px) to prevent print clipping.
   const colWidths = React.useMemo(() => {
-    if (activeOptionalCount === 4) {
-      return {
-        sl: 'w-[5%] min-w-[28px]',
-        desc: 'w-[38%] min-w-[180px]',
-        brand: 'w-[8%] min-w-[65px]',
-        model: 'w-[8%] min-w-[65px]',
-        origin: 'w-[8%] min-w-[65px]',
-        delivery: 'w-[8%] min-w-[65px]',
-        qty: 'w-[6%] min-w-[40px]',
-        uom: 'w-[6%] min-w-[40px]',
-        unitPrice: 'w-[12%] min-w-[70px]',
-        total: 'w-[13%] min-w-[80px]'
-      };
-    } else if (activeOptionalCount === 3) {
-      return {
-        sl: 'w-[5%] min-w-[28px]',
-        desc: 'w-[42%] min-w-[180px]',
-        brand: 'w-[8%] min-w-[65px]',
-        model: 'w-[9%] min-w-[65px]',
-        origin: 'w-[8%] min-w-[65px]',
-        delivery: 'w-[8%] min-w-[65px]',
-        qty: 'w-[6%] min-w-[40px]',
-        uom: 'w-[6%] min-w-[40px]',
-        unitPrice: 'w-[12%] min-w-[70px]',
-        total: 'w-[13%] min-w-[80px]'
-      };
-    } else if (activeOptionalCount === 2) {
-      return {
-        sl: 'w-[5%] min-w-[28px]',
-        desc: 'w-[46%] min-w-[180px]',
-        brand: 'w-[9%] min-w-[65px]',
-        model: 'w-[9%] min-w-[65px]',
-        origin: 'w-[9%] min-w-[65px]',
-        delivery: 'w-[9%] min-w-[65px]',
-        qty: 'w-[6%] min-w-[40px]',
-        uom: 'w-[6%] min-w-[40px]',
-        unitPrice: 'w-[12%] min-w-[70px]',
-        total: 'w-[13%] min-w-[80px]'
-      };
-    } else if (activeOptionalCount === 1) {
-      return {
-        sl: 'w-[5%] min-w-[28px]',
-        desc: 'w-[52%] min-w-[180px]',
-        brand: 'w-[9%] min-w-[65px]',
-        model: 'w-[9%] min-w-[65px]',
-        origin: 'w-[9%] min-w-[65px]',
-        delivery: 'w-[9%] min-w-[65px]',
-        qty: 'w-[6%] min-w-[40px]',
-        uom: 'w-[6%] min-w-[40px]',
-        unitPrice: 'w-[12%] min-w-[70px]',
-        total: 'w-[13%] min-w-[80px]'
-      };
-    } else {
-      return {
-        sl: 'w-[5%] min-w-[28px]',
-        desc: 'w-[58%] min-w-[180px]',
-        brand: 'w-[9%] min-w-[65px]',
-        model: 'w-[9%] min-w-[65px]',
-        origin: 'w-[9%] min-w-[65px]',
-        delivery: 'w-[9%] min-w-[65px]',
-        qty: 'w-[6%] min-w-[40px]',
-        uom: 'w-[6%] min-w-[40px]',
-        unitPrice: 'w-[12%] min-w-[70px]',
-        total: 'w-[13%] min-w-[80px]'
-      };
-    }
-  }, [activeOptionalCount]);
+    const slPct = 4;
+    const qtyPct = 6;
+    const uomPct = 5;
+    const totalPct = 12;
+    const unitPricePct = showUnitPrice ? 11 : 0;
+    const brandPct = showBrand ? 7.5 : 0;
+    const modelPct = showModel ? 7.5 : 0;
+    const originPct = showOrigin ? 7.5 : 0;
+    const deliveryPct = showAvailability ? 7.5 : 0;
+
+    const otherColumnsSum =
+      slPct +
+      qtyPct +
+      uomPct +
+      totalPct +
+      unitPricePct +
+      brandPct +
+      modelPct +
+      originPct +
+      deliveryPct;
+
+    // Item & Description dynamically absorbs the exact remainder to lock the sum to 100%
+    const descPct = Math.round((100 - otherColumnsSum) * 10) / 10;
+
+    return {
+      sl: { pct: slPct, style: { width: `${slPct}%` }, className: 'min-w-[24px]' },
+      desc: { pct: descPct, style: { width: `${descPct}%` }, className: 'min-w-[150px]' },
+      brand: { pct: brandPct, style: { width: `${brandPct}%` }, className: 'min-w-[55px]' },
+      model: { pct: modelPct, style: { width: `${modelPct}%` }, className: 'min-w-[55px]' },
+      origin: { pct: originPct, style: { width: `${originPct}%` }, className: 'min-w-[55px]' },
+      delivery: { pct: deliveryPct, style: { width: `${deliveryPct}%` }, className: 'min-w-[55px]' },
+      qty: { pct: qtyPct, style: { width: `${qtyPct}%` }, className: 'min-w-[34px]' },
+      uom: { pct: uomPct, style: { width: `${uomPct}%` }, className: 'min-w-[32px]' },
+      unitPrice: { pct: unitPricePct, style: { width: `${unitPricePct}%` }, className: 'min-w-[65px]' },
+      total: { pct: totalPct, style: { width: `${totalPct}%` }, className: 'min-w-[70px]' }
+    };
+  }, [showBrand, showModel, showOrigin, showAvailability, showUnitPrice]);
 
   // Resolve sender info from profile with fallback to quotation.sender_snapshot
   const senderEntityName =
@@ -288,8 +256,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       quotation.signatories?.[0]?.name ||
       profile?.primary_signatory_name;
     let pName = rawPName;
-    if (!pName || pName.trim().length <= 3) {
-      if (profile?.primary_signatory_name && profile.primary_signatory_name.trim().length > 3) {
+    const isInitials = (val?: string | null) => Boolean(val && /^[A-Z]{2,3}$/.test(val.trim()));
+    if (!pName || isInitials(pName)) {
+      if (profile?.primary_signatory_name && !isInitials(profile.primary_signatory_name)) {
         pName = profile.primary_signatory_name.trim();
       } else {
         pName = (pName && pName.trim().length > 0) ? pName.trim() : 'Authorized Signatory';
@@ -425,12 +394,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 if (contactSegments.length === 0) return null;
 
                 return (
-                  <div className="flex flex-wrap justify-center items-center gap-x-3 gap-y-1 text-xs text-slate-500 pt-1 leading-relaxed">
+                  <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-1 leading-relaxed">
                     {contactSegments.map((segment, idx) => (
-                      <React.Fragment key={idx}>
-                        {idx > 0 && <span className="text-slate-300 font-bold select-none">•</span>}
-                        {segment}
-                      </React.Fragment>
+                      <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
+                        <span>{segment}</span>
+                        {idx < contactSegments.length - 1 && (
+                          <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
+                        )}
+                      </span>
                     ))}
                   </div>
                 );
@@ -831,7 +802,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           <div className="rounded-lg border border-slate-200 overflow-hidden">
             <table
               className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}
-              style={{ tableLayout: 'fixed', width: '100%' }}
+              style={{ tableLayout: 'fixed', width: '100%', boxSizing: 'border-box' }}
             >
               <thead>
                 <tr
@@ -841,18 +812,76 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     borderColor: theme.borderColor
                   }}
                 >
-                  <th className={`${thPad} px-1.5 ${colWidths.sl} text-center whitespace-nowrap`}>#</th>
-                  <th className={`${thPad} px-2.5 ${colWidths.desc} text-left break-words`}>Item & Description</th>
-                  {showBrand && <th className={`${thPad} px-1.5 ${colWidths.brand} text-center whitespace-nowrap`}>Brand</th>}
-                  {showModel && <th className={`${thPad} px-1.5 ${colWidths.model} text-center whitespace-nowrap`}>Model / Part</th>}
-                  {showOrigin && <th className={`${thPad} px-1.5 ${colWidths.origin} text-center whitespace-nowrap`}>Origin</th>}
-                  {showAvailability && <th className={`${thPad} px-1.5 ${colWidths.delivery} text-center whitespace-nowrap`}>Delivery</th>}
-                  <th className={`${thPad} px-1 ${colWidths.qty} text-center whitespace-nowrap`}>Qty</th>
-                  <th className={`${thPad} px-1 ${colWidths.uom} text-center whitespace-nowrap`}>UOM</th>
-                  {showUnitPrice && (
-                    <th className={`${thPad} px-2 ${colWidths.unitPrice} text-right whitespace-nowrap`}>Unit Price</th>
+                  <th
+                    className={`${thPad} px-1.5 ${colWidths.sl.className} text-center whitespace-nowrap`}
+                    style={colWidths.sl.style}
+                  >
+                    #
+                  </th>
+                  <th
+                    className={`${thPad} px-2.5 ${colWidths.desc.className} text-left break-words`}
+                    style={colWidths.desc.style}
+                  >
+                    Item & Description
+                  </th>
+                  {showBrand && (
+                    <th
+                      className={`${thPad} px-1.5 ${colWidths.brand.className} text-center whitespace-nowrap`}
+                      style={colWidths.brand.style}
+                    >
+                      Brand
+                    </th>
                   )}
-                  <th className={`${thPad} px-2.5 ${colWidths.total} text-right whitespace-nowrap`}>Total ({currency})</th>
+                  {showModel && (
+                    <th
+                      className={`${thPad} px-1.5 ${colWidths.model.className} text-center whitespace-nowrap`}
+                      style={colWidths.model.style}
+                    >
+                      Model / Part
+                    </th>
+                  )}
+                  {showOrigin && (
+                    <th
+                      className={`${thPad} px-1.5 ${colWidths.origin.className} text-center whitespace-nowrap`}
+                      style={colWidths.origin.style}
+                    >
+                      Origin
+                    </th>
+                  )}
+                  {showAvailability && (
+                    <th
+                      className={`${thPad} px-1.5 ${colWidths.delivery.className} text-center whitespace-nowrap`}
+                      style={colWidths.delivery.style}
+                    >
+                      Delivery
+                    </th>
+                  )}
+                  <th
+                    className={`${thPad} px-1 ${colWidths.qty.className} text-center whitespace-nowrap`}
+                    style={colWidths.qty.style}
+                  >
+                    Qty
+                  </th>
+                  <th
+                    className={`${thPad} px-1 ${colWidths.uom.className} text-center whitespace-nowrap`}
+                    style={colWidths.uom.style}
+                  >
+                    UOM
+                  </th>
+                  {showUnitPrice && (
+                    <th
+                      className={`${thPad} px-2 ${colWidths.unitPrice.className} text-right whitespace-nowrap`}
+                      style={colWidths.unitPrice.style}
+                    >
+                      Unit Price
+                    </th>
+                  )}
+                  <th
+                    className={`${thPad} px-2.5 ${colWidths.total.className} text-right whitespace-nowrap`}
+                    style={colWidths.total.style}
+                  >
+                    Total ({currency})
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -883,6 +912,74 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             {item.description}
                           </div>
                         )}
+                        {/* Line Item Specification Pills */}
+                        {(() => {
+                          const rawAttrs: Array<{ key: string; value: string }> = [];
+                          const itemAny = item as any;
+
+                          if (Array.isArray(itemAny.attributes)) {
+                            itemAny.attributes.forEach((attr: any) => {
+                              if (attr && (attr.key || attr.name) && attr.value) {
+                                rawAttrs.push({ key: String(attr.key || attr.name), value: String(attr.value) });
+                              }
+                            });
+                          } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+                            Object.entries(itemAny.attributes).forEach(([k, v]) => {
+                              if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                rawAttrs.push({ key: k, value: String(v) });
+                              }
+                            });
+                          }
+
+                          if (Array.isArray(itemAny.specs)) {
+                            itemAny.specs.forEach((s: any) => {
+                              if (s && s.key && s.value) {
+                                rawAttrs.push({ key: String(s.key), value: String(s.value) });
+                              }
+                            });
+                          } else if (itemAny.specs && typeof itemAny.specs === 'object') {
+                            Object.entries(itemAny.specs).forEach(([k, v]) => {
+                              if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                rawAttrs.push({ key: k, value: String(v) });
+                              }
+                            });
+                          }
+
+                          if (Array.isArray(itemAny.specifications)) {
+                            itemAny.specifications.forEach((s: any) => {
+                              if (s && s.key && s.value) {
+                                rawAttrs.push({ key: String(s.key), value: String(s.value) });
+                              }
+                            });
+                          } else if (itemAny.specifications && typeof itemAny.specifications === 'object') {
+                            Object.entries(itemAny.specifications).forEach(([k, v]) => {
+                              if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                rawAttrs.push({ key: k, value: String(v) });
+                              }
+                            });
+                          }
+
+                          const uniqueAttrs = rawAttrs.filter(
+                            (attr, i, self) =>
+                              i === self.findIndex((a) => a.key.toLowerCase() === attr.key.toLowerCase())
+                          );
+
+                          if (uniqueAttrs.length === 0) return null;
+
+                          return (
+                            <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                              {uniqueAttrs.map((attr, aIdx) => (
+                                <span
+                                  key={aIdx}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700 font-mono border border-slate-200"
+                                >
+                                  <span className="font-semibold text-slate-500">{attr.key}:</span>
+                                  <span>{attr.value}</span>
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                       {showBrand && (
                         <td className={`${tdPad} px-1.5 text-center text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize}`}>

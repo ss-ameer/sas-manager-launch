@@ -97,7 +97,7 @@ export interface Workspace {
   settings?: WorkspaceSettings;
 }
 
-export type LegalSuffix = 'None / To Be Added Later' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'None / Other';
+export type LegalSuffix = 'None / To Be Added Later' | 'None' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'PJSC' | 'PrJSC' | 'None / Other';
 
 export type PhoneCategory =
   | 'Mobile'
@@ -158,8 +158,9 @@ export type ContactMethod = {
 export interface Company extends SoftDeleteFields {
   id?: string;
   workspace_id?: string | 'unassigned';
+  workspaceId?: string | 'unassigned';
   canonical_name: string;
-  legal_suffix: LegalSuffix;
+  legal_suffix?: LegalSuffix | string | null;
   display_name: string;
   aliases: string[];
   industry_type?: string;
