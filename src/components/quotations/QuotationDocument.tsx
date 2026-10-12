@@ -225,6 +225,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       delivery: { pct: deliveryPct, style: { width: `${deliveryPct}%` }, className: 'min-w-[55px]' },
       qty: { pct: qtyPct, style: { width: `${qtyPct}%` }, className: 'min-w-[34px]' },
       uom: { pct: uomPct, style: { width: `${uomPct}%` }, className: 'min-w-[32px]' },
+      unit: { pct: uomPct, style: { width: `${uomPct}%` }, className: 'min-w-[32px]' },
       unitPrice: { pct: unitPricePct, style: { width: `${unitPricePct}%` }, className: 'min-w-[65px]' },
       total: { pct: totalPct, style: { width: `${totalPct}%` }, className: 'min-w-[70px]' }
     };
@@ -1090,7 +1091,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       </td>
                       <td
                         className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top whitespace-nowrap overflow-hidden text-ellipsis`}
-                        style={{ maxWidth: colWidths.unit.style.width }}
+                        style={{ maxWidth: colWidths.uom?.style?.width || colWidths.unit?.style?.width || '5%' }}
                         title={item.unit || 'pcs'}
                       >
                         {item.unit || 'pcs'}
