@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
@@ -1862,9 +1862,31 @@ export default function EnquiryDetail({
                         className="text-xs bg-white/90 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-0.5 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer focus:outline-none shadow-2xs"
                         title="Change Enquiry Status"
                       >
-                        {ENQUIRY_STATUS_OPTIONS.map((st) => (
-                          <option key={st} value={st}>{st}</option>
+                        {PIPELINE_STATUS_GROUPS.map((group) => (
+                          <optgroup
+                            key={group.label}
+                            label={group.label}
+                            className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
+                          >
+                            {group.options.map((st) => (
+                              <option
+                                key={st}
+                                value={st}
+                                className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
+                              >
+                                {st}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
+                        {/* Fallback for any legacy or custom status not in canonical groups */}
+                        {currentEnquiry.status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(currentEnquiry.status))) && (
+                          <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                            <option value={currentEnquiry.status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
+                              {currentEnquiry.status}
+                            </option>
+                          </optgroup>
+                        )}
                       </select>
                     )}
                   </div>
@@ -2492,34 +2514,32 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Engagement details */}
-              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3">
-                <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">Identifiers & Dates</h4>
-                <div className="grid grid-cols-2 gap-4 text-xs">
+              {/* Engagement details / Identifiers & Dates */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 sm:p-4.5 rounded-xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center space-x-1.5">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Identifiers & Timeline</span>
+                  </h4>
+                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Proposal Option">
+                      {currentEnquiry.proposal_option || enquiry.proposal_option}
+                    </span>
+                  )}
+                </div>
+
+                {/* Core Identifiers & Attribution Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                   <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Quote Ref</span>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-slate-800 font-semibold font-mono">{currentEnquiry.quote_ref_no || enquiry.quote_ref_no}</span>
-                      {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200" title="Proposal Option">
-                          {currentEnquiry.proposal_option || enquiry.proposal_option}
-                        </span>
-                      )}
-                      {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
-                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200" title="Customer Reference Code">
-                          Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
-                        </span>
-                      )}
-                    </div>
-                    {(currentEnquiry.subject || enquiry.subject) && (
-                      <p className="text-xs text-slate-600 font-medium mt-1">
-                        {currentEnquiry.subject || enquiry.subject}
-                      </p>
-                    )}
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Quote Ref</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block" title={currentEnquiry.quote_ref_no || enquiry.quote_ref_no}>
+                      {currentEnquiry.quote_ref_no || enquiry.quote_ref_no || '—'}
+                    </span>
                   </div>
+
                   <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Sales Representative</span>
-                    <span className="text-slate-800 font-semibold font-sans">
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Sales Representative</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">
                       {(() => {
                         const targetEq = currentEnquiry || enquiry;
                         const spId = resolveSalespersonIdentifier(targetEq);
@@ -2538,55 +2558,62 @@ export default function EnquiryDetail({
                       })()}
                     </span>
                   </div>
+
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Project Country</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{enquiry.country || '—'}</span>
+                  </div>
+
                   {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
                     <div>
-                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Customer Reference</span>
-                      <span className="text-slate-800 font-semibold font-mono">
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Customer Reference</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block">
                         {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
                       </span>
                     </div>
                   )}
-                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Enquiry Source</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
+                  </div>
+                </div>
+
+                {/* Optional Subject Banner if present */}
+                {(currentEnquiry.subject || enquiry.subject) && (
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/70">
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Subject</span>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mt-0.5 leading-relaxed">
+                      {currentEnquiry.subject || enquiry.subject}
+                    </p>
+                  </div>
+                )}
+
+                {/* Timeline Dates Compact Sub-grid */}
+                <div className="pt-2.5 border-t border-slate-200/70 dark:border-slate-800/70">
+                  <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-2 font-bold">
+                    <Calendar className="w-3 h-3 text-slate-400" />
+                    <span>Timeline Dates</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
                     <div>
-                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Proposal Option</span>
-                      <span className="text-purple-700 font-semibold font-sans">
-                        {currentEnquiry.proposal_option || enquiry.proposal_option}
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Received</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.enquiry_date || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Projected Order</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.projected_order_date || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Next Follow-up</span>
+                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.next_followup_date || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">System Created</span>
+                      <span className="text-slate-600 dark:text-slate-400 font-medium font-mono text-xs">
+                        {enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
                       </span>
                     </div>
-                  )}
-                  {(currentEnquiry.subject || enquiry.subject) && (
-                    <div className="col-span-2">
-                      <span className="text-slate-400 block uppercase font-mono text-[10px]">Subject</span>
-                      <span className="text-slate-800 font-medium font-sans">
-                        {currentEnquiry.subject || enquiry.subject}
-                      </span>
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Project Country</span>
-                    <span className="text-slate-800 font-semibold font-sans">{enquiry.country}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Enquiry Source</span>
-                    <span className="text-slate-800 font-semibold font-sans">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Estimated Order Date</span>
-                    <span className="text-slate-800 font-semibold font-mono">{enquiry.projected_order_date || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Next Follow-up</span>
-                    <span className="text-slate-800 font-semibold font-mono">{enquiry.next_followup_date || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">Received Date</span>
-                    <span className="text-slate-800 font-semibold font-mono">{enquiry.enquiry_date}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase font-mono text-[10px]">System Created Date</span>
-                    <span className="text-slate-800 font-semibold font-mono text-slate-500">
-                      {enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
-                    </span>
                   </div>
                 </div>
               </div>

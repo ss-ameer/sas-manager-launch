@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, Quotation } from '../types';
+import { Enquiry, Company, Salesperson, Contact, getInitials, Workspace, EnquiryStatusHistoryEntry, Project, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, EnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, Quotation, PIPELINE_STATUS_GROUPS } from '../types';
 import { BRAND_CONFIG } from '../config';
 import EnquiryExportModal from './EnquiryExportModal';
 import {
@@ -602,15 +602,31 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               title={tooltipTitle}
               className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
             >
-              {ENQUIRY_STATUS_OPTIONS.map((st) => (
-                <option
-                  key={st}
-                  value={st}
-                  className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs"
+              {PIPELINE_STATUS_GROUPS.map((group) => (
+                <optgroup
+                  key={group.label}
+                  label={group.label}
+                  className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
                 >
-                  {st}
-                </option>
+                  {group.options.map((st) => (
+                    <option
+                      key={st}
+                      value={st}
+                      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
+                    >
+                      {st}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
+              {/* Fallback for any legacy or custom status not in canonical groups */}
+              {e.status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(e.status))) && (
+                <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                  <option value={e.status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
+                    {e.status}
+                  </option>
+                </optgroup>
+              )}
             </select>
             <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
           </div>
@@ -1994,9 +2010,23 @@ export default function EnquiryList({
                 onChange={(e) => setStatusFilter(e.target.value as any)}
                 className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
-                <option value="All">All Statuses</option>
-                {ENQUIRY_STATUS_OPTIONS.map((st) => (
-                  <option key={st} value={st}>{st}</option>
+                <option value="All" className="font-semibold text-slate-900 dark:text-slate-100">All Statuses</option>
+                {PIPELINE_STATUS_GROUPS.map((group) => (
+                  <optgroup
+                    key={group.label}
+                    label={group.label}
+                    className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
+                  >
+                    {group.options.map((st) => (
+                      <option
+                        key={st}
+                        value={st}
+                        className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
+                      >
+                        {st}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />

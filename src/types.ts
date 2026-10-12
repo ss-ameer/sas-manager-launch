@@ -508,6 +508,30 @@ export const ENQUIRY_STATUS_OPTIONS = [
 
 export type CanonicalEnquiryStatus = (typeof ENQUIRY_STATUS_OPTIONS)[number];
 
+export interface PipelineStatusGroup {
+  label: string;
+  options: readonly CanonicalEnquiryStatus[];
+}
+
+export const PIPELINE_STATUS_GROUPS: readonly PipelineStatusGroup[] = [
+  {
+    label: 'Active Pipeline',
+    options: ['Draft', 'Active', 'Sent / Pending Client', 'Revision Requested'],
+  },
+  {
+    label: 'Closed Won',
+    options: ['Won / Approved', 'Order Received'],
+  },
+  {
+    label: 'On Hold & Delayed',
+    options: ['Delayed', 'Hold', 'Gap / Reserved'],
+  },
+  {
+    label: 'Closed Lost / Inactive',
+    options: ['Lost', 'Lost / Cancelled', 'Dead', 'Cancelled PO'],
+  },
+] as const;
+
 export type EnquiryStatus =
   | CanonicalEnquiryStatus
   | 'Won'

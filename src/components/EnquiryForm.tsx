@@ -4,7 +4,7 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
@@ -5152,9 +5152,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
                 >
-                  {ENQUIRY_STATUS_OPTIONS.map((st) => (
-                    <option key={st} value={st}>{st}</option>
+                  {PIPELINE_STATUS_GROUPS.map((group) => (
+                    <optgroup
+                      key={group.label}
+                      label={group.label}
+                      className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
+                    >
+                      {group.options.map((st) => (
+                        <option
+                          key={st}
+                          value={st}
+                          className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
+                        >
+                          {st}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
+                  {/* Fallback for legacy or custom status */}
+                  {status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(status))) && (
+                    <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                      <option value={status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
+                        {status}
+                      </option>
+                    </optgroup>
+                  )}
                 </select>
               </div>
 
