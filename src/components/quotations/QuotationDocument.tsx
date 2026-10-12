@@ -328,7 +328,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   return (
     <div
       id="quotation-printable-document"
-      className="quotation-document-container w-full bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 print:p-0 print:bg-white"
+      className="quotation-document-container w-full bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
       style={{ colorScheme: 'light' }}
     >
       {/* Scoped Print Stylesheet */}
@@ -353,9 +353,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             max-width: 210mm !important;
             margin: 0 auto !important;
             padding: 0 !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
             background: #ffffff !important;
             box-sizing: border-box !important;
           }

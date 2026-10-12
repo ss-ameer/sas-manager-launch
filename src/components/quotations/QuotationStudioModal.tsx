@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Quotation,
   QuotationPreset,
@@ -781,8 +782,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   };
 
   return (
-    <div className="quotation-modal-container fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:p-0 print:bg-transparent print:static print:inset-auto print:block print:w-full print:h-auto print:overflow-visible">
-      <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:border-none print:shadow-none print:w-full print:max-w-none print:h-auto print:bg-transparent print:overflow-visible print:block">
+    <div className="quotation-modal-container fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
+      <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Top Bar */}
         <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 print:hidden">
           <div className="flex items-center space-x-3">
@@ -1452,14 +1453,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             </div>
 
             {/* Scaled Preview Canvas */}
-            <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:p-0 print:overflow-visible print:block print:w-full">
+            <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:hidden">
               <div
                 style={{
                   transform: `scale(${zoomScale})`,
                   transformOrigin: 'top center',
                   transition: 'transform 0.1s ease-out'
                 }}
-                className="preview-canvas-wrapper w-full max-w-[210mm] shadow-2xl print:shadow-none print:!transform-none print:max-w-none print:w-full print:m-0 print:p-0"
+                className="preview-canvas-wrapper w-full max-w-[210mm] shadow-2xl print:hidden"
               >
                 <QuotationDocument
                   quotation={liveQuotation}
@@ -1544,6 +1545,42 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           </div>
         </div>
       )}
+      {/* Root-Level Print Portal mounted directly to document.body */}
+      {typeof document !== 'undefined' && createPortal(
+        <div id="quotation-print-portal" className="hidden print:block">
+          <QuotationDocument
+            quotation={liveQuotation}
+            profile={activeProfile}
+            visibleColumns={visibleColumns}
+            isCompactView={tableDensity === 'compact'}
+            showBankDetails={showBankDetails}
+            showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
+            user={user}
+            signatoryName={signatoryName}
+            signatoryTitle={signatoryTitle}
+          />
+        </div>,
+        document.body
+      )}
+
+      {/* Scoped Print Portal Styles */}
+      <style>{`
+        @media print {
+          #root {
+            display: none !important;
+          }
+          #quotation-print-portal {
+            display: block !important;
+            position: static !important;
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };
