@@ -10,7 +10,9 @@ import {
   QuotationSignatureStyle,
   QuotationLogoPosition,
   QuotationHeaderLayout,
-  QuotationTableDensity
+  QuotationTableDensity,
+  QuotationBlockConfig,
+  QuotationBlockId
 } from '../../types';
 import { formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -88,6 +90,14 @@ export const QUOTATION_THEMES: Record<
   }
 };
 
+export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
+  { id: 'terms', enabled: true, placement: 'left', style: 'framed' },
+  { id: 'totals', enabled: true, placement: 'right', style: 'framed' },
+  { id: 'remittance', enabled: true, placement: 'left', style: 'framed' },
+  { id: 'signatory', enabled: true, placement: 'right', style: 'framed' },
+  { id: 'acceptance', enabled: true, placement: 'full', style: 'framed' }
+];
+
 export interface QuotationDocumentProps {
   quotation: Quotation;
   profile?: WorkspaceDocumentProfile | null;
@@ -101,6 +111,7 @@ export interface QuotationDocumentProps {
   enquiry?: any;
   salesRepName?: string;
   blockStyle?: 'framed' | 'minimal';
+  layoutBlocks?: QuotationBlockConfig[];
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -115,7 +126,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   signatoryTitle,
   enquiry,
   salesRepName,
-  blockStyle = 'framed'
+  blockStyle = 'framed',
+  layoutBlocks
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
@@ -127,6 +139,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     (quotation as any).presentation_preset?.block_style ||
     'framed';
   const isMinimal = resolvedBlockStyle === 'minimal';
+
+  // Resolve modular layout blocks
+  const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
+    const raw =
+      layoutBlocks ||
+      quotation.layout_blocks ||
+      (quotation as any).presentation_preset?.layout_blocks ||
+      DEFAULT_QUOTATION_BLOCKS;
+
+    return raw.map((b) => ({
+      ...b,
+      // If block has its own style, use it; otherwise fall back to global resolvedBlockStyle
+      style: b.style || resolvedBlockStyle
+    }));
+  }, [layoutBlocks, quotation.layout_blocks, (quotation as any).presentation_preset?.layout_blocks, resolvedBlockStyle]);
 
   // Resolve theme accent
   const activeThemeKey: QuotationThemeAccent =
@@ -419,14 +446,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .remittance-card,
           .totals-card,
           .signatory-card,
-          .acceptance-card {
+          .acceptance-card,
+          .quotation-block-slot,
+          .quotation-block-slot > div {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
-          .grid-print-2col {
+          .grid-print-2col,
+          .quotation-blocks-grid {
             display: grid !important;
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 1rem !important;
+            gap: 0.75rem !important;
+            width: 100% !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
         }
       `}</style>
@@ -1138,138 +1171,50 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         </section>
 
         {/* ========================================================
-            CONSOLIDATED COMMERCIAL & AUTHORIZATION SECTION (2-COLUMN MODULAR GRID)
+            MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
            ======================================================== */}
-        <section className="my-3 break-inside-avoid w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
-          <div
-            className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 items-stretch w-full grid-print-2col"
-            style={{ width: '100%', maxWidth: '100%' }}
-          >
-            {/* Left Column: Commercial & Delivery Terms + Remittance Bank Details */}
-            <div className={`flex flex-col justify-between h-full ${isMinimal ? 'space-y-4' : 'space-y-3.5'} w-full`}>
-              {/* Commercial Terms & Conditions */}
-              {resolvedShowCommercialTerms && (
-                <div
-                  className={`terms-card ${
-                    isMinimal
-                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
-                      : 'bg-slate-50 border border-slate-200/80 rounded-xl p-3.5'
-                  } text-xs space-y-2 w-full break-inside-avoid flex-1 flex flex-col justify-between`}
-                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                >
-                  <div>
-                    <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
-                      <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                      Commercial Terms & Conditions
-                    </div>
-                    <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed mt-2">
-                      {quotation.applied_terms ? (
-                        <div className="whitespace-pre-line text-slate-600">
-                          {quotation.applied_terms}
-                        </div>
-                      ) : (
-                        <>
-                          <p className="flex justify-between">
-                            <span className="font-semibold text-slate-500">Price Basis:</span>
-                            <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="font-semibold text-slate-500">Payment Terms:</span>
-                            <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="font-semibold text-slate-500">Validity:</span>
-                            <span className="text-slate-800 font-medium">
-                              {quotation.valid_until
-                                ? `Valid until ${formatDate(quotation.valid_until)}`
-                                : '30 Days from date of offer'}
-                            </span>
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
+        {(() => {
+          // Render functions for each modular document block
+          const renderTermsBlock = () => (
+            <div className="flex-1 flex flex-col justify-between w-full">
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
+                  <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                  Commercial Terms & Conditions
                 </div>
-              )}
-
-              {/* Remittance Bank Accounts */}
-              {resolvedShowBankDetails && bankAccount ? (
-                <div
-                  className={`remittance-card ${
-                    isMinimal
-                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
-                      : 'bg-slate-50 border border-slate-200/80 rounded-xl p-3.5'
-                  } space-y-1 w-full break-inside-avoid shrink-0`}
-                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                >
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] mb-1">
-                    <Landmark className="w-3.5 h-3.5 text-slate-500" />
-                    Bank Remittance Details
-                  </div>
-                  <div className="text-[10.5px] text-slate-700 space-y-0.5">
-                    <p>
-                      <span className="text-slate-500">Bank:</span>{' '}
-                      <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Beneficiary:</span>{' '}
-                      <span className="font-medium text-slate-800">
-                        {bankAccount.account_name ||
-                          (bankAccount as any)?.beneficiary_name ||
-                          profile?.legal_entity_name ||
-                          (profile as any)?.company_legal_name ||
-                          senderEntityName}
-                      </span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Account No:</span>{' '}
-                      <span className="font-mono font-medium text-slate-900">
-                        {bankAccount.account_number}
-                      </span>
-                    </p>
-                    {bankAccount.iban && (
-                      <p>
-                        <span className="text-slate-500">IBAN:</span>{' '}
-                        <span className="font-mono font-bold text-slate-900">
-                          {bankAccount.iban}
+                <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed mt-2">
+                  {quotation.applied_terms ? (
+                    <div className="whitespace-pre-line text-slate-600">
+                      {quotation.applied_terms}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Price Basis:</span>
+                        <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
+                      </p>
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Payment Terms:</span>
+                        <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
+                      </p>
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Validity:</span>
+                        <span className="text-slate-800 font-medium">
+                          {quotation.valid_until
+                            ? `Valid until ${formatDate(quotation.valid_until)}`
+                            : '30 Days from date of offer'}
                         </span>
                       </p>
-                    )}
-                    {bankAccount.swift_bic && (
-                      <p>
-                        <span className="text-slate-500">SWIFT / BIC:</span>{' '}
-                        <span className="font-mono font-semibold text-slate-900">
-                          {bankAccount.swift_bic}
-                        </span>
-                      </p>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
-              ) : resolvedShowBankDetails ? (
-                <div
-                  className={`remittance-card text-[11px] text-slate-500 italic p-2 ${
-                    isMinimal
-                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2 shadow-none'
-                      : 'bg-slate-50/50 rounded-lg border border-slate-200/60'
-                  } break-inside-avoid shrink-0`}
-                  style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                >
-                  Thank you for your business. Please contact us for electronic wire instructions.
-                </div>
-              ) : null}
+              </div>
             </div>
+          );
 
-            {/* Right Column: Financial Totals Block + Signatory & Seal Authorization Card */}
-            <div className={`flex flex-col justify-between h-full ${isMinimal ? 'space-y-4' : 'space-y-3.5'} w-full`}>
-              {/* Financial Totals Block */}
-              <div
-                className={`totals-card ${
-                  isMinimal
-                    ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
-                    : 'bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs'
-                } text-xs space-y-1.5 w-full break-inside-avoid shrink-0`}
-                style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-              >
+          const renderTotalsBlock = () => (
+            <div className="flex-1 text-xs space-y-1.5 w-full flex flex-col justify-between">
+              <div className="space-y-1.5 w-full">
                 <div className="flex justify-between text-slate-600 py-0.5">
                   <span>Subtotal:</span>
                   <span className="font-mono font-semibold text-slate-800">
@@ -1329,127 +1274,284 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     {formatCurrency(quotation.grand_total)}
                   </span>
                 </div>
-
-                {/* Amount in Words */}
-                {amountInWordsEnabled && (
-                  <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10.5px] leading-tight">
-                    <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
-                      Amount in Words
-                    </span>
-                    <p className="font-medium text-slate-800 italic">
-                      {formatAmountInWords(quotation.grand_total, currency)}
-                    </p>
-                  </div>
-                )}
               </div>
 
-              {/* Signatory & Seal Authorization Card */}
-              {showStampAndSignatures && (
-                <div
-                  className={`signatory-card ${
-                    isMinimal
-                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
-                      : 'bg-slate-50/60 border border-slate-200/80 rounded-xl p-3'
-                  } flex flex-col justify-end w-full break-inside-avoid flex-1`}
-                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                >
-                  <div className="flex items-center justify-end gap-5 w-full">
-                    {/* Official Stamp / Seal */}
-                    {resolvedShowCompanySeal && profile?.stamp_seal_url && (
-                      <div className="flex flex-col items-center">
-                        <img
-                          src={profile.stamp_seal_url}
-                          alt="Official Seal"
-                          className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                        <span className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">
-                          Company Seal
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Signatories Rendering */}
-                    <div className="flex gap-4 justify-end">
-                      {resolvedSignatories.map((sig, sIdx) => (
-                        <div key={sIdx} className="text-center min-w-[120px]">
-                          <div className="h-10 flex items-end justify-center mb-1">
-                            {signatureStyle === 'image' && sig.signature_url ? (
-                              <img
-                                src={sig.signature_url}
-                                alt={sig.name}
-                                className="max-h-10 object-contain"
-                              />
-                            ) : signatureStyle === 'script' ? (
-                              <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                                {sig.name}
-                              </span>
-                            ) : signatureStyle === 'image' ? (
-                              <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[9px] text-slate-400 italic">
-                                Digital Signature
-                              </div>
-                            ) : (
-                              /* 'line' style */
-                              <div className="w-24 border-b border-slate-400 pb-1" />
-                            )}
-                          </div>
-                          <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                          <p className="font-bold text-slate-800 text-xs leading-tight">{sig.name}</p>
-                          <p className="text-[10px] text-slate-500 leading-tight">{sig.title}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              {/* Amount in Words */}
+              {amountInWordsEnabled && (
+                <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10.5px] leading-tight">
+                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                    Amount in Words
+                  </span>
+                  <p className="font-medium text-slate-800 italic">
+                    {formatAmountInWords(quotation.grand_total, currency)}
+                  </p>
                 </div>
               )}
             </div>
-          </div>
-        </section>
+          );
 
-        {/* Customer Acceptance Block */}
-        {customerAcceptanceEnabled && (
-          <div
-            className={`acceptance-card my-2.5 ${
-              isMinimal
-                ? 'p-0 pt-2.5 bg-transparent rounded-none border-0 border-t border-slate-200'
-                : 'p-2.5 bg-slate-50/80 rounded-xl border border-dashed border-slate-300'
-            } text-xs break-inside-avoid w-full print:my-2`}
-            style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-          >
-            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-              <span className="font-bold text-slate-800 text-[10.5px] uppercase tracking-wider flex items-center gap-1.5">
-                <FileCheck className="w-3.5 h-3.5 text-slate-600" />
-                Customer Acceptance & Confirmation
-              </span>
-              <span className="text-[9.5px] text-slate-400 italic">
-                Sign & Return Copy with Purchase Order
-              </span>
+          const renderRemittanceBlock = () => (
+            <div className="flex-1 flex flex-col justify-between w-full">
+              <div>
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] mb-1 pb-1 border-b border-slate-200/80">
+                  <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                  Bank Remittance Details
+                </div>
+                {bankAccount ? (
+                  <div className="text-[10.5px] text-slate-700 space-y-0.5 mt-1.5">
+                    <p>
+                      <span className="text-slate-500">Bank:</span>{' '}
+                      <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
+                    </p>
+                    <p>
+                      <span className="text-slate-500">Beneficiary:</span>{' '}
+                      <span className="font-medium text-slate-800">
+                        {bankAccount.account_name ||
+                          (bankAccount as any)?.beneficiary_name ||
+                          profile?.legal_entity_name ||
+                          (profile as any)?.company_legal_name ||
+                          senderEntityName}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="text-slate-500">Account No:</span>{' '}
+                      <span className="font-mono font-medium text-slate-900">
+                        {bankAccount.account_number}
+                      </span>
+                    </p>
+                    {bankAccount.iban && (
+                      <p>
+                        <span className="text-slate-500">IBAN:</span>{' '}
+                        <span className="font-mono font-bold text-slate-900">
+                          {bankAccount.iban}
+                        </span>
+                      </p>
+                    )}
+                    {bankAccount.swift_bic && (
+                      <p>
+                        <span className="text-slate-500">SWIFT / BIC:</span>{' '}
+                        <span className="font-mono font-semibold text-slate-900">
+                          {bankAccount.swift_bic}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-500 italic p-2 mt-1">
+                    Thank you for your business. Please contact us for electronic wire instructions.
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="text-[10px] text-slate-600 my-1 leading-snug">
-              We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-[10px]">
-              <div>
-                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
-                <div className="h-5 border-b border-slate-300 mt-1" />
-              </div>
-              <div>
-                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
-                <div className="h-5 border-b border-slate-300 mt-1" />
-              </div>
-              <div>
-                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
-                <div className="h-5 border-b border-slate-300 mt-1" />
-              </div>
-              <div>
-                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
-                <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
+          );
+
+          const renderSignatoryBlock = () => (
+            <div className="flex-1 flex flex-col justify-end w-full">
+              <div className="flex items-center justify-end gap-5 w-full">
+                {/* Official Stamp / Seal */}
+                {resolvedShowCompanySeal && profile?.stamp_seal_url && (
+                  <div className="flex flex-col items-center">
+                    <img
+                      src={profile.stamp_seal_url}
+                      alt="Official Seal"
+                      className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <span className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">
+                      Company Seal
+                    </span>
+                  </div>
+                )}
+
+                {/* Signatories Rendering */}
+                <div className="flex gap-4 justify-end">
+                  {resolvedSignatories.map((sig, sIdx) => (
+                    <div key={sIdx} className="text-center min-w-[120px]">
+                      <div className="h-10 flex items-end justify-center mb-1">
+                        {signatureStyle === 'image' && sig.signature_url ? (
+                          <img
+                            src={sig.signature_url}
+                            alt={sig.name}
+                            className="max-h-10 object-contain"
+                          />
+                        ) : signatureStyle === 'script' ? (
+                          <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
+                            {sig.name}
+                          </span>
+                        ) : signatureStyle === 'image' ? (
+                          <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[9px] text-slate-400 italic">
+                            Digital Signature
+                          </div>
+                        ) : (
+                          /* 'line' style */
+                          <div className="w-24 border-b border-slate-400 pb-1" />
+                        )}
+                      </div>
+                      <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
+                      <p className="font-bold text-slate-800 text-xs leading-tight">{sig.name}</p>
+                      <p className="text-[10px] text-slate-500 leading-tight">{sig.title}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+
+          const renderAcceptanceBlock = () => (
+            <div className="w-full flex-1 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                  <span className="font-bold text-slate-800 text-[10.5px] uppercase tracking-wider flex items-center gap-1.5">
+                    <FileCheck className="w-3.5 h-3.5 text-slate-600" />
+                    Customer Acceptance & Confirmation
+                  </span>
+                  <span className="text-[9.5px] text-slate-400 italic">
+                    Sign & Return Copy with Purchase Order
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-600 my-1 leading-snug">
+                  We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-[10px]">
+                <div>
+                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                  <div className="h-5 border-b border-slate-300 mt-1" />
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                  <div className="h-5 border-b border-slate-300 mt-1" />
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                  <div className="h-5 border-b border-slate-300 mt-1" />
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                  <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
+                </div>
+              </div>
+            </div>
+          );
+
+          // Filter active blocks respecting enabled flag and legacy visibility options if layout_blocks not explicitly provided
+          const activeBlocks = resolvedBlocks.filter((b) => {
+            if (b.enabled === false) return false;
+            if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
+              if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
+              if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
+              if (b.id === 'signatory' && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+              if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
+            }
+            return true;
+          });
+
+          // Row-slot engine: Pair sequential Left and Right blocks into the same grid row to equalize height (items-stretch),
+          // while allowing single-sided blocks (e.g. Right only) to remain anchored to their column track with natural height.
+          let currentRow = 1;
+          let rowHasLeft = false;
+          let rowHasRight = false;
+
+          const positionedBlocks = activeBlocks.map((b) => {
+            if (b.placement === 'full') {
+              if (rowHasLeft || rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              currentRow++;
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 1,
+                gridColumnEnd: 3,
+                placementClass: 'col-span-2 col-start-1 w-full'
+              };
+            } else if (b.placement === 'left') {
+              if (rowHasLeft) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              rowHasLeft = true;
+              if (rowHasLeft && rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 1,
+                gridColumnEnd: 2,
+                placementClass: 'col-span-1 col-start-1'
+              };
+            } else {
+              // placement === 'right'
+              if (rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              rowHasRight = true;
+              if (rowHasLeft && rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 2,
+                gridColumnEnd: 3,
+                placementClass: 'col-span-1 col-start-2'
+              };
+            }
+          });
+
+          return (
+            <section className="my-3 break-inside-avoid w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+              <div
+                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch break-inside-avoid w-full"
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
+                {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
+                  const cardStyleClass =
+                    b.style === 'minimal'
+                      ? 'border-t border-slate-200 pt-2 bg-transparent h-full flex flex-col justify-between'
+                      : 'border border-slate-200 rounded-lg bg-slate-50/50 p-2.5 h-full flex flex-col justify-between';
+
+                  return (
+                    <div
+                      key={b.id}
+                      className={`${placementClass} break-inside-avoid quotation-block-slot`}
+                      style={{
+                        breakInside: 'avoid',
+                        pageBreakInside: 'avoid',
+                        gridRowStart,
+                        gridColumnStart,
+                        gridColumnEnd
+                      }}
+                    >
+                      <div className={cardStyleClass}>
+                        {b.id === 'terms' && renderTermsBlock()}
+                        {b.id === 'totals' && renderTotalsBlock()}
+                        {b.id === 'remittance' && renderRemittanceBlock()}
+                        {b.id === 'signatory' && renderSignatoryBlock()}
+                        {b.id === 'acceptance' && renderAcceptanceBlock()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })()}
 
         {/* ========================================================
             DOCUMENT SYSTEM MICRO-FOOTER WATERMARK

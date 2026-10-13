@@ -1026,6 +1026,19 @@ export interface QuotationPresetColumns {
   unit_price?: boolean;
 }
 
+export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
+
+export interface QuotationBlockConfig {
+  id: QuotationBlockId;
+  enabled: boolean;
+  placement: 'left' | 'right' | 'full'; // 'left' = col-start-1 col-span-1, 'right' = col-start-2 col-span-1, 'full' = col-span-2
+  style: 'framed' | 'minimal';
+}
+
+export interface QuotationLayoutSettings {
+  blocks: QuotationBlockConfig[];
+}
+
 export interface QuotationPreset extends SoftDeleteFields {
   id?: string;
   workspace_id?: string;
@@ -1033,6 +1046,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   preset_name: string;
   header_profile_id?: string;
   visible_columns: QuotationPresetColumns;
+  layout_blocks?: QuotationBlockConfig[];
   default_tax_mode: QuotationTaxMode;
   default_price_basis?: string; // e.g., 'Ex-Works', 'FOB', 'CIF', 'DDP'
   default_payment_terms?: string; // e.g., '100% Advance', '30 Days Net'
@@ -1113,6 +1127,7 @@ export interface Quotation extends SoftDeleteFields {
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
   block_style?: 'framed' | 'minimal';
+  layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;
   pdf_download_url?: string;
   created_at: string;

@@ -17,10 +17,12 @@ import {
   QuotationSignatureStyle,
   QuotationLogoPosition,
   QuotationHeaderLayout,
-  QuotationTableDensity
+  QuotationTableDensity,
+  QuotationBlockConfig,
+  QuotationBlockId
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
-import { QuotationDocument, QUOTATION_THEMES } from './QuotationDocument';
+import { QuotationDocument, QUOTATION_THEMES, DEFAULT_QUOTATION_BLOCKS } from './QuotationDocument';
 import {
   X,
   FileText,
@@ -51,7 +53,9 @@ import {
   Plus,
   BookmarkPlus,
   Layers,
-  Stamp
+  Stamp,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -67,6 +71,14 @@ export interface QuotationStudioModalProps {
   onQuotationCreated?: (quotation: Quotation) => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
+
+const BLOCK_META: Record<QuotationBlockId, { label: string; desc: string; icon: any }> = {
+  terms: { label: 'Commercial Terms', desc: 'Price basis, payment & validity', icon: FileCheck },
+  totals: { label: 'Financial Totals', desc: 'Subtotal, freight, taxes & grand total', icon: DollarSign },
+  remittance: { label: 'Bank Remittance', desc: 'Bank wire instructions & account numbers', icon: Landmark },
+  signatory: { label: 'Signatures & Stamp', desc: 'Executive signatories & company seal', icon: Stamp },
+  acceptance: { label: 'Customer Acceptance', desc: 'Client confirmation & sign-back box', icon: ShieldCheck }
+};
 
 export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   isOpen,
@@ -143,6 +155,53 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
     editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
   );
+  const [layoutBlocks, setLayoutBlocks] = useState<QuotationBlockConfig[]>(() => {
+    if (editingQuotation?.layout_blocks && editingQuotation.layout_blocks.length > 0) {
+      return editingQuotation.layout_blocks;
+    }
+    if ((editingQuotation as any)?.presentation_preset?.layout_blocks && (editingQuotation as any).presentation_preset.layout_blocks.length > 0) {
+      return (editingQuotation as any).presentation_preset.layout_blocks;
+    }
+    return DEFAULT_QUOTATION_BLOCKS;
+  });
+
+  const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, enabled } : b))
+    );
+    if (id === 'terms') setShowCommercialTerms(enabled);
+    if (id === 'remittance') setShowBankDetails(enabled);
+    if (id === 'signatory') setShowCompanySeal(enabled);
+    if (id === 'acceptance') setCustomerAcceptanceEnabled(enabled);
+  };
+
+  const handleSetBlockPlacement = (id: QuotationBlockId, placement: 'left' | 'right' | 'full') => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, placement } : b))
+    );
+  };
+
+  const handleSetBlockStyle = (id: QuotationBlockId, style: 'framed' | 'minimal') => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, style } : b))
+    );
+  };
+
+  const handleMoveBlock = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= layoutBlocks.length) return;
+    setLayoutBlocks((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const handleSetGlobalBlockStyle = (style: 'framed' | 'minimal') => {
+    setBlockStyle(style);
+    setLayoutBlocks((prev) => prev.map((b) => ({ ...b, style })));
+  };
 
   // Template Preset Saving Modal
   const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState<boolean>(false);
@@ -451,6 +510,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.block_style) setBlockStyle(preset.block_style);
+    if (preset.layout_blocks && preset.layout_blocks.length > 0) {
+      setLayoutBlocks(preset.layout_blocks);
+    }
     if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
     if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
@@ -613,6 +675,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
       block_style: blockStyle,
+      layout_blocks: layoutBlocks,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -648,7 +711,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryName,
     secondarySignatoryTitle,
     signatureStyle,
-    blockStyle
+    blockStyle,
+    layoutBlocks
   ]);
 
   // Handle Save (Draft or Issued)
@@ -698,6 +762,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
         block_style: blockStyle,
+        layout_blocks: layoutBlocks,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -772,7 +837,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
         logo_position: logoPosition,
-        block_style: blockStyle
+        block_style: blockStyle,
+        layout_blocks: layoutBlocks
       };
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -941,11 +1007,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Presentation Layout Style (Framed vs Minimal) */}
+                    {/* Global Presentation Layout Style (Framed vs Minimal) */}
                     <div>
-                      <label className="block text-slate-500 font-medium mb-1.5">
-                        Presentation Layout Style
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-slate-500 font-medium">
+                          Global Block Style
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono capitalize">{blockStyle}</span>
+                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         {[
                           { id: 'framed', label: 'Framed', desc: 'Unified cards & boxes' },
@@ -956,7 +1025,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             <button
                               key={b.id}
                               type="button"
-                              onClick={() => setBlockStyle(b.id as 'framed' | 'minimal')}
+                              onClick={() => handleSetGlobalBlockStyle(b.id as 'framed' | 'minimal')}
                               className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
                                 isSelected
                                   ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
@@ -971,38 +1040,142 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Modular Section Toggles */}
+                    {/* Modular Document Blocks Engine (Ordering, 3-Way Placement, Per-Block Style) */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <label className="block text-slate-500 font-medium mb-1">
-                        Modular Document Sections
-                      </label>
-                      <label className="flex items-center space-x-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={showBankDetails}
-                          onChange={(e) => setShowBankDetails(e.target.checked)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-slate-700 font-medium">Bank Remittance & Wire Details</span>
-                      </label>
-                      <label className="flex items-center space-x-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={showCommercialTerms}
-                          onChange={(e) => setShowCommercialTerms(e.target.checked)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-slate-700 font-medium">Commercial Terms & Conditions</span>
-                      </label>
-                      <label className="flex items-center space-x-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={showCompanySeal}
-                          onChange={(e) => setShowCompanySeal(e.target.checked)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-slate-700 font-medium">Official Company Seal Stamp</span>
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-700 font-bold text-xs">
+                          Modular Document Blocks
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {layoutBlocks.filter((b) => b.enabled).length} of {layoutBlocks.length} Active
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-snug">
+                        Configure independent visibility, 3-way placement (Left 50% / Full 100% / Right 50%), styling, and ordering for each document block.
+                      </p>
+
+                      <div className="space-y-2 mt-2">
+                        {layoutBlocks.map((block, idx) => {
+                          const meta = BLOCK_META[block.id];
+                          const Icon = meta.icon;
+                          const isFirst = idx === 0;
+                          const isLast = idx === layoutBlocks.length - 1;
+
+                          return (
+                            <div
+                              key={block.id}
+                              className={`border rounded-xl p-2.5 transition-all ${
+                                block.enabled
+                                  ? 'bg-white border-slate-200/90 shadow-2xs'
+                                  : 'bg-slate-50/70 border-slate-200/50 opacity-60'
+                              }`}
+                            >
+                              {/* Header: Visibility checkbox, block icon & title, Up/Down reorder arrows */}
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={block.enabled}
+                                    onChange={(e) => handleToggleBlockEnabled(block.id, e.target.checked)}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs truncate">
+                                    <Icon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                    <span className="truncate">{meta.label}</span>
+                                  </div>
+                                </label>
+
+                                {/* Up / Down Reorder buttons */}
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={isFirst}
+                                    onClick={() => handleMoveBlock(idx, 'up')}
+                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                    title="Move Up"
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isLast}
+                                    onClick={() => handleMoveBlock(idx, 'down')}
+                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                    title="Move Down"
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {block.enabled && (
+                                <div className="space-y-2 pt-2 border-t border-slate-100 mt-2">
+                                  {/* 3-Way Placement: Left (50%) | Full (100%) | Right (50%) */}
+                                  <div>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
+                                      <span>Placement</span>
+                                      <span className="font-mono text-slate-400 capitalize">{block.placement} width</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[
+                                        { id: 'left', label: 'Left (50%)' },
+                                        { id: 'full', label: 'Full (100%)' },
+                                        { id: 'right', label: 'Right (50%)' }
+                                      ].map((p) => {
+                                        const isSelected = block.placement === p.id;
+                                        return (
+                                          <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => handleSetBlockPlacement(block.id, p.id as any)}
+                                            className={`py-1 px-1 rounded text-[10px] font-medium transition text-center cursor-pointer ${
+                                              isSelected
+                                                ? 'bg-blue-600 text-white font-semibold shadow-2xs'
+                                                : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                            }`}
+                                          >
+                                            {p.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {/* Per-Module Style: Framed vs Minimal */}
+                                  <div>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
+                                      <span>Style</span>
+                                      <span className="font-mono text-slate-400 capitalize">{block.style}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-1">
+                                      {[
+                                        { id: 'framed', label: 'Framed' },
+                                        { id: 'minimal', label: 'Minimal' }
+                                      ].map((s) => {
+                                        const isSelected = block.style === s.id;
+                                        return (
+                                          <button
+                                            key={s.id}
+                                            type="button"
+                                            onClick={() => handleSetBlockStyle(block.id, s.id as any)}
+                                            className={`py-1 px-2 rounded text-[10px] font-medium transition text-center cursor-pointer ${
+                                              isSelected
+                                                ? 'bg-slate-800 text-white font-semibold shadow-2xs'
+                                                : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                            }`}
+                                          >
+                                            {s.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1511,6 +1684,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   signatoryName={signatoryName}
                   signatoryTitle={signatoryTitle}
                   blockStyle={blockStyle}
+                  layoutBlocks={layoutBlocks}
                 />
               </div>
             </div>
@@ -1598,6 +1772,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             signatoryName={signatoryName}
             signatoryTitle={signatoryTitle}
             blockStyle={blockStyle}
+            layoutBlocks={layoutBlocks}
           />
         </div>,
         document.body
