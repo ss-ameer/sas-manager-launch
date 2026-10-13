@@ -140,6 +140,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [signatureStyle, setSignatureStyle] = useState<QuotationSignatureStyle>(
     editingQuotation?.signature_style || profile?.signature_style || 'script'
   );
+  const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
+    editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
+  );
 
   // Template Preset Saving Modal
   const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState<boolean>(false);
@@ -447,6 +450,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.signatory_type) setSignatoryType(preset.signatory_type);
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
+    if (preset.block_style) setBlockStyle(preset.block_style);
     if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
     if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
@@ -608,6 +612,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_name: secondarySignatoryName,
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
+      block_style: blockStyle,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -642,7 +647,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     signatoryTitle,
     secondarySignatoryName,
     secondarySignatoryTitle,
-    signatureStyle
+    signatureStyle,
+    blockStyle
   ]);
 
   // Handle Save (Draft or Issued)
@@ -691,6 +697,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_name: secondarySignatoryName,
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
+        block_style: blockStyle,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -764,7 +771,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_name: secondarySignatoryName,
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
-        logo_position: logoPosition
+        logo_position: logoPosition,
+        block_style: blockStyle
       };
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -927,6 +935,36 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             >
                               <span>{d.label}</span>
                               <span className="text-[10px] text-slate-400 font-normal">{d.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Presentation Layout Style (Framed vs Minimal) */}
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1.5">
+                        Presentation Layout Style
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'framed', label: 'Framed', desc: 'Unified cards & boxes' },
+                          { id: 'minimal', label: 'Minimal', desc: 'Clean hairline dividers' }
+                        ].map((b) => {
+                          const isSelected = blockStyle === b.id;
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setBlockStyle(b.id as 'framed' | 'minimal')}
+                              className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="font-medium">{b.label}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">{b.desc}</span>
                             </button>
                           );
                         })}
@@ -1472,6 +1510,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   user={user}
                   signatoryName={signatoryName}
                   signatoryTitle={signatoryTitle}
+                  blockStyle={blockStyle}
                 />
               </div>
             </div>
@@ -1500,7 +1539,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             <p className="text-xs text-slate-600 leading-relaxed">
               Save your current layout (<strong className="capitalize">{headerLayout.replace('_', ' ')}</strong>),
               density (<strong className="capitalize">{tableDensity}</strong>), color theme (<strong className="capitalize">{themeAccent}</strong>),
-              and section toggles as a reusable preset across your workspace.
+              style (<strong className="capitalize">{blockStyle}</strong>), and section toggles as a reusable preset across your workspace.
             </p>
 
             <div>
@@ -1558,6 +1597,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             user={user}
             signatoryName={signatoryName}
             signatoryTitle={signatoryTitle}
+            blockStyle={blockStyle}
           />
         </div>,
         document.body

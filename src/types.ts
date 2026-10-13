@@ -1055,6 +1055,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
   logo_position?: QuotationLogoPosition;
+  block_style?: 'framed' | 'minimal';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1111,6 +1112,7 @@ export interface Quotation extends SoftDeleteFields {
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
+  block_style?: 'framed' | 'minimal';
   pdf_storage_path?: string;
   pdf_download_url?: string;
   created_at: string;

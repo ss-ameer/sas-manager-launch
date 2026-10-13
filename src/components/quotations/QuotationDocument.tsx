@@ -100,6 +100,7 @@ export interface QuotationDocumentProps {
   signatoryTitle?: string;
   enquiry?: any;
   salesRepName?: string;
+  blockStyle?: 'framed' | 'minimal';
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -113,10 +114,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   signatoryName,
   signatoryTitle,
   enquiry,
-  salesRepName
+  salesRepName,
+  blockStyle = 'framed'
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
+
+  // Resolve presentation theme & block style
+  const resolvedBlockStyle: 'framed' | 'minimal' =
+    blockStyle ||
+    quotation.block_style ||
+    (quotation as any).presentation_preset?.block_style ||
+    'framed';
+  const isMinimal = resolvedBlockStyle === 'minimal';
 
   // Resolve theme accent
   const activeThemeKey: QuotationThemeAccent =
@@ -365,11 +375,23 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             box-shadow: none !important;
             border: none !important;
             margin: 0 auto !important;
-            padding: 12mm !important;
+            padding: 12mm 12mm 18mm 12mm !important;
             width: 210mm !important;
             min-width: 210mm !important;
             max-width: none !important;
             box-sizing: border-box !important;
+          }
+          .document-print-footer {
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            padding-top: 4px !important;
+            padding-bottom: 4px !important;
+            border-top: 1px solid #e2e8f0 !important;
+            z-index: 9999 !important;
           }
           .quotation-print-sheet table,
           .quotation-print-sheet .terms-card,
@@ -411,7 +433,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
       {/* Decoupled A4 Page Sheet */}
       <article
-        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:min-w-[210mm] print:max-w-none print:h-auto print:min-h-0 print:m-0 print:p-[12mm] print:box-border print:shadow-none print:border-none"
+        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:min-w-[210mm] print:max-w-none print:h-auto print:min-h-0 print:m-0 print:p-[12mm] print:pb-[18mm] print:box-border print:shadow-none print:border-none"
         style={{
           boxSizing: 'border-box'
         }}
@@ -1075,8 +1097,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                         {item.quantity}
                       </td>
-                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top font-medium`}>
-                        <span className="truncate block px-1 text-center" title={item.unit || 'pcs'}>
+                      <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
+                        <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
                           {item.unit || 'pcs'}
                         </span>
                       </td>
@@ -1120,46 +1142,52 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
            ======================================================== */}
         <section className="my-3 break-inside-avoid w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
           <div
-            className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 items-start w-full grid-print-2col"
+            className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 items-stretch w-full grid-print-2col"
             style={{ width: '100%', maxWidth: '100%' }}
           >
             {/* Left Column: Commercial & Delivery Terms + Remittance Bank Details */}
-            <div className="space-y-3.5 w-full">
+            <div className={`flex flex-col justify-between h-full ${isMinimal ? 'space-y-4' : 'space-y-3.5'} w-full`}>
               {/* Commercial Terms & Conditions */}
               {resolvedShowCommercialTerms && (
                 <div
-                  className="terms-card bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-2 w-full break-inside-avoid"
+                  className={`terms-card ${
+                    isMinimal
+                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
+                      : 'bg-slate-50 border border-slate-200/80 rounded-xl p-3.5'
+                  } text-xs space-y-2 w-full break-inside-avoid flex-1 flex flex-col justify-between`}
                   style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
                 >
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
-                    <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                    Commercial Terms & Conditions
-                  </div>
-                  <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed">
-                    {quotation.applied_terms ? (
-                      <div className="whitespace-pre-line text-slate-600">
-                        {quotation.applied_terms}
-                      </div>
-                    ) : (
-                      <>
-                        <p className="flex justify-between">
-                          <span className="font-semibold text-slate-500">Price Basis:</span>
-                          <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span className="font-semibold text-slate-500">Payment Terms:</span>
-                          <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span className="font-semibold text-slate-500">Validity:</span>
-                          <span className="text-slate-800 font-medium">
-                            {quotation.valid_until
-                              ? `Valid until ${formatDate(quotation.valid_until)}`
-                              : '30 Days from date of offer'}
-                          </span>
-                        </p>
-                      </>
-                    )}
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
+                      <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                      Commercial Terms & Conditions
+                    </div>
+                    <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed mt-2">
+                      {quotation.applied_terms ? (
+                        <div className="whitespace-pre-line text-slate-600">
+                          {quotation.applied_terms}
+                        </div>
+                      ) : (
+                        <>
+                          <p className="flex justify-between">
+                            <span className="font-semibold text-slate-500">Price Basis:</span>
+                            <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="font-semibold text-slate-500">Payment Terms:</span>
+                            <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="font-semibold text-slate-500">Validity:</span>
+                            <span className="text-slate-800 font-medium">
+                              {quotation.valid_until
+                                ? `Valid until ${formatDate(quotation.valid_until)}`
+                                : '30 Days from date of offer'}
+                            </span>
+                          </p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1167,7 +1195,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {/* Remittance Bank Accounts */}
               {resolvedShowBankDetails && bankAccount ? (
                 <div
-                  className="remittance-card bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1 w-full break-inside-avoid"
+                  className={`remittance-card ${
+                    isMinimal
+                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
+                      : 'bg-slate-50 border border-slate-200/80 rounded-xl p-3.5'
+                  } space-y-1 w-full break-inside-avoid shrink-0`}
                   style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
                 >
                   <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] mb-1">
@@ -1215,7 +1247,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
               ) : resolvedShowBankDetails ? (
                 <div
-                  className="remittance-card text-[11px] text-slate-500 italic p-2 bg-slate-50/50 rounded-lg border border-slate-200/60 break-inside-avoid"
+                  className={`remittance-card text-[11px] text-slate-500 italic p-2 ${
+                    isMinimal
+                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2 shadow-none'
+                      : 'bg-slate-50/50 rounded-lg border border-slate-200/60'
+                  } break-inside-avoid shrink-0`}
                   style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
                 >
                   Thank you for your business. Please contact us for electronic wire instructions.
@@ -1224,10 +1260,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
 
             {/* Right Column: Financial Totals Block + Signatory & Seal Authorization Card */}
-            <div className="space-y-3.5 w-full">
+            <div className={`flex flex-col justify-between h-full ${isMinimal ? 'space-y-4' : 'space-y-3.5'} w-full`}>
               {/* Financial Totals Block */}
               <div
-                className="totals-card bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs text-xs space-y-1.5 w-full break-inside-avoid"
+                className={`totals-card ${
+                  isMinimal
+                    ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
+                    : 'bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs'
+                } text-xs space-y-1.5 w-full break-inside-avoid shrink-0`}
                 style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
               >
                 <div className="flex justify-between text-slate-600 py-0.5">
@@ -1306,7 +1346,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {/* Signatory & Seal Authorization Card */}
               {showStampAndSignatures && (
                 <div
-                  className="signatory-card bg-slate-50/60 border border-slate-200/80 rounded-xl p-3 flex flex-col justify-end w-full break-inside-avoid"
+                  className={`signatory-card ${
+                    isMinimal
+                      ? 'bg-transparent border-0 border-t border-slate-200 rounded-none p-0 pt-2.5 shadow-none'
+                      : 'bg-slate-50/60 border border-slate-200/80 rounded-xl p-3'
+                  } flex flex-col justify-end w-full break-inside-avoid flex-1`}
                   style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
                 >
                   <div className="flex items-center justify-end gap-5 w-full">
@@ -1367,7 +1411,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* Customer Acceptance Block */}
         {customerAcceptanceEnabled && (
           <div
-            className="acceptance-card my-2.5 p-2.5 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-xs break-inside-avoid w-full print:my-2"
+            className={`acceptance-card my-2.5 ${
+              isMinimal
+                ? 'p-0 pt-2.5 bg-transparent rounded-none border-0 border-t border-slate-200'
+                : 'p-2.5 bg-slate-50/80 rounded-xl border border-dashed border-slate-300'
+            } text-xs break-inside-avoid w-full print:my-2`}
             style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
           >
             <div className="flex items-center justify-between pb-1 border-b border-slate-200">
@@ -1406,8 +1454,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             DOCUMENT SYSTEM MICRO-FOOTER WATERMARK
            ======================================================== */}
-        <footer className="mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[9px]" style={{ width: '100%', maxWidth: '100%' }}>
+        <footer className="document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0" style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px] print:px-[12mm]" style={{ width: '100%', maxWidth: '100%' }}>
             <span className="flex items-center gap-1.5 flex-wrap">
               <span>Omni Suite Commercial Engine</span>
               <span>•</span>
