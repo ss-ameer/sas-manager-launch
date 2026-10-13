@@ -1033,6 +1033,8 @@ export interface QuotationBlockConfig {
   enabled: boolean;
   placement: 'left' | 'right' | 'full'; // 'left' = col-start-1 col-span-1, 'right' = col-start-2 col-span-1, 'full' = col-span-2
   style: 'framed' | 'minimal';
+  fontScale?: 'compact' | 'standard' | 'prominent'; // compact = 9px base, standard = 10px base, prominent = 11px base
+  padding?: 'compact' | 'standard'; // compact = p-2, standard = p-3
 }
 
 export interface QuotationLayoutSettings {

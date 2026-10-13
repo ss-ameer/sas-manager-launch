@@ -156,13 +156,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
   );
   const [layoutBlocks, setLayoutBlocks] = useState<QuotationBlockConfig[]>(() => {
+    let raw = DEFAULT_QUOTATION_BLOCKS;
     if (editingQuotation?.layout_blocks && editingQuotation.layout_blocks.length > 0) {
-      return editingQuotation.layout_blocks;
+      raw = editingQuotation.layout_blocks;
+    } else if ((editingQuotation as any)?.presentation_preset?.layout_blocks && (editingQuotation as any).presentation_preset.layout_blocks.length > 0) {
+      raw = (editingQuotation as any).presentation_preset.layout_blocks;
     }
-    if ((editingQuotation as any)?.presentation_preset?.layout_blocks && (editingQuotation as any).presentation_preset.layout_blocks.length > 0) {
-      return (editingQuotation as any).presentation_preset.layout_blocks;
-    }
-    return DEFAULT_QUOTATION_BLOCKS;
+    return raw.map((b) => ({
+      ...b,
+      fontScale: b.fontScale || 'standard',
+      padding: b.padding || 'standard'
+    }));
   });
 
   const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
@@ -184,6 +188,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const handleSetBlockStyle = (id: QuotationBlockId, style: 'framed' | 'minimal') => {
     setLayoutBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, style } : b))
+    );
+  };
+
+  const handleSetBlockFontScale = (id: QuotationBlockId, fontScale: 'compact' | 'standard' | 'prominent') => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, fontScale } : b))
+    );
+  };
+
+  const handleSetBlockPadding = (id: QuotationBlockId, padding: 'compact' | 'standard') => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, padding } : b))
     );
   };
 
@@ -511,7 +527,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.block_style) setBlockStyle(preset.block_style);
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
-      setLayoutBlocks(preset.layout_blocks);
+      setLayoutBlocks(
+        preset.layout_blocks.map((b) => ({
+          ...b,
+          fontScale: b.fontScale || 'standard',
+          padding: b.padding || 'standard'
+        }))
+      );
     }
     if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
@@ -1168,6 +1190,72 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                           </button>
                                         );
                                       })}
+                                    </div>
+                                  </div>
+
+                                  {/* Typography Scaling & Padding Controls */}
+                                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100">
+                                    {/* Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
+                                    <div>
+                                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
+                                        <span>Font Size</span>
+                                        <span className="font-mono text-slate-400 capitalize">{block.fontScale || 'standard'}</span>
+                                      </div>
+                                      <div className="grid grid-cols-3 gap-0.5">
+                                        {[
+                                          { id: 'compact', label: '9px', tip: 'Compact' },
+                                          { id: 'standard', label: '10px', tip: 'Standard' },
+                                          { id: 'prominent', label: '11px', tip: 'Large' }
+                                        ].map((f) => {
+                                          const isSelected = (block.fontScale || 'standard') === f.id;
+                                          return (
+                                            <button
+                                              key={f.id}
+                                              type="button"
+                                              title={f.tip}
+                                              onClick={() => handleSetBlockFontScale(block.id, f.id as any)}
+                                              className={`py-1 px-0.5 rounded text-[9.5px] font-medium transition text-center cursor-pointer ${
+                                                isSelected
+                                                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
+                                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                              }`}
+                                            >
+                                              {f.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {/* Container Padding: Compact (p-2) / Standard (p-3) */}
+                                    <div>
+                                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
+                                        <span>Padding</span>
+                                        <span className="font-mono text-slate-400 capitalize">{block.padding || 'standard'}</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-1">
+                                        {[
+                                          { id: 'compact', label: 'p-2', tip: 'Compact' },
+                                          { id: 'standard', label: 'p-3', tip: 'Standard' }
+                                        ].map((p) => {
+                                          const isSelected = (block.padding || 'standard') === p.id;
+                                          return (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              title={p.tip}
+                                              onClick={() => handleSetBlockPadding(block.id, p.id as any)}
+                                              className={`py-1 px-1 rounded text-[9.5px] font-medium transition text-center cursor-pointer ${
+                                                isSelected
+                                                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
+                                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                              }`}
+                                            >
+                                              {p.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>

@@ -91,11 +91,11 @@ export const QUOTATION_THEMES: Record<
 };
 
 export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
-  { id: 'terms', enabled: true, placement: 'left', style: 'framed' },
-  { id: 'totals', enabled: true, placement: 'right', style: 'framed' },
-  { id: 'remittance', enabled: true, placement: 'left', style: 'framed' },
-  { id: 'signatory', enabled: true, placement: 'right', style: 'framed' },
-  { id: 'acceptance', enabled: true, placement: 'full', style: 'framed' }
+  { id: 'terms', enabled: true, placement: 'left', style: 'framed', fontScale: 'standard', padding: 'standard' },
+  { id: 'totals', enabled: true, placement: 'right', style: 'framed', fontScale: 'standard', padding: 'standard' },
+  { id: 'remittance', enabled: true, placement: 'left', style: 'framed', fontScale: 'standard', padding: 'standard' },
+  { id: 'signatory', enabled: true, placement: 'right', style: 'framed', fontScale: 'standard', padding: 'standard' },
+  { id: 'acceptance', enabled: true, placement: 'full', style: 'framed', fontScale: 'standard', padding: 'standard' }
 ];
 
 export interface QuotationDocumentProps {
@@ -151,7 +151,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     return raw.map((b) => ({
       ...b,
       // If block has its own style, use it; otherwise fall back to global resolvedBlockStyle
-      style: b.style || resolvedBlockStyle
+      style: b.style || resolvedBlockStyle,
+      fontScale: b.fontScale || 'standard',
+      padding: b.padding || 'standard'
     }));
   }, [layoutBlocks, quotation.layout_blocks, (quotation as any).presentation_preset?.layout_blocks, resolvedBlockStyle]);
 
@@ -1176,11 +1178,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const renderTermsBlock = () => (
             <div className="flex-1 flex flex-col justify-between w-full">
               <div>
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
                   <FileCheck className="w-3.5 h-3.5 text-slate-500" />
                   Commercial Terms & Conditions
                 </div>
-                <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed mt-2">
+                <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
                   {quotation.applied_terms ? (
                     <div className="whitespace-pre-line text-slate-600">
                       {quotation.applied_terms}
@@ -1211,9 +1213,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           );
 
           const renderTotalsBlock = () => (
-            <div className="flex-1 text-xs space-y-1.5 w-full flex flex-col justify-between">
+            <div className="flex-1 space-y-1.5 w-full flex flex-col justify-between">
               <div className="space-y-1.5 w-full">
-                <div className="flex justify-between text-slate-600 py-0.5">
+                <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
                   <span>Subtotal:</span>
                   <span className="font-mono font-semibold text-slate-800">
                     {formatCurrency(quotation.subtotal)}
@@ -1221,7 +1223,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
 
                 {Number(quotation.freight_amount) > 0 && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100">
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
                     <span>Freight / Logistics:</span>
                     <span className="font-mono font-semibold text-slate-800">
                       {formatCurrency(quotation.freight_amount)}
@@ -1231,7 +1233,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                 {/* Tax Mode Display */}
                 {quotation.tax_mode === 'tax_calculated' && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100">
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
                     <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
                     <span className="font-mono font-semibold text-slate-800">
                       {formatCurrency(quotation.tax_amount)}
@@ -1240,23 +1242,23 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 )}
 
                 {quotation.tax_mode === 'taxes_extra' && (
-                  <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5">
+                  <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5 text-[var(--block-base)]">
                     <div className="flex justify-between">
                       <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
                       <span className="font-mono font-semibold text-slate-800">
                         {formatCurrency(quotation.tax_amount)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-amber-700 italic">
+                    <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 italic">
                       * Taxes EXTRA to client account as applicable
                     </p>
                   </div>
                 )}
 
                 {quotation.tax_mode === 'tax_exempt' && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center">
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center text-[var(--block-base)]">
                     <span>Tax Status:</span>
-                    <span className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                    <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
                       Tax Exempt (0%)
                     </span>
                   </div>
@@ -1264,11 +1266,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                 {/* Grand Total */}
                 <div
-                  className="flex justify-between items-center pt-2 mt-1 border-t-2 text-sm font-extrabold"
+                  className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
                   style={{ borderColor: accentColor }}
                 >
-                  <span className="text-slate-900 uppercase tracking-tight">Grand Total:</span>
-                  <span className="font-mono text-base font-bold" style={{ color: accentColor }}>
+                  <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
+                  <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: accentColor }}>
                     {formatCurrency(quotation.grand_total)}
                   </span>
                 </div>
@@ -1276,11 +1278,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
               {/* Amount in Words */}
               {amountInWordsEnabled && (
-                <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10.5px] leading-tight">
-                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                <div className="mt-2 pt-1.5 border-t border-slate-100 leading-tight">
+                  <span className="text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
                     Amount in Words
                   </span>
-                  <p className="font-medium text-slate-800 italic">
+                  <p className="font-medium text-slate-800 italic text-[var(--block-base)]">
                     {formatAmountInWords(quotation.grand_total, currency)}
                   </p>
                 </div>
@@ -1291,12 +1293,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const renderRemittanceBlock = () => (
             <div className="flex-1 flex flex-col justify-between w-full">
               <div>
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] mb-1 pb-1 border-b border-slate-200/80">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] mb-1 pb-1 border-b border-slate-200/80">
                   <Landmark className="w-3.5 h-3.5 text-slate-500" />
                   Bank Remittance Details
                 </div>
                 {bankAccount ? (
-                  <div className="text-[10.5px] text-slate-700 space-y-0.5 mt-1.5">
+                  <div className="text-[var(--block-base)] text-slate-700 space-y-0.5 mt-1.5">
                     <p>
                       <span className="text-slate-500">Bank:</span>{' '}
                       <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
@@ -1335,7 +1337,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     )}
                   </div>
                 ) : (
-                  <div className="text-[11px] text-slate-500 italic p-2 mt-1">
+                  <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
                     Thank you for your business. Please contact us for electronic wire instructions.
                   </div>
                 )}
@@ -1357,7 +1359,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         e.currentTarget.style.display = 'none';
                       }}
                     />
-                    <span className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">
+                    <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
                       Company Seal
                     </span>
                   </div>
@@ -1379,7 +1381,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             {sig.name}
                           </span>
                         ) : signatureStyle === 'image' ? (
-                          <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[9px] text-slate-400 italic">
+                          <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
                             Digital Signature
                           </div>
                         ) : (
@@ -1388,8 +1390,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         )}
                       </div>
                       <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                      <p className="font-bold text-slate-800 text-xs leading-tight">{sig.name}</p>
-                      <p className="text-[10px] text-slate-500 leading-tight">{sig.title}</p>
+                      <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
+                      <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
                     </div>
                   ))}
                 </div>
@@ -1401,56 +1403,56 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <div className="w-full flex-1 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-                  <span className="font-bold text-slate-800 text-[10.5px] uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5">
                     <FileCheck className="w-3.5 h-3.5 text-slate-600" />
                     Customer Acceptance & Confirmation
                   </span>
-                  <span className="text-[9.5px] text-slate-400 italic">
+                  <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
                     Sign & Return Copy with Purchase Order
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-600 my-1 leading-snug">
+                <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
                   We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
                 </p>
               </div>
 
               {placement === 'full' ? (
                 /* Standard 4-column layout for full width */
-                <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[10px]">
+                <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[var(--block-base)]">
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
                     <div className="h-5 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
                     <div className="h-5 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
                     <div className="h-5 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
                     <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
                   </div>
                 </div>
               ) : (
                 /* Adaptive 2x2 grid for 50% left/right placement */
-                <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[10px]">
+                <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[var(--block-base)]">
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
                     <div className="h-4 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
                     <div className="h-4 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
                     <div className="h-4 border-b border-slate-300 mt-1" />
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
                     <div className="h-4 border-b border-slate-300 border-dotted mt-1" />
                   </div>
                 </div>
@@ -1543,10 +1545,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 style={{ width: '100%', maxWidth: '100%' }}
               >
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
+                  const baseFontSize = b.fontScale === 'compact' ? '9px' : b.fontScale === 'prominent' ? '11px' : '10px';
+                  const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
                   const cardStyleClass =
                     b.style === 'minimal'
-                      ? 'p-3 rounded-lg border border-transparent bg-transparent h-full flex flex-col justify-between'
-                      : 'p-3 rounded-lg border border-slate-200 bg-slate-50/50 h-full flex flex-col justify-between';
+                      ? `${padClass} rounded-lg border border-transparent bg-transparent h-full flex flex-col justify-between`
+                      : `${padClass} rounded-lg border border-slate-200 bg-slate-50/50 h-full flex flex-col justify-between`;
 
                   return (
                     <div
@@ -1560,7 +1564,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         gridColumnEnd
                       }}
                     >
-                      <div className={cardStyleClass}>
+                      <div
+                        className={cardStyleClass}
+                        style={{
+                          ['--block-base' as any]: baseFontSize,
+                          fontSize: 'var(--block-base)'
+                        }}
+                      >
                         {b.id === 'terms' && renderTermsBlock()}
                         {b.id === 'totals' && renderTotalsBlock()}
                         {b.id === 'remittance' && renderRemittanceBlock()}
