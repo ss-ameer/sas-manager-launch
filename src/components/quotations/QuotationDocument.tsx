@@ -898,14 +898,22 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         )}
 
         {/* ========================================================
-            ITEMIZED TABLE
+            ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD)
            ======================================================== */}
         <section className="flex-1 my-2 w-full" style={{ width: '100%', maxWidth: '100%' }}>
           <div className="rounded-lg border border-slate-200 overflow-hidden w-full" style={{ width: '100%', maxWidth: '100%' }}>
             <table
-              className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}
+              className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
               style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
             >
+              <colgroup>
+                <col style={{ width: '5%' }} />  {/* # */}
+                <col style={{ width: '52%' }} /> {/* DESCRIPTION & TECHNICAL SPECIFICATIONS */}
+                <col style={{ width: '7%' }} />  {/* QTY */}
+                <col style={{ width: '10%' }} /> {/* UOM */}
+                <col style={{ width: '12%' }} /> {/* UNIT PRICE */}
+                <col style={{ width: '14%' }} /> {/* TOTAL */}
+              </colgroup>
               <thead style={{ display: 'table-header-group' }}>
                 <tr
                   className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
@@ -917,62 +925,32 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   }}
                 >
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-10 text-center`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
                   >
                     #
                   </th>
                   <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 w-auto text-left`}
+                    className={`${thPad} px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-left`}
                   >
-                    Description
+                    Description & Technical Specifications
                   </th>
-                  {showBrand && (
-                    <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
-                    >
-                      Brand
-                    </th>
-                  )}
-                  {showModel && (
-                    <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
-                    >
-                      Model
-                    </th>
-                  )}
-                  {showOrigin && (
-                    <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
-                    >
-                      Origin
-                    </th>
-                  )}
-                  {showAvailability && (
-                    <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
-                    >
-                      Delivery
-                    </th>
-                  )}
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-14 text-center font-mono`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center font-mono`}
                   >
                     Qty
                   </th>
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-24 text-center`}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
                   >
                     UOM
                   </th>
-                  {showUnitPrice && (
-                    <th
-                      className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-28 text-right`}
-                    >
-                      Unit Price
-                    </th>
-                  )}
                   <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-28 text-right`}
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right`}
+                  >
+                    Unit Price
+                  </th>
+                  <th
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right`}
                   >
                     Total ({currency})
                   </th>
@@ -990,10 +968,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       }`}
                       style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
                     >
-                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap w-10`}>
+                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
                         {idx + 1}
                       </td>
-                      <td className={`${tdPad} px-2.5 align-top break-words w-auto`}>
+                      <td className={`${tdPad} px-2.5 align-top break-words`}>
                         <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
                           <span>{item.item_name || 'Standard Line Item'}</span>
                           {item.is_optional && (
@@ -1007,8 +985,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             {item.description}
                           </div>
                         )}
-                        {/* Line Item Specification Pills */}
+                        {/* Technical Specifications Metadata Block */}
                         {(() => {
+                          const specsList: Array<{ label: string; value: string }> = [];
+
+                          if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+                            specsList.push({ label: 'Brand', value: item.brand_make.trim() });
+                          }
+                          if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+                            specsList.push({ label: 'Model', value: item.model_part_no.trim() });
+                          }
+                          if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+                            specsList.push({ label: 'Origin', value: item.country_of_origin.trim() });
+                          }
+                          if (showAvailability && item.availability && item.availability.trim()) {
+                            specsList.push({ label: 'Delivery', value: item.availability.trim() });
+                          }
+
+                          // Custom attributes / specifications
                           const rawAttrs: Array<{ key: string; value: string }> = [];
                           const itemAny = item as any;
 
@@ -1054,65 +1048,45 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             });
                           }
 
-                          const uniqueAttrs = rawAttrs.filter(
-                            (attr, i, self) =>
-                              i === self.findIndex((a) => a.key.toLowerCase() === attr.key.toLowerCase())
-                          );
+                          rawAttrs.forEach((attr) => {
+                            const kLower = attr.key.toLowerCase();
+                            if (!specsList.some((s) => s.label.toLowerCase() === kLower)) {
+                              specsList.push({ label: attr.key, value: attr.value });
+                            }
+                          });
 
-                          if (uniqueAttrs.length === 0) return null;
+                          if (specsList.length === 0) return null;
 
                           return (
-                            <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                              {uniqueAttrs.map((attr, aIdx) => (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              {specsList.map((spec, sIdx) => (
                                 <span
-                                  key={aIdx}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700 font-mono border border-slate-200"
+                                  key={sIdx}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-50 text-slate-800 font-mono border border-slate-200/80"
                                 >
-                                  <span className="font-semibold text-slate-500">{attr.key}:</span>
-                                  <span>{attr.value}</span>
+                                  <span className="font-semibold text-slate-500 uppercase tracking-tight text-[9px]">{spec.label}:</span>
+                                  <span className="font-medium text-slate-800">{spec.value}</span>
                                 </span>
                               ))}
                             </div>
                           );
                         })()}
                       </td>
-                      {showBrand && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize} w-20`}>
-                          {item.brand_make || '—'}
-                        </td>
-                      )}
-                      {showModel && (
-                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-700 align-top break-words leading-snug ${tableFontSize} w-20`}>
-                          {item.model_part_no || '—'}
-                        </td>
-                      )}
-                      {showOrigin && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize} w-20`}>
-                          {item.country_of_origin || '—'}
-                        </td>
-                      )}
-                      {showAvailability && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize} w-20`}>
-                          {item.availability || 'Ex-Stock'}
-                        </td>
-                      )}
-                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap w-14`}>
+                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                         {item.quantity}
                       </td>
-                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top w-24`}>
-                        <span className="truncate block px-1 text-center font-medium" title={item.unit || 'pcs'}>
+                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top font-medium`}>
+                        <span className="truncate block px-1 text-center" title={item.unit || 'pcs'}>
                           {item.unit || 'pcs'}
                         </span>
                       </td>
-                      {showUnitPrice && (
-                        <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap w-28`}>
-                          {Number(item.unit_price || 0).toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </td>
-                      )}
-                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap w-28`}>
+                      <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                        {Number(item.unit_price || 0).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </td>
+                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
                         {item.is_optional ? (
                           <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
                             [Excluded]
@@ -1129,7 +1103,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 ) : (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={6}
                       className="py-8 text-center text-slate-400 italic"
                     >
                       No line items specified for this offer.
