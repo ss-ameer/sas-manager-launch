@@ -98,6 +98,8 @@ export interface QuotationDocumentProps {
   user?: { displayName?: string; name?: string; email?: string } | null;
   signatoryName?: string;
   signatoryTitle?: string;
+  enquiry?: any;
+  salesRepName?: string;
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -109,7 +111,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   showStampAndSignatures = true,
   user,
   signatoryName,
-  signatoryTitle
+  signatoryTitle,
+  enquiry,
+  salesRepName
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
@@ -188,48 +192,22 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showAvailability = visibleColumns.availability ?? true;
   const showUnitPrice = visibleColumns.unit_price ?? true;
 
-  // Dynamic 100% Table Math & A4 Canvas Budget
-  // Mathematically guarantees the sum of all active columns is ALWAYS exactly 100%,
-  // while keeping total min-width (~545px) well within the 186mm A4 canvas (703px) to prevent print clipping.
+  // Dynamic Table Column Geometry & Predictable Allocation
   const colWidths = React.useMemo(() => {
-    const slPct = 4;
-    const qtyPct = 6;
-    const uomPct = 5;
-    const totalPct = 12;
-    const unitPricePct = showUnitPrice ? 11 : 0;
-    const brandPct = showBrand ? 7.5 : 0;
-    const modelPct = showModel ? 7.5 : 0;
-    const originPct = showOrigin ? 7.5 : 0;
-    const deliveryPct = showAvailability ? 7.5 : 0;
-
-    const otherColumnsSum =
-      slPct +
-      qtyPct +
-      uomPct +
-      totalPct +
-      unitPricePct +
-      brandPct +
-      modelPct +
-      originPct +
-      deliveryPct;
-
-    // Item & Description dynamically absorbs the exact remainder to lock the sum to 100%
-    const descPct = Math.round((100 - otherColumnsSum) * 10) / 10;
-
     return {
-      sl: { pct: slPct, style: { width: `${slPct}%` }, className: 'min-w-[24px]' },
-      desc: { pct: descPct, style: { width: `${descPct}%` }, className: 'min-w-[150px]' },
-      brand: { pct: brandPct, style: { width: `${brandPct}%` }, className: 'min-w-[55px]' },
-      model: { pct: modelPct, style: { width: `${modelPct}%` }, className: 'min-w-[55px]' },
-      origin: { pct: originPct, style: { width: `${originPct}%` }, className: 'min-w-[55px]' },
-      delivery: { pct: deliveryPct, style: { width: `${deliveryPct}%` }, className: 'min-w-[55px]' },
-      qty: { pct: qtyPct, style: { width: `${qtyPct}%` }, className: 'min-w-[34px]' },
-      uom: { pct: uomPct, style: { width: `${uomPct}%` }, className: 'min-w-[32px]' },
-      unit: { pct: uomPct, style: { width: `${uomPct}%` }, className: 'min-w-[32px]' },
-      unitPrice: { pct: unitPricePct, style: { width: `${unitPricePct}%` }, className: 'min-w-[65px]' },
-      total: { pct: totalPct, style: { width: `${totalPct}%` }, className: 'min-w-[70px]' }
+      sl: { className: 'w-10' },
+      desc: { className: 'w-auto' },
+      brand: { className: 'w-20' },
+      model: { className: 'w-20' },
+      origin: { className: 'w-20' },
+      delivery: { className: 'w-20' },
+      qty: { className: 'w-14' },
+      uom: { className: 'w-24' },
+      unit: { className: 'w-24' },
+      unitPrice: { className: 'w-28' },
+      total: { className: 'w-28' }
     };
-  }, [showBrand, showModel, showOrigin, showAvailability, showUnitPrice]);
+  }, []);
 
   // Resolve sender info from profile with fallback to quotation.sender_snapshot
   const senderEntityName =
@@ -258,29 +236,38 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
     const list: Array<{ name: string; title: string; signature_url?: string }> = [];
-    const isInitialsOrSS = (val?: string | null) => {
+
+    // Helper to detect unpopulated or initial-only values (e.g. "SS", "PV", or <= 3 chars all uppercase)
+    const isUnsetOrInitials = (val?: string | null): boolean => {
       if (!val) return true;
       const trimmed = val.trim();
-      return !trimmed || trimmed === 'SS' || /^[A-Z]{2,3}$/.test(trimmed);
+      return !trimmed || trimmed === 'SS' || (trimmed.length <= 3 && trimmed === trimmed.toUpperCase());
     };
 
     const rawPName =
       signatoryName ||
       quotation.primary_signatory_name ||
-      quotation.signatories?.[0]?.name ||
-      profile?.primary_signatory_name;
+      quotation.signatories?.[0]?.name;
 
     let pName = rawPName;
-    if (isInitialsOrSS(pName)) {
-      if (profile?.primary_signatory_name && !isInitialsOrSS(profile.primary_signatory_name)) {
-        pName = profile.primary_signatory_name.trim();
-      } else if (user?.displayName && !isInitialsOrSS(user.displayName)) {
-        pName = user.displayName.trim();
-      } else if (user?.name && !isInitialsOrSS(user.name)) {
-        pName = user.name.trim();
-      } else {
-        pName = 'Syed Sibuma';
-      }
+
+    // If unset or initials only, resolve via 5-tier fallback hierarchy
+    if (isUnsetOrInitials(pName)) {
+      const candidates = [
+        salesRepName,
+        enquiry?.sales_representative,
+        enquiry?.salesperson,
+        enquiry?.assignedSalesperson,
+        enquiry?.sales_person,
+        (quotation as any)?.salesperson_name,
+        (quotation as any)?.assigned_to_name,
+        profile?.primary_signatory_name,
+        user?.displayName,
+        user?.name
+      ];
+
+      const match = candidates.find((c) => !isUnsetOrInitials(c));
+      pName = match ? match.trim() : (senderEntityName ? `${senderEntityName} Authorized Signatory` : 'Authorized Signatory');
     }
 
     const pTitle =
@@ -288,10 +275,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       quotation.primary_signatory_title ||
       quotation.signatories?.[0]?.designation ||
       profile?.primary_signatory_title ||
-      'Managing Director';
+      'Authorized Representative';
     const pUrl = quotation.signatories?.[0]?.signature_url;
 
-    list.push({ name: pName || 'Syed Sibuma', title: pTitle, signature_url: pUrl });
+    list.push({ name: pName || 'Authorized Signatory', title: pTitle, signature_url: pUrl });
 
     if (signatoryType === 'dual') {
       const sName =
@@ -311,6 +298,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   }, [
     signatoryName,
     signatoryTitle,
+    salesRepName,
+    enquiry?.sales_representative,
+    enquiry?.salesperson,
+    enquiry?.assignedSalesperson,
+    enquiry?.sales_person,
     user?.displayName,
     user?.name,
     quotation.primary_signatory_name,
@@ -318,10 +310,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     quotation.secondary_signatory_name,
     quotation.secondary_signatory_title,
     quotation.signatories,
+    (quotation as any)?.salesperson_name,
+    (quotation as any)?.assigned_to_name,
     profile?.primary_signatory_name,
     profile?.primary_signatory_title,
     profile?.secondary_signatory_name,
     profile?.secondary_signatory_title,
+    senderEntityName,
     signatoryType
   ]);
 
@@ -386,6 +381,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-print-sheet .header-flex-container {
             width: 100% !important;
             max-width: 100% !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tbody {
+            display: table-row-group !important;
+          }
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .break-inside-avoid,
+          .terms-card,
+          .remittance-card,
+          .totals-card,
+          .signatory-card,
+          .acceptance-card {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .grid-print-2col {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 1rem !important;
           }
         }
       `}</style>
@@ -887,87 +906,79 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               className={`w-full table-fixed text-left border-collapse ${tableFontSize}`}
               style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
             >
-              <thead>
+              <thead style={{ display: 'table-header-group' }}>
                 <tr
                   className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
                   style={{
                     backgroundColor: theme.subtleBg || '#f8fafc',
-                    borderColor: '#e2e8f0'
+                    borderColor: '#e2e8f0',
+                    breakInside: 'avoid',
+                    pageBreakInside: 'avoid'
                   }}
                 >
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.sl.className} text-center`}
-                    style={colWidths.sl.style}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-10 text-center`}
                   >
                     #
                   </th>
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.desc.className} text-left`}
-                    style={colWidths.desc.style}
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 w-auto text-left`}
                   >
                     Description
                   </th>
                   {showBrand && (
                     <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.brand.className} text-center`}
-                      style={colWidths.brand.style}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
                     >
                       Brand
                     </th>
                   )}
                   {showModel && (
                     <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.model.className} text-center`}
-                      style={colWidths.model.style}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
                     >
                       Model
                     </th>
                   )}
                   {showOrigin && (
                     <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.origin.className} text-center`}
-                      style={colWidths.origin.style}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
                     >
                       Origin
                     </th>
                   )}
                   {showAvailability && (
                     <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.delivery.className} text-center`}
-                      style={colWidths.delivery.style}
+                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-20 text-center`}
                     >
                       Delivery
                     </th>
                   )}
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.qty.className} text-center`}
-                    style={colWidths.qty.style}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-14 text-center font-mono`}
                   >
                     Qty
                   </th>
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.uom.className} text-center`}
-                    style={colWidths.uom.style}
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-24 text-center`}
                   >
                     UOM
                   </th>
                   {showUnitPrice && (
                     <th
-                      className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.unitPrice.className} text-right`}
-                      style={colWidths.unitPrice.style}
+                      className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-28 text-right`}
                     >
                       Unit Price
                     </th>
                   )}
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 ${colWidths.total.className} text-right`}
-                    style={colWidths.total.style}
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 overflow-hidden text-ellipsis whitespace-nowrap border-r border-slate-200 last:border-r-0 w-28 text-right`}
                   >
                     Total ({currency})
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200/80">
+              <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
                 {quotation.line_items?.length ? (
                   quotation.line_items.map((item, idx) => (
                     <tr
@@ -977,11 +988,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           ? 'bg-amber-50/50 hover:bg-amber-50'
                           : 'hover:bg-slate-50/60'
                       }`}
+                      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
                     >
-                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
+                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap w-10`}>
                         {idx + 1}
                       </td>
-                      <td className={`${tdPad} px-2.5 align-top break-words`}>
+                      <td className={`${tdPad} px-2.5 align-top break-words w-auto`}>
                         <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
                           <span>{item.item_name || 'Standard Line Item'}</span>
                           {item.is_optional && (
@@ -1065,44 +1077,42 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         })()}
                       </td>
                       {showBrand && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-700 font-medium align-top break-words leading-snug ${tableFontSize} w-20`}>
                           {item.brand_make || '—'}
                         </td>
                       )}
                       {showModel && (
-                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-700 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-700 align-top break-words leading-snug ${tableFontSize} w-20`}>
                           {item.model_part_no || '—'}
                         </td>
                       )}
                       {showOrigin && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize} w-20`}>
                           {item.country_of_origin || '—'}
                         </td>
                       )}
                       {showAvailability && (
-                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize}`}>
+                        <td className={`${tdPad} px-1.5 text-center text-slate-600 align-top break-words leading-snug ${tableFontSize} w-20`}>
                           {item.availability || 'Ex-Stock'}
                         </td>
                       )}
-                      <td className={`${tdPad} px-1 text-center font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap w-14`}>
                         {item.quantity}
                       </td>
-                      <td
-                        className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top whitespace-nowrap overflow-hidden text-ellipsis`}
-                        style={{ maxWidth: colWidths.uom?.style?.width || colWidths.unit?.style?.width || '5%' }}
-                        title={item.unit || 'pcs'}
-                      >
-                        {item.unit || 'pcs'}
+                      <td className={`${tdPad} px-1 text-center text-slate-600 uppercase ${tableFontSize} align-top w-24`}>
+                        <span className="truncate block px-1 text-center font-medium" title={item.unit || 'pcs'}>
+                          {item.unit || 'pcs'}
+                        </span>
                       </td>
                       {showUnitPrice && (
-                        <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} whitespace-nowrap`}>
+                        <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap w-28`}>
                           {Number(item.unit_price || 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
                         </td>
                       )}
-                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} whitespace-nowrap`}>
+                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap w-28`}>
                         {item.is_optional ? (
                           <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
                             [Excluded]
@@ -1132,134 +1142,248 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         </section>
 
         {/* ========================================================
-            COMMERCIAL TERMS & TOTALS SECTION
+            CONSOLIDATED COMMERCIAL & AUTHORIZATION SECTION (2-COLUMN MODULAR GRID)
            ======================================================== */}
-        <section className="my-4 break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%' }}>
+        <section className="my-3 break-inside-avoid w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
           <div
-            className={
-              resolvedShowCommercialTerms
-                ? 'grid grid-cols-1 md:grid-cols-12 gap-6 items-start w-full'
-                : 'flex justify-end w-full'
-            }
+            className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 items-start w-full grid-print-2col"
             style={{ width: '100%', maxWidth: '100%' }}
           >
-            {/* Left Column: Commercial & Delivery Terms */}
-            {resolvedShowCommercialTerms && (
-              <div
-                className="terms-card md:col-span-7 bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs space-y-2.5 w-full"
-                style={{ width: '100%', maxWidth: '100%' }}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[11px] pb-1 border-b border-slate-200">
-                  <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                  Commercial Terms & Conditions
+            {/* Left Column: Commercial & Delivery Terms + Remittance Bank Details */}
+            <div className="space-y-3.5 w-full">
+              {/* Commercial Terms & Conditions */}
+              {resolvedShowCommercialTerms && (
+                <div
+                  className="terms-card bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs space-y-2 w-full break-inside-avoid"
+                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] pb-1 border-b border-slate-200">
+                    <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                    Commercial Terms & Conditions
+                  </div>
+                  <div className="space-y-1 text-slate-700 text-[11px] leading-relaxed">
+                    {quotation.applied_terms ? (
+                      <div className="whitespace-pre-line text-slate-600">
+                        {quotation.applied_terms}
+                      </div>
+                    ) : (
+                      <>
+                        <p className="flex justify-between">
+                          <span className="font-semibold text-slate-500">Price Basis:</span>
+                          <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="font-semibold text-slate-500">Payment Terms:</span>
+                          <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="font-semibold text-slate-500">Validity:</span>
+                          <span className="text-slate-800 font-medium">
+                            {quotation.valid_until
+                              ? `Valid until ${formatDate(quotation.valid_until)}`
+                              : '30 Days from date of offer'}
+                          </span>
+                        </p>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="space-y-1.5 text-slate-700">
-                  {quotation.applied_terms ? (
-                    <div className="whitespace-pre-line leading-relaxed text-slate-600">
-                      {quotation.applied_terms}
-                    </div>
-                  ) : (
-                    <>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Price Basis:</span>
-                        <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
-                      </p>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Payment Terms:</span>
-                        <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
-                      </p>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Validity:</span>
-                        <span className="text-slate-800 font-medium">
-                          {quotation.valid_until
-                            ? `Valid until ${formatDate(quotation.valid_until)}`
-                            : '30 Days from date of offer'}
+              )}
+
+              {/* Remittance Bank Accounts */}
+              {resolvedShowBankDetails && bankAccount ? (
+                <div
+                  className="remittance-card bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1 w-full break-inside-avoid"
+                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[10.5px] mb-1">
+                    <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                    Bank Remittance Details
+                  </div>
+                  <div className="text-[10.5px] text-slate-700 space-y-0.5">
+                    <p>
+                      <span className="text-slate-500">Bank:</span>{' '}
+                      <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
+                    </p>
+                    <p>
+                      <span className="text-slate-500">Beneficiary:</span>{' '}
+                      <span className="font-medium text-slate-800">
+                        {bankAccount.account_name ||
+                          (bankAccount as any)?.beneficiary_name ||
+                          profile?.legal_entity_name ||
+                          (profile as any)?.company_legal_name ||
+                          senderEntityName}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="text-slate-500">Account No:</span>{' '}
+                      <span className="font-mono font-medium text-slate-900">
+                        {bankAccount.account_number}
+                      </span>
+                    </p>
+                    {bankAccount.iban && (
+                      <p>
+                        <span className="text-slate-500">IBAN:</span>{' '}
+                        <span className="font-mono font-bold text-slate-900">
+                          {bankAccount.iban}
                         </span>
                       </p>
-                    </>
-                  )}
+                    )}
+                    {bankAccount.swift_bic && (
+                      <p>
+                        <span className="text-slate-500">SWIFT / BIC:</span>{' '}
+                        <span className="font-mono font-semibold text-slate-900">
+                          {bankAccount.swift_bic}
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : resolvedShowBankDetails ? (
+                <div
+                  className="remittance-card text-[11px] text-slate-500 italic p-2 bg-slate-50/50 rounded-lg border border-slate-200/60 break-inside-avoid"
+                  style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                >
+                  Thank you for your business. Please contact us for electronic wire instructions.
+                </div>
+              ) : null}
+            </div>
 
-            {/* Right Column: Financial Totals Block */}
-            <div
-              className={
-                resolvedShowCommercialTerms
-                  ? 'md:col-span-5 bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-xs space-y-2 w-full'
-                  : 'w-full max-w-sm bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-xs space-y-2'
-              }
-              style={resolvedShowCommercialTerms ? { width: '100%', maxWidth: '100%' } : undefined}
-            >
-              <div className="flex justify-between text-slate-600 py-1">
-                <span>Subtotal:</span>
-                <span className="font-mono font-semibold text-slate-800">
-                  {formatCurrency(quotation.subtotal)}
-                </span>
-              </div>
-
-              {Number(quotation.freight_amount) > 0 && (
-                <div className="flex justify-between text-slate-600 py-1 border-t border-slate-100">
-                  <span>Freight / Logistics:</span>
+            {/* Right Column: Financial Totals Block + Signatory & Seal Authorization Card */}
+            <div className="space-y-3.5 w-full">
+              {/* Financial Totals Block */}
+              <div
+                className="totals-card bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs text-xs space-y-1.5 w-full break-inside-avoid"
+                style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+              >
+                <div className="flex justify-between text-slate-600 py-0.5">
+                  <span>Subtotal:</span>
                   <span className="font-mono font-semibold text-slate-800">
-                    {formatCurrency(quotation.freight_amount)}
+                    {formatCurrency(quotation.subtotal)}
                   </span>
                 </div>
-              )}
 
-              {/* Tax Mode Display */}
-              {quotation.tax_mode === 'tax_calculated' && (
-                <div className="flex justify-between text-slate-600 py-1 border-t border-slate-100">
-                  <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-                  <span className="font-mono font-semibold text-slate-800">
-                    {formatCurrency(quotation.tax_amount)}
-                  </span>
-                </div>
-              )}
+                {Number(quotation.freight_amount) > 0 && (
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100">
+                    <span>Freight / Logistics:</span>
+                    <span className="font-mono font-semibold text-slate-800">
+                      {formatCurrency(quotation.freight_amount)}
+                    </span>
+                  </div>
+                )}
 
-              {quotation.tax_mode === 'taxes_extra' && (
-                <div className="py-1 border-t border-slate-100 text-slate-600 space-y-0.5">
-                  <div className="flex justify-between">
+                {/* Tax Mode Display */}
+                {quotation.tax_mode === 'tax_calculated' && (
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100">
                     <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
                     <span className="font-mono font-semibold text-slate-800">
                       {formatCurrency(quotation.tax_amount)}
                     </span>
                   </div>
-                  <p className="text-[10px] text-amber-700 italic">
-                    * Taxes EXTRA to client account as applicable
-                  </p>
-                </div>
-              )}
+                )}
 
-              {quotation.tax_mode === 'tax_exempt' && (
-                <div className="flex justify-between text-slate-600 py-1 border-t border-slate-100 items-center">
-                  <span>Tax Status:</span>
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                    Tax Exempt (0%)
+                {quotation.tax_mode === 'taxes_extra' && (
+                  <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
+                      <span className="font-mono font-semibold text-slate-800">
+                        {formatCurrency(quotation.tax_amount)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-700 italic">
+                      * Taxes EXTRA to client account as applicable
+                    </p>
+                  </div>
+                )}
+
+                {quotation.tax_mode === 'tax_exempt' && (
+                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center">
+                    <span>Tax Status:</span>
+                    <span className="px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                      Tax Exempt (0%)
+                    </span>
+                  </div>
+                )}
+
+                {/* Grand Total */}
+                <div
+                  className="flex justify-between items-center pt-2 mt-1 border-t-2 text-sm font-extrabold"
+                  style={{ borderColor: accentColor }}
+                >
+                  <span className="text-slate-900 uppercase tracking-tight">Grand Total:</span>
+                  <span className="font-mono text-base font-bold" style={{ color: accentColor }}>
+                    {formatCurrency(quotation.grand_total)}
                   </span>
                 </div>
-              )}
 
-              {/* Grand Total */}
-              <div
-                className="flex justify-between items-center pt-2.5 mt-1 border-t-2 text-sm font-extrabold"
-                style={{ borderColor: accentColor }}
-              >
-                <span className="text-slate-900 uppercase tracking-tight">Grand Total:</span>
-                <span className="font-mono text-base" style={{ color: accentColor }}>
-                  {formatCurrency(quotation.grand_total)}
-                </span>
+                {/* Amount in Words */}
+                {amountInWordsEnabled && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10.5px] leading-tight">
+                    <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                      Amount in Words
+                    </span>
+                    <p className="font-medium text-slate-800 italic">
+                      {formatAmountInWords(quotation.grand_total, currency)}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Amount in Words */}
-              {amountInWordsEnabled && (
-                <div className="mt-2.5 pt-2 border-t border-slate-100 text-[11px] leading-tight">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
-                    Amount in Words
-                  </span>
-                  <p className="font-medium text-slate-800 italic">
-                    {formatAmountInWords(quotation.grand_total, currency)}
-                  </p>
+              {/* Signatory & Seal Authorization Card */}
+              {showStampAndSignatures && (
+                <div
+                  className="signatory-card bg-slate-50/60 border border-slate-200/80 rounded-xl p-3 flex flex-col justify-end w-full break-inside-avoid"
+                  style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                >
+                  <div className="flex items-center justify-end gap-5 w-full">
+                    {/* Official Stamp / Seal */}
+                    {resolvedShowCompanySeal && profile?.stamp_seal_url && (
+                      <div className="flex flex-col items-center">
+                        <img
+                          src={profile.stamp_seal_url}
+                          alt="Official Seal"
+                          className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                        <span className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">
+                          Company Seal
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Signatories Rendering */}
+                    <div className="flex gap-4 justify-end">
+                      {resolvedSignatories.map((sig, sIdx) => (
+                        <div key={sIdx} className="text-center min-w-[120px]">
+                          <div className="h-10 flex items-end justify-center mb-1">
+                            {signatureStyle === 'image' && sig.signature_url ? (
+                              <img
+                                src={sig.signature_url}
+                                alt={sig.name}
+                                className="max-h-10 object-contain"
+                              />
+                            ) : signatureStyle === 'script' ? (
+                              <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
+                                {sig.name}
+                              </span>
+                            ) : signatureStyle === 'image' ? (
+                              <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[9px] text-slate-400 italic">
+                                Digital Signature
+                              </div>
+                            ) : (
+                              /* 'line' style */
+                              <div className="w-24 border-b border-slate-400 pb-1" />
+                            )}
+                          </div>
+                          <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
+                          <p className="font-bold text-slate-800 text-xs leading-tight">{sig.name}</p>
+                          <p className="text-[10px] text-slate-500 leading-tight">{sig.title}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1269,166 +1393,67 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* Customer Acceptance Block */}
         {customerAcceptanceEnabled && (
           <div
-            className="my-3 p-3 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-xs break-inside-avoid w-full"
-            style={{ width: '100%', maxWidth: '100%' }}
+            className="acceptance-card my-2.5 p-2.5 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-xs break-inside-avoid w-full print:my-2"
+            style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
           >
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+              <span className="font-bold text-slate-800 text-[10.5px] uppercase tracking-wider flex items-center gap-1.5">
                 <FileCheck className="w-3.5 h-3.5 text-slate-600" />
                 Customer Acceptance & Confirmation
               </span>
-              <span className="text-[10px] text-slate-400 italic">
+              <span className="text-[9.5px] text-slate-400 italic">
                 Sign & Return Copy with Purchase Order
               </span>
             </div>
-            <p className="text-[10.5px] text-slate-600 my-1.5 leading-snug">
-              We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref}</span> in accordance with the specified quantities, prices, and terms.
+            <p className="text-[10px] text-slate-600 my-1 leading-snug">
+              We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-[10.5px]">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-[10px]">
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase tracking-wider block">Authorized Signature</span>
-                <div className="h-6 border-b border-slate-300 mt-1" />
+                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                <div className="h-5 border-b border-slate-300 mt-1" />
               </div>
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase tracking-wider block">Signatory Name</span>
-                <div className="h-6 border-b border-slate-300 mt-1" />
+                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                <div className="h-5 border-b border-slate-300 mt-1" />
               </div>
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase tracking-wider block">Date</span>
-                <div className="h-6 border-b border-slate-300 mt-1" />
+                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                <div className="h-5 border-b border-slate-300 mt-1" />
               </div>
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase tracking-wider block">Company Stamp</span>
-                <div className="h-6 border-b border-slate-300 border-dotted mt-1" />
+                <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
               </div>
             </div>
           </div>
         )}
 
         {/* ========================================================
-            REMITTANCE & SIGNATORY BLOCK
+            DOCUMENT SYSTEM MICRO-FOOTER WATERMARK
            ======================================================== */}
-        <footer className="mt-4 pt-4 border-t border-slate-200 text-xs break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%' }}>
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end w-full" style={{ width: '100%', maxWidth: '100%' }}>
-            {/* Left: Remittance Bank Accounts */}
-            {resolvedShowBankDetails && bankAccount ? (
-              <div
-                className="remittance-card md:col-span-6 bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1 w-full"
-                style={{ width: '100%', maxWidth: '100%' }}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1">
-                  <Landmark className="w-3.5 h-3.5 text-slate-500" />
-                  Bank Remittance Details
-                </div>
-                <div className="text-[11px] text-slate-700 space-y-0.5">
-                  <p>
-                    <span className="text-slate-500">Bank:</span>{' '}
-                    <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
-                  </p>
-                  <p>
-                    <span className="text-slate-500">Beneficiary:</span>{' '}
-                    <span className="font-medium text-slate-800">
-                      {bankAccount.account_name ||
-                        (bankAccount as any)?.beneficiary_name ||
-                        profile?.legal_entity_name ||
-                        (profile as any)?.company_legal_name ||
-                        senderEntityName}
-                    </span>
-                  </p>
-                  <p>
-                    <span className="text-slate-500">Account No:</span>{' '}
-                    <span className="font-mono font-medium text-slate-900">
-                      {bankAccount.account_number}
-                    </span>
-                  </p>
-                  {bankAccount.iban && (
-                    <p>
-                      <span className="text-slate-500">IBAN:</span>{' '}
-                      <span className="font-mono font-bold text-slate-900">
-                        {bankAccount.iban}
-                      </span>
-                    </p>
-                  )}
-                  {bankAccount.swift_bic && (
-                    <p>
-                      <span className="text-slate-500">SWIFT / BIC:</span>{' '}
-                      <span className="font-mono font-semibold text-slate-900">
-                        {bankAccount.swift_bic}
-                      </span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : resolvedShowBankDetails ? (
-              <div className="md:col-span-6 text-[11px] text-slate-500 italic w-full">
-                Thank you for your business. Please contact us for electronic wire instructions.
-              </div>
-            ) : (
-              <div className="md:col-span-6" />
-            )}
-
-            {/* Right: Signatory & Seal Authorization */}
-            {showStampAndSignatures && (
-              <div className="md:col-span-6 flex flex-col items-end text-right space-y-3 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-                <div className="flex items-center justify-end gap-6 w-full">
-                  {/* Official Stamp / Seal */}
-                  {resolvedShowCompanySeal && profile?.stamp_seal_url && (
-                    <div className="flex flex-col items-center">
-                      <img
-                        src={profile.stamp_seal_url}
-                        alt="Official Seal"
-                        className="h-20 w-20 object-contain opacity-90 mix-blend-multiply"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                      <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
-                        Company Seal
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Signatories Rendering */}
-                  <div className="flex gap-6">
-                    {resolvedSignatories.map((sig, sIdx) => (
-                      <div key={sIdx} className="text-center min-w-[130px]">
-                        <div className="h-12 flex items-end justify-center mb-1">
-                          {signatureStyle === 'image' && sig.signature_url ? (
-                            <img
-                              src={sig.signature_url}
-                              alt={sig.name}
-                              className="max-h-12 object-contain"
-                            />
-                          ) : signatureStyle === 'script' ? (
-                            <span className="font-serif italic text-base sm:text-lg text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                              {sig.name}
-                            </span>
-                          ) : signatureStyle === 'image' ? (
-                            <div className="h-10 w-28 border border-dashed border-slate-300 rounded flex items-center justify-center text-[10px] text-slate-400 italic">
-                              Digital Signature
-                            </div>
-                          ) : (
-                            /* 'line' style */
-                            <div className="w-28 border-b border-slate-400 pb-1" />
-                          )}
-                        </div>
-                        <div className="w-28 border-b border-slate-300 mx-auto mb-1" />
-                        <p className="font-bold text-slate-800 text-xs">{sig.name}</p>
-                        <p className="text-[10px] text-slate-500">{sig.title}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* System Footer Note */}
-          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-400 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-            <span>
-              Generated via Omni Suite Quotation Engine • Ref: {quotation.formatted_quote_ref}
+        <footer className="mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full" style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[9px]" style={{ width: '100%', maxWidth: '100%' }}>
+            <span className="flex items-center gap-1.5 flex-wrap">
+              <span>Omni Suite Commercial Engine</span>
+              <span>•</span>
+              <span className="font-mono font-medium text-slate-500">Ref: {quotation.formatted_quote_ref || quotation.quote_number}</span>
+              {quotation.revision_number !== undefined && (
+                <>
+                  <span>•</span>
+                  <span>Rev {quotation.revision_number}</span>
+                </>
+              )}
+              {enquiry?.enquiry_number && (
+                <>
+                  <span>•</span>
+                  <span>Enq: {enquiry.enquiry_number}</span>
+                </>
+              )}
+              <span>•</span>
+              <span>Date: {formatDate(quotation.created_at)}</span>
             </span>
-            <span>This is a computer-generated commercial document.</span>
+            <span className="mt-1 sm:mt-0 italic">Computer-generated commercial document. Valid without manual signature when electronically issued.</span>
           </div>
         </footer>
       </article>
