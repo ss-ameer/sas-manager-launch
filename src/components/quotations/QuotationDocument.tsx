@@ -458,8 +458,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             gap: 0.75rem !important;
             width: 100% !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
           }
         }
       `}</style>
@@ -1385,8 +1383,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             Digital Signature
                           </div>
                         ) : (
-                          /* 'line' style */
-                          <div className="w-24 border-b border-slate-400 pb-1" />
+                          /* 'line' style: clean spacing above the single baseline below */
+                          <div className="h-4" />
                         )}
                       </div>
                       <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
@@ -1399,7 +1397,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           );
 
-          const renderAcceptanceBlock = () => (
+          const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => (
             <div className="w-full flex-1 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between pb-1 border-b border-slate-200">
@@ -1415,24 +1413,48 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
                 </p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-[10px]">
-                <div>
-                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
-                  <div className="h-5 border-b border-slate-300 mt-1" />
+
+              {placement === 'full' ? (
+                /* Standard 4-column layout for full width */
+                <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[10px]">
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                    <div className="h-5 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                    <div className="h-5 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                    <div className="h-5 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                    <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
-                  <div className="h-5 border-b border-slate-300 mt-1" />
+              ) : (
+                /* Adaptive 2x2 grid for 50% left/right placement */
+                <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[10px]">
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Authorized Signature</span>
+                    <div className="h-4 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Signatory Name</span>
+                    <div className="h-4 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
+                    <div className="h-4 border-b border-slate-300 mt-1" />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
+                    <div className="h-4 border-b border-slate-300 border-dotted mt-1" />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Date</span>
-                  <div className="h-5 border-b border-slate-300 mt-1" />
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[9px] uppercase tracking-wider block">Company Stamp</span>
-                  <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
-                </div>
-              </div>
+              )}
             </div>
           );
 
@@ -1515,16 +1537,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           });
 
           return (
-            <section className="my-3 break-inside-avoid w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+            <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
               <div
-                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch break-inside-avoid w-full"
+                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
                 style={{ width: '100%', maxWidth: '100%' }}
               >
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
                   const cardStyleClass =
                     b.style === 'minimal'
-                      ? 'border-t border-slate-200 pt-2 bg-transparent h-full flex flex-col justify-between'
-                      : 'border border-slate-200 rounded-lg bg-slate-50/50 p-2.5 h-full flex flex-col justify-between';
+                      ? 'p-3 rounded-lg border border-transparent bg-transparent h-full flex flex-col justify-between'
+                      : 'p-3 rounded-lg border border-slate-200 bg-slate-50/50 h-full flex flex-col justify-between';
 
                   return (
                     <div
@@ -1543,7 +1565,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         {b.id === 'totals' && renderTotalsBlock()}
                         {b.id === 'remittance' && renderRemittanceBlock()}
                         {b.id === 'signatory' && renderSignatoryBlock()}
-                        {b.id === 'acceptance' && renderAcceptanceBlock()}
+                        {b.id === 'acceptance' && renderAcceptanceBlock(b.placement)}
                       </div>
                     </div>
                   );
