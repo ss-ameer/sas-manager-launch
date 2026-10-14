@@ -55,7 +55,8 @@ import {
   Layers,
   Stamp,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Settings2
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -218,6 +219,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setBlockStyle(style);
     setLayoutBlocks((prev) => prev.map((b) => ({ ...b, style })));
   };
+
+  // Retractable Right-Side Contextual Block Inspector selection
+  const [selectedBlockId, setSelectedBlockId] = useState<QuotationBlockId | null>(null);
+  const selectedBlock = useMemo(
+    () => layoutBlocks.find((b) => b.id === selectedBlockId) || null,
+    [layoutBlocks, selectedBlockId]
+  );
 
   // Template Preset Saving Modal
   const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState<boolean>(false);
@@ -1062,204 +1070,103 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Modular Document Blocks Engine (Ordering, 3-Way Placement, Per-Block Style) */}
+                    {/* Compact Document Blocks Overview */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="block text-slate-700 font-bold text-xs">
-                          Modular Document Blocks
-                        </label>
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <div>
+                          <label className="block text-slate-700 font-bold text-xs">
+                            Document Blocks Overview
+                          </label>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Click any block or preview card to inspect & customize
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
                           {layoutBlocks.filter((b) => b.enabled).length} of {layoutBlocks.length} Active
                         </span>
                       </div>
-                      <p className="text-[10.5px] text-slate-500 leading-snug">
-                        Configure independent visibility, 3-way placement (Left 50% / Full 100% / Right 50%), styling, and ordering for each document block.
-                      </p>
 
-                      <div className="space-y-2 mt-2">
+                      <div className="space-y-1.5 mt-2">
                         {layoutBlocks.map((block, idx) => {
                           const meta = BLOCK_META[block.id];
                           const Icon = meta.icon;
                           const isFirst = idx === 0;
                           const isLast = idx === layoutBlocks.length - 1;
+                          const isInspected = selectedBlockId === block.id;
 
                           return (
                             <div
                               key={block.id}
-                              className={`border rounded-xl p-2.5 transition-all ${
-                                block.enabled
-                                  ? 'bg-white border-slate-200/90 shadow-2xs'
-                                  : 'bg-slate-50/70 border-slate-200/50 opacity-60'
+                              className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
+                                isInspected
+                                  ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                                  : block.enabled
+                                  ? 'bg-white hover:bg-slate-50/80 border-slate-200'
+                                  : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                               }`}
                             >
-                              {/* Header: Visibility checkbox, block icon & title, Up/Down reorder arrows */}
-                              <div className="flex items-center justify-between gap-2">
-                                <label className="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={block.enabled}
-                                    onChange={(e) => handleToggleBlockEnabled(block.id, e.target.checked)}
-                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs truncate">
-                                    <Icon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                    <span className="truncate">{meta.label}</span>
-                                  </div>
-                                </label>
-
-                                {/* Up / Down Reorder buttons */}
-                                <div className="flex items-center gap-1 shrink-0">
+                              {/* Reorder arrows + Checkbox + Block Info */}
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <div className="flex flex-col gap-0.5 shrink-0">
                                   <button
                                     type="button"
                                     disabled={isFirst}
                                     onClick={() => handleMoveBlock(idx, 'up')}
-                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                    className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
                                     title="Move Up"
                                   >
-                                    <ArrowUp className="w-3 h-3" />
+                                    <ArrowUp className="w-2.5 h-2.5" />
                                   </button>
                                   <button
                                     type="button"
                                     disabled={isLast}
                                     onClick={() => handleMoveBlock(idx, 'down')}
-                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                    className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
                                     title="Move Down"
                                   >
-                                    <ArrowDown className="w-3 h-3" />
+                                    <ArrowDown className="w-2.5 h-2.5" />
                                   </button>
+                                </div>
+
+                                <input
+                                  type="checkbox"
+                                  checked={block.enabled}
+                                  onChange={(e) => handleToggleBlockEnabled(block.id, e.target.checked)}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                  title={block.enabled ? 'Click to hide block' : 'Click to show block'}
+                                />
+
+                                <div
+                                  className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
+                                  onClick={() => setSelectedBlockId(isInspected ? null : block.id)}
+                                >
+                                  <Icon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-slate-800 text-xs truncate">
+                                      {meta.label}
+                                    </p>
+                                    <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
+                                      <span className="capitalize">{block.placement}</span>
+                                      <span>•</span>
+                                      <span className="capitalize">{block.style}</span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
 
-                              {block.enabled && (
-                                <div className="space-y-2 pt-2 border-t border-slate-100 mt-2">
-                                  {/* 3-Way Placement: Left (50%) | Full (100%) | Right (50%) */}
-                                  <div>
-                                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
-                                      <span>Placement</span>
-                                      <span className="font-mono text-slate-400 capitalize">{block.placement} width</span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-1">
-                                      {[
-                                        { id: 'left', label: 'Left (50%)' },
-                                        { id: 'full', label: 'Full (100%)' },
-                                        { id: 'right', label: 'Right (50%)' }
-                                      ].map((p) => {
-                                        const isSelected = block.placement === p.id;
-                                        return (
-                                          <button
-                                            key={p.id}
-                                            type="button"
-                                            onClick={() => handleSetBlockPlacement(block.id, p.id as any)}
-                                            className={`py-1 px-1 rounded text-[10px] font-medium transition text-center cursor-pointer ${
-                                              isSelected
-                                                ? 'bg-blue-600 text-white font-semibold shadow-2xs'
-                                                : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                            }`}
-                                          >
-                                            {p.label}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  {/* Per-Module Style: Framed vs Minimal */}
-                                  <div>
-                                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
-                                      <span>Style</span>
-                                      <span className="font-mono text-slate-400 capitalize">{block.style}</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-1">
-                                      {[
-                                        { id: 'framed', label: 'Framed' },
-                                        { id: 'minimal', label: 'Minimal' }
-                                      ].map((s) => {
-                                        const isSelected = block.style === s.id;
-                                        return (
-                                          <button
-                                            key={s.id}
-                                            type="button"
-                                            onClick={() => handleSetBlockStyle(block.id, s.id as any)}
-                                            className={`py-1 px-2 rounded text-[10px] font-medium transition text-center cursor-pointer ${
-                                              isSelected
-                                                ? 'bg-slate-800 text-white font-semibold shadow-2xs'
-                                                : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                            }`}
-                                          >
-                                            {s.label}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  {/* Typography Scaling & Padding Controls */}
-                                  <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-100">
-                                    {/* Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
-                                    <div>
-                                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
-                                        <span>Font Size</span>
-                                        <span className="font-mono text-slate-400 capitalize">{block.fontScale || 'standard'}</span>
-                                      </div>
-                                      <div className="grid grid-cols-3 gap-0.5">
-                                        {[
-                                          { id: 'compact', label: '9px', tip: 'Compact' },
-                                          { id: 'standard', label: '10px', tip: 'Standard' },
-                                          { id: 'prominent', label: '11px', tip: 'Large' }
-                                        ].map((f) => {
-                                          const isSelected = (block.fontScale || 'standard') === f.id;
-                                          return (
-                                            <button
-                                              key={f.id}
-                                              type="button"
-                                              title={f.tip}
-                                              onClick={() => handleSetBlockFontScale(block.id, f.id as any)}
-                                              className={`py-1 px-0.5 rounded text-[9.5px] font-medium transition text-center cursor-pointer ${
-                                                isSelected
-                                                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
-                                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                              }`}
-                                            >
-                                              {f.label}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-
-                                    {/* Container Padding: Compact (p-2) / Standard (p-3) */}
-                                    <div>
-                                      <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-medium">
-                                        <span>Padding</span>
-                                        <span className="font-mono text-slate-400 capitalize">{block.padding || 'standard'}</span>
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-1">
-                                        {[
-                                          { id: 'compact', label: 'p-2', tip: 'Compact' },
-                                          { id: 'standard', label: 'p-3', tip: 'Standard' }
-                                        ].map((p) => {
-                                          const isSelected = (block.padding || 'standard') === p.id;
-                                          return (
-                                            <button
-                                              key={p.id}
-                                              type="button"
-                                              title={p.tip}
-                                              onClick={() => handleSetBlockPadding(block.id, p.id as any)}
-                                              className={`py-1 px-1 rounded text-[9.5px] font-medium transition text-center cursor-pointer ${
-                                                isSelected
-                                                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
-                                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                              }`}
-                                            >
-                                              {p.label}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                              {/* Inspect / Edit Button */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedBlockId(isInspected ? null : block.id)}
+                                className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                  isInspected
+                                    ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                }`}
+                              >
+                                <Settings2 className="w-3 h-3" />
+                                <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                              </button>
                             </div>
                           );
                         })}
@@ -1751,30 +1658,275 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               </div>
             </div>
 
-            {/* Scaled Preview Canvas */}
-            <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:hidden">
-              <div
-                style={{
-                  transform: `scale(${zoomScale})`,
-                  transformOrigin: 'top center',
-                  transition: 'transform 0.1s ease-out'
-                }}
-                className="preview-canvas-wrapper w-full max-w-[210mm] shadow-2xl print:hidden"
-              >
-                <QuotationDocument
-                  quotation={liveQuotation}
-                  profile={activeProfile}
-                  visibleColumns={visibleColumns}
-                  isCompactView={tableDensity === 'compact'}
-                  showBankDetails={showBankDetails}
-                  showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
-                  user={user}
-                  signatoryName={signatoryName}
-                  signatoryTitle={signatoryTitle}
-                  blockStyle={blockStyle}
-                  layoutBlocks={layoutBlocks}
-                />
+            {/* Scaled Preview Canvas & Retractable Inspector Drawer */}
+            <div className="flex-1 flex overflow-hidden relative print:block">
+              {/* Scaled Preview Canvas */}
+              <div className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:hidden">
+                <div
+                  style={{
+                    transform: `scale(${zoomScale})`,
+                    transformOrigin: 'top center',
+                    transition: 'transform 0.1s ease-out'
+                  }}
+                  className="preview-canvas-wrapper w-full max-w-[210mm] shadow-2xl print:hidden"
+                >
+                  <QuotationDocument
+                    quotation={liveQuotation}
+                    profile={activeProfile}
+                    visibleColumns={visibleColumns}
+                    isCompactView={tableDensity === 'compact'}
+                    showBankDetails={showBankDetails}
+                    showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
+                    user={user}
+                    signatoryName={signatoryName}
+                    signatoryTitle={signatoryTitle}
+                    blockStyle={blockStyle}
+                    layoutBlocks={layoutBlocks}
+                    selectedBlockId={selectedBlockId}
+                    onSelectBlock={(id) => setSelectedBlockId(id)}
+                  />
+                </div>
               </div>
+
+              {/* Retractable Right-Side Contextual Block Inspector Drawer */}
+              {selectedBlock && (() => {
+                const meta = BLOCK_META[selectedBlock.id];
+                const Icon = meta.icon;
+                const blockIndex = layoutBlocks.findIndex((b) => b.id === selectedBlock.id);
+                const isFirst = blockIndex === 0;
+                const isLast = blockIndex === layoutBlocks.length - 1;
+
+                return (
+                  <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                    {/* Drawer Header */}
+                    <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-slate-900 text-xs truncate">
+                            {meta.label}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            Block Inspector • Slot #{blockIndex + 1}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBlockId(null)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                        title="Close Inspector"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Drawer Content */}
+                    <div className="p-4 space-y-4 text-xs">
+                      {/* 1. Visibility Toggle */}
+                      <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
+                        <div>
+                          <span className="font-semibold text-slate-800 text-xs block">
+                            Document Visibility
+                          </span>
+                          <span className="text-[10.5px] text-slate-500">
+                            {selectedBlock.enabled ? 'Rendered on quotation' : 'Hidden from output'}
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedBlock.enabled}
+                            onChange={(e) => handleToggleBlockEnabled(selectedBlock.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+
+                      {/* 2. Reordering Controls (Up / Down) */}
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1.5 text-[11px]">
+                          Sequential Ordering
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            disabled={isFirst}
+                            onClick={() => handleMoveBlock(blockIndex, 'up')}
+                            className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Move Up</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isLast}
+                            onClick={() => handleMoveBlock(blockIndex, 'down')}
+                            className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Move Down</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 3. Placement Selector: 3-Way Segmented Control */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                          <span className="text-slate-500 font-medium">Placement Track</span>
+                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.placement} width</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                          {[
+                            { id: 'left', label: 'Left 50%' },
+                            { id: 'full', label: 'Full 100%' },
+                            { id: 'right', label: 'Right 50%' }
+                          ].map((p) => {
+                            const isSelected = selectedBlock.placement === p.id;
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleSetBlockPlacement(selectedBlock.id, p.id as any)}
+                                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                    : 'hover:bg-white text-slate-600'
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Paired Left & Right blocks on the same row stretch to equal height automatically.
+                        </p>
+                      </div>
+
+                      {/* 4. Style Selector: Framed vs Minimal */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                          <span className="text-slate-500 font-medium">Presentation Style</span>
+                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.style}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'framed', label: 'Framed', desc: 'Card border & fill' },
+                            { id: 'minimal', label: 'Minimal', desc: 'Hairline divider' }
+                          ].map((s) => {
+                            const isSelected = selectedBlock.style === s.id;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => handleSetBlockStyle(selectedBlock.id, s.id as any)}
+                                className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer ${
+                                  isSelected
+                                    ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-600/20'
+                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                }`}
+                              >
+                                <p className="font-semibold text-xs">{s.label}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{s.desc}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 5. Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                          <span className="text-slate-500 font-medium">Typography Scale</span>
+                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.fontScale || 'standard'}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                          {[
+                            { id: 'compact', label: 'Small', size: '9px' },
+                            { id: 'standard', label: 'Base', size: '10px' },
+                            { id: 'prominent', label: 'Large', size: '11px' }
+                          ].map((f) => {
+                            const isSelected = (selectedBlock.fontScale || 'standard') === f.id;
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => handleSetBlockFontScale(selectedBlock.id, f.id as any)}
+                                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                    : 'hover:bg-white text-slate-600'
+                                }`}
+                              >
+                                <div>{f.label}</div>
+                                <div className={`text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{f.size}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 6. Padding: Tight (p-2) vs Normal (p-3) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                          <span className="text-slate-500 font-medium">Card Padding</span>
+                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.padding || 'standard'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'compact', label: 'Tight', desc: 'p-2 (8px)' },
+                            { id: 'standard', label: 'Normal', desc: 'p-3 (12px)' }
+                          ].map((p) => {
+                            const isSelected = (selectedBlock.padding || 'standard') === p.id;
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleSetBlockPadding(selectedBlock.id, p.id as any)}
+                                className={`py-1.5 px-2.5 rounded-xl border text-center transition cursor-pointer ${
+                                  isSelected
+                                    ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                }`}
+                              >
+                                <p className="text-xs font-semibold">{p.label}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{p.desc}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Quick Jump to Other Blocks */}
+                      <div className="pt-3 border-t border-slate-100">
+                        <label className="block text-slate-400 text-[10px] uppercase tracking-wider mb-2 font-semibold">
+                          Jump to Block
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          {layoutBlocks.map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setSelectedBlockId(b.id)}
+                              className={`px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
+                                selectedBlock.id === b.id
+                                  ? 'bg-blue-600 text-white font-semibold'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {BLOCK_META[b.id].label.split(' ')[0]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </aside>
+                );
+              })()}
             </div>
           </div>
         </div>

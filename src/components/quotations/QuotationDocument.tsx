@@ -112,6 +112,8 @@ export interface QuotationDocumentProps {
   salesRepName?: string;
   blockStyle?: 'framed' | 'minimal';
   layoutBlocks?: QuotationBlockConfig[];
+  selectedBlockId?: QuotationBlockId | null;
+  onSelectBlock?: (id: QuotationBlockId) => void;
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -127,7 +129,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   enquiry,
   salesRepName,
   blockStyle = 'framed',
-  layoutBlocks
+  layoutBlocks,
+  selectedBlockId,
+  onSelectBlock
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
@@ -1547,10 +1551,22 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
                   const baseFontSize = b.fontScale === 'compact' ? '9px' : b.fontScale === 'prominent' ? '11px' : '10px';
                   const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
-                  const cardStyleClass =
+                  const isSelected = selectedBlockId === b.id;
+                  const isInteractive = Boolean(onSelectBlock);
+
+                  const cardStyleClass = [
+                    padClass,
+                    'rounded-lg h-full flex flex-col justify-between transition-all duration-150',
                     b.style === 'minimal'
-                      ? `${padClass} rounded-lg border border-transparent bg-transparent h-full flex flex-col justify-between`
-                      : `${padClass} rounded-lg border border-slate-200 bg-slate-50/50 h-full flex flex-col justify-between`;
+                      ? 'border border-transparent bg-transparent'
+                      : 'border border-slate-200 bg-slate-50/50',
+                    isInteractive ? 'cursor-pointer' : '',
+                    isSelected
+                      ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 print:ring-offset-0 print:shadow-none'
+                      : isInteractive
+                      ? 'hover:ring-1 hover:ring-blue-300 print:ring-0'
+                      : ''
+                  ].filter(Boolean).join(' ');
 
                   return (
                     <div
@@ -1566,6 +1582,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     >
                       <div
                         className={cardStyleClass}
+                        onClick={isInteractive ? () => onSelectBlock?.(b.id) : undefined}
                         style={{
                           ['--block-base' as any]: baseFontSize,
                           fontSize: 'var(--block-base)'
