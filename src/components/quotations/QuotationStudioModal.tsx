@@ -1809,7 +1809,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               {/* Scaled Preview Canvas */}
               <div
                 ref={previewScrollRef}
-                className="flex-1 overflow-auto p-4 sm:p-8 flex justify-center items-start print:hidden"
+                className="flex-1 overflow-auto w-full h-full relative p-4 sm:p-8 flex print:hidden"
               >
                 <div
                   style={{
@@ -1817,12 +1817,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     transformOrigin: 'top center',
                     transition: 'transform 0.1s ease-out'
                   }}
-                  className="preview-canvas-wrapper w-full max-w-[210mm] shadow-2xl print:hidden flex justify-center"
+                  className="preview-canvas-wrapper m-auto inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] shadow-2xl print:hidden text-left"
                 >
                   <QuotationDocument
                     quotation={liveQuotation}
                     profile={activeProfile}
                     visibleColumns={visibleColumns}
+                    tableDensity={tableDensity}
+                    tableFontScale={tableFontScale}
                     isCompactView={tableDensity === 'compact'}
                     showBankDetails={showBankDetails}
                     showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
@@ -1831,12 +1833,226 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     signatoryTitle={signatoryTitle}
                     blockStyle={blockStyle}
                     layoutBlocks={layoutBlocks}
+                    selectedSection={selectedSection}
                     selectedBlockId={selectedBlockId}
-                    onSelectBlock={(id) => setSelectedBlockId(id)}
+                    onSelectSection={(sec) => setSelectedSection(sec)}
+                    onSelectBlock={(id) => setSelectedSection(id)}
                     showPageBreakGuides={true}
                   />
                 </div>
               </div>
+
+              {/* Retractable Right-Side Contextual Table Inspector Drawer */}
+              {selectedSection === 'items_table' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Table className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Line Items Table
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Fixed Canvas Layout
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Column Visibility Toggles */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <Columns className="w-3.5 h-3.5 text-blue-600" />
+                          Column Visibility
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {Object.values(visibleColumns).filter(Boolean).length} Active
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Toggle optional technical specifications and commercial rate columns on the quotation document.
+                      </p>
+
+                      <div className="space-y-1.5 pt-1">
+                        {[
+                          {
+                            key: 'brand' as const,
+                            label: 'Brand / Make',
+                            desc: 'Show equipment brand / manufacturer',
+                            checked: Boolean(visibleColumns.brand)
+                          },
+                          {
+                            key: 'model' as const,
+                            label: 'Model / Part #',
+                            desc: 'Catalog item or part designation',
+                            checked: Boolean(visibleColumns.model)
+                          },
+                          {
+                            key: 'origin' as const,
+                            label: 'Origin / Country',
+                            desc: 'Manufacturing country of origin',
+                            checked: Boolean(visibleColumns.origin)
+                          },
+                          {
+                            key: 'availability' as const,
+                            label: 'Delivery / Availability',
+                            desc: 'Dispatch lead time & stock timeline',
+                            checked: Boolean(visibleColumns.availability)
+                          },
+                          {
+                            key: 'unit_price' as const,
+                            label: 'Unit Price',
+                            desc: 'Show individual rates before total',
+                            checked: Boolean(visibleColumns.unit_price)
+                          }
+                        ].map((col) => (
+                          <div
+                            key={col.key}
+                            className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                              col.checked
+                                ? 'bg-white border-slate-200 shadow-2xs'
+                                : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-1">
+                              <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                {col.label}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                {col.desc}
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={col.checked}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    [col.key]: e.target.checked
+                                  }))
+                                }
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 2. Row Padding Density */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs">
+                        Row Padding Density
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Control table row height to fit more lines or maximize readability.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          {
+                            id: 'comfortable',
+                            label: 'Comfortable',
+                            sub: '2.5 padding',
+                            desc: 'Standard executive layout'
+                          },
+                          {
+                            id: 'compact',
+                            label: 'Compact',
+                            sub: '1.5 padding',
+                            desc: 'Higher density per page'
+                          }
+                        ].map((d) => {
+                          const isSelected = tableDensity === d.id;
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
+                              className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className={`font-semibold text-xs ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                  {d.label}
+                                </span>
+                                <span className="text-[9px] font-mono text-slate-400">{d.sub}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-500 mt-1 leading-snug">
+                                {d.desc}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Table Typography Scaling */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Type className="w-3.5 h-3.5 text-blue-600" />
+                        Table Typography Scaling
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Scale font sizes for descriptions, item titles, and numbers across table cells.
+                      </p>
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        {[
+                          { id: 'compact', label: 'Compact', size: '10.5px' },
+                          { id: 'standard', label: 'Standard', size: '12px' },
+                          { id: 'prominent', label: 'Prominent', size: '13.5px' }
+                        ].map((s) => {
+                          const isSelected = tableFontScale === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setTableFontScale(s.id as QuotationTableFontScale)}
+                              className={`py-2 px-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{s.label}</span>
+                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{s.size}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Informational Guardrail Card */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Fixed Structural Section
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        The Line Items Table is anchored above commercial terms and totals. Density and column choices are saved with this quote snapshot.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
 
               {/* Retractable Right-Side Contextual Block Inspector Drawer */}
               {selectedBlock && (() => {
@@ -1865,7 +2081,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSelectedBlockId(null)}
+                        onClick={() => setSelectedSection(null)}
                         className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
                         title="Close Inspector"
                       >
@@ -2155,6 +2371,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             quotation={liveQuotation}
             profile={activeProfile}
             visibleColumns={visibleColumns}
+            tableDensity={tableDensity}
+            tableFontScale={tableFontScale}
             isCompactView={tableDensity === 'compact'}
             showBankDetails={showBankDetails}
             showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
