@@ -1012,6 +1012,8 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
+  header_config?: QuotationHeaderConfig;
+  recipient_config?: QuotationRecipientConfig;
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
@@ -1030,7 +1032,25 @@ export interface QuotationPresetColumns {
 
 export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
 
-export type StudioSelectedSection = QuotationBlockId | 'items_table' | null;
+export type StudioSelectedSection = QuotationBlockId | 'items_table' | 'header' | 'recipient_meta' | null;
+
+export interface QuotationHeaderConfig {
+  alignment?: 'centered' | 'split'; // Centered stack vs Logo Left / Address Right
+  showPhone?: boolean;
+  showEmail?: boolean;
+  showWebsite?: boolean;
+  showTrn?: boolean;
+  logoHeightPx?: number; // e.g. 32 to 64px
+}
+
+export interface QuotationRecipientConfig {
+  style?: 'framed' | 'minimal'; // Bordered box vs clean text divider
+  layout?: 'split' | 'stacked'; // 50/50 side-by-side vs full-width stacked
+  showAttention?: boolean;
+  showSalesRep?: boolean;
+  showValidity?: boolean;
+  showEnquiryRef?: boolean;
+}
 
 export interface QuotationBlockConfig {
   id: QuotationBlockId;
@@ -1067,6 +1087,8 @@ export interface QuotationPreset extends SoftDeleteFields {
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
   theme_accent?: QuotationThemeAccent;
+  header_config?: QuotationHeaderConfig;
+  recipient_config?: QuotationRecipientConfig;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
   signatory_type?: 'single' | 'dual';
@@ -1134,6 +1156,8 @@ export interface Quotation extends SoftDeleteFields {
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
+  header_config?: QuotationHeaderConfig;
+  recipient_config?: QuotationRecipientConfig;
   block_style?: 'framed' | 'minimal';
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;

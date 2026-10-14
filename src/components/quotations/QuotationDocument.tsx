@@ -14,7 +14,9 @@ import {
   QuotationTableFontScale,
   QuotationBlockConfig,
   QuotationBlockId,
-  StudioSelectedSection
+  StudioSelectedSection,
+  QuotationHeaderConfig,
+  QuotationRecipientConfig
 } from '../../types';
 import { formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -100,6 +102,24 @@ export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'acceptance', enabled: true, placement: 'full', style: 'framed', fontScale: 'standard', padding: 'standard' }
 ];
 
+export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
+  alignment: 'split',
+  showPhone: true,
+  showEmail: true,
+  showWebsite: true,
+  showTrn: true,
+  logoHeightPx: 44
+};
+
+export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
+  style: 'framed',
+  layout: 'split',
+  showAttention: true,
+  showSalesRep: true,
+  showValidity: true,
+  showEnquiryRef: true
+};
+
 export interface QuotationDocumentProps {
   quotation: Quotation;
   profile?: WorkspaceDocumentProfile | null;
@@ -107,6 +127,8 @@ export interface QuotationDocumentProps {
   isCompactView?: boolean;
   tableDensity?: QuotationTableDensity;
   tableFontScale?: QuotationTableFontScale;
+  headerConfig?: QuotationHeaderConfig;
+  recipientConfig?: QuotationRecipientConfig;
   showBankDetails?: boolean;
   showStampAndSignatures?: boolean;
   user?: { displayName?: string; name?: string; email?: string } | null;
@@ -130,6 +152,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   isCompactView = true,
   tableDensity: propTableDensity,
   tableFontScale: propTableFontScale,
+  headerConfig: propHeaderConfig,
+  recipientConfig: propRecipientConfig,
   showBankDetails = true,
   showStampAndSignatures = true,
   user,
@@ -221,8 +245,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     quotation.show_company_seal ?? profile?.show_company_seal ?? showStampAndSignatures;
 
   const activeSelectedSection: StudioSelectedSection = selectedSection !== undefined ? selectedSection : (selectedBlockId as StudioSelectedSection);
+  const isHeaderSelected = activeSelectedSection === 'header';
+  const isRecipientSelected = activeSelectedSection === 'recipient_meta';
   const isTableSelected = activeSelectedSection === 'items_table';
   const isInteractive = Boolean(onSelectSection || onSelectBlock);
+
+  const resolvedHeaderConfig: QuotationHeaderConfig = {
+    ...DEFAULT_HEADER_CONFIG,
+    ...(profile?.header_config || {}),
+    ...(quotation.header_config || {}),
+    ...(propHeaderConfig || {})
+  };
+
+  const resolvedRecipientConfig: QuotationRecipientConfig = {
+    ...DEFAULT_RECIPIENT_CONFIG,
+    ...(profile?.recipient_config || {}),
+    ...(quotation.recipient_config || {}),
+    ...(propRecipientConfig || {})
+  };
 
   // Table Density helpers
   const isCompact = tableDensity === 'compact';
@@ -322,6 +362,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const senderPhone = profile?.phone || quotation.sender_snapshot?.phone;
   const senderEmail = profile?.email || quotation.sender_snapshot?.email;
   const senderWebsite = profile?.website;
+  const enquiryRef = quotation.enquiry_id || enquiry?.enquiry_number || enquiry?.reference || enquiry?.id;
+  const resolvedSalesRep = salesRepName || enquiry?.sales_representative || enquiry?.salesperson || (quotation as any)?.salesperson_name || user?.displayName;
 
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
@@ -429,6 +471,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-block-slot,
           .quotation-block-slot > div,
           .quotation-structural-section,
+          .quotation-header-branding,
+          .quotation-recipient-meta,
+          header,
           section,
           table,
           [class*="ring-"] {
@@ -569,326 +614,144 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
            ======================================================== */}
-        {headerLayout === 'centered_banner' ? (
-          <header className="border-b border-slate-200 pb-5 mb-5 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
-            {/* Centered Top Banner */}
-            <div className="flex flex-col items-center text-center space-y-1.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              <div className="pb-1">
-                {profile?.logo_url && !logoLoadFailed ? (
-                  <img
-                    src={profile.logo_url}
-                    alt={senderEntityName}
-                    className="h-14 max-w-[240px] object-contain"
-                    onError={() => setLogoLoadFailed(true)}
-                  />
-                ) : (
-                  <div
-                    className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    <Building2 className="w-6 h-6" />
-                  </div>
-                )}
-              </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                {senderEntityName}
-              </h1>
-              {/* Centered Address, Contact & TRN Details with divider dots */}
-              {(() => {
-                const contactSegments: React.ReactNode[] = [];
-                if (senderAddress) {
-                  contactSegments.push(
-                    <span key="addr" className="inline-flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{senderAddress}</span>
-                    </span>
-                  );
-                }
-                if (senderPhone) {
-                  contactSegments.push(
-                    <span key="phone" className="inline-flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span>{senderPhone}</span>
-                    </span>
-                  );
-                }
-                if (senderEmail) {
-                  contactSegments.push(
-                    <span key="email" className="inline-flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span>{senderEmail}</span>
-                    </span>
-                  );
-                }
-                if (senderTrn) {
-                  contactSegments.push(
-                    <span key="trn" className="inline-flex items-center gap-1">
-                      <span className="text-slate-400 font-medium">TRN:</span>
-                      <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
-                    </span>
-                  );
-                }
-                if (senderWebsite) {
-                  contactSegments.push(
-                    <span key="web" className="inline-flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span>{senderWebsite}</span>
-                    </span>
-                  );
-                }
+        {/* ========================================================
+            1. HEADER & COMPANY BRANDING (SELECTABLE STRUCTURAL SECTION)
+           ======================================================== */}
+        {(() => {
+          const effectiveHeaderAlign = resolvedHeaderConfig.alignment || (headerLayout === 'centered_banner' ? 'centered' : 'split');
+          const logoHeight = resolvedHeaderConfig.logoHeightPx || 44;
+          const showPhone = resolvedHeaderConfig.showPhone !== false && Boolean(senderPhone);
+          const showEmail = resolvedHeaderConfig.showEmail !== false && Boolean(senderEmail);
+          const showWebsite = resolvedHeaderConfig.showWebsite !== false && Boolean(senderWebsite);
+          const showTrn = resolvedHeaderConfig.showTrn !== false && Boolean(senderTrn);
 
-                if (contactSegments.length === 0) return null;
+          return (
+            <header
+              className={`quotation-header-branding border-b border-slate-200 pb-4 mb-4 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+                isInteractive ? 'cursor-pointer' : ''
+              } ${
+                isHeaderSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                  : isInteractive
+                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                  : ''
+              }`}
+              onClick={isInteractive ? (e) => {
+                e.stopPropagation();
+                if (onSelectSection) {
+                  onSelectSection('header');
+                } else if (onSelectBlock) {
+                  onSelectBlock('header' as any);
+                }
+              } : undefined}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {isInteractive && (
+                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                  isHeaderSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                }`}>
+                  Header &amp; Branding
+                </div>
+              )}
 
-                return (
-                  <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-1 leading-relaxed">
-                    {contactSegments.map((segment, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
-                        <span>{segment}</span>
-                        {idx < contactSegments.length - 1 && (
-                          <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
-                        )}
-                      </span>
-                    ))}
+              {effectiveHeaderAlign === 'centered' ? (
+                /* Centered Stack Banner */
+                <div className="flex flex-col items-center text-center space-y-1.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
+                  <div className="pb-1">
+                    {profile?.logo_url && !logoLoadFailed ? (
+                      <img
+                        src={profile.logo_url}
+                        alt={senderEntityName}
+                        style={{ height: `${logoHeight}px` }}
+                        className="max-w-[240px] object-contain"
+                        onError={() => setLogoLoadFailed(true)}
+                      />
+                    ) : (
+                      <div
+                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
+                        style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
+                      >
+                        <Building2 className="w-6 h-6" />
+                      </div>
+                    )}
                   </div>
-                );
-              })()}
-            </div>
-
-            {/* Accent Separator Line */}
-            <div
-              className="my-4 h-0.5 w-full rounded-full"
-              style={{ backgroundColor: accentColor }}
-            />
-
-            {/* Two-Column Balanced Strip: Client Snapshot (Left) + Quotation Meta (Right) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              {/* Client Snapshot Card */}
-              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full" style={{ width: '100%', maxWidth: '100%' }}>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
-                    Submitted To / Attention To
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    {quotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
-                  </h3>
-                  {quotation.client_snapshot?.contact_person && (
-                    <p className="text-xs text-slate-700 font-medium mt-0.5">
-                      Attn:{' '}
-                      <span className="text-slate-900 font-semibold">
-                        {quotation.client_snapshot.contact_person}
-                      </span>
-                    </p>
-                  )}
-                  {quotation.client_snapshot?.address && (
-                    <p className="text-xs text-slate-600 mt-1">
-                      {quotation.client_snapshot.address}
-                    </p>
-                  )}
-                </div>
-                <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
-                  {quotation.client_snapshot?.email && (
-                    <p><span className="text-slate-400">Email:</span> {quotation.client_snapshot.email}</p>
-                  )}
-                  {quotation.client_snapshot?.phone && (
-                    <p><span className="text-slate-400">Tel:</span> {quotation.client_snapshot.phone}</p>
-                  )}
-                  {quotation.client_snapshot?.trn && (
-                    <p><span className="text-slate-400">Client TRN:</span> <span className="font-mono">{quotation.client_snapshot.trn}</span></p>
-                  )}
-                </div>
-              </div>
-
-              {/* Quotation Meta Identity Card */}
-              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full" style={{ width: '100%', maxWidth: '100%' }}>
-                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
-                  <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
-                    Commercial Offer
-                  </span>
-                  <span
-                    className="px-2 py-0.5 text-xs font-bold rounded-full text-white"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    {`R${quotation.revision_number}`}
-                  </span>
-                </div>
-                <div className="py-2 text-center">
-                  <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
-                    {quotation.formatted_quote_ref || quotation.quote_number}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Date</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </header>
-        ) : headerLayout === 'modern_compact' ? (
-          <header className="border-b border-slate-200 pb-3.5 mb-4 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
-            {/* Top Bar: Compact Branding & Document Ref */}
-            <div className="flex items-center justify-between gap-4 pb-2.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              <div className="flex items-center gap-3">
-                {profile?.logo_url && !logoLoadFailed ? (
-                  <img
-                    src={profile.logo_url}
-                    alt={senderEntityName}
-                    className="h-10 max-w-[160px] object-contain"
-                    onError={() => setLogoLoadFailed(true)}
-                  />
-                ) : (
-                  <div
-                    className="w-9 h-9 rounded-md flex items-center justify-center text-white font-bold text-sm shadow-xs"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    <Building2 className="w-5 h-5" />
-                  </div>
-                )}
-                <div>
-                  <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 leading-tight">
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
                     {senderEntityName}
                   </h1>
-                  {senderTrn && (
-                    <p className="text-[11px] font-medium text-slate-500">
-                      TRN: <span className="font-mono text-slate-800">{senderTrn}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="text-right">
-                <div className="flex items-center justify-end gap-1.5">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
-                    QUOTATION
-                  </span>
-                  <span
-                    className="px-1.5 py-0.5 text-[10px] font-bold rounded text-white"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    {`R${quotation.revision_number}`}
-                  </span>
-                </div>
-                <div className="text-sm font-mono font-bold text-slate-900 mt-0.5">
-                  {quotation.formatted_quote_ref || quotation.quote_number}
-                </div>
-              </div>
-            </div>
-
-            {/* Inline Sleek Metadata Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1.5 border-y border-slate-100 text-[11px] text-slate-600 bg-slate-50/60 px-2.5 rounded-md w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                {senderAddress && <span>{senderAddress}</span>}
-                {senderPhone && <span>• Tel: {senderPhone}</span>}
-                {senderEmail && <span>• {senderEmail}</span>}
-              </div>
-              <div className="flex items-center gap-3 font-medium">
-                <span>Date: <strong className="text-slate-800">{formatDate(quotation.created_at)}</strong></span>
-                {quotation.valid_until && (
-                  <span>Valid: <strong className="text-slate-800">{formatDate(quotation.valid_until)}</strong></span>
-                )}
-              </div>
-            </div>
-
-            {/* Sleek Client Strip */}
-            <div className="mt-2.5 py-2 px-3 bg-slate-50/80 border border-slate-200/70 rounded-lg text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-2">Client:</span>
-                <span className="font-bold text-slate-900">{quotation.client_snapshot?.entity_name || 'Valued Client'}</span>
-                {quotation.client_snapshot?.contact_person && (
-                  <span className="text-slate-600 ml-1.5">(Attn: {quotation.client_snapshot.contact_person})</span>
-                )}
-              </div>
-              <div className="flex items-center gap-3 text-[11px] text-slate-600">
-                {quotation.client_snapshot?.email && <span>{quotation.client_snapshot.email}</span>}
-                {quotation.client_snapshot?.phone && <span>{quotation.client_snapshot.phone}</span>}
-                {quotation.client_snapshot?.trn && (
-                  <span>TRN: <strong className="font-mono text-slate-800">{quotation.client_snapshot.trn}</strong></span>
-                )}
-              </div>
-            </div>
-          </header>
-        ) : (
-          /* 'split' (Classic) Default Layout */
-          <header className="border-b border-slate-200 pb-6 mb-6 w-full header-flex-container" style={{ width: '100%', maxWidth: '100%' }}>
-            <div className="flex flex-col sm:flex-row justify-between items-start gap-6 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              {/* Left: Organization Branding & Details */}
-              <div className="flex-1 space-y-2">
-                {logoPosition === 'center' ? (
-                  <div className="flex flex-col items-start space-y-2">
-                    <div className="w-full flex justify-center pb-2">
-                      {profile?.logo_url && !logoLoadFailed ? (
-                        <img
-                          src={profile.logo_url}
-                          alt={senderEntityName}
-                          className="h-14 max-w-[220px] object-contain"
-                          onError={() => setLogoLoadFailed(true)}
-                        />
-                      ) : (
-                        <div
-                          className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                          style={{ backgroundColor: accentColor }}
-                        >
-                          <Building2 className="w-6 h-6" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                        {senderEntityName}
-                      </h1>
-                      {senderTrn && (
-                        <p className="text-xs font-semibold text-slate-600 mt-0.5">
-                          TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ) : logoPosition === 'right' ? (
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                        {senderEntityName}
-                      </h1>
-                      {senderTrn && (
-                        <p className="text-xs font-semibold text-slate-600 mt-0.5">
-                          TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
-                        </p>
-                      )}
-                    </div>
-                    {profile?.logo_url && !logoLoadFailed ? (
-                      <img
-                        src={profile.logo_url}
-                        alt={senderEntityName}
-                        className="h-14 max-w-[180px] object-contain shrink-0"
-                        onError={() => setLogoLoadFailed(true)}
-                      />
-                    ) : (
-                      <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        <Building2 className="w-6 h-6" />
+                  {/* Address, Contacts & TRN */}
+                  {(() => {
+                    const segments: React.ReactNode[] = [];
+                    if (senderAddress) {
+                      segments.push(
+                        <span key="addr" className="inline-flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{senderAddress}</span>
+                        </span>
+                      );
+                    }
+                    if (showPhone) {
+                      segments.push(
+                        <span key="phone" className="inline-flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{senderPhone}</span>
+                        </span>
+                      );
+                    }
+                    if (showEmail) {
+                      segments.push(
+                        <span key="email" className="inline-flex items-center gap-1">
+                          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{senderEmail}</span>
+                        </span>
+                      );
+                    }
+                    if (showTrn) {
+                      segments.push(
+                        <span key="trn" className="inline-flex items-center gap-1">
+                          <span className="text-slate-400 font-medium">TRN:</span>
+                          <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
+                        </span>
+                      );
+                    }
+                    if (showWebsite) {
+                      segments.push(
+                        <span key="web" className="inline-flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{senderWebsite}</span>
+                        </span>
+                      );
+                    }
+                    if (segments.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-0.5 leading-relaxed">
+                        {segments.map((segment, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
+                            <span>{segment}</span>
+                            {idx < segments.length - 1 && (
+                              <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
+                            )}
+                          </span>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3">
+                    );
+                  })()}
+                </div>
+              ) : (
+                /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
+                <div className={`flex flex-col sm:flex-row justify-between items-start gap-6 w-full ${logoPosition === 'right' ? 'sm:flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
+                  <div className="flex items-center gap-3.5">
                     {profile?.logo_url && !logoLoadFailed ? (
                       <img
                         src={profile.logo_url}
                         alt={senderEntityName}
-                        className="h-14 max-w-[200px] object-contain"
+                        style={{ height: `${logoHeight}px` }}
+                        className="max-w-[200px] object-contain shrink-0"
                         onError={() => setLogoLoadFailed(true)}
                       />
                     ) : (
                       <div
-                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                        style={{ backgroundColor: accentColor }}
+                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                        style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
                       >
                         <Building2 className="w-6 h-6" />
                       </div>
@@ -897,149 +760,185 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
                         {senderEntityName}
                       </h1>
-                      {senderTrn && (
+                      {showTrn && (
                         <p className="text-xs font-semibold text-slate-600 mt-0.5">
                           TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
                         </p>
                       )}
                     </div>
                   </div>
-                )}
 
-                {/* Address & Contact Details */}
-                <div className="text-xs text-slate-600 space-y-0.5 pt-1">
-                  {senderAddress && (
-                    <p className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{senderAddress}</span>
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-600">
-                    {senderPhone && (
-                      <span className="flex items-center gap-1">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        {senderPhone}
-                      </span>
+                  <div className={`text-xs text-slate-600 space-y-1 ${logoPosition === 'right' ? 'sm:text-left' : 'sm:text-right'}`}>
+                    {senderAddress && (
+                      <p className={`flex items-center gap-1.5 ${logoPosition === 'right' ? 'sm:justify-start' : 'sm:justify-end'}`}>
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{senderAddress}</span>
+                      </p>
                     )}
-                    {senderEmail && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="w-3 h-3 text-slate-400" />
-                        {senderEmail}
-                      </span>
+                    <div className={`flex flex-wrap gap-x-3 gap-y-1 text-slate-600 ${logoPosition === 'right' ? 'sm:justify-start' : 'sm:justify-end'}`}>
+                      {showPhone && (
+                        <span className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          <span>{senderPhone}</span>
+                        </span>
+                      )}
+                      {showEmail && (
+                        <span className="flex items-center gap-1">
+                          <Mail className="w-3 h-3 text-slate-400" />
+                          <span>{senderEmail}</span>
+                        </span>
+                      )}
+                      {showWebsite && (
+                        <span className="flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-slate-400" />
+                          <span>{senderWebsite}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </header>
+          );
+        })()}
+
+        {/* ========================================================
+            2. CLIENT & OFFER METADATA CARD (SELECTABLE STRUCTURAL SECTION)
+           ======================================================== */}
+        {(() => {
+          const recipientLayout = resolvedRecipientConfig.layout || 'split';
+          const recipientStyle = resolvedRecipientConfig.style || 'framed';
+          const isFramed = recipientStyle === 'framed';
+          const showAttention = resolvedRecipientConfig.showAttention !== false;
+          const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
+          const showValidity = resolvedRecipientConfig.showValidity !== false;
+          const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
+
+          const cardBoxClass = isFramed
+            ? 'bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full'
+            : 'bg-transparent border-l-2 border-slate-300 pl-3.5 py-1.5 flex flex-col justify-between w-full';
+
+          return (
+            <section
+              className={`quotation-recipient-meta mb-4 w-full relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+                isInteractive ? 'cursor-pointer' : ''
+              } ${
+                isRecipientSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                  : isInteractive
+                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                  : ''
+              }`}
+              onClick={isInteractive ? (e) => {
+                e.stopPropagation();
+                if (onSelectSection) {
+                  onSelectSection('recipient_meta');
+                } else if (onSelectBlock) {
+                  onSelectBlock('recipient_meta' as any);
+                }
+              } : undefined}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {isInteractive && (
+                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                  isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                }`}>
+                  Client &amp; Metadata
+                </div>
+              )}
+
+              <div className={recipientLayout === 'split' ? 'grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch w-full' : 'flex flex-col gap-3 w-full'} style={{ width: '100%', maxWidth: '100%' }}>
+                {/* Client Snapshot Card */}
+                <div className={cardBoxClass} style={{ width: '100%', maxWidth: '100%' }}>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
+                      Submitted To / Attention To
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {quotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
+                    </h3>
+                    {showAttention && quotation.client_snapshot?.contact_person && (
+                      <p className="text-xs text-slate-700 font-medium mt-0.5">
+                        Attn:{' '}
+                        <span className="text-slate-900 font-semibold">
+                          {quotation.client_snapshot.contact_person}
+                        </span>
+                      </p>
                     )}
-                    {senderWebsite && (
-                      <span className="flex items-center gap-1">
-                        <Globe className="w-3 h-3 text-slate-400" />
-                        {senderWebsite}
-                      </span>
+                    {quotation.client_snapshot?.address && (
+                      <p className="text-xs text-slate-600 mt-1">
+                        {quotation.client_snapshot.address}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
+                    {quotation.client_snapshot?.email && (
+                      <p><span className="text-slate-400">Email:</span> {quotation.client_snapshot.email}</p>
+                    )}
+                    {quotation.client_snapshot?.phone && (
+                      <p><span className="text-slate-400">Tel:</span> {quotation.client_snapshot.phone}</p>
+                    )}
+                    {quotation.client_snapshot?.trn && (
+                      <p><span className="text-slate-400">Client TRN:</span> <span className="font-mono font-medium">{quotation.client_snapshot.trn}</span></p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quotation Meta Identity Card */}
+                <div className={cardBoxClass} style={{ width: '100%', maxWidth: '100%' }}>
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
+                    <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
+                      Commercial Offer
+                    </span>
+                    <span
+                      className="px-2 py-0.5 text-xs font-bold rounded-full text-white"
+                      style={{ backgroundColor: accentColor }}
+                    >
+                      {`R${quotation.revision_number}`}
+                    </span>
+                  </div>
+                  <div className="py-2 text-center">
+                    <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
+                      {quotation.formatted_quote_ref || quotation.quote_number}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                    <div>
+                      <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+                      <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                    </div>
+                    {showValidity && (
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+                        <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                      </div>
+                    )}
+                    {showSalesRep && resolvedSalesRep && (
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
+                        <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+                      </div>
+                    )}
+                    {showEnquiryRef && enquiryRef && (
+                      <div>
+                        <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+                        <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                      </div>
+                    )}
+                    {quotation.status && (
+                      <div className="col-span-2 pt-0.5 flex items-center justify-between">
+                        <span className="text-slate-400 text-[10px] uppercase">Status</span>
+                        <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                          {quotation.status}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
-
-              {/* Right: Document Identity & Revision Window */}
-              <div className="sm:text-right shrink-0 bg-slate-50 border border-slate-200/80 rounded-xl p-4 min-w-[220px]">
-                <div className="flex items-center sm:justify-end gap-2 mb-1">
-                  <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
-                    Commercial Offer
-                  </span>
-                  <span
-                    className="px-2 py-0.5 text-xs font-bold rounded-full text-white"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    {`R${quotation.revision_number}`}
-                  </span>
-                </div>
-
-                <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
-                  {quotation.formatted_quote_ref || quotation.quote_number}
-                </div>
-
-                <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-1 text-xs">
-                  <div className="flex justify-between sm:justify-end gap-3 text-slate-600">
-                    <span className="text-slate-500 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" /> Date:
-                    </span>
-                    <span className="font-semibold text-slate-800">
-                      {formatDate(quotation.created_at)}
-                    </span>
-                  </div>
-                  {quotation.valid_until && (
-                    <div className="flex justify-between sm:justify-end gap-3 text-slate-600">
-                      <span className="text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Valid Until:
-                      </span>
-                      <span className="font-semibold text-slate-800">
-                        {formatDate(quotation.valid_until)}
-                      </span>
-                    </div>
-                  )}
-                  {quotation.status && (
-                    <div className="flex justify-between sm:justify-end gap-3 pt-0.5">
-                      <span className="text-slate-500">Status:</span>
-                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">
-                        {quotation.status}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Client Snapshot Card */}
-            <div className="mt-6 bg-slate-50/70 border border-slate-200/70 rounded-lg p-4 w-full" style={{ width: '100%', maxWidth: '100%' }}>
-              <div className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 mb-2">
-                Submitted To / Attention To
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    {quotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
-                  </h3>
-                  {quotation.client_snapshot?.contact_person && (
-                    <p className="text-xs text-slate-700 font-medium mt-0.5">
-                      Attn:{' '}
-                      <span className="text-slate-900 font-semibold">
-                        {quotation.client_snapshot.contact_person}
-                      </span>
-                    </p>
-                  )}
-                  {quotation.client_snapshot?.address && (
-                    <p className="text-xs text-slate-600 mt-1">
-                      {quotation.client_snapshot.address}
-                    </p>
-                  )}
-                </div>
-                <div className="text-xs text-slate-600 space-y-1 md:text-right">
-                  {quotation.client_snapshot?.email && (
-                    <p>
-                      <span className="text-slate-500">Email:</span>{' '}
-                      <span className="font-medium text-slate-800">
-                        {quotation.client_snapshot.email}
-                      </span>
-                    </p>
-                  )}
-                  {quotation.client_snapshot?.phone && (
-                    <p>
-                      <span className="text-slate-500">Tel:</span>{' '}
-                      <span className="font-medium text-slate-800">
-                        {quotation.client_snapshot.phone}
-                      </span>
-                    </p>
-                  )}
-                  {quotation.client_snapshot?.trn && (
-                    <p>
-                      <span className="text-slate-500">Client TRN:</span>{' '}
-                      <span className="font-mono font-medium text-slate-800">
-                        {quotation.client_snapshot.trn}
-                      </span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </header>
-        )}
+            </section>
+          );
+        })()}
 
         {/* ========================================================
             ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)

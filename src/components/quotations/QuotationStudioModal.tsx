@@ -21,10 +21,18 @@ import {
   QuotationTableFontScale,
   QuotationBlockConfig,
   QuotationBlockId,
-  StudioSelectedSection
+  StudioSelectedSection,
+  QuotationHeaderConfig,
+  QuotationRecipientConfig
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
-import { QuotationDocument, QUOTATION_THEMES, DEFAULT_QUOTATION_BLOCKS } from './QuotationDocument';
+import {
+  QuotationDocument,
+  QUOTATION_THEMES,
+  DEFAULT_QUOTATION_BLOCKS,
+  DEFAULT_HEADER_CONFIG,
+  DEFAULT_RECIPIENT_CONFIG
+} from './QuotationDocument';
 import {
   X,
   FileText,
@@ -163,6 +171,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
     editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
   );
+  const [headerConfig, setHeaderConfig] = useState<QuotationHeaderConfig>(() => ({
+    ...DEFAULT_HEADER_CONFIG,
+    ...(profile?.header_config || {}),
+    ...(editingQuotation?.header_config || {})
+  }));
+  const [recipientConfig, setRecipientConfig] = useState<QuotationRecipientConfig>(() => ({
+    ...DEFAULT_RECIPIENT_CONFIG,
+    ...(profile?.recipient_config || {}),
+    ...(editingQuotation?.recipient_config || {})
+  }));
   const [layoutBlocks, setLayoutBlocks] = useState<QuotationBlockConfig[]>(() => {
     let raw = DEFAULT_QUOTATION_BLOCKS;
     if (editingQuotation?.layout_blocks && editingQuotation.layout_blocks.length > 0) {
@@ -233,7 +251,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Retractable Right-Side Contextual Block & Section Inspector selection
   const [selectedSection, setSelectedSection] = useState<StudioSelectedSection>(null);
-  const selectedBlockId = selectedSection && selectedSection !== 'items_table' ? selectedSection : null;
+  const selectedBlockId =
+    selectedSection &&
+    selectedSection !== 'items_table' &&
+    selectedSection !== 'header' &&
+    selectedSection !== 'recipient_meta'
+      ? selectedSection
+      : null;
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
     const found = layoutBlocks.find((b) => b.id === selectedBlockId);
@@ -256,10 +280,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const handleInspectSection = (section: StudioSelectedSection) => {
     if (selectedSection === section) {
       setSelectedSection(null);
-    } else if (section === 'items_table') {
-      setSelectedSection('items_table');
+    } else if (section === 'items_table' || section === 'header' || section === 'recipient_meta') {
+      setSelectedSection(section);
     } else if (section) {
-      handleInspectBlock(section);
+      handleInspectBlock(section as QuotationBlockId);
     } else {
       setSelectedSection(null);
     }
@@ -585,6 +609,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.block_style) setBlockStyle(preset.block_style);
+    if (preset.header_config) {
+      setHeaderConfig((prev) => ({ ...prev, ...preset.header_config }));
+    }
+    if (preset.recipient_config) {
+      setRecipientConfig((prev) => ({ ...prev, ...preset.recipient_config }));
+    }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
         preset.layout_blocks.map((b) => ({
@@ -845,6 +875,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         signature_style: signatureStyle,
         block_style: blockStyle,
         layout_blocks: layoutBlocks,
+        header_config: headerConfig,
+        recipient_config: recipientConfig,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -921,7 +953,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         signature_style: signatureStyle,
         logo_position: logoPosition,
         block_style: blockStyle,
-        layout_blocks: layoutBlocks
+        layout_blocks: layoutBlocks,
+        header_config: headerConfig,
+        recipient_config: recipientConfig
       };
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -1139,6 +1173,69 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </span>
                       </div>
 
+                      {/* 1. Header & Company Branding Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('header')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'header'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <Building className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Header &amp; Branding
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                              {headerConfig.alignment || 'split'} • {headerConfig.logoHeightPx || 44}px logo
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'header'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'header' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 2. Client & Offer Metadata Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('recipient_meta')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'recipient_meta'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Client &amp; Metadata
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                              {recipientConfig.style || 'framed'} • {recipientConfig.layout || 'split'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'recipient_meta'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'recipient_meta' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 3. Line Items Table Section Card */}
                       <div
                         onClick={() => handleInspectSection('items_table')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
@@ -1825,6 +1922,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     visibleColumns={visibleColumns}
                     tableDensity={tableDensity}
                     tableFontScale={tableFontScale}
+                    headerConfig={headerConfig}
+                    recipientConfig={recipientConfig}
                     isCompactView={tableDensity === 'compact'}
                     showBankDetails={showBankDetails}
                     showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
@@ -1841,6 +1940,374 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Retractable Right-Side Contextual Header Inspector Drawer */}
+              {selectedSection === 'header' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Building className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Header &amp; Branding
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Company Identity
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Header Alignment */}
+                    <div className="space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Header Alignment &amp; Format
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Choose between classic split (Logo Left / Address Right) or a centered brand banner.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'split' as const, label: 'Split (Classic)', desc: 'Logo Left, Address Right' },
+                          { id: 'centered' as const, label: 'Centered (Banner)', desc: 'Stacked corporate banner' }
+                        ].map((item) => {
+                          const isSelected = (headerConfig.alignment || 'split') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setHeaderConfig((prev) => ({ ...prev, alignment: item.id }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Logo Height */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Brand Logo Size
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Adjust the visual height of your corporate logo on the quotation sheet.
+                      </p>
+                      <div className="grid grid-cols-4 gap-1.5 pt-1">
+                        {[
+                          { px: 36, label: 'Compact', desc: '36px' },
+                          { px: 44, label: 'Standard', desc: '44px' },
+                          { px: 52, label: 'Prominent', desc: '52px' },
+                          { px: 60, label: 'Large', desc: '60px' }
+                        ].map((item) => {
+                          const isSelected = (headerConfig.logoHeightPx || 44) === item.px;
+                          return (
+                            <button
+                              key={item.px}
+                              type="button"
+                              onClick={() => setHeaderConfig((prev) => ({ ...prev, logoHeightPx: item.px }))}
+                              className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Visibility Toggles */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Contact &amp; Legal Visibility
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Toggle which communication and tax details appear in the header.
+                      </p>
+                      <div className="space-y-1.5 pt-1">
+                        {[
+                          {
+                            key: 'showPhone' as const,
+                            label: 'Phone Number',
+                            desc: 'Official contact phone number',
+                            checked: headerConfig.showPhone !== false
+                          },
+                          {
+                            key: 'showEmail' as const,
+                            label: 'Email Address',
+                            desc: 'Primary corporate quotation inbox',
+                            checked: headerConfig.showEmail !== false
+                          },
+                          {
+                            key: 'showWebsite' as const,
+                            label: 'Website URL',
+                            desc: 'Corporate domain / online portal',
+                            checked: headerConfig.showWebsite !== false
+                          },
+                          {
+                            key: 'showTrn' as const,
+                            label: 'TRN / Tax Registration',
+                            desc: 'Official VAT / Tax identification number',
+                            checked: headerConfig.showTrn !== false
+                          }
+                        ].map((item) => (
+                          <div
+                            key={item.key}
+                            className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                              item.checked
+                                ? 'bg-white border-slate-200 shadow-2xs'
+                                : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-1">
+                              <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                {item.label}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                {item.desc}
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={item.checked}
+                                onChange={(e) =>
+                                  setHeaderConfig((prev) => ({
+                                    ...prev,
+                                    [item.key]: e.target.checked
+                                  }))
+                                }
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Informational Guardrail Card */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Document Instance Snapshot
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Header branding is isolated to this quotation record and persists on save without mutating presets.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {/* Retractable Right-Side Contextual Recipient Meta Inspector Drawer */}
+              {selectedSection === 'recipient_meta' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Client &amp; Metadata
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Recipient &amp; Commercial Offer
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Presentation Style */}
+                    <div className="space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Card Presentation Style
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Toggle between an enterprise framed card box or a clean minimal divider line.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered card container' },
+                          { id: 'minimal' as const, label: 'Minimal', desc: 'Clean accent divider' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.style || 'framed') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({ ...prev, style: item.id }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Card Layout Geometry */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Card Layout Geometry
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Position Client Snapshot and Offer Metadata side-by-side or stacked vertically.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'split' as const, label: 'Split (50/50)', desc: 'Side-by-side two column' },
+                          { id: 'stacked' as const, label: 'Stacked', desc: 'Full-width vertical stack' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.layout || 'split') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({ ...prev, layout: item.id }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Field Visibility Toggles */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Metadata Field Visibility
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Toggle optional recipient contact and commercial quotation fields.
+                      </p>
+                      <div className="space-y-1.5 pt-1">
+                        {[
+                          {
+                            key: 'showAttention' as const,
+                            label: 'Attention To (Attn:)',
+                            desc: 'Client contact person name',
+                            checked: recipientConfig.showAttention !== false
+                          },
+                          {
+                            key: 'showSalesRep' as const,
+                            label: 'Prepared By / Sales Rep',
+                            desc: 'Account representative name',
+                            checked: recipientConfig.showSalesRep !== false
+                          },
+                          {
+                            key: 'showValidity' as const,
+                            label: 'Validity Expiry Date',
+                            desc: 'Offer expiration deadline date',
+                            checked: recipientConfig.showValidity !== false
+                          },
+                          {
+                            key: 'showEnquiryRef' as const,
+                            label: 'Enquiry Reference',
+                            desc: 'Linked customer enquiry ref',
+                            checked: recipientConfig.showEnquiryRef !== false
+                          }
+                        ].map((item) => (
+                          <div
+                            key={item.key}
+                            className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                              item.checked
+                                ? 'bg-white border-slate-200 shadow-2xs'
+                                : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                            }`}
+                          >
+                            <div className="min-w-0 pr-1">
+                              <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                {item.label}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                {item.desc}
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={item.checked}
+                                onChange={(e) =>
+                                  setRecipientConfig((prev) => ({
+                                    ...prev,
+                                    [item.key]: e.target.checked
+                                  }))
+                                }
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Informational Guardrail Card */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Document Instance Snapshot
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Recipient and quotation metadata styling is isolated to this quotation record and persists on save.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
 
               {/* Retractable Right-Side Contextual Table Inspector Drawer */}
               {selectedSection === 'items_table' && (
@@ -2373,6 +2840,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             visibleColumns={visibleColumns}
             tableDensity={tableDensity}
             tableFontScale={tableFontScale}
+            headerConfig={headerConfig}
+            recipientConfig={recipientConfig}
             isCompactView={tableDensity === 'compact'}
             showBankDetails={showBankDetails}
             showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
