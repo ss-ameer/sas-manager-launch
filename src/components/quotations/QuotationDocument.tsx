@@ -11,8 +11,10 @@ import {
   QuotationLogoPosition,
   QuotationHeaderLayout,
   QuotationTableDensity,
+  QuotationTableFontScale,
   QuotationBlockConfig,
-  QuotationBlockId
+  QuotationBlockId,
+  StudioSelectedSection
 } from '../../types';
 import { formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -103,6 +105,8 @@ export interface QuotationDocumentProps {
   profile?: WorkspaceDocumentProfile | null;
   visibleColumns?: QuotationPresetColumns;
   isCompactView?: boolean;
+  tableDensity?: QuotationTableDensity;
+  tableFontScale?: QuotationTableFontScale;
   showBankDetails?: boolean;
   showStampAndSignatures?: boolean;
   user?: { displayName?: string; name?: string; email?: string } | null;
@@ -112,8 +116,10 @@ export interface QuotationDocumentProps {
   salesRepName?: string;
   blockStyle?: 'framed' | 'minimal';
   layoutBlocks?: QuotationBlockConfig[];
-  selectedBlockId?: QuotationBlockId | null;
-  onSelectBlock?: (id: QuotationBlockId) => void;
+  selectedBlockId?: StudioSelectedSection;
+  selectedSection?: StudioSelectedSection;
+  onSelectBlock?: (id: StudioSelectedSection) => void;
+  onSelectSection?: (section: StudioSelectedSection) => void;
   showPageBreakGuides?: boolean;
 }
 
@@ -122,6 +128,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   profile,
   visibleColumns = {} as QuotationPresetColumns,
   isCompactView = true,
+  tableDensity: propTableDensity,
+  tableFontScale: propTableFontScale,
   showBankDetails = true,
   showStampAndSignatures = true,
   user,
@@ -132,7 +140,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   blockStyle = 'framed',
   layoutBlocks,
   selectedBlockId,
+  selectedSection,
   onSelectBlock,
+  onSelectSection,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
@@ -200,7 +210,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const headerLayout: QuotationHeaderLayout =
     quotation.header_layout || profile?.header_layout || 'split';
   const tableDensity: QuotationTableDensity =
-    quotation.table_density || profile?.table_density || (isCompactView ? 'compact' : 'comfortable');
+    propTableDensity || quotation.table_density || profile?.table_density || (isCompactView ? 'compact' : 'comfortable');
+  const tableFontScale: QuotationTableFontScale =
+    propTableFontScale || quotation.table_font_scale || profile?.table_font_scale || (tableDensity === 'compact' ? 'compact' : 'standard');
   const resolvedShowBankDetails: boolean =
     quotation.show_bank_details ?? profile?.show_bank_details ?? showBankDetails;
   const resolvedShowCommercialTerms: boolean =
@@ -208,11 +220,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const resolvedShowCompanySeal: boolean =
     quotation.show_company_seal ?? profile?.show_company_seal ?? showStampAndSignatures;
 
+  const activeSelectedSection: StudioSelectedSection = selectedSection !== undefined ? selectedSection : (selectedBlockId as StudioSelectedSection);
+  const isTableSelected = activeSelectedSection === 'items_table';
+  const isInteractive = Boolean(onSelectSection || onSelectBlock);
+
   // Table Density helpers
   const isCompact = tableDensity === 'compact';
   const thPad = isCompact ? 'py-1.5' : 'py-2.5';
   const tdPad = isCompact ? 'py-1.5' : 'py-2.5';
-  const tableFontSize = isCompact ? 'text-[11px]' : 'text-xs';
+  const tableFontSize = tableFontScale === 'compact'
+    ? 'text-[10.5px]'
+    : tableFontScale === 'prominent'
+    ? 'text-sm'
+    : 'text-xs';
 
   const amountInWordsEnabled =
     quotation.amount_in_words_enabled ?? profile?.amount_in_words_enabled ?? true;
@@ -393,7 +413,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   return (
     <div
       id="quotation-printable-document"
-      className="quotation-document-container w-full bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
+      className="quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
       style={{ colorScheme: 'light' }}
     >
       {/* Scoped Print Stylesheet */}
@@ -402,6 +422,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           @page {
             size: A4 portrait;
             margin: 0mm !important;
+          }
+          * {
+            outline: none !important;
+          }
+          .quotation-block-slot,
+          .quotation-block-slot > div,
+          .quotation-structural-section,
+          section,
+          table,
+          [class*="ring-"] {
+            outline: none !important;
+            box-shadow: none !important;
+            --tw-ring-shadow: none !important;
+            --tw-ring-offset-shadow: none !important;
           }
           body, #root, .quotation-modal-container {
             width: 100% !important;
@@ -444,7 +478,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             padding: 12mm 12mm 18mm 12mm !important;
             width: 210mm !important;
             min-width: 210mm !important;
-            max-width: none !important;
+            max-width: 210mm !important;
             box-sizing: border-box !important;
           }
           .document-print-footer {
@@ -507,7 +541,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       {/* Decoupled A4 Page Sheet with Strict 210mm x 297mm Physical Geometry */}
       <article
         ref={sheetRef}
-        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 p-[12mm_12mm_18mm_12mm] flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0 print:p-[12mm_12mm_18mm_12mm]"
+        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 p-[12mm_12mm_18mm_12mm] flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0 print:p-[12mm_12mm_18mm_12mm]"
         style={{
           boxSizing: 'border-box'
         }}
@@ -1008,9 +1042,35 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         )}
 
         {/* ========================================================
-            ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD)
+            ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
            ======================================================== */}
-        <section className="flex-1 my-2 w-full" style={{ width: '100%', maxWidth: '100%' }}>
+        <section
+          className={`flex-1 my-2 w-full transition-all duration-150 rounded-lg quotation-structural-section relative group ${
+            isInteractive ? 'cursor-pointer' : ''
+          } ${
+            isTableSelected
+              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+              : isInteractive
+              ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+              : ''
+          }`}
+          onClick={isInteractive ? (e) => {
+            e.stopPropagation();
+            if (onSelectSection) {
+              onSelectSection('items_table');
+            } else if (onSelectBlock) {
+              onSelectBlock('items_table' as any);
+            }
+          } : undefined}
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
+          {isInteractive && (
+            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              isTableSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            }`}>
+              {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
+            </div>
+          )}
           <div className="rounded-lg border border-slate-200 overflow-hidden w-full" style={{ width: '100%', maxWidth: '100%' }}>
             <table
               className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
@@ -1602,8 +1662,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
                   const baseFontSize = b.fontScale === 'compact' ? '9px' : b.fontScale === 'prominent' ? '11px' : '10px';
                   const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
-                  const isSelected = selectedBlockId === b.id;
-                  const isInteractive = Boolean(onSelectBlock);
+                  const isSelected = activeSelectedSection === b.id;
+                  const isInteractive = Boolean(onSelectSection || onSelectBlock);
 
                   const cardStyleClass = [
                     padClass,
@@ -1613,9 +1673,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       : 'border border-slate-200 bg-slate-50/50',
                     isInteractive ? 'cursor-pointer' : '',
                     isSelected
-                      ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 print:ring-offset-0 print:shadow-none'
+                      ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
                       : isInteractive
-                      ? 'hover:ring-1 hover:ring-blue-300 print:ring-0'
+                      ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
                       : ''
                   ].filter(Boolean).join(' ');
 
@@ -1633,7 +1693,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     >
                       <div
                         className={cardStyleClass}
-                        onClick={isInteractive ? () => onSelectBlock?.(b.id) : undefined}
+                        onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
                         style={{
                           ['--block-base' as any]: baseFontSize,
                           fontSize: 'var(--block-base)'

@@ -948,6 +948,7 @@ export type QuotationSignatureStyle = 'script' | 'line' | 'image';
 export type QuotationLogoPosition = 'left' | 'center' | 'right';
 export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact';
 export type QuotationTableDensity = 'compact' | 'comfortable';
+export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
 
@@ -1007,6 +1008,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   logo_position?: QuotationLogoPosition;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
+  table_font_scale?: QuotationTableFontScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
@@ -1027,6 +1029,8 @@ export interface QuotationPresetColumns {
 }
 
 export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
+
+export type StudioSelectedSection = QuotationBlockId | 'items_table' | null;
 
 export interface QuotationBlockConfig {
   id: QuotationBlockId;
@@ -1058,6 +1062,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   notes_template?: string;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
+  table_font_scale?: QuotationTableFontScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
@@ -1125,6 +1130,7 @@ export interface Quotation extends SoftDeleteFields {
   logo_position?: QuotationLogoPosition;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
+  table_font_scale?: QuotationTableFontScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
