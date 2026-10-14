@@ -69,10 +69,15 @@ const CURRENCY_MAP: Record<string, CurrencySubunitConfig> = {
 };
 
 export function formatAmountInWords(
-  amount: number,
+  amount: number | string | null | undefined,
   currencyCode: string = 'AED'
 ): string {
-  if (isNaN(amount) || amount === null || amount === undefined) {
+  if (amount === null || amount === undefined) {
+    return 'Zero Only';
+  }
+
+  const numAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
+  if (isNaN(numAmount)) {
     return 'Zero Only';
   }
 
@@ -82,7 +87,7 @@ export function formatAmountInWords(
     subunit: 'Cents'
   };
 
-  const rounded = Math.round((Math.abs(amount) + Number.EPSILON) * 100) / 100;
+  const rounded = Math.round((Math.abs(numAmount) + Number.EPSILON) * 100) / 100;
   const wholePart = Math.floor(rounded);
   const decimalPart = Math.round((rounded - wholePart) * 100);
 

@@ -411,6 +411,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+          body {
+            counter-reset: page;
+          }
+          .print-page-number::after {
+            content: counter(page);
+          }
           #quotation-printable-document,
           .quotation-document-container {
             width: 210mm !important;
@@ -1670,6 +1676,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               )}
               <span>•</span>
               <span>Date: {formatDate(quotation.created_at)}</span>
+              <span className="hidden print:inline-block">•</span>
+              <span className="hidden print:inline-block font-mono text-[9px] text-slate-500">Page <span className="print-page-number" /></span>
             </span>
             <span className="mt-1 sm:mt-0 italic">Computer-generated commercial document. Valid without manual signature when electronically issued.</span>
           </div>

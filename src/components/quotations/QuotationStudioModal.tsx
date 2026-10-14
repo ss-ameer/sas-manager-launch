@@ -174,6 +174,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setLayoutBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, enabled } : b))
     );
+    // Inspector Selection Guard: Automatically close/deselect drawer if the toggled block was selected and is now hidden
+    if (!enabled && selectedBlockId === id) {
+      setSelectedBlockId(null);
+    }
     if (id === 'terms') setShowCommercialTerms(enabled);
     if (id === 'remittance') setShowBankDetails(enabled);
     if (id === 'signatory') setShowCompanySeal(enabled);
@@ -222,10 +226,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Retractable Right-Side Contextual Block Inspector selection
   const [selectedBlockId, setSelectedBlockId] = useState<QuotationBlockId | null>(null);
-  const selectedBlock = useMemo(
-    () => layoutBlocks.find((b) => b.id === selectedBlockId) || null,
-    [layoutBlocks, selectedBlockId]
-  );
+  const selectedBlock = useMemo(() => {
+    const found = layoutBlocks.find((b) => b.id === selectedBlockId);
+    if (!found || !found.enabled) return null;
+    return found;
+  }, [layoutBlocks, selectedBlockId]);
+
+  const handleInspectBlock = (id: QuotationBlockId) => {
+    if (selectedBlockId === id) {
+      setSelectedBlockId(null);
+    } else {
+      const target = layoutBlocks.find((b) => b.id === id);
+      if (target && !target.enabled) {
+        handleToggleBlockEnabled(id, true);
+      }
+      setSelectedBlockId(id);
+    }
+  };
 
   // Template Preset Saving Modal
   const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState<boolean>(false);
@@ -1150,7 +1167,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                                 <div
                                   className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
-                                  onClick={() => setSelectedBlockId(isInspected ? null : block.id)}
+                                  onClick={() => handleInspectBlock(block.id)}
                                 >
                                   <Icon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                                   <div className="min-w-0">
@@ -1169,7 +1186,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               {/* Inspect / Edit Button */}
                               <button
                                 type="button"
-                                onClick={() => setSelectedBlockId(isInspected ? null : block.id)}
+                                onClick={() => handleInspectBlock(block.id)}
                                 className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
                                   isInspected
                                     ? 'bg-blue-600 text-white shadow-2xs font-semibold'
@@ -1973,7 +1990,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             <button
                               key={b.id}
                               type="button"
-                              onClick={() => setSelectedBlockId(b.id)}
+                              onClick={() => handleInspectBlock(b.id)}
                               className={`px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
                                 selectedBlock.id === b.id
                                   ? 'bg-blue-600 text-white font-semibold'
