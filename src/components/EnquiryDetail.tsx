@@ -478,6 +478,33 @@ export default function EnquiryDetail({
       const updatedQuotes = await QuotationRepository.getQuotationsForEnquiry(currentEnquiry.id, wsId);
       setQuotations(updatedQuotes);
 
+      // Deal Value Sync & R0 Discard Safety:
+      const activeQuotes = updatedQuotes.filter((q) => !q.is_deleted);
+      const fallbackActive =
+        activeQuotes.find((q) => q.status === 'Approved') ||
+        activeQuotes.find((q) => q.status === 'Sent') ||
+        activeQuotes.find((q) => q.status === 'Draft') ||
+        (activeQuotes.length > 0 ? activeQuotes[0] : null);
+
+      if (fallbackActive) {
+        const newTotal = Number(fallbackActive.grand_total || 0);
+        const newRef = fallbackActive.formatted_quote_ref;
+        setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
+        }
+      } else {
+        // Root Revision (R0) Discard: No remaining active quotes; fallback to line items total
+        const fallbackValue = (currentEnquiry.line_items || []).reduce(
+          (sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0),
+          0
+        );
+        setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: fallbackValue } : prev));
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry({ ...currentEnquiry, value_aed: fallbackValue });
+        }
+      }
+
       if (triggerToast) {
         triggerToast(
           `Quotation ${quote.formatted_quote_ref} ${quote.status === 'Draft' ? 'discarded' : 'moved to Recycle Bin'}.`,
@@ -3886,6 +3913,25 @@ export default function EnquiryDetail({
           editingQuotation={editingQuotation}
           onQuotationCreated={async (newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
+
+            // Deal Value Sync: Sync new quotation total and reference to enquiry
+            if (newQuote.grand_total !== undefined && currentEnquiry?.id) {
+              const newTotal = Number(newQuote.grand_total || 0);
+              const newRef = newQuote.formatted_quote_ref;
+              try {
+                await safeUpdateDoc('enquiries', currentEnquiry.id, {
+                  value_aed: newTotal,
+                  quote_ref_no: newRef,
+                  updated_at: new Date().toISOString()
+                });
+                setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
+                if (onUpdateEnquiry) {
+                  onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
+                }
+              } catch (valErr) {
+                console.warn('[EnquiryDetail] Failed updating enquiry deal value from quotation:', valErr);
+              }
+            }
 
             if (newQuote.status === 'Sent') {
               handleStatusTransition('Sent / Pending Client');

@@ -470,6 +470,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           tbody {
             display: table-row-group !important;
           }
+          tfoot {
+            display: table-footer-group !important;
+          }
           tr {
             break-inside: avoid !important;
             page-break-inside: avoid !important;

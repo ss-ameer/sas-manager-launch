@@ -321,19 +321,68 @@ export class QuotationRepository {
 
     const updated = await this.updateQuotation(quotationId, updates);
 
-    // Revision Fallback: If this was a revision that superseded a parent quote,
-    // reactivate the parent quote if it's currently marked 'Superseded'.
+    // Revision Fallback & Deal Value Sync:
+    // 1. If this was a revision that superseded a parent quote, reactivate the parent quote if Superseded
+    let fallbackActiveQuote: Quotation | null = null;
     if (existing.parent_quote_id) {
       try {
         const parent = await this.getQuotationById(existing.parent_quote_id);
-        if (parent && parent.status === 'Superseded' && !parent.is_deleted) {
-          await this.updateQuotation(parent.id, {
-            status: 'Sent',
-            updatedAt: now
-          });
+        if (parent && !parent.is_deleted) {
+          if (parent.status === 'Superseded') {
+            await this.updateQuotation(parent.id, {
+              status: 'Sent',
+              updatedAt: now
+            });
+            parent.status = 'Sent';
+          }
+          fallbackActiveQuote = parent;
         }
       } catch (err) {
         console.warn('Failed to reactivate superseded parent quote:', err);
+      }
+    }
+
+    // 2. Root Revision (R0) Discard Safety & Fallback Lookup:
+    // If no parent quote was reactivated, look for any remaining active quotes for this enquiry
+    if (existing.enquiry_id) {
+      try {
+        if (!fallbackActiveQuote) {
+          const quotes = await this.getQuotationsForEnquiry(
+            existing.enquiry_id,
+            existing.workspace_id || 'ws_default'
+          );
+          const activeQuotes = quotes.filter((q) => q.id !== quotationId && !q.is_deleted);
+          fallbackActiveQuote =
+            activeQuotes.find((q) => q.status === 'Approved') ||
+            activeQuotes.find((q) => q.status === 'Sent') ||
+            activeQuotes.find((q) => q.status === 'Draft') ||
+            (activeQuotes.length > 0 ? activeQuotes[0] : null);
+        }
+
+        if (fallbackActiveQuote) {
+          // Update parent enquiry's value_aed and quote_ref_no to match the active quotation
+          await safeUpdateDoc('enquiries', existing.enquiry_id, {
+            value_aed: Number(fallbackActiveQuote.grand_total || 0),
+            quote_ref_no: fallbackActiveQuote.formatted_quote_ref,
+            updated_at: now
+          });
+        } else {
+          // R0 Discard: No other quotation exists. Safely recalculate fallback value from line items
+          const enquiryDoc = await safeGetDoc('enquiries', existing.enquiry_id);
+          if (enquiryDoc && enquiryDoc.exists()) {
+            const enquiryData = enquiryDoc.data();
+            const fallbackValue = (enquiryData.line_items || []).reduce(
+              (sum: number, it: any) => sum + (Number(it.quantity || 0) * Number(it.unit_price || 0)),
+              0
+            );
+            await safeUpdateDoc('enquiries', existing.enquiry_id, {
+              value_aed: fallbackValue,
+              updated_at: now
+            });
+          }
+        }
+      } catch (syncErr) {
+        console.warn('[QuotationRepository] Non-fatal: deal value sync failed on quotation discard:', syncErr);
       }
     }
 
@@ -371,6 +420,20 @@ export class QuotationRepository {
         }
       } catch (err) {
         console.warn('Failed to re-supersede parent quote on restore:', err);
+      }
+    }
+
+    // Deal Value Sync on Restore:
+    // Update parent enquiry's value_aed and quote_ref_no to match the restored quotation
+    if (existing.enquiry_id) {
+      try {
+        await safeUpdateDoc('enquiries', existing.enquiry_id, {
+          value_aed: Number(existing.grand_total || 0),
+          quote_ref_no: existing.formatted_quote_ref,
+          updated_at: now
+        });
+      } catch (syncErr) {
+        console.warn('[QuotationRepository] Non-fatal: deal value sync failed on quotation restore:', syncErr);
       }
     }
 
