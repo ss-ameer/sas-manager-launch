@@ -114,6 +114,7 @@ export interface QuotationDocumentProps {
   layoutBlocks?: QuotationBlockConfig[];
   selectedBlockId?: QuotationBlockId | null;
   onSelectBlock?: (id: QuotationBlockId) => void;
+  showPageBreakGuides?: boolean;
 }
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
@@ -131,10 +132,36 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   blockStyle = 'framed',
   layoutBlocks,
   selectedBlockId,
-  onSelectBlock
+  onSelectBlock,
+  showPageBreakGuides = false
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
+
+  // Visual page-break cut line emulation
+  const sheetRef = React.useRef<HTMLElement | null>(null);
+  const [pageMarkers, setPageMarkers] = React.useState<number[]>([1]);
+
+  React.useEffect(() => {
+    if (!showPageBreakGuides) return;
+    const updateMarkers = () => {
+      if (!sheetRef.current) return;
+      const height = sheetRef.current.offsetHeight;
+      const a4Px = (297 * 96) / 25.4;
+      const totalPages = Math.ceil(height / a4Px);
+      const markers: number[] = [];
+      for (let i = 1; i <= Math.max(1, totalPages); i++) {
+        if (i > 1 && height < (i - 1) * a4Px + 40) break;
+        markers.push(i);
+      }
+      setPageMarkers(markers.length > 0 ? markers : [1]);
+    };
+
+    updateMarkers();
+    const ro = new ResizeObserver(updateMarkers);
+    if (sheetRef.current) ro.observe(sheetRef.current);
+    return () => ro.disconnect();
+  }, [showPageBreakGuides, quotation, layoutBlocks]);
 
   // Resolve presentation theme & block style
   const resolvedBlockStyle: 'framed' | 'minimal' =
@@ -468,13 +495,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         }
       `}</style>
 
-      {/* Decoupled A4 Page Sheet */}
+      {/* Decoupled A4 Page Sheet with Strict 210mm x 297mm Physical Geometry */}
       <article
-        className="quotation-print-sheet quotation-a4-sheet relative w-full max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200 p-8 sm:p-12 flex flex-col justify-between font-sans print:w-[210mm] print:min-w-[210mm] print:max-w-none print:h-auto print:min-h-0 print:m-0 print:p-[12mm] print:pb-[18mm] print:box-border print:shadow-none print:border-none"
+        ref={sheetRef}
+        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 p-[12mm_12mm_18mm_12mm] flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0 print:p-[12mm_12mm_18mm_12mm]"
         style={{
           boxSizing: 'border-box'
         }}
       >
+        {/* Visual Page-Break Cut Line Emulation (screen only, print:hidden) */}
+        {showPageBreakGuides &&
+          pageMarkers.map((page) => (
+            <div
+              key={page}
+              className="absolute left-0 right-0 pointer-events-none z-30 border-b-2 border-dashed border-rose-400/70 print:hidden"
+              style={{ top: `${page * 297}mm` }}
+            >
+              <span className="absolute right-2 -top-2.5 bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-mono px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1 select-none">
+                <span>✂</span> A4 Page {page} Cutoff ({page * 297}mm)
+              </span>
+            </div>
+          ))}
+
         {/* Top Accent Stripe */}
         <div
           className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full print:max-w-none"

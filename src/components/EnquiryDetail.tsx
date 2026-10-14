@@ -431,6 +431,67 @@ export default function EnquiryDetail({
     }
   };
 
+  // Delete / Discard Quotation or Revision Handler (Soft-delete & Revision Fallback)
+  const promptDeleteQuotation = (quote: Quotation) => {
+    const isDraft = quote.status === 'Draft' || !quote.status;
+    const isApproved = quote.status === 'Approved';
+
+    setConfirmDialog({
+      isOpen: true,
+      title: isDraft ? 'Discard Draft Quotation' : isApproved ? 'Delete Approved Quotation' : 'Delete Quotation Revision',
+      message: isApproved
+        ? `Quotation ${quote.formatted_quote_ref} is currently marked as Approved/Won. Deleting it will remove the formal document and move it to the Recycle Bin, but will NOT cancel or change your Enquiry deal status. Do you wish to proceed?`
+        : isDraft
+        ? `Are you sure you want to discard draft quotation ${quote.formatted_quote_ref}? It will be removed from this enquiry and moved to the Recycle Bin.`
+        : `Are you sure you want to delete quotation revision ${quote.formatted_quote_ref}? If this revision superseded an earlier quote, the earlier revision will be restored as active. It will be moved to the Recycle Bin.`,
+      confirmText: isDraft ? 'Discard Draft' : 'Delete to Recycle Bin',
+      cancelText: 'Keep Quotation',
+      isDestructive: true,
+      variant: 'destructive',
+      onConfirm: () => handleDeleteQuotation(quote)
+    });
+  };
+
+  const handleDeleteQuotation = async (quote: Quotation) => {
+    if (!quote.id) return;
+    try {
+      const actor = {
+        id: user?.uid || user?.id || 'unknown',
+        name: user?.full_name || user?.name || user?.username || user?.email || 'User'
+      };
+
+      await QuotationRepository.softDeleteQuotation(quote.id, actor);
+
+      // If viewing this quotation in preview modal, close it
+      if (viewingQuotation && viewingQuotation.id === quote.id) {
+        setViewingQuotation(null);
+      }
+
+      // If currently editing this quotation in studio, close it
+      if (editingQuotation && editingQuotation.id === quote.id) {
+        setEditingQuotation(null);
+        setIsQuotationStudioOpen(false);
+      }
+
+      // Refresh quotations list from repository to accurately reflect revision fallback
+      const wsId = currentEnquiry.workspace_id || currentEnquiry.workspaceId || 'ws_default';
+      const updatedQuotes = await QuotationRepository.getQuotationsForEnquiry(currentEnquiry.id, wsId);
+      setQuotations(updatedQuotes);
+
+      if (triggerToast) {
+        triggerToast(
+          `Quotation ${quote.formatted_quote_ref} ${quote.status === 'Draft' ? 'discarded' : 'moved to Recycle Bin'}.`,
+          'info'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to delete quotation:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to delete quotation', 'error');
+      }
+    }
+  };
+
   // Load Workspace Document Profile for quotation rendering
   useEffect(() => {
     let isMounted = true;
@@ -2229,6 +2290,16 @@ export default function EnquiryDetail({
                                 <span>Revise</span>
                               </button>
                             )}
+
+                            {/* Discard Draft / Delete Revision */}
+                            <button
+                              type="button"
+                              onClick={() => promptDeleteQuotation(q)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title={isDraft ? 'Discard Draft Quotation' : 'Delete Revision / Move to Recycle Bin'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       );
@@ -3994,6 +4065,15 @@ export default function EnquiryDetail({
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />
                   <span>Print / Export</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => promptDeleteQuotation(viewingQuotation)}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  title={viewingQuotation.status === 'Draft' ? 'Discard Draft Quotation' : 'Delete to Recycle Bin'}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{viewingQuotation.status === 'Draft' ? 'Discard' : 'Delete'}</span>
                 </button>
                 <button
                   type="button"

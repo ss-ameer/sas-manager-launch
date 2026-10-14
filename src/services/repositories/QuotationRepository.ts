@@ -1,5 +1,5 @@
 import { Quotation, QuotationPreset, QuotationTaxMode, WorkspaceDocumentProfile } from '../../types';
-import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, db } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc } from 'firebase/firestore';
 
@@ -80,6 +80,10 @@ export class QuotationRepository {
       tax_rate_percent: Number(data.tax_rate_percent) || 0,
       tax_amount: Number(data.tax_amount) || 0,
       grand_total: Number(data.grand_total) || 0,
+      is_deleted: Boolean(data.is_deleted),
+      deleted_at: data.deleted_at || null,
+      deleted_by_id: data.deleted_by_id || null,
+      deleted_by_name: data.deleted_by_name || null,
       created_at: data.created_at || new Date().toISOString()
     } as Quotation;
   }
@@ -288,6 +292,148 @@ export class QuotationRepository {
       decline_reason: reason,
       decline_notes: notes || '',
       declined_at: now
+    });
+  }
+
+  /**
+   * Soft deletes a quotation and handles revision fallback non-destructively:
+   * 1. Sets is_deleted: true, deleted_at, deleted_by_id, deleted_by_name.
+   * 2. If this quote was a revision (has parent_quote_id), and the parent is 'Superseded',
+   *    re-activates the parent quote back to 'Sent' (or its previous state), so the enquiry
+   *    has an active commercial offer available.
+   * 3. CRITICAL: NEVER alters the parent enquiry deal status to Lost or Cancelled.
+   */
+  public static async softDeleteQuotation(
+    quotationId: string,
+    actor: { id: string; name?: string }
+  ): Promise<Quotation | null> {
+    const existing = await this.getQuotationById(quotationId);
+    if (!existing) return null;
+
+    const now = new Date().toISOString();
+    const updates: Partial<Quotation> = {
+      is_deleted: true,
+      deleted_at: now,
+      deleted_by_id: actor.id || 'unknown',
+      deleted_by_name: actor.name || 'User',
+      updatedAt: now
+    };
+
+    const updated = await this.updateQuotation(quotationId, updates);
+
+    // Revision Fallback: If this was a revision that superseded a parent quote,
+    // reactivate the parent quote if it's currently marked 'Superseded'.
+    if (existing.parent_quote_id) {
+      try {
+        const parent = await this.getQuotationById(existing.parent_quote_id);
+        if (parent && parent.status === 'Superseded' && !parent.is_deleted) {
+          await this.updateQuotation(parent.id, {
+            status: 'Sent',
+            updatedAt: now
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to reactivate superseded parent quote:', err);
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Restores a soft-deleted quotation from the recycle bin.
+   */
+  public static async restoreQuotation(quotationId: string): Promise<Quotation | null> {
+    const existing = await this.getQuotationById(quotationId);
+    if (!existing) return null;
+
+    const now = new Date().toISOString();
+    const updates: Partial<Quotation> = {
+      is_deleted: false,
+      deleted_at: null,
+      deleted_by_id: null,
+      deleted_by_name: null,
+      updatedAt: now
+    };
+
+    const updated = await this.updateQuotation(quotationId, updates);
+
+    // If this restored quotation superseded a parent quote that is currently 'Sent',
+    // re-mark the parent as 'Superseded'
+    if (existing.parent_quote_id) {
+      try {
+        const parent = await this.getQuotationById(existing.parent_quote_id);
+        if (parent && parent.status === 'Sent' && !parent.is_deleted) {
+          await this.updateQuotation(parent.id, {
+            status: 'Superseded',
+            updatedAt: now
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to re-supersede parent quote on restore:', err);
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Permanently purges a quotation from Firestore and local cache storage.
+   */
+  public static async purgeQuotationPermanently(quotationId: string): Promise<boolean> {
+    if (!quotationId) return false;
+
+    try {
+      await safeDeleteDoc('quotations', quotationId);
+    } catch (_) {}
+
+    try {
+      const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const updated = existing.filter((q) => q.id !== quotationId);
+      await saveToLocalStore(this.QUOTATIONS_STORE, updated);
+    } catch (_) {}
+
+    return true;
+  }
+
+  /**
+   * Retrieves all soft-deleted quotations for a workspace (for Trash / Recycle Bin).
+   */
+  public static async getDeletedQuotations(workspaceId?: string): Promise<Quotation[]> {
+    const wsId = workspaceId || 'ws_default';
+    let quotes: Quotation[] = [];
+
+    // Check remote Firestore
+    try {
+      const snap = await safeGetDocs('quotations');
+      if (snap && !snap.empty) {
+        snap.forEach((d) => {
+          const item = this.docToQuotation(d.id, d.data());
+          const itemWsId = item.workspace_id || item.workspaceId;
+          if ((!workspaceId || itemWsId === wsId) && item.is_deleted) {
+            quotes.push(item);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // Fallback or union with IndexedDB store
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const remoteIds = new Set(quotes.map((q) => q.id));
+      for (const raw of local) {
+        const item = this.docToQuotation(raw.id!, raw);
+        const itemWsId = item.workspace_id || item.workspaceId;
+        if ((!workspaceId || itemWsId === wsId) && item.is_deleted && !remoteIds.has(item.id)) {
+          quotes.push(item);
+        }
+      }
+    } catch (_) {}
+
+    return quotes.sort((a, b) => {
+      const dateA = new Date(a.deleted_at || a.updatedAt || a.created_at || 0).getTime();
+      const dateB = new Date(b.deleted_at || b.updatedAt || b.created_at || 0).getTime();
+      return dateB - dateA;
     });
   }
 

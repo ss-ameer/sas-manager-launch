@@ -1141,5 +1141,9 @@ export interface Quotation extends SoftDeleteFields {
   decline_reason?: string;
   decline_notes?: string;
   declined_at?: string;
+  is_deleted?: boolean;
+  deleted_at?: any;
+  deleted_by_id?: string | null;
+  deleted_by_name?: string | null;
 }
 

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trash2, RefreshCw, AlertTriangle, Search, Filter, ShieldAlert, CheckCircle2, RotateCcw } from 'lucide-react';
-import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment } from '../types';
+import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation } from '../types';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { purgeEnquiryAttachments } from '../services/attachmentStorage';
 
 interface TrashBinModalProps {
@@ -16,6 +17,7 @@ interface TrashBinModalProps {
   contacts: Contact[];
   products: Product[];
   callLogs: CallLogEntry[];
+  quotations?: Quotation[];
   onRefreshData: () => void;
   activeWorkspaceId?: string;
   activeWorkspace?: Workspace;
@@ -33,13 +35,13 @@ export function getEntityWorkspaceId(item: WorkspaceScopedItem): string | undefi
   return item.workspace_id ?? item.workspaceId;
 }
 
-type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs';
+type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs' | 'quotations';
 
-type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry;
+type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry | Quotation;
 
 interface UnifiedDeletedItem {
   id: string;
-  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log';
+  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log' | 'quotation';
   typeLabel: string;
   title: string;
   subTitle?: string;
@@ -57,6 +59,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   contacts,
   products,
   callLogs,
+  quotations,
   onRefreshData,
   activeWorkspaceId,
   activeWorkspace,
@@ -68,6 +71,22 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   const [confirmPurgeId, setConfirmPurgeId] = useState<string | null>(null);
   const [itemToPurge, setItemToPurge] = useState<UnifiedDeletedItem | null>(null);
   const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
+  const [deletedQuotations, setDeletedQuotations] = useState<Quotation[]>(
+    quotations?.filter((q) => q.is_deleted) || []
+  );
+
+  const refreshDeletedQuotations = async () => {
+    try {
+      const qs = await QuotationRepository.getDeletedQuotations(activeWorkspaceId);
+      setDeletedQuotations(qs);
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshDeletedQuotations();
+    }
+  }, [isOpen, activeWorkspaceId]);
 
   if (!isOpen) return null;
 
@@ -93,7 +112,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     deletedCompanies.length +
     deletedContacts.length +
     deletedProducts.length +
-    deletedCallLogs.length;
+    deletedCallLogs.length +
+    deletedQuotations.length;
 
   const items: UnifiedDeletedItem[] = [];
 
@@ -172,6 +192,21 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     });
   }
 
+  if (activeTab === 'all' || activeTab === 'quotations') {
+    deletedQuotations.forEach((q) => {
+      items.push({
+        id: q.id || '',
+        type: 'quotation',
+        typeLabel: 'Quotation',
+        title: `${q.formatted_quote_ref || q.quote_number} • ${q.currency || 'AED'} ${(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        subTitle: `Quote #${q.quote_number} (Rev ${q.revision_number ?? 0}) • Status: ${q.status || 'Draft'}`,
+        deletedAt: q.deleted_at,
+        deletedByName: q.deleted_by_name || 'Unknown',
+        rawItem: q
+      });
+    });
+  }
+
   // Filter by search query
   const filteredItems = items.filter((item) => {
     if (!searchQuery.trim()) return true;
@@ -197,6 +232,12 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         await MetadataRepository.restoreProduct(item.id);
       } else if (item.type === 'call_log') {
         await CallLogRepository.restore(item.id);
+      } else if (item.type === 'quotation') {
+        await QuotationRepository.restoreQuotation(item.id);
+        await refreshDeletedQuotations();
+        if (triggerToast) {
+          triggerToast(`Quotation ${item.title.split('•')[0].trim()} restored successfully.`, 'success');
+        }
       }
       onRefreshData();
     } catch (e) {
@@ -234,6 +275,12 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         await MetadataRepository.purgeProductPermanent(item.id);
       } else if (item.type === 'call_log') {
         await CallLogRepository.purgePermanent(item.id);
+      } else if (item.type === 'quotation') {
+        await QuotationRepository.purgeQuotationPermanently(item.id);
+        await refreshDeletedQuotations();
+        if (triggerToast) {
+          triggerToast(`Quotation ${item.title.split('•')[0].trim()} permanently purged.`, 'info');
+        }
       }
       setItemToPurge(null);
       setConfirmPurgeId(null);
@@ -273,8 +320,11 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
           await MetadataRepository.purgeProductPermanent(item.id);
         } else if (item.type === 'call_log') {
           await CallLogRepository.purgePermanent(item.id);
+        } else if (item.type === 'quotation') {
+          await QuotationRepository.purgeQuotationPermanently(item.id);
         }
       }
+      await refreshDeletedQuotations();
       setShowEmptyTrashConfirm(false);
       if (triggerToast) {
         triggerToast('Recycle bin emptied and cloud attachments permanently freed.', 'info');
@@ -339,6 +389,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
             {[
               { id: 'all', label: 'All', count: totalDeletedCount },
               { id: 'enquiries', label: 'Enquiries', count: deletedEnquiries.length },
+              { id: 'quotations', label: 'Quotations', count: deletedQuotations.length },
               { id: 'companies', label: 'Companies', count: deletedCompanies.length },
               { id: 'contacts', label: 'Contacts', count: deletedContacts.length },
               { id: 'products', label: 'Products', count: deletedProducts.length },
@@ -404,6 +455,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
                       className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border mt-0.5 ${
                         item.type === 'enquiry'
                           ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                          : item.type === 'quotation'
+                          ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
                           : item.type === 'company'
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                           : item.type === 'contact'
