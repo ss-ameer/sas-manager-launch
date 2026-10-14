@@ -133,6 +133,7 @@ export interface QuotationDocumentProps {
   quotation: Quotation;
   profile?: WorkspaceDocumentProfile | null;
   visibleColumns?: QuotationPresetColumns;
+  columnConfig?: QuotationPresetColumns;
   isCompactView?: boolean;
   tableDensity?: QuotationTableDensity;
   tableFontScale?: QuotationTableFontScale;
@@ -158,7 +159,8 @@ export interface QuotationDocumentProps {
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   quotation,
   profile,
-  visibleColumns = {} as QuotationPresetColumns,
+  visibleColumns: propVisibleColumns = {} as QuotationPresetColumns,
+  columnConfig: propColumnConfig,
   isCompactView = true,
   tableDensity: propTableDensity,
   tableFontScale: propTableFontScale,
@@ -335,12 +337,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     }
   };
 
-  // Determine active columns
-  const showBrand = visibleColumns.brand ?? true;
-  const showModel = visibleColumns.model ?? true;
-  const showOrigin = visibleColumns.origin ?? true;
-  const showAvailability = visibleColumns.availability ?? true;
-  const showUnitPrice = visibleColumns.unit_price ?? true;
+  // Determine active columns & technical attributes config
+  const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || {};
+  const showBrand = columnConfig.brand ?? true;
+  const showModel = columnConfig.model ?? true;
+  const showOrigin = columnConfig.origin ?? true;
+  const showAvailability = columnConfig.availability ?? true;
+  const showUnitPrice = columnConfig.unit_price ?? true;
+  const showItemAttributes = columnConfig.showItemAttributes !== false;
+  const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'pills';
+  const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
 
   // Dynamic Table Column Geometry & Predictable Allocation
   const colWidths = React.useMemo(() => {
@@ -1114,37 +1120,41 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             {item.description}
                           </div>
                         )}
-                        {/* Technical Specifications Metadata Block */}
+                        {/* Technical Specifications & Attributes Block */}
                         {(() => {
-                          const specsList: Array<{ label: string; value: string }> = [];
+                          if (!showItemAttributes) return null;
 
+                          // Build combined attributes list
+                          const allAttrs: Array<{ key: string; value: string }> = [];
+
+                          // 1. Column attributes if enabled
                           if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-                            specsList.push({ label: 'Brand', value: item.brand_make.trim() });
+                            allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
                           }
                           if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-                            specsList.push({ label: 'Model', value: item.model_part_no.trim() });
+                            allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
                           }
                           if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-                            specsList.push({ label: 'Origin', value: item.country_of_origin.trim() });
+                            allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
                           }
                           if (showAvailability && item.availability && item.availability.trim()) {
-                            specsList.push({ label: 'Delivery', value: item.availability.trim() });
+                            allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
                           }
 
-                          // Custom attributes / specifications
+                          // 2. Structured & dynamic item attributes
                           const rawAttrs: Array<{ key: string; value: string }> = [];
                           const itemAny = item as any;
 
-                          if (Array.isArray(itemAny.attributes)) {
-                            itemAny.attributes.forEach((attr: any) => {
-                              if (attr && (attr.key || attr.name) && attr.value) {
-                                rawAttrs.push({ key: String(attr.key || attr.name), value: String(attr.value) });
+                          if (Array.isArray(item.attributes)) {
+                            item.attributes.forEach((attr) => {
+                              if (attr && (attr.key || (attr as any).name) && attr.value) {
+                                rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
                               }
                             });
                           } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
                             Object.entries(itemAny.attributes).forEach(([k, v]) => {
                               if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                rawAttrs.push({ key: k, value: String(v) });
+                                rawAttrs.push({ key: k.trim(), value: String(v).trim() });
                               }
                             });
                           }
@@ -1152,13 +1162,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           if (Array.isArray(itemAny.specs)) {
                             itemAny.specs.forEach((s: any) => {
                               if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key), value: String(s.value) });
-                              }
-                            });
-                          } else if (itemAny.specs && typeof itemAny.specs === 'object') {
-                            Object.entries(itemAny.specs).forEach(([k, v]) => {
-                              if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                rawAttrs.push({ key: k, value: String(v) });
+                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
                               }
                             });
                           }
@@ -1166,35 +1170,45 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           if (Array.isArray(itemAny.specifications)) {
                             itemAny.specifications.forEach((s: any) => {
                               if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key), value: String(s.value) });
-                              }
-                            });
-                          } else if (itemAny.specifications && typeof itemAny.specifications === 'object') {
-                            Object.entries(itemAny.specifications).forEach(([k, v]) => {
-                              if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                rawAttrs.push({ key: k, value: String(v) });
+                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
                               }
                             });
                           }
 
+                          // Deduplicate
                           rawAttrs.forEach((attr) => {
                             const kLower = attr.key.toLowerCase();
-                            if (!specsList.some((s) => s.label.toLowerCase() === kLower)) {
-                              specsList.push({ label: attr.key, value: attr.value });
+                            if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                              allAttrs.push(attr);
                             }
                           });
 
-                          if (specsList.length === 0) return null;
+                          // Non-destructive redaction: filter out hiddenAttributeKeys
+                          const visibleAttrs = allAttrs.filter(
+                            (attr) => !hiddenAttributeKeys.includes(attr.key)
+                          );
 
+                          if (visibleAttrs.length === 0) return null;
+
+                          if (attributeDisplayFormat === 'inline_text') {
+                            return (
+                              <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
+                                <span className="font-semibold text-slate-700">Specs: </span>
+                                {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                              </div>
+                            );
+                          }
+
+                          // Default: pills
                           return (
-                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                              {specsList.map((spec, sIdx) => (
+                            <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
+                              {visibleAttrs.map((attr, idx) => (
                                 <span
-                                  key={sIdx}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-50 text-slate-800 font-mono border border-slate-200/80"
+                                  key={idx}
+                                  className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
                                 >
-                                  <span className="font-semibold text-slate-500 uppercase tracking-tight text-[9px]">{spec.label}:</span>
-                                  <span className="font-medium text-slate-800">{spec.value}</span>
+                                  <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                  <span>{attr.value}</span>
                                 </span>
                               ))}
                             </div>

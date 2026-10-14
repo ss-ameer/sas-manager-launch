@@ -952,6 +952,11 @@ export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
 
+export interface QuotationItemAttribute {
+  key: string;   // e.g. "Size", "Material", "Pressure", "Flow", "Color"
+  value: string; // e.g. "9 Inch", "SS316", "10 bar", "15 LPH", "RAL 7035"
+}
+
 export interface QuotationLineItem {
   id?: string;
   item_name: string;
@@ -965,7 +970,10 @@ export interface QuotationLineItem {
   country_of_origin?: string;
   availability?: string;
   is_optional?: boolean;
+  attributes?: QuotationItemAttribute[];
 }
+
+export type QuotationItem = QuotationLineItem;
 
 export interface DocumentProfileBankAccount {
   id?: string;
@@ -1029,7 +1037,12 @@ export interface QuotationPresetColumns {
   origin?: boolean;
   availability?: boolean;
   unit_price?: boolean;
+  showItemAttributes?: boolean;
+  attributeDisplayFormat?: 'pills' | 'inline_text';
+  hiddenAttributeKeys?: string[];
 }
+
+export type QuotationColumnConfig = QuotationPresetColumns;
 
 export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
 
@@ -1184,6 +1197,7 @@ export interface Quotation extends SoftDeleteFields {
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
+  visible_columns?: QuotationPresetColumns;
   client_contact_person?: string;
   client_trn?: string;
   client_phone?: string;

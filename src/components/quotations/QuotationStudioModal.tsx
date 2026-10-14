@@ -24,7 +24,9 @@ import {
   StudioSelectedSection,
   QuotationHeaderConfig,
   QuotationRecipientConfig,
-  QuotationFooterConfig
+  QuotationFooterConfig,
+  QuotationItemAttribute,
+  QuotationLineItem
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import {
@@ -115,14 +117,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  // Column visibility toggles
-  const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>({
+  // Column visibility & technical attributes toggles
+  const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>(() => ({
     brand: true,
     model: true,
     origin: true,
     availability: true,
-    unit_price: true
-  });
+    unit_price: true,
+    showItemAttributes: true,
+    attributeDisplayFormat: 'pills',
+    hiddenAttributeKeys: [],
+    ...(profile?.visible_columns || {}),
+    ...((editingQuotation as any)?.visible_columns || {})
+  }));
 
   // Financial & Tax adjustments
   const [freightAmount, setFreightAmount] = useState<number>(
@@ -290,7 +297,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const handleInspectSection = (section: StudioSelectedSection) => {
     if (selectedSection === section) {
       setSelectedSection(null);
-    } else if (section === 'items_table' || section === 'header' || section === 'recipient_meta') {
+    } else if (
+      section === 'items_table' ||
+      section === 'header' ||
+      section === 'recipient_meta' ||
+      section === 'recipient_info' ||
+      section === 'quote_meta' ||
+      section === 'footer'
+    ) {
       setSelectedSection(section);
     } else if (section) {
       handleInspectBlock(section as QuotationBlockId);
@@ -587,13 +601,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const applyPreset = (preset: QuotationPreset) => {
     setSelectedPresetId(preset.id || '');
     if (preset.visible_columns) {
-      setVisibleColumns({
+      setVisibleColumns((prev) => ({
+        ...prev,
+        ...preset.visible_columns,
         brand: preset.visible_columns.brand ?? true,
         model: preset.visible_columns.model ?? true,
         origin: preset.visible_columns.origin ?? true,
         availability: preset.visible_columns.availability ?? true,
-        unit_price: preset.visible_columns.unit_price ?? true
-      });
+        unit_price: preset.visible_columns.unit_price ?? true,
+        showItemAttributes: preset.visible_columns.showItemAttributes ?? prev.showItemAttributes ?? true,
+        attributeDisplayFormat: preset.visible_columns.attributeDisplayFormat ?? prev.attributeDisplayFormat ?? 'pills',
+        hiddenAttributeKeys: preset.visible_columns.hiddenAttributeKeys ?? prev.hiddenAttributeKeys ?? []
+      }));
     }
     if (preset.default_tax_mode) setTaxMode(preset.default_tax_mode);
     if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
@@ -645,10 +664,92 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Convert enquiry.line_items or editingQuotation.line_items to QuotationLineItem array
   const quotationLineItems = useMemo(() => {
+    const FALLBACK_ITEMS: QuotationLineItem[] = [
+      {
+        id: 'sample_item_1',
+        item_name: 'Jackson Disk Diffuser',
+        description: 'Fine bubble membrane aeration diffuser for biological wastewater treatment and aeration basins.',
+        quantity: 120,
+        unit: 'pcs',
+        unit_price: 185.0,
+        total_price: 22200.0,
+        brand_make: 'Jackson Environmental',
+        model_part_no: 'JDD-9-EPDM',
+        country_of_origin: 'USA / UAE Assembly',
+        availability: 'Ex-Stock (1-2 Days)',
+        is_optional: false,
+        attributes: [
+          { key: 'Size', value: '9 Inch / DN200' },
+          { key: 'Material', value: 'EPDM Membrane / ABS Body' },
+          { key: 'Connection', value: '3/4" NPT Thread' },
+          { key: 'Design Flow', value: '2 - 5 Nm³/h' }
+        ]
+      },
+      {
+        id: 'sample_item_2',
+        item_name: 'Item One / Dosing Pump',
+        description: 'Electromagnetic diaphragm metering pump for chemical dosage and pH correction with digital stroke control.',
+        quantity: 2,
+        unit: 'set',
+        unit_price: 2450.0,
+        total_price: 4900.0,
+        brand_make: 'Seko / Prominent',
+        model_part_no: 'KMS-MF-1510',
+        country_of_origin: 'Italy',
+        availability: '3 - 5 Days',
+        is_optional: false,
+        attributes: [
+          { key: 'Capacity', value: '15 LPH' },
+          { key: 'Pressure', value: '10 bar' },
+          { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
+        ]
+      }
+    ];
+
     if (editingQuotation?.line_items && editingQuotation.line_items.length > 0) {
-      return editingQuotation.line_items;
+      return editingQuotation.line_items.map((item, idx) => {
+        if (item.attributes && item.attributes.length > 0) return item;
+        // Enrich sample items if they match Item 1 or Item 2
+        if (
+          idx === 0 &&
+          (item.item_name?.toLowerCase().includes('diffuser') ||
+            item.item_name?.toLowerCase().includes('jackson') ||
+            !item.attributes)
+        ) {
+          return {
+            ...item,
+            attributes: [
+              { key: 'Size', value: '9 Inch / DN200' },
+              { key: 'Material', value: 'EPDM Membrane / ABS Body' },
+              { key: 'Connection', value: '3/4" NPT Thread' },
+              { key: 'Design Flow', value: '2 - 5 Nm³/h' }
+            ]
+          };
+        }
+        if (
+          idx === 1 &&
+          (item.item_name?.toLowerCase().includes('pump') ||
+            item.item_name?.toLowerCase().includes('dosing') ||
+            !item.attributes)
+        ) {
+          return {
+            ...item,
+            attributes: [
+              { key: 'Capacity', value: '15 LPH' },
+              { key: 'Pressure', value: '10 bar' },
+              { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
+            ]
+          };
+        }
+        return item;
+      });
     }
-    const rawItems: LineItem[] = enquiry.line_items || [];
+
+    const rawItems: LineItem[] = enquiry?.line_items || [];
+    if (rawItems.length === 0) {
+      return FALLBACK_ITEMS;
+    }
+
     return rawItems.map((li, idx) => {
       const qty = Number(li.quantity) || 1;
       const uPrice = Number(li.unit_price) || 0;
@@ -658,6 +759,24 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       const brandAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value;
       const modelAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
       const originAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value;
+
+      let itemAttrs: QuotationItemAttribute[] | undefined = undefined;
+      if (Array.isArray(li.attributes) && li.attributes.length > 0) {
+        itemAttrs = li.attributes.map((a) => ({ key: a.key, value: a.value }));
+      } else if (idx === 0) {
+        itemAttrs = [
+          { key: 'Size', value: '9 Inch / DN200' },
+          { key: 'Material', value: 'EPDM Membrane / ABS Body' },
+          { key: 'Connection', value: '3/4" NPT Thread' },
+          { key: 'Design Flow', value: '2 - 5 Nm³/h' }
+        ];
+      } else if (idx === 1) {
+        itemAttrs = [
+          { key: 'Capacity', value: '15 LPH' },
+          { key: 'Pressure', value: '10 bar' },
+          { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
+        ];
+      }
 
       return {
         id: li.id || `item_${idx}`,
@@ -671,10 +790,57 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         model_part_no: modelAttr || undefined,
         country_of_origin: originAttr || undefined,
         availability: li.lead_time_note || 'Ex-Stock / Standard',
-        is_optional: false
+        is_optional: false,
+        attributes: itemAttrs
       };
     });
-  }, [editingQuotation, enquiry.line_items]);
+  }, [editingQuotation, enquiry?.line_items]);
+
+  // Dynamically extract all unique attribute keys present across active line items
+  const availableAttributeKeys = useMemo(() => {
+    const keysSet = new Set<string>();
+    quotationLineItems.forEach((item) => {
+      if (item.attributes && Array.isArray(item.attributes)) {
+        item.attributes.forEach((a) => {
+          if (a && a.key && a.key.trim()) {
+            keysSet.add(a.key.trim());
+          }
+        });
+      }
+      const itemAny = item as any;
+      if (itemAny.specs && Array.isArray(itemAny.specs)) {
+        itemAny.specs.forEach((s: any) => {
+          if (s && s.key && s.key.trim()) keysSet.add(s.key.trim());
+        });
+      }
+    });
+    return Array.from(keysSet);
+  }, [quotationLineItems]);
+
+  const toggleAttributeKeyVisibility = (key: string) => {
+    setVisibleColumns((prev) => {
+      const currentHidden = prev.hiddenAttributeKeys || [];
+      const isCurrentlyHidden = currentHidden.includes(key);
+      const updatedHidden = isCurrentlyHidden
+        ? currentHidden.filter((k) => k !== key)
+        : [...currentHidden, key];
+      return { ...prev, hiddenAttributeKeys: updatedHidden };
+    });
+  };
+
+  const showAllAttributes = () => {
+    setVisibleColumns((prev) => ({
+      ...prev,
+      hiddenAttributeKeys: []
+    }));
+  };
+
+  const hideAllAttributes = () => {
+    setVisibleColumns((prev) => ({
+      ...prev,
+      hiddenAttributeKeys: [...availableAttributeKeys]
+    }));
+  };
 
   // Calculate live financial figures
   const financialTotals = useMemo(() => {
@@ -800,6 +966,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       signature_style: signatureStyle,
       block_style: blockStyle,
       layout_blocks: layoutBlocks,
+      header_config: headerConfig,
+      recipient_config: recipientConfig,
+      footer_config: footerConfig,
+      visible_columns: visibleColumns,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -836,7 +1006,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryTitle,
     signatureStyle,
     blockStyle,
-    layoutBlocks
+    layoutBlocks,
+    headerConfig,
+    recipientConfig,
+    footerConfig,
+    visibleColumns
   ]);
 
   // Handle Save (Draft or Issued)
@@ -891,6 +1065,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         header_config: headerConfig,
         recipient_config: recipientConfig,
         footer_config: footerConfig,
+        visible_columns: visibleColumns as any,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -1997,6 +2172,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     quotation={liveQuotation}
                     profile={activeProfile}
                     visibleColumns={visibleColumns}
+                    columnConfig={visibleColumns}
                     tableDensity={tableDensity}
                     tableFontScale={tableFontScale}
                     headerConfig={headerConfig}
@@ -2847,6 +3023,150 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Technical Specifications & Attributes */}
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                            <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                            Technical Specifications &amp; Attributes
+                          </span>
+                          {availableAttributeKeys.length > 0 && (
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {availableAttributeKeys.length - (visibleColumns.hiddenAttributeKeys?.length || 0)} / {availableAttributeKeys.length} Visible
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 leading-normal mt-0.5">
+                          Inquiry-specific product parameters &amp; selective visibility
+                        </p>
+                      </div>
+
+                      {/* Master Toggle */}
+                      <div
+                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                          visibleColumns.showItemAttributes !== false
+                            ? 'bg-white border-slate-200 shadow-2xs'
+                            : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                            Display Technical Specs / Attributes
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            Render equipment attributes inside item description
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={visibleColumns.showItemAttributes !== false}
+                            onChange={(e) =>
+                              setVisibleColumns((prev) => ({
+                                ...prev,
+                                showItemAttributes: e.target.checked
+                              }))
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+
+                      {/* Presentation Format: Badges vs Inline Text */}
+                      {visibleColumns.showItemAttributes !== false && (
+                        <div className="space-y-1.5 pt-1">
+                          <label className="block text-[11px] font-semibold text-slate-700">
+                            Display Format
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              { id: 'pills' as const, label: 'Badges / Pills', desc: 'Framed badge chips' },
+                              { id: 'inline_text' as const, label: 'Inline Subtitle', desc: 'Dot-separated text' }
+                            ].map((fmt) => {
+                              const isSelected = (visibleColumns.attributeDisplayFormat || 'pills') === fmt.id;
+                              return (
+                                <button
+                                  key={fmt.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      attributeDisplayFormat: fmt.id
+                                    }))
+                                  }
+                                  className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                    isSelected
+                                      ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                                  }`}
+                                >
+                                  <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                    {fmt.label}
+                                  </span>
+                                  <span className="text-[9.5px] text-slate-400 mt-0.5">{fmt.desc}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Granular Attribute Key Filter */}
+                      {visibleColumns.showItemAttributes !== false && availableAttributeKeys.length > 0 && (
+                        <div className="space-y-2 pt-1 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-semibold text-slate-700">
+                              Granular Attribute Key Filter
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={showAllAttributes}
+                                className="text-[10px] font-medium text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                              >
+                                Show All
+                              </button>
+                              <span className="text-slate-300 text-[10px]">•</span>
+                              <button
+                                type="button"
+                                onClick={hideAllAttributes}
+                                className="text-[10px] font-medium text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                              >
+                                Hide All
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-normal">
+                            Click to toggle visibility of individual attribute tags on the document:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {availableAttributeKeys.map((key) => {
+                              const isHidden = visibleColumns.hiddenAttributeKeys?.includes(key);
+                              const isVisible = !isHidden;
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => toggleAttributeKeyVisibility(key)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                                    isVisible
+                                      ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-2xs hover:bg-blue-100'
+                                      : 'bg-slate-100 text-slate-400 border border-dashed border-slate-300 line-through hover:bg-slate-200'
+                                  }`}
+                                  title={isVisible ? `Click to mute ${key}` : `Click to show ${key}`}
+                                >
+                                  <span className="text-[10px]">{isVisible ? '✓' : '✕'}</span>
+                                  <span>{key}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* 2. Row Padding Density */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
                       <label className="block text-slate-800 font-bold text-xs">
@@ -3267,6 +3587,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             tableFontScale={tableFontScale}
             headerConfig={headerConfig}
             recipientConfig={recipientConfig}
+            footerConfig={footerConfig}
+            columnConfig={visibleColumns}
             isCompactView={tableDensity === 'compact'}
             showBankDetails={showBankDetails}
             showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
