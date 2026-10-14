@@ -23,7 +23,8 @@ import {
   QuotationBlockId,
   StudioSelectedSection,
   QuotationHeaderConfig,
-  QuotationRecipientConfig
+  QuotationRecipientConfig,
+  QuotationFooterConfig
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import {
@@ -31,7 +32,8 @@ import {
   QUOTATION_THEMES,
   DEFAULT_QUOTATION_BLOCKS,
   DEFAULT_HEADER_CONFIG,
-  DEFAULT_RECIPIENT_CONFIG
+  DEFAULT_RECIPIENT_CONFIG,
+  DEFAULT_FOOTER_CONFIG
 } from './QuotationDocument';
 import {
   X,
@@ -181,6 +183,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     ...(profile?.recipient_config || {}),
     ...(editingQuotation?.recipient_config || {})
   }));
+  const [footerConfig, setFooterConfig] = useState<QuotationFooterConfig>(() => ({
+    ...DEFAULT_FOOTER_CONFIG,
+    ...(profile?.footer_config || {}),
+    ...(editingQuotation?.footer_config || {})
+  }));
   const [layoutBlocks, setLayoutBlocks] = useState<QuotationBlockConfig[]>(() => {
     let raw = DEFAULT_QUOTATION_BLOCKS;
     if (editingQuotation?.layout_blocks && editingQuotation.layout_blocks.length > 0) {
@@ -255,7 +262,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     selectedSection &&
     selectedSection !== 'items_table' &&
     selectedSection !== 'header' &&
-    selectedSection !== 'recipient_meta'
+    selectedSection !== 'recipient_meta' &&
+    selectedSection !== 'recipient_info' &&
+    selectedSection !== 'quote_meta' &&
+    selectedSection !== 'footer'
       ? selectedSection
       : null;
   const selectedBlock = useMemo(() => {
@@ -615,6 +625,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.recipient_config) {
       setRecipientConfig((prev) => ({ ...prev, ...preset.recipient_config }));
     }
+    if (preset.footer_config) {
+      setFooterConfig((prev) => ({ ...prev, ...preset.footer_config }));
+    }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
         preset.layout_blocks.map((b) => ({
@@ -877,6 +890,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
+        footer_config: footerConfig,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -955,7 +969,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         block_style: blockStyle,
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
-        recipient_config: recipientConfig
+        recipient_config: recipientConfig,
+        footer_config: footerConfig
       };
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -1204,11 +1219,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </span>
                       </div>
 
-                      {/* 2. Client & Offer Metadata Section Card */}
+                      {/* 2. Client Info Section Card */}
                       <div
-                        onClick={() => handleInspectSection('recipient_meta')}
+                        onClick={() => handleInspectSection('recipient_info')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'recipient_meta'
+                          selectedSection === 'recipient_info' || selectedSection === 'recipient_meta'
                             ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
                             : 'bg-white hover:bg-slate-50/80 border-slate-200'
                         }`}
@@ -1219,23 +1234,54 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           </div>
                           <div className="truncate">
                             <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Client &amp; Metadata
+                              Client &amp; Recipient Info
                             </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
-                              {recipientConfig.style || 'framed'} • {recipientConfig.layout || 'split'}
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
+                              {liveQuotation.client_snapshot?.entity_name || 'B2B Client'} • {recipientConfig.style || 'framed'}
                             </span>
                           </div>
                         </div>
                         <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'recipient_meta'
+                          selectedSection === 'recipient_info' || selectedSection === 'recipient_meta'
                             ? 'bg-blue-600 text-white'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
-                          {selectedSection === 'recipient_meta' ? 'Inspecting' : 'Customize'}
+                          {selectedSection === 'recipient_info' || selectedSection === 'recipient_meta' ? 'Inspecting' : 'Customize'}
                         </span>
                       </div>
 
-                      {/* 3. Line Items Table Section Card */}
+                      {/* 3. Commercial Offer Metadata Card */}
+                      <div
+                        onClick={() => handleInspectSection('quote_meta')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'quote_meta'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <FileCheck className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Commercial Offer
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
+                              Ref: {liveQuotation.formatted_quote_ref || liveQuotation.quote_number} • Rev {liveQuotation.revision_number}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'quote_meta'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'quote_meta' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 4. Line Items Table Section Card */}
                       <div
                         onClick={() => handleInspectSection('items_table')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
@@ -1263,6 +1309,37 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
                           {selectedSection === 'items_table' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 5. Footer & Legal Baseline Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('footer')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'footer'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Footer &amp; Legal
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                              {footerConfig.showPageNumbers !== false ? 'Page #' : 'No Page #'} • {footerConfig.showDisclaimer !== false ? 'Legal Active' : 'No Legal'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'footer'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'footer' ? 'Inspecting' : 'Customize'}
                         </span>
                       </div>
                     </div>
@@ -1924,6 +2001,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     tableFontScale={tableFontScale}
                     headerConfig={headerConfig}
                     recipientConfig={recipientConfig}
+                    footerConfig={footerConfig}
                     isCompactView={tableDensity === 'compact'}
                     showBankDetails={showBankDetails}
                     showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
@@ -2041,6 +2119,42 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* 2b. Logo Spacing */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Logo Margin &amp; Spacing
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Control the bottom breathing room / margin of the header logo.
+                      </p>
+                      <div className="grid grid-cols-4 gap-1.5 pt-1">
+                        {[
+                          { id: 'none' as const, label: 'None', desc: '0px' },
+                          { id: 'tight' as const, label: 'Tight', desc: '8px' },
+                          { id: 'normal' as const, label: 'Normal', desc: '16px' },
+                          { id: 'spacious' as const, label: 'Spacious', desc: '24px' }
+                        ].map((item) => {
+                          const isSelected = (headerConfig.logoSpacing || 'normal') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setHeaderConfig((prev) => ({ ...prev, logoSpacing: item.id }))}
+                              className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* 3. Visibility Toggles */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -2048,10 +2162,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         Contact &amp; Legal Visibility
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle which communication and tax details appear in the header.
+                        Toggle which communication, corporate name and tax details appear in the header.
                       </p>
                       <div className="space-y-1.5 pt-1">
                         {[
+                          {
+                            key: 'showCompanyName' as const,
+                            label: 'Company Legal Entity Name',
+                            desc: 'Render corporate name text alongside brand logo',
+                            checked: headerConfig.showCompanyName !== false
+                          },
                           {
                             key: 'showPhone' as const,
                             label: 'Phone Number',
@@ -2126,8 +2246,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 </aside>
               )}
 
-              {/* Retractable Right-Side Contextual Recipient Meta Inspector Drawer */}
-              {selectedSection === 'recipient_meta' && (
+              {/* Retractable Right-Side Contextual Recipient Info Inspector Drawer */}
+              {(selectedSection === 'recipient_info' || selectedSection === 'recipient_meta') && (
                 <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
@@ -2137,10 +2257,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                       <div className="min-w-0">
                         <h4 className="font-bold text-slate-900 text-xs truncate">
-                          Client &amp; Metadata
+                          Client &amp; Recipient Info
                         </h4>
                         <p className="text-[10px] text-slate-400 font-mono">
-                          Structural Section • Recipient &amp; Commercial Offer
+                          Structural Section • Submitted To / Attention
                         </p>
                       </div>
                     </div>
@@ -2190,26 +2310,165 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Card Layout Geometry */}
+                    {/* 2. Attention To Toggle */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Attention Contact Visibility
+                      </label>
+                      <div className="pt-1">
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            recipientConfig.showAttention !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Attention To (Attn:)
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Client contact person or department
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={recipientConfig.showAttention !== false}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showAttention: e.target.checked
+                                }))
+                              }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. B2B Corporate Snapshot Overview */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5 text-blue-600" />
+                        Client Corporate Details (Snapshot)
+                      </label>
+                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-2 text-[11px]">
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Company / Client Name</span>
+                          <span className="font-semibold text-slate-900">
+                            {liveQuotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Contact Person (Attn)</span>
+                          <span className="text-slate-800">
+                            {liveQuotation.client_contact_person ||
+                              liveQuotation.client_snapshot?.client_contact_person ||
+                              liveQuotation.client_snapshot?.contact_person ||
+                              'Procurement / Commercial Dept.'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Registered Address</span>
+                          <span className="text-slate-700">
+                            {liveQuotation.client_address ||
+                              liveQuotation.client_snapshot?.client_address ||
+                              liveQuotation.client_snapshot?.address ||
+                              liveQuotation.client_snapshot?.city ||
+                              'United Arab Emirates'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Tax Registration (TRN)</span>
+                          <span className="font-mono text-slate-800">
+                            {liveQuotation.client_trn ||
+                              liveQuotation.client_snapshot?.client_trn ||
+                              liveQuotation.client_snapshot?.trn ||
+                              'Not Registered'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Communications</span>
+                          <span className="text-slate-700">
+                            {[
+                              liveQuotation.client_phone || liveQuotation.client_snapshot?.client_phone || liveQuotation.client_snapshot?.phone,
+                              liveQuotation.client_email || liveQuotation.client_snapshot?.client_email || liveQuotation.client_snapshot?.email
+                            ]
+                              .filter(Boolean)
+                              .join(' • ') || '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Informational Guardrail Card */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        CRM Snapshot Isolation
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Client contact person, address and TRN are securely snapped to this document version.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {/* Retractable Right-Side Contextual Commercial Offer Inspector Drawer */}
+              {selectedSection === 'quote_meta' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <FileCheck className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Commercial Offer Metadata
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Quotation Header
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Presentation Style */}
+                    <div className="space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                        Card Layout Geometry
+                        Card Presentation Style
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Position Client Snapshot and Offer Metadata side-by-side or stacked vertically.
+                        Bordered card box vs clean minimal divider.
                       </p>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
-                          { id: 'split' as const, label: 'Split (50/50)', desc: 'Side-by-side two column' },
-                          { id: 'stacked' as const, label: 'Stacked', desc: 'Full-width vertical stack' }
+                          { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered container' },
+                          { id: 'minimal' as const, label: 'Minimal', desc: 'Clean divider' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.layout || 'split') === item.id;
+                          const isSelected = (recipientConfig.style || 'framed') === item.id;
                           return (
                             <button
                               key={item.id}
                               type="button"
-                              onClick={() => setRecipientConfig((prev) => ({ ...prev, layout: item.id }))}
+                              onClick={() => setRecipientConfig((prev) => ({ ...prev, style: item.id }))}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
                                   ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
@@ -2224,34 +2483,28 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 3. Field Visibility Toggles */}
+                    {/* 2. Metadata Field Toggles */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
-                        Metadata Field Visibility
+                        Commercial Field Visibility
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle optional recipient contact and commercial quotation fields.
+                        Toggle commercial validity, representative, and enquiry reference fields.
                       </p>
                       <div className="space-y-1.5 pt-1">
                         {[
                           {
-                            key: 'showAttention' as const,
-                            label: 'Attention To (Attn:)',
-                            desc: 'Client contact person name',
-                            checked: recipientConfig.showAttention !== false
+                            key: 'showValidity' as const,
+                            label: 'Validity Expiry Date',
+                            desc: 'Offer expiration deadline date',
+                            checked: recipientConfig.showValidity !== false
                           },
                           {
                             key: 'showSalesRep' as const,
                             label: 'Prepared By / Sales Rep',
                             desc: 'Account representative name',
                             checked: recipientConfig.showSalesRep !== false
-                          },
-                          {
-                            key: 'showValidity' as const,
-                            label: 'Validity Expiry Date',
-                            desc: 'Offer expiration deadline date',
-                            checked: recipientConfig.showValidity !== false
                           },
                           {
                             key: 'showEnquiryRef' as const,
@@ -2295,14 +2548,186 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* 3. Offer Summary Info */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        Document Reference Data
+                      </label>
+                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-1.5 text-[11px]">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Quote Ref:</span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {liveQuotation.formatted_quote_ref || liveQuotation.quote_number}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Revision:</span>
+                          <span className="font-semibold text-slate-800">
+                            Rev {liveQuotation.revision_number}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Document Status:</span>
+                          <span className="font-bold text-slate-700 uppercase tracking-wide text-[10px]">
+                            {liveQuotation.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {/* Retractable Right-Side Contextual Footer & Legal Inspector Drawer */}
+              {selectedSection === 'footer' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Footer &amp; Legal Baseline
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Legal Watermark
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Page Numbers & Legal Disclaimer Toggles */}
+                    <div className="space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Footer Features
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Configure page numbering and automatic computer-generated legal disclaimer.
+                      </p>
+                      <div className="space-y-1.5 pt-1">
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showPageNumbers !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Show Page Numbers
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Print dynamic sheet-page counter
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showPageNumbers !== false}
+                              onChange={(e) =>
+                                setFooterConfig((prev) => ({
+                                  ...prev,
+                                  showPageNumbers: e.target.checked
+                                }))
+                              }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showDisclaimer !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Show Legal Disclaimer
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Display micro-footer legal text
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showDisclaimer !== false}
+                              onChange={(e) =>
+                                setFooterConfig((prev) => ({
+                                  ...prev,
+                                  showDisclaimer: e.target.checked
+                                }))
+                              }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. Custom Micro-Footer Disclaimer Text */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-blue-600" />
+                          Custom Disclaimer Notice
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFooterConfig((prev) => ({
+                              ...prev,
+                              customDisclaimer: DEFAULT_FOOTER_CONFIG.customDisclaimer
+                            }))
+                          }
+                          className="text-[10px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        >
+                          Reset Default
+                        </button>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Custom legal baseline text printed at the bottom of each page.
+                      </p>
+                      <textarea
+                        rows={3}
+                        value={footerConfig.customDisclaimer ?? DEFAULT_FOOTER_CONFIG.customDisclaimer ?? ''}
+                        onChange={(e) =>
+                          setFooterConfig((prev) => ({
+                            ...prev,
+                            customDisclaimer: e.target.value
+                          }))
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition resize-none"
+                        placeholder="Enter custom micro-footer disclaimer..."
+                      />
+                    </div>
+
                     {/* Informational Guardrail Card */}
                     <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
                       <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Document Instance Snapshot
+                        Print Watermark Baseline
                       </div>
                       <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Recipient and quotation metadata styling is isolated to this quotation record and persists on save.
+                        The footer remains anchored to the bottom edge in print geometry and automatically repeats cleanly across multi-page sheets.
                       </p>
                     </div>
                   </div>

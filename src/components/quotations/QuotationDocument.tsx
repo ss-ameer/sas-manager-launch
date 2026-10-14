@@ -16,7 +16,8 @@ import {
   QuotationBlockId,
   StudioSelectedSection,
   QuotationHeaderConfig,
-  QuotationRecipientConfig
+  QuotationRecipientConfig,
+  QuotationFooterConfig
 } from '../../types';
 import { formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -108,7 +109,15 @@ export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   showEmail: true,
   showWebsite: true,
   showTrn: true,
+  showCompanyName: true,
+  logoSpacing: 'normal',
   logoHeightPx: 44
+};
+
+export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
+  showPageNumbers: true,
+  showDisclaimer: true,
+  customDisclaimer: 'Computer-generated commercial document. Valid without manual signature when electronically issued.'
 };
 
 export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
@@ -129,6 +138,7 @@ export interface QuotationDocumentProps {
   tableFontScale?: QuotationTableFontScale;
   headerConfig?: QuotationHeaderConfig;
   recipientConfig?: QuotationRecipientConfig;
+  footerConfig?: QuotationFooterConfig;
   showBankDetails?: boolean;
   showStampAndSignatures?: boolean;
   user?: { displayName?: string; name?: string; email?: string } | null;
@@ -154,6 +164,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   tableFontScale: propTableFontScale,
   headerConfig: propHeaderConfig,
   recipientConfig: propRecipientConfig,
+  footerConfig: propFooterConfig,
   showBankDetails = true,
   showStampAndSignatures = true,
   user,
@@ -246,8 +257,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   const activeSelectedSection: StudioSelectedSection = selectedSection !== undefined ? selectedSection : (selectedBlockId as StudioSelectedSection);
   const isHeaderSelected = activeSelectedSection === 'header';
-  const isRecipientSelected = activeSelectedSection === 'recipient_meta';
+  const isRecipientSelected = activeSelectedSection === 'recipient_info' || activeSelectedSection === 'recipient_meta';
+  const isQuoteMetaSelected = activeSelectedSection === 'quote_meta';
   const isTableSelected = activeSelectedSection === 'items_table';
+  const isFooterSelected = activeSelectedSection === 'footer';
   const isInteractive = Boolean(onSelectSection || onSelectBlock);
 
   const resolvedHeaderConfig: QuotationHeaderConfig = {
@@ -262,6 +275,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ...(profile?.recipient_config || {}),
     ...(quotation.recipient_config || {}),
     ...(propRecipientConfig || {})
+  };
+
+  const resolvedFooterConfig: QuotationFooterConfig = {
+    ...DEFAULT_FOOTER_CONFIG,
+    ...(profile?.footer_config || {}),
+    ...(quotation.footer_config || {}),
+    ...(propFooterConfig || {})
   };
 
   // Table Density helpers
@@ -365,6 +385,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const enquiryRef = quotation.enquiry_id || enquiry?.enquiry_number || enquiry?.reference || enquiry?.id;
   const resolvedSalesRep = salesRepName || enquiry?.sales_representative || enquiry?.salesperson || (quotation as any)?.salesperson_name || user?.displayName;
 
+  // Resolved B2B Client Details
+  const clientEntityName = quotation.client_snapshot?.entity_name || 'Client Name / Unspecified';
+  const clientContactPerson = quotation.client_contact_person || quotation.client_snapshot?.client_contact_person || quotation.client_snapshot?.contact_person;
+  const clientAddress = quotation.client_address || quotation.client_snapshot?.client_address || quotation.client_snapshot?.address || quotation.client_snapshot?.city || 'United Arab Emirates';
+  const clientTrn = quotation.client_trn || quotation.client_snapshot?.client_trn || quotation.client_snapshot?.trn;
+  const clientPhone = quotation.client_phone || quotation.client_snapshot?.client_phone || quotation.client_snapshot?.phone;
+  const clientEmail = quotation.client_email || quotation.client_snapshot?.client_email || quotation.client_snapshot?.email;
+
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
     const list: Array<{ name: string; title: string; signature_url?: string }> = [];
@@ -463,7 +491,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0mm !important;
+            margin: 15mm 12mm 18mm 12mm !important;
           }
           * {
             outline: none !important;
@@ -473,6 +501,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-structural-section,
           .quotation-header-branding,
           .quotation-recipient-meta,
+          .quotation-recipient-info,
+          .quotation-quote-meta,
+          .document-print-footer,
           header,
           section,
           table,
@@ -491,10 +522,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             print-color-adjust: exact !important;
           }
           body {
-            counter-reset: page;
+            counter-reset: sheet-page 0;
           }
           .print-page-number::after {
-            content: counter(page);
+            counter-increment: sheet-page;
+            content: counter(sheet-page, decimal);
           }
           #quotation-printable-document,
           .quotation-document-container {
@@ -520,7 +552,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             box-shadow: none !important;
             border: none !important;
             margin: 0 auto !important;
-            padding: 12mm 12mm 18mm 12mm !important;
+            padding: 0 !important;
             width: 210mm !important;
             min-width: 210mm !important;
             max-width: 210mm !important;
@@ -624,6 +656,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const showEmail = resolvedHeaderConfig.showEmail !== false && Boolean(senderEmail);
           const showWebsite = resolvedHeaderConfig.showWebsite !== false && Boolean(senderWebsite);
           const showTrn = resolvedHeaderConfig.showTrn !== false && Boolean(senderTrn);
+          const showCompanyName = resolvedHeaderConfig.showCompanyName !== false;
+          const logoSpacingClass =
+            resolvedHeaderConfig.logoSpacing === 'none'
+              ? 'mb-0 pb-0'
+              : resolvedHeaderConfig.logoSpacing === 'tight'
+              ? 'mb-2 pb-0'
+              : resolvedHeaderConfig.logoSpacing === 'spacious'
+              ? 'mb-6 pb-2'
+              : 'mb-4 pb-1';
 
           return (
             <header
@@ -656,7 +697,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
               {effectiveHeaderAlign === 'centered' ? (
                 /* Centered Stack Banner */
-                <div className="flex flex-col items-center text-center space-y-1.5 w-full" style={{ width: '100%', maxWidth: '100%' }}>
+                <div className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`} style={{ width: '100%', maxWidth: '100%' }}>
                   <div className="pb-1">
                     {profile?.logo_url && !logoLoadFailed ? (
                       <img
@@ -675,9 +716,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       </div>
                     )}
                   </div>
-                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                    {senderEntityName}
-                  </h1>
+                  {showCompanyName && (
+                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                      {senderEntityName}
+                    </h1>
+                  )}
                   {/* Address, Contacts & TRN */}
                   {(() => {
                     const segments: React.ReactNode[] = [];
@@ -738,7 +781,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
               ) : (
                 /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
-                <div className={`flex flex-col sm:flex-row justify-between items-start gap-6 w-full ${logoPosition === 'right' ? 'sm:flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
+                <div className={`flex flex-col sm:flex-row justify-between items-start gap-6 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'sm:flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
                   <div className="flex items-center gap-3.5">
                     {profile?.logo_url && !logoLoadFailed ? (
                       <img
@@ -757,9 +800,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       </div>
                     )}
                     <div>
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                        {senderEntityName}
-                      </h1>
+                      {showCompanyName && (
+                        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                          {senderEntityName}
+                        </h1>
+                      )}
                       {showTrn && (
                         <p className="text-xs font-semibold text-slate-600 mt-0.5">
                           TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
@@ -803,10 +848,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         })()}
 
         {/* ========================================================
-            2. CLIENT & OFFER METADATA CARD (SELECTABLE STRUCTURAL SECTION)
+            2. CLIENT ("recipient_info") & COMMERCIAL OFFER ("quote_meta")
+            DECOUPLED 2-COLUMN GRID (LOCKED DIRECTLY ABOVE LINE ITEMS TABLE)
            ======================================================== */}
         {(() => {
-          const recipientLayout = resolvedRecipientConfig.layout || 'split';
           const recipientStyle = resolvedRecipientConfig.style || 'framed';
           const isFramed = recipientStyle === 'framed';
           const showAttention = resolvedRecipientConfig.showAttention !== false;
@@ -814,87 +859,101 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const showValidity = resolvedRecipientConfig.showValidity !== false;
           const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
 
-          const cardBoxClass = isFramed
+          const cardBoxBase = isFramed
             ? 'bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full'
             : 'bg-transparent border-l-2 border-slate-300 pl-3.5 py-1.5 flex flex-col justify-between w-full';
 
           return (
-            <section
-              className={`quotation-recipient-meta mb-4 w-full relative group transition-all duration-150 rounded-lg quotation-structural-section ${
-                isInteractive ? 'cursor-pointer' : ''
-              } ${
-                isRecipientSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                  : isInteractive
-                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                  : ''
-              }`}
-              onClick={isInteractive ? (e) => {
-                e.stopPropagation();
-                if (onSelectSection) {
-                  onSelectSection('recipient_meta');
-                } else if (onSelectBlock) {
-                  onSelectBlock('recipient_meta' as any);
-                }
-              } : undefined}
-              style={{ width: '100%', maxWidth: '100%' }}
-            >
-              {isInteractive && (
-                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                  isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                }`}>
-                  Client &amp; Metadata
-                </div>
-              )}
-
-              <div className={recipientLayout === 'split' ? 'grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch w-full' : 'flex flex-col gap-3 w-full'} style={{ width: '100%', maxWidth: '100%' }}>
-                {/* Client Snapshot Card */}
-                <div className={cardBoxClass} style={{ width: '100%', maxWidth: '100%' }}>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
-                      Submitted To / Attention To
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      {quotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
-                    </h3>
-                    {showAttention && quotation.client_snapshot?.contact_person && (
-                      <p className="text-xs text-slate-700 font-medium mt-0.5">
-                        Attn:{' '}
-                        <span className="text-slate-900 font-semibold">
-                          {quotation.client_snapshot.contact_person}
-                        </span>
-                      </p>
-                    )}
-                    {quotation.client_snapshot?.address && (
-                      <p className="text-xs text-slate-600 mt-1">
-                        {quotation.client_snapshot.address}
-                      </p>
-                    )}
+            <div className="grid grid-cols-2 gap-4 w-full mb-4 quotation-client-offer-grid break-inside-avoid print:grid print:grid-cols-2 print:gap-4 print:mb-4" style={{ width: '100%', maxWidth: '100%' }}>
+              {/* Block A: recipient_info ("SUBMITTED TO / ATTENTION TO") */}
+              <div
+                className={`quotation-recipient-info relative group transition-all duration-150 rounded-xl quotation-structural-section ${
+                  cardBoxBase
+                } ${isInteractive ? 'cursor-pointer' : ''} ${
+                  isRecipientSelected
+                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                    : isInteractive
+                    ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                    : ''
+                }`}
+                onClick={isInteractive ? (e) => {
+                  e.stopPropagation();
+                  onSelectSection?.('recipient_info');
+                  onSelectBlock?.('recipient_info' as any);
+                } : undefined}
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
+                {isInteractive && (
+                  <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                    isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                  }`}>
+                    Submitted To
                   </div>
-                  <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
-                    {quotation.client_snapshot?.email && (
-                      <p><span className="text-slate-400">Email:</span> {quotation.client_snapshot.email}</p>
-                    )}
-                    {quotation.client_snapshot?.phone && (
-                      <p><span className="text-slate-400">Tel:</span> {quotation.client_snapshot.phone}</p>
-                    )}
-                    {quotation.client_snapshot?.trn && (
-                      <p><span className="text-slate-400">Client TRN:</span> <span className="font-mono font-medium">{quotation.client_snapshot.trn}</span></p>
-                    )}
+                )}
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
+                    Submitted To / Attention To
                   </div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {clientEntityName}
+                  </h3>
+                  {showAttention && (
+                    <p className="text-xs text-slate-700 font-medium mt-0.5">
+                      Attn:{' '}
+                      <span className="text-slate-900 font-semibold">
+                        {clientContactPerson || 'Procurement / Commercial Dept.'}
+                      </span>
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-600 mt-1">
+                    {clientAddress}
+                  </p>
                 </div>
+                <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
+                  <p>
+                    <span className="text-slate-400">TRN:</span>{' '}
+                    <span className="font-mono font-medium">{clientTrn || 'Not Registered'}</span>
+                  </p>
+                  {(clientPhone || clientEmail) && (
+                    <p className="text-slate-500">
+                      {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-                {/* Quotation Meta Identity Card */}
-                <div className={cardBoxClass} style={{ width: '100%', maxWidth: '100%' }}>
+              {/* Block B: quote_meta ("COMMERCIAL OFFER") */}
+              <div
+                className={`quotation-quote-meta relative group transition-all duration-150 rounded-xl quotation-structural-section ${
+                  cardBoxBase
+                } ${isInteractive ? 'cursor-pointer' : ''} ${
+                  isQuoteMetaSelected
+                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                    : isInteractive
+                    ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                    : ''
+                }`}
+                onClick={isInteractive ? (e) => {
+                  e.stopPropagation();
+                  onSelectSection?.('quote_meta');
+                  onSelectBlock?.('quote_meta' as any);
+                } : undefined}
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
+                {isInteractive && (
+                  <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                    isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                  }`}>
+                    Commercial Offer
+                  </div>
+                )}
+                <div>
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
                     <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
                       Commercial Offer
                     </span>
-                    <span
-                      className="px-2 py-0.5 text-xs font-bold rounded-full text-white"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      {`R${quotation.revision_number}`}
+                    <span className="text-xs font-mono font-semibold text-slate-500">
+                      {quotation.revision_number !== undefined ? `Rev ${quotation.revision_number}` : ''}
                     </span>
                   </div>
                   <div className="py-2 text-center">
@@ -902,41 +961,42 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       {quotation.formatted_quote_ref || quotation.quote_number}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
-                    <div>
-                      <span className="text-slate-400 text-[10px] uppercase block">Date</span>
-                      <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-                    </div>
-                    {showValidity && (
-                      <div>
-                        <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
-                        <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
-                      </div>
-                    )}
-                    {showSalesRep && resolvedSalesRep && (
-                      <div>
-                        <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
-                        <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
-                      </div>
-                    )}
-                    {showEnquiryRef && enquiryRef && (
-                      <div>
-                        <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
-                        <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
-                      </div>
-                    )}
-                    {quotation.status && (
-                      <div className="col-span-2 pt-0.5 flex items-center justify-between">
-                        <span className="text-slate-400 text-[10px] uppercase">Status</span>
-                        <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
-                          {quotation.status}
-                        </span>
-                      </div>
-                    )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
                   </div>
+                  {showValidity && (
+                    <div>
+                      <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+                      <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                    </div>
+                  )}
+                  {showSalesRep && resolvedSalesRep && (
+                    <div>
+                      <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
+                      <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+                    </div>
+                  )}
+                  {showEnquiryRef && enquiryRef && (
+                    <div>
+                      <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+                      <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                    </div>
+                  )}
+                  {quotation.status && (
+                    <div className="col-span-2 pt-0.5 flex items-center justify-between">
+                      <span className="text-slate-400 text-[10px] uppercase">Status</span>
+                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                        {quotation.status}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
-            </section>
+            </div>
           );
         })()}
 
@@ -944,7 +1004,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
            ======================================================== */}
         <section
-          className={`flex-1 my-2 w-full transition-all duration-150 rounded-lg quotation-structural-section relative group ${
+          className={`flex-1 my-2 w-full transition-all duration-150 rounded-lg quotation-structural-section relative group print:pt-4 ${
             isInteractive ? 'cursor-pointer' : ''
           } ${
             isTableSelected
@@ -1615,7 +1675,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {/* ========================================================
             DOCUMENT SYSTEM MICRO-FOOTER WATERMARK
            ======================================================== */}
-        <footer className="document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0" style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        {/* ========================================================
+            DOCUMENT SYSTEM MICRO-FOOTER WATERMARK (SELECTABLE STRUCTURAL SECTION)
+           ======================================================== */}
+        <footer
+          className={`document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+            isInteractive ? 'cursor-pointer' : ''
+          } ${
+            isFooterSelected
+              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+              : isInteractive
+              ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+              : ''
+          }`}
+          onClick={isInteractive ? (e) => {
+            e.stopPropagation();
+            onSelectSection?.('footer');
+            onSelectBlock?.('footer' as any);
+          } : undefined}
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          {isInteractive && (
+            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              isFooterSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            }`}>
+              Footer &amp; Legal
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px] print:px-[12mm]" style={{ width: '100%', maxWidth: '100%' }}>
             <span className="flex items-center gap-1.5 flex-wrap">
               <span>Omni Suite Commercial Engine</span>
@@ -1635,10 +1721,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               )}
               <span>•</span>
               <span>Date: {formatDate(quotation.created_at)}</span>
-              <span className="hidden print:inline-block">•</span>
-              <span className="hidden print:inline-block font-mono text-[9px] text-slate-500">Page <span className="print-page-number" /></span>
+              {resolvedFooterConfig.showPageNumbers !== false && (
+                <>
+                  <span className="hidden print:inline-block">•</span>
+                  <span className="hidden print:inline-block font-mono text-[9px] text-slate-500">
+                    Page <span className="print-page-number" />
+                  </span>
+                </>
+              )}
             </span>
-            <span className="mt-1 sm:mt-0 italic">Computer-generated commercial document. Valid without manual signature when electronically issued.</span>
+            {resolvedFooterConfig.showDisclaimer !== false && (
+              <span className="mt-1 sm:mt-0 italic">
+                {resolvedFooterConfig.customDisclaimer || 'Computer-generated commercial document. Valid without manual signature when electronically issued.'}
+              </span>
+            )}
           </div>
         </footer>
       </article>

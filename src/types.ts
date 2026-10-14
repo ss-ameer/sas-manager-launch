@@ -1014,6 +1014,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   show_company_seal?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
+  footer_config?: QuotationFooterConfig;
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
@@ -1032,7 +1033,15 @@ export interface QuotationPresetColumns {
 
 export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
 
-export type StudioSelectedSection = QuotationBlockId | 'items_table' | 'header' | 'recipient_meta' | null;
+export type StudioSelectedSection =
+  | QuotationBlockId
+  | 'items_table'
+  | 'header'
+  | 'recipient_info'
+  | 'quote_meta'
+  | 'recipient_meta'
+  | 'footer'
+  | null;
 
 export interface QuotationHeaderConfig {
   alignment?: 'centered' | 'split'; // Centered stack vs Logo Left / Address Right
@@ -1041,6 +1050,14 @@ export interface QuotationHeaderConfig {
   showWebsite?: boolean;
   showTrn?: boolean;
   logoHeightPx?: number; // e.g. 32 to 64px
+  showCompanyName?: boolean; // default: true
+  logoSpacing?: 'none' | 'tight' | 'normal' | 'spacious'; // default: 'normal'
+}
+
+export interface QuotationFooterConfig {
+  showPageNumbers?: boolean; // default: true
+  showDisclaimer?: boolean; // default: true
+  customDisclaimer?: string;
 }
 
 export interface QuotationRecipientConfig {
@@ -1089,6 +1106,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   theme_accent?: QuotationThemeAccent;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
+  footer_config?: QuotationFooterConfig;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
   signatory_type?: 'single' | 'dual';
@@ -1109,7 +1127,14 @@ export interface QuotationPartySnapshot {
   email?: string;
   phone?: string;
   address?: string;
+  city?: string;
+  country?: string;
   trn?: string;
+  client_contact_person?: string;
+  client_trn?: string;
+  client_phone?: string;
+  client_email?: string;
+  client_address?: string;
 }
 
 export interface QuotationSignatory {
@@ -1158,6 +1183,12 @@ export interface Quotation extends SoftDeleteFields {
   show_company_seal?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
+  footer_config?: QuotationFooterConfig;
+  client_contact_person?: string;
+  client_trn?: string;
+  client_phone?: string;
+  client_email?: string;
+  client_address?: string;
   block_style?: 'framed' | 'minimal';
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;
