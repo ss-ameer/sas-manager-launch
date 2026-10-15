@@ -1040,6 +1040,9 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
   subject?: string;
+  globalCardRadius?: 'rounded' | 'sharp';
+  cardsOrder?: 'recipient_first' | 'offer_first';
+  subjectPlacement?: 'above_cards' | 'below_cards';
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
@@ -1105,6 +1108,9 @@ export interface QuotationRecipientConfig {
   offerCardStyle?: 'framed' | 'minimal';
   offerCardWidth?: '50' | '100';
   offerCardRadius?: 'rounded' | 'sharp';
+  cardsOrder?: 'recipient_first' | 'offer_first';
+  subjectPlacement?: 'above_cards' | 'below_cards';
+  globalCardRadius?: 'rounded' | 'sharp';
 }
 
 export interface QuotationBlockConfig {
@@ -1156,6 +1162,9 @@ export interface QuotationPreset extends SoftDeleteFields {
   signature_style?: QuotationSignatureStyle;
   logo_position?: QuotationLogoPosition;
   block_style?: 'framed' | 'minimal';
+  globalCardRadius?: 'rounded' | 'sharp';
+  cardsOrder?: 'recipient_first' | 'offer_first';
+  subjectPlacement?: 'above_cards' | 'below_cards';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1235,6 +1244,9 @@ export interface Quotation extends SoftDeleteFields {
   payment_terms?: string;
   custom_notes?: string;
   block_style?: 'framed' | 'minimal';
+  globalCardRadius?: 'rounded' | 'sharp';
+  cardsOrder?: 'recipient_first' | 'offer_first';
+  subjectPlacement?: 'above_cards' | 'below_cards';
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;
   pdf_download_url?: string;

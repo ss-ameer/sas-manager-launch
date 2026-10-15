@@ -154,6 +154,9 @@ export interface QuotationDocumentProps {
   enquiry?: any;
   salesRepName?: string;
   blockStyle?: 'framed' | 'minimal';
+  globalCardRadius?: 'rounded' | 'sharp';
+  cardsOrder?: 'recipient_first' | 'offer_first';
+  subjectPlacement?: 'above_cards' | 'below_cards';
   layoutBlocks?: QuotationBlockConfig[];
   selectedBlockId?: StudioSelectedSection;
   selectedSection?: StudioSelectedSection;
@@ -181,6 +184,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   enquiry,
   salesRepName,
   blockStyle = 'framed',
+  globalCardRadius: propGlobalCardRadius,
+  cardsOrder: propCardsOrder,
+  subjectPlacement: propSubjectPlacement,
   layoutBlocks,
   selectedBlockId,
   selectedSection,
@@ -522,6 +528,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           * {
             outline: none !important;
           }
+          .print-page-break {
+            break-before: page !important;
+            page-break-before: always !important;
+            padding-top: 18mm !important;
+          }
+          .break-inside-avoid {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
           .quotation-block-slot,
           .quotation-block-slot > div,
           .quotation-structural-section,
@@ -549,11 +564,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             print-color-adjust: exact !important;
           }
           body {
-            counter-reset: sheet-page 0;
+            counter-reset: page 1;
           }
           .print-page-number::after {
-            counter-increment: sheet-page;
-            content: counter(sheet-page, decimal);
+            content: counter(page);
           }
           #quotation-printable-document,
           .quotation-document-container {
@@ -813,14 +827,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
               ) : (
                 /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
-                <div className={`flex flex-col sm:flex-row justify-between items-start gap-6 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'sm:flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
-                  <div className="flex items-center gap-3.5">
+                <div className={`flex flex-row justify-between items-start gap-4 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
+                  <div className={`${logoPosition === 'right' ? 'w-[45%] text-right flex-col items-end' : 'w-[52%] text-left'} flex-shrink-0 flex items-start gap-3.5`}>
                     {profile?.logo_url && !logoLoadFailed ? (
                       <img
                         src={profile.logo_url}
                         alt={senderEntityName}
                         style={{ height: `${logoHeight}px` }}
-                        className="max-w-[200px] object-contain shrink-0"
+                        className="max-w-[180px] object-contain shrink-0"
                         onError={() => setLogoLoadFailed(true)}
                       />
                     ) : (
@@ -831,7 +845,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         <Building2 className="w-6 h-6" />
                       </div>
                     )}
-                    <div>
+                    <div className="min-w-0">
                       {showCompanyName && (
                         <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
                           {senderEntityName}
@@ -845,28 +859,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     </div>
                   </div>
 
-                  <div className={`text-xs text-slate-600 space-y-1 ${logoPosition === 'right' ? 'sm:text-left' : 'sm:text-right'}`}>
+                  <div className={`${logoPosition === 'right' ? 'w-[52%] text-left items-start' : 'w-[45%] text-right items-end'} flex-shrink-0 flex flex-col space-y-1`}>
                     {senderAddress && (
-                      <p className={`${logoPosition === 'right' ? 'sm:text-left' : 'sm:text-right'}`}>
+                      <p className="text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black leading-snug break-words max-w-full">
                         <span>{senderAddress}</span>
                       </p>
                     )}
-                    <div className={`flex flex-wrap gap-x-3 gap-y-1 text-slate-600 ${logoPosition === 'right' ? 'sm:justify-start' : 'sm:justify-end'}`}>
-                      {showPhone && (
-                        <span className="flex items-center gap-1">
-                          <Phone className="w-3 h-3 text-slate-400" />
+                    <div className={`flex flex-col gap-0.5 text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black ${logoPosition === 'right' ? 'items-start' : 'items-end'}`}>
+                      {showPhone && senderPhone && (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{senderPhone}</span>
                         </span>
                       )}
-                      {showEmail && (
-                        <span className="flex items-center gap-1">
-                          <Mail className="w-3 h-3 text-slate-400" />
+                      {showEmail && senderEmail && (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{senderEmail}</span>
                         </span>
                       )}
-                      {showWebsite && (
-                        <span className="flex items-center gap-1">
-                          <Globe className="w-3 h-3 text-slate-400" />
+                      {showWebsite && senderWebsite && (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{senderWebsite}</span>
                         </span>
                       )}
@@ -880,16 +894,38 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {/* ========================================================
             2. CLIENT ("recipient_info") & COMMERCIAL OFFER ("quote_meta")
-            DECOUPLED CARDS (LOCKED DIRECTLY ABOVE LINE ITEMS TABLE)
+            DECOUPLED CARDS & SUBJECT BANNER
            ======================================================== */}
         {(() => {
+          const resolvedGlobalRadius =
+            propGlobalCardRadius ||
+            quotation.globalCardRadius ||
+            profile?.globalCardRadius ||
+            resolvedRecipientConfig.globalCardRadius ||
+            'rounded';
+          const globalRadiusClass = resolvedGlobalRadius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+
+          const resolvedCardsOrder =
+            propCardsOrder ||
+            quotation.cardsOrder ||
+            profile?.cardsOrder ||
+            resolvedRecipientConfig.cardsOrder ||
+            'recipient_first';
+
+          const resolvedSubjectPlacement =
+            propSubjectPlacement ||
+            quotation.subjectPlacement ||
+            profile?.subjectPlacement ||
+            resolvedRecipientConfig.subjectPlacement ||
+            'below_cards';
+
           const recStyle = resolvedRecipientConfig.recipientCardStyle || resolvedRecipientConfig.style || 'framed';
           const recWidth = resolvedRecipientConfig.recipientCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-          const recRadius = resolvedRecipientConfig.recipientCardRadius || 'rounded';
+          const recRadius = resolvedRecipientConfig.recipientCardRadius || resolvedGlobalRadius;
 
           const offerStyle = resolvedRecipientConfig.offerCardStyle || resolvedRecipientConfig.style || 'framed';
           const offerWidth = resolvedRecipientConfig.offerCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-          const offerRadius = resolvedRecipientConfig.offerCardRadius || 'rounded';
+          const offerRadius = resolvedRecipientConfig.offerCardRadius || resolvedGlobalRadius;
 
           const isStacked = recWidth === '100' || offerWidth === '100' || resolvedRecipientConfig.layout === 'stacked';
 
@@ -909,178 +945,204 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const recipientCardBase = getCardClasses(recStyle, recRadius);
           const offerCardBase = getCardClasses(offerStyle, offerRadius);
 
-          return (
-            <div
-              className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
-                isStacked
-                  ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
-                  : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
-              }`}
-              style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-            >
-              {/* Block A: recipient_info ("SUBMITTED TO / ATTENTION TO") */}
+          const renderSubjectBanner = () => {
+            if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
+              return null;
+            }
+            return (
               <div
-                className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
-                  recipientCardBase
-                } ${isInteractive ? 'cursor-pointer' : ''} ${
-                  isRecipientSelected
-                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                    : isInteractive
-                    ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 ${globalRadiusClass} relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
+                  isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
+                } ${
+                  activeSelectedSection === 'subject'
+                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
                     : ''
                 }`}
                 onClick={isInteractive ? (e) => {
                   e.stopPropagation();
-                  onSelectSection?.('recipient_info');
-                  onSelectBlock?.('recipient_info' as any);
+                  onSelectSection?.('subject');
                 } : undefined}
-                style={{ width: '100%', maxWidth: '100%' }}
               >
                 {isInteractive && (
                   <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                    isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                    activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
                   }`}>
-                    Submitted To
+                    Subject Banner
                   </div>
                 )}
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
-                    Submitted To / Attention To
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    {clientEntityName}
-                  </h3>
-                  {showAttention && (
-                    <p className="text-xs text-slate-700 font-medium mt-0.5">
-                      Attn:{' '}
-                      <span className="text-slate-900 font-semibold">
-                        {clientContactPerson || 'Procurement / Commercial Dept.'}
-                      </span>
-                    </p>
-                  )}
-                  <p className="text-xs text-slate-600 mt-1">
-                    {clientAddress}
-                  </p>
-                </div>
-                <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
-                  <p>
-                    <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
-                  </p>
-                  {(clientPhone || clientEmail) && (
-                    <p className="text-slate-500 text-[11px]">
-                      {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
-                    </p>
-                  )}
-                </div>
+                <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
+                <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
               </div>
+            );
+          };
 
-              {/* Block B: quote_meta ("COMMERCIAL OFFER") */}
-              <div
-                className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
-                  offerCardBase
-                } ${isInteractive ? 'cursor-pointer' : ''} ${
-                  isQuoteMetaSelected
-                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                    : isInteractive
-                    ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                    : ''
-                }`}
-                onClick={isInteractive ? (e) => {
-                  e.stopPropagation();
-                  onSelectSection?.('quote_meta');
-                  onSelectBlock?.('quote_meta' as any);
-                } : undefined}
-                style={{ width: '100%', maxWidth: '100%' }}
-              >
-                {isInteractive && (
-                  <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                    isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                  }`}>
-                    Commercial Offer
-                  </div>
-                )}
-                <div>
-                  <div className="pb-1.5 border-b border-slate-200/60">
-                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
-                      Commercial Offer
+          const renderRecipientCard = () => (
+            <div
+              key="recipient_card"
+              className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
+                recipientCardBase
+              } ${isInteractive ? 'cursor-pointer' : ''} ${
+                isRecipientSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                  : isInteractive
+                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                  : ''
+              }`}
+              onClick={isInteractive ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('recipient_info');
+                onSelectBlock?.('recipient_info' as any);
+              } : undefined}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {isInteractive && (
+                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                  isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                }`}>
+                  Submitted To
+                </div>
+              )}
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
+                  Submitted To / Attention To
+                </div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {clientEntityName}
+                </h3>
+                {showAttention && (
+                  <p className="text-xs text-slate-700 font-medium mt-0.5">
+                    Attn:{' '}
+                    <span className="text-slate-900 font-semibold">
+                      {clientContactPerson || 'Procurement / Commercial Dept.'}
                     </span>
-                  </div>
-                  <div className="py-2 text-center">
-                    <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
-                      {quotation.formatted_quote_ref || quotation.quote_number}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Date</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-                  </div>
-                  {showValidity && (
-                    <div>
-                      <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
-                      <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
-                    </div>
-                  )}
-                  {showSalesRep && resolvedSalesRep && (
-                    <div>
-                      <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
-                      <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
-                    </div>
-                  )}
-                  {showEnquiryRef && enquiryRef && (
-                    <div>
-                      <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
-                      <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
-                    </div>
-                  )}
-                  {quotation.status && (
-                    <div className="col-span-2 pt-0.5 flex items-center justify-between">
-                      <span className="text-slate-400 text-[10px] uppercase">Status</span>
-                      <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
-                        {quotation.status}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                  </p>
+                )}
+                <p className="text-xs text-slate-600 mt-1">
+                  {clientAddress}
+                </p>
+              </div>
+              <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
+                <p>
+                  <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
+                </p>
+                {(clientPhone || clientEmail) && (
+                  <p className="text-slate-500 text-[11px]">
+                    {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                  </p>
+                )}
               </div>
             </div>
           );
-        })()}
 
-        {/* Project Subject Banner */}
-        {Boolean(quotation.subject || enquiry?.subject) && resolvedRecipientConfig.showSubject !== false && (
-          <div
-            className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 rounded relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
-              isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
-            } ${
-              activeSelectedSection === 'subject'
-                ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
-                : ''
-            }`}
-            onClick={isInteractive ? (e) => {
-              e.stopPropagation();
-              onSelectSection?.('subject');
-            } : undefined}
-          >
-            {isInteractive && (
-              <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-              }`}>
-                Subject Banner
+          const renderOfferCard = () => (
+            <div
+              key="offer_card"
+              className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
+                offerCardBase
+              } ${isInteractive ? 'cursor-pointer' : ''} ${
+                isQuoteMetaSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                  : isInteractive
+                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                  : ''
+              }`}
+              onClick={isInteractive ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('quote_meta');
+                onSelectBlock?.('quote_meta' as any);
+              } : undefined}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {isInteractive && (
+                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                  isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                }`}>
+                  Commercial Offer
+                </div>
+              )}
+              <div>
+                <div className="pb-1.5 border-b border-slate-200/60">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+                    Commercial Offer
+                  </span>
+                </div>
+                <div className="py-2 text-center">
+                  <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
+                    {quotation.formatted_quote_ref || quotation.quote_number}
+                  </div>
+                </div>
               </div>
-            )}
-            <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
-            <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
-          </div>
-        )}
+
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+                  <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                </div>
+                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                  </div>
+                )}
+                {showSalesRep && resolvedSalesRep && (
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
+                    <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+                  </div>
+                )}
+                {showEnquiryRef && enquiryRef && (
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+                    <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                  </div>
+                )}
+                {quotation.status && (
+                  <div className="col-span-2 pt-0.5 flex items-center justify-between">
+                    <span className="text-slate-400 text-[10px] uppercase">Status</span>
+                    <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                      {quotation.status}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+
+          return (
+            <>
+              {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
+              <div
+                className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
+                  isStacked
+                    ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
+                    : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
+                }`}
+                style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+              >
+                {resolvedCardsOrder === 'offer_first' ? (
+                  <>
+                    {renderOfferCard()}
+                    {renderRecipientCard()}
+                  </>
+                ) : (
+                  <>
+                    {renderRecipientCard()}
+                    {renderOfferCard()}
+                  </>
+                )}
+              </div>
+              {resolvedSubjectPlacement === 'below_cards' && renderSubjectBanner()}
+            </>
+          );
+        })()}
 
         {/* ========================================================
             ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
            ======================================================== */}
         <section
-          className={`flex-1 my-2 w-full transition-all duration-150 rounded-lg quotation-structural-section relative group print:pt-4 ${
+          className={`flex-1 my-2 w-full transition-all duration-150 ${
+            (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
+          } quotation-structural-section relative group print:pt-4 ${
             isInteractive ? 'cursor-pointer' : ''
           } ${
             isTableSelected
@@ -1106,19 +1168,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
             </div>
           )}
-          <div className="rounded-lg border border-slate-200 overflow-hidden w-full" style={{ width: '100%', maxWidth: '100%' }}>
+          <div className={`${
+            (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
+          } border border-slate-200 overflow-hidden w-full`} style={{ width: '100%', maxWidth: '100%' }}>
             <table
               className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
               style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
             >
-              <colgroup>
-                <col style={{ width: '5%' }} />  {/* # */}
-                <col style={{ width: '52%' }} /> {/* DESCRIPTION & TECHNICAL SPECIFICATIONS */}
-                <col style={{ width: '7%' }} />  {/* QTY */}
-                <col style={{ width: '10%' }} /> {/* UOM */}
-                <col style={{ width: '12%' }} /> {/* UNIT PRICE */}
-                <col style={{ width: '14%' }} /> {/* TOTAL */}
-              </colgroup>
+              <colgroup><col style={{ width: '5%' }} /><col style={{ width: '52%' }} /><col style={{ width: '7%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '14%' }} /></colgroup>
               <thead style={{ display: 'table-header-group' }}>
                 <tr
                   className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
@@ -1334,17 +1391,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {(() => {
           // Render functions for each modular document block
           const renderTermsBlock = () => {
-            const priceBasis = quotation.price_basis || 'Ex-Works / Delivered Site';
-            const paymentTerms = quotation.payment_terms || '100% Advance against PI / Approved Credit';
-            const validityText = quotation.valid_until
+            const priceBasis = quotation.price_basis?.trim();
+            const paymentTerms = quotation.payment_terms?.trim();
+            const validityText = quotation.valid_until && quotation.valid_until.trim() !== ''
               ? `Valid until ${formatDate(quotation.valid_until)}`
-              : '30 Days from date of offer';
+              : undefined;
 
-            const customNotes = quotation.custom_notes || (
-              quotation.applied_terms && !quotation.applied_terms.includes('Price Basis:')
-                ? quotation.applied_terms
-                : undefined
-            );
+            const customNotes = (quotation.custom_notes && quotation.custom_notes.trim() !== '')
+              ? quotation.custom_notes.trim()
+              : (quotation.applied_terms && !quotation.applied_terms.includes('Price Basis:') && quotation.applied_terms.trim() !== '')
+              ? quotation.applied_terms.trim()
+              : undefined;
+
+            const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
 
             return (
               <div className="flex-1 flex flex-col justify-between w-full">
@@ -1354,22 +1413,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     Commercial Terms & Conditions
                   </div>
                   <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
-                    <p className="flex justify-between">
-                      <span className="font-semibold text-slate-500">Price Basis:</span>
-                      <span className="text-slate-800 font-medium">{priceBasis}</span>
-                    </p>
-                    <p className="flex justify-between">
-                      <span className="font-semibold text-slate-500">Payment Terms:</span>
-                      <span className="text-slate-800 font-medium">{paymentTerms}</span>
-                    </p>
-                    <p className="flex justify-between">
-                      <span className="font-semibold text-slate-500">Validity:</span>
-                      <span className="text-slate-800 font-medium">{validityText}</span>
-                    </p>
+                    {priceBasis && (
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Price Basis:</span>
+                        <span className="text-slate-800 font-medium">{priceBasis}</span>
+                      </p>
+                    )}
+                    {paymentTerms && (
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Payment Terms:</span>
+                        <span className="text-slate-800 font-medium">{paymentTerms}</span>
+                      </p>
+                    )}
+                    {validityText && (
+                      <p className="flex justify-between">
+                        <span className="font-semibold text-slate-500">Validity:</span>
+                        <span className="text-slate-800 font-medium">{validityText}</span>
+                      </p>
+                    )}
                     {customNotes && (
-                      <div className="mt-2 pt-2 border-t border-slate-200/60 whitespace-pre-line text-slate-600 text-xs">
+                      <div className={`whitespace-pre-line text-slate-600 text-xs ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
                         {customNotes}
                       </div>
+                    )}
+                    {!hasAnyContent && (
+                      <p className="text-slate-400 italic text-[10px] py-1">
+                        No commercial terms specified.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1717,7 +1787,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                   const cardStyleClass = [
                     padClass,
-                    'rounded-lg h-full flex flex-col justify-between transition-all duration-150',
+                    `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
                     b.style === 'minimal'
                       ? 'border border-transparent bg-transparent'
                       : 'border border-slate-200 bg-slate-50/50',

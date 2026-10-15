@@ -74,7 +74,10 @@ import {
   Table,
   Type,
   Tag,
-  Square
+  Square,
+  Check,
+  ArrowLeftRight,
+  MoveVertical
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -182,6 +185,24 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
     editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
   );
+  const [globalCardRadius, setGlobalCardRadius] = useState<'rounded' | 'sharp'>(
+    editingQuotation?.globalCardRadius ||
+    profile?.globalCardRadius ||
+    editingQuotation?.recipient_config?.globalCardRadius ||
+    'rounded'
+  );
+  const [cardsOrder, setCardsOrder] = useState<'recipient_first' | 'offer_first'>(
+    editingQuotation?.cardsOrder ||
+    profile?.cardsOrder ||
+    editingQuotation?.recipient_config?.cardsOrder ||
+    'recipient_first'
+  );
+  const [subjectPlacement, setSubjectPlacement] = useState<'above_cards' | 'below_cards'>(
+    editingQuotation?.subjectPlacement ||
+    profile?.subjectPlacement ||
+    editingQuotation?.recipient_config?.subjectPlacement ||
+    'below_cards'
+  );
   const [headerConfig, setHeaderConfig] = useState<QuotationHeaderConfig>(() => ({
     ...DEFAULT_HEADER_CONFIG,
     ...(profile?.header_config || {}),
@@ -189,6 +210,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   }));
   const [recipientConfig, setRecipientConfig] = useState<QuotationRecipientConfig>(() => ({
     ...DEFAULT_RECIPIENT_CONFIG,
+    globalCardRadius: editingQuotation?.globalCardRadius || profile?.globalCardRadius || 'rounded',
+    cardsOrder: editingQuotation?.cardsOrder || profile?.cardsOrder || 'recipient_first',
+    subjectPlacement: editingQuotation?.subjectPlacement || profile?.subjectPlacement || 'below_cards',
     ...(profile?.recipient_config || {}),
     ...(editingQuotation?.recipient_config || {})
   }));
@@ -323,12 +347,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [isSavingPreset, setIsSavingPreset] = useState<boolean>(false);
 
   // Commercial terms
-  const [priceBasis, setPriceBasis] = useState<string>('Ex-Works / Delivered Site');
-  const [paymentTerms, setPaymentTerms] = useState<string>('100% Advance against PI / Approved Credit');
+  const [priceBasis, setPriceBasis] = useState<string>(() => {
+    if (editingQuotation?.price_basis !== undefined) return editingQuotation.price_basis;
+    return 'Ex-Works / Delivered Site';
+  });
+  const [paymentTerms, setPaymentTerms] = useState<string>(() => {
+    if (editingQuotation?.payment_terms !== undefined) return editingQuotation.payment_terms;
+    return '100% Advance against PI / Approved Credit';
+  });
   const [validityDays, setValidityDays] = useState<number>(30);
-  const [customNotes, setCustomNotes] = useState<string>(
-    editingQuotation?.applied_terms ?? ''
-  );
+  const [customNotes, setCustomNotes] = useState<string>(() => {
+    if (editingQuotation?.custom_notes !== undefined) return editingQuotation.custom_notes;
+    return editingQuotation?.applied_terms ?? '';
+  });
 
   // Helper to check if a value is strictly an uppercase initial abbreviation (2-3 chars, e.g. "SS", "PV", "ANR")
   // Legitimate 3-letter names (e.g. "Ali", "Dan", "Tom", "Roy", "Guy", "Amy", "Joy") contain lowercase letters,
@@ -506,6 +537,24 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
       if (editingQuotation.applied_terms) {
         setCustomNotes(editingQuotation.applied_terms);
+      }
+      if (typeof editingQuotation.price_basis === 'string') {
+        setPriceBasis(editingQuotation.price_basis);
+      }
+      if (typeof editingQuotation.payment_terms === 'string') {
+        setPaymentTerms(editingQuotation.payment_terms);
+      }
+      if (typeof editingQuotation.custom_notes === 'string') {
+        setCustomNotes(editingQuotation.custom_notes);
+      }
+      if (editingQuotation.globalCardRadius) {
+        setGlobalCardRadius(editingQuotation.globalCardRadius);
+      }
+      if (editingQuotation.cardsOrder) {
+        setCardsOrder(editingQuotation.cardsOrder);
+      }
+      if (editingQuotation.subjectPlacement) {
+        setSubjectPlacement(editingQuotation.subjectPlacement);
       }
       if (editingQuotation.applied_bank_account?.id) {
         setSelectedBankId(editingQuotation.applied_bank_account.id);
@@ -689,6 +738,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.block_style) setBlockStyle(preset.block_style);
+    if (preset.globalCardRadius) setGlobalCardRadius(preset.globalCardRadius);
+    if (preset.cardsOrder) setCardsOrder(preset.cardsOrder);
+    if (preset.subjectPlacement) setSubjectPlacement(preset.subjectPlacement);
     if (preset.header_config) {
       setHeaderConfig((prev) => ({ ...prev, ...preset.header_config }));
     }
@@ -1018,6 +1070,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
       block_style: blockStyle,
+      globalCardRadius: globalCardRadius,
+      cardsOrder: cardsOrder,
+      subjectPlacement: subjectPlacement,
       layout_blocks: layoutBlocks,
       header_config: headerConfig,
       recipient_config: recipientConfig,
@@ -1059,6 +1114,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryTitle,
     signatureStyle,
     blockStyle,
+    globalCardRadius,
+    cardsOrder,
+    subjectPlacement,
     layoutBlocks,
     headerConfig,
     footerConfig,
@@ -1122,6 +1180,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
         block_style: blockStyle,
+        globalCardRadius: globalCardRadius,
+        cardsOrder: cardsOrder,
+        subjectPlacement: subjectPlacement,
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
@@ -1203,6 +1264,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         signature_style: signatureStyle,
         logo_position: logoPosition,
         block_style: blockStyle,
+        globalCardRadius: globalCardRadius,
+        cardsOrder: cardsOrder,
+        subjectPlacement: subjectPlacement,
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
@@ -1374,6 +1438,49 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </button>
                           );
                         })}
+                      </div>
+
+                      {/* Universal Corner Radius Switch */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-slate-500 font-medium">
+                            Corner Radius
+                          </label>
+                          <span className="text-[10px] text-slate-400 font-mono capitalize">
+                            {globalCardRadius === 'sharp' ? 'Sharp (0px)' : 'Rounded (8px)'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'rounded' as const, label: 'Rounded (8px)', desc: 'Organic curves' },
+                            { id: 'sharp' as const, label: 'Sharp (0px)', desc: 'Clean right angles' }
+                          ].map((cr) => {
+                            const isSelected = globalCardRadius === cr.id;
+                            return (
+                              <button
+                                key={cr.id}
+                                type="button"
+                                onClick={() => {
+                                  setGlobalCardRadius(cr.id);
+                                  setRecipientConfig((prev) => ({
+                                    ...prev,
+                                    globalCardRadius: cr.id,
+                                    recipientCardRadius: cr.id,
+                                    offerCardRadius: cr.id
+                                  }));
+                                }}
+                                className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
+                                  isSelected
+                                    ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                }`}
+                              >
+                                <span className="font-medium">{cr.label}</span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 
@@ -2246,6 +2353,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     signatoryName={signatoryName}
                     signatoryTitle={signatoryTitle}
                     blockStyle={blockStyle}
+                    globalCardRadius={globalCardRadius}
+                    cardsOrder={cardsOrder}
+                    subjectPlacement={subjectPlacement}
                     layoutBlocks={layoutBlocks}
                     selectedSection={selectedSection}
                     selectedBlockId={selectedBlockId}
@@ -2622,6 +2732,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Top Cards Ordering */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+                        Top Cards Sequence
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Order of Client Information and Commercial Offer cards.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client on left' },
+                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer on left' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setCardsOrder(item.id);
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  cardsOrder: item.id
+                                }));
+                              }}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* 4. Attention To Toggle */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -2887,6 +3037,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Top Cards Ordering */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+                        Top Cards Sequence
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Order of Client Information and Commercial Offer cards.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client on left' },
+                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer on left' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setCardsOrder(item.id);
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  cardsOrder: item.id
+                                }));
+                              }}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* 4. Metadata Field Toggles */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -3076,6 +3266,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       <p className="text-[10px] text-slate-400">
                         Inherited automatically from customer enquiry subject if available.
                       </p>
+                    </div>
+
+                    {/* 3. Subject Banner Placement */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <MoveVertical className="w-3.5 h-3.5 text-blue-600" />
+                        Banner Placement
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Choose whether the subject banner displays above cards or below cards (directly above table).
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'above_cards' as const, label: 'Above Cards', desc: 'Directly below header' },
+                          { id: 'below_cards' as const, label: 'Below Cards', desc: 'Directly above table' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.subjectPlacement || subjectPlacement || 'below_cards') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setSubjectPlacement(item.id);
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  subjectPlacement: item.id
+                                }));
+                              }}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     {/* Informational Guardrail Card */}
@@ -3933,6 +4163,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             signatoryName={signatoryName}
             signatoryTitle={signatoryTitle}
             blockStyle={blockStyle}
+            globalCardRadius={globalCardRadius}
+            cardsOrder={cardsOrder}
+            subjectPlacement={subjectPlacement}
             layoutBlocks={layoutBlocks}
           />
         </div>,
