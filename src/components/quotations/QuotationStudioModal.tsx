@@ -72,7 +72,8 @@ import {
   ArrowDown,
   Settings2,
   Table,
-  Type
+  Type,
+  Tag
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -441,9 +442,56 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.applied_bank_account?.id || ''
   );
 
+  // Attention Contact Person inheritance
+  const [clientContactPerson, setClientContactPerson] = useState<string>(() => {
+    return (
+      editingQuotation?.client_contact_person ||
+      editingQuotation?.client_snapshot?.client_contact_person ||
+      editingQuotation?.client_snapshot?.contact_person ||
+      (enquiry as any)?.contact_person_name ||
+      (enquiry as any)?.contact_name ||
+      enquiry?.concerned_person ||
+      ''
+    );
+  });
+
+  // Sales representative / Prepared By inheritance
+  const [preparedBy, setPreparedBy] = useState<string>(() => {
+    if (editingQuotation?.prepared_by) return resolveRepFullName(editingQuotation.prepared_by);
+    const candidate =
+      (enquiry as any)?.assigned_salesperson ||
+      enquiry?.assignedSalesperson ||
+      enquiry?.sales_representative ||
+      enquiry?.salesperson ||
+      salespersonName ||
+      user?.displayName ||
+      user?.name ||
+      '';
+    return resolveRepFullName(candidate);
+  });
+
+  // Project / Quotation Subject inheritance
+  const [quotationSubject, setQuotationSubject] = useState<string>(() => {
+    return (
+      editingQuotation?.subject ||
+      enquiry?.subject ||
+      profile?.subject ||
+      ''
+    );
+  });
+
   // Hydrate state when editingQuotation changes
   useEffect(() => {
     if (editingQuotation) {
+      if (typeof editingQuotation.client_contact_person === 'string') {
+        setClientContactPerson(editingQuotation.client_contact_person);
+      }
+      if (typeof editingQuotation.prepared_by === 'string') {
+        setPreparedBy(resolveRepFullName(editingQuotation.prepared_by));
+      }
+      if (typeof editingQuotation.subject === 'string') {
+        setQuotationSubject(editingQuotation.subject);
+      }
       if (typeof editingQuotation.freight_amount === 'number') {
         setFreightAmount(editingQuotation.freight_amount);
       }
@@ -910,10 +958,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       status: editingQuotation?.status || 'Draft',
       client_snapshot: {
         entity_name: enquiry.company_name || enquiry.client_company || 'Valued Client',
-        contact_person: enquiry.concerned_person || undefined,
+        contact_person: clientContactPerson || enquiry.concerned_person || undefined,
         address: enquiry.project_location || enquiry.country || undefined,
         trn: undefined
       },
+      client_contact_person: clientContactPerson || undefined,
+      prepared_by: preparedBy || signatoryName,
+      subject: quotationSubject,
       sender_snapshot: {
         entity_name:
           activeProfile?.legal_entity_name ||
@@ -1008,9 +1059,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     blockStyle,
     layoutBlocks,
     headerConfig,
-    recipientConfig,
     footerConfig,
-    visibleColumns
+    visibleColumns,
+    clientContactPerson,
+    preparedBy,
+    quotationSubject
   ]);
 
   // Handle Save (Draft or Issued)
@@ -1033,6 +1086,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         parent_quote_id: liveQuotation.parent_quote_id,
         status: status,
         client_snapshot: liveQuotation.client_snapshot,
+        client_contact_person: clientContactPerson || liveQuotation.client_contact_person,
+        prepared_by: preparedBy || liveQuotation.prepared_by,
+        subject: quotationSubject || liveQuotation.subject,
         sender_snapshot: liveQuotation.sender_snapshot,
         line_items: liveQuotation.line_items,
         tax_mode: liveQuotation.tax_mode,
@@ -2523,7 +2579,63 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
                           </label>
                         </div>
+
+                        {recipientConfig.showAttention !== false && (
+                          <div className="space-y-1 pt-1.5">
+                            <label className="text-slate-700 font-semibold text-[11px] block">
+                              Attention Contact Person Name
+                            </label>
+                            <input
+                              type="text"
+                              value={clientContactPerson}
+                              onChange={(e) => setClientContactPerson(e.target.value)}
+                              placeholder="e.g. Monali Kharge"
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              Inherited directly from customer enquiry or contact record.
+                            </p>
+                          </div>
+                        )}
                       </div>
+                    </div>
+
+                    {/* Project Subject Banner */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-blue-600" />
+                          Project Subject Banner
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={recipientConfig.showSubject !== false}
+                            onChange={(e) =>
+                              setRecipientConfig((prev) => ({
+                                ...prev,
+                                showSubject: e.target.checked
+                              }))
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Scope / project subject banner rendered above the line items table.
+                      </p>
+                      {recipientConfig.showSubject !== false && (
+                        <div className="space-y-1 pt-1">
+                          <input
+                            type="text"
+                            value={quotationSubject}
+                            onChange={(e) => setQuotationSubject(e.target.value)}
+                            placeholder="e.g. Proposal for RO Equipment – Job 3463"
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* 3. B2B Corporate Snapshot Overview */}
@@ -2721,7 +2833,63 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </label>
                           </div>
                         ))}
+
+                        {recipientConfig.showSalesRep !== false && (
+                          <div className="space-y-1 pt-1.5">
+                            <label className="text-slate-700 font-semibold text-[11px] block">
+                              Sales Representative (Prepared By)
+                            </label>
+                            <input
+                              type="text"
+                              value={preparedBy}
+                              onChange={(e) => setPreparedBy(e.target.value)}
+                              placeholder="e.g. Nitin Srivastava"
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              Inherited directly from assigned salesperson.
+                            </p>
+                          </div>
+                        )}
                       </div>
+                    </div>
+
+                    {/* Project Subject Banner */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-blue-600" />
+                          Project Subject Banner
+                        </label>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={recipientConfig.showSubject !== false}
+                            onChange={(e) =>
+                              setRecipientConfig((prev) => ({
+                                ...prev,
+                                showSubject: e.target.checked
+                              }))
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Scope / project subject banner rendered above the line items table.
+                      </p>
+                      {recipientConfig.showSubject !== false && (
+                        <div className="space-y-1 pt-1">
+                          <input
+                            type="text"
+                            value={quotationSubject}
+                            onChange={(e) => setQuotationSubject(e.target.value)}
+                            placeholder="e.g. Proposal for RO Equipment – Job 3463"
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* 3. Offer Summary Info */}

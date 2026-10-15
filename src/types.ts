@@ -570,10 +570,12 @@ export interface Enquiry extends SoftDeleteFields {
   salesperson_id?: string;
   salesperson?: string;
   assignedSalesperson?: string;
+  assigned_salesperson?: string;
   sales_rep_id?: string;
   salesRepresentativeId?: string;
   sales_representative?: string;
   salesRep?: string;
+  contact_person_name?: string;
   additional_team?: (string | Record<string, any>)[] | string;
   shared_with?: string[];
   shared_with_uids?: (string | Record<string, any>)[];
@@ -762,10 +764,24 @@ export function resolveSalespersonIdentifier(enquiry: Partial<Enquiry> | null | 
 export function resolveSalespersonName(enquiry: Partial<Enquiry> | null | undefined): string {
   if (!enquiry) return '';
   return (
+    enquiry.assigned_salesperson ||
     enquiry.assignedSalesperson ||
+    enquiry.sales_representative ||
     enquiry.sales_person ||
     enquiry.salesperson ||
     enquiry.assigned_to ||
+    ''
+  );
+}
+
+export function resolveEnquiryContactPerson(enquiry: Partial<Enquiry> | null | undefined): string {
+  if (!enquiry) return '';
+  return (
+    enquiry.contact_person_name ||
+    (enquiry as any).contact_person ||
+    (enquiry as any).contact_name ||
+    enquiry.concerned_person ||
+    (Array.isArray(enquiry.concerned_persons) && enquiry.concerned_persons[0]) ||
     ''
   );
 }
@@ -1023,6 +1039,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
+  subject?: string;
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
@@ -1080,6 +1097,7 @@ export interface QuotationRecipientConfig {
   showSalesRep?: boolean;
   showValidity?: boolean;
   showEnquiryRef?: boolean;
+  showSubject?: boolean;
 }
 
 export interface QuotationBlockConfig {
@@ -1120,6 +1138,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
+  subject?: string;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
   signatory_type?: 'single' | 'dual';
@@ -1203,6 +1222,8 @@ export interface Quotation extends SoftDeleteFields {
   client_phone?: string;
   client_email?: string;
   client_address?: string;
+  subject?: string;
+  prepared_by?: string;
   block_style?: 'framed' | 'minimal';
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;

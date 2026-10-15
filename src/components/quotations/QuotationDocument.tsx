@@ -126,7 +126,8 @@ export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
   showAttention: true,
   showSalesRep: true,
   showValidity: true,
-  showEnquiryRef: true
+  showEnquiryRef: true,
+  showSubject: true
 };
 
 export interface QuotationDocumentProps {
@@ -389,11 +390,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const senderEmail = profile?.email || quotation.sender_snapshot?.email;
   const senderWebsite = profile?.website;
   const enquiryRef = quotation.enquiry_id || enquiry?.enquiry_number || enquiry?.reference || enquiry?.id;
-  const resolvedSalesRep = salesRepName || enquiry?.sales_representative || enquiry?.salesperson || (quotation as any)?.salesperson_name || user?.displayName;
+  const resolvedSalesRep =
+    salesRepName ||
+    quotation.prepared_by ||
+    (quotation as any)?.salesperson_name ||
+    enquiry?.assigned_salesperson ||
+    enquiry?.assignedSalesperson ||
+    enquiry?.sales_representative ||
+    enquiry?.salesperson ||
+    user?.displayName;
 
   // Resolved B2B Client Details
   const clientEntityName = quotation.client_snapshot?.entity_name || 'Client Name / Unspecified';
-  const clientContactPerson = quotation.client_contact_person || quotation.client_snapshot?.client_contact_person || quotation.client_snapshot?.contact_person;
+  const clientContactPerson =
+    quotation.client_contact_person ||
+    quotation.client_snapshot?.client_contact_person ||
+    quotation.client_snapshot?.contact_person ||
+    enquiry?.contact_person_name ||
+    (enquiry as any)?.contact_name ||
+    enquiry?.concerned_person;
   const clientAddress = quotation.client_address || quotation.client_snapshot?.client_address || quotation.client_snapshot?.address || quotation.client_snapshot?.city || 'United Arab Emirates';
   const clientTrn = quotation.client_trn || quotation.client_snapshot?.client_trn || quotation.client_snapshot?.trn;
   const clientPhone = quotation.client_phone || quotation.client_snapshot?.client_phone || quotation.client_snapshot?.phone;
@@ -497,7 +512,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 15mm 12mm 18mm 12mm !important;
+            margin: 0 !important;
           }
           * {
             outline: none !important;
@@ -554,27 +569,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-print-sheet {
             height: auto !important;
-            min-height: 0 !important;
+            min-height: 297mm !important;
             box-shadow: none !important;
             border: none !important;
             margin: 0 auto !important;
-            padding: 0 !important;
+            padding-left: 14mm !important;
+            padding-right: 14mm !important;
+            padding-top: 14mm !important;
+            padding-bottom: 16mm !important;
             width: 210mm !important;
             min-width: 210mm !important;
             max-width: 210mm !important;
             box-sizing: border-box !important;
           }
           .document-print-footer {
-            position: fixed !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
+            position: static !important;
             width: 100% !important;
-            background: white !important;
-            padding-top: 4px !important;
+            background: transparent !important;
+            padding-top: 8px !important;
             padding-bottom: 4px !important;
             border-top: 1px solid #e2e8f0 !important;
-            z-index: 9999 !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
           .quotation-print-sheet table,
           .quotation-print-sheet .terms-card,
@@ -624,9 +640,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       {/* Decoupled A4 Page Sheet with Strict 210mm x 297mm Physical Geometry */}
       <article
         ref={sheetRef}
-        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 p-[12mm_12mm_18mm_12mm] flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0 print:p-[12mm_12mm_18mm_12mm]"
+        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0"
         style={{
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          paddingLeft: '14mm',
+          paddingRight: '14mm',
+          paddingTop: '14mm',
+          paddingBottom: '16mm'
         }}
       >
         {/* Visual Page-Break Cut Line Emulation (screen only, print:hidden) */}
@@ -866,14 +886,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
 
           const cardBoxBase = isFramed
-            ? 'bg-slate-50/70 border border-slate-200/70 rounded-xl p-3.5 flex flex-col justify-between w-full'
-            : 'bg-transparent border-l-2 border-slate-300 pl-3.5 py-1.5 flex flex-col justify-between w-full';
+            ? 'border border-slate-200 rounded-lg p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between'
+            : 'border-b border-slate-200 pb-2 bg-transparent h-full flex flex-col justify-between';
 
           return (
             <div className="grid grid-cols-2 gap-4 w-full mb-4 quotation-client-offer-grid break-inside-avoid print:grid print:grid-cols-2 print:gap-4 print:mb-4" style={{ width: '100%', maxWidth: '100%' }}>
               {/* Block A: recipient_info ("SUBMITTED TO / ATTENTION TO") */}
               <div
-                className={`quotation-recipient-info relative group transition-all duration-150 rounded-xl quotation-structural-section ${
+                className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
                   cardBoxBase
                 } ${isInteractive ? 'cursor-pointer' : ''} ${
                   isRecipientSelected
@@ -917,11 +937,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
                 <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
                   <p>
-                    <span className="text-slate-400">TRN:</span>{' '}
-                    <span className="font-mono font-medium">{clientTrn || 'Not Registered'}</span>
+                    <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
                   </p>
                   {(clientPhone || clientEmail) && (
-                    <p className="text-slate-500">
+                    <p className="text-slate-500 text-[11px]">
                       {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
                     </p>
                   )}
@@ -930,7 +949,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
               {/* Block B: quote_meta ("COMMERCIAL OFFER") */}
               <div
-                className={`quotation-quote-meta relative group transition-all duration-150 rounded-xl quotation-structural-section ${
+                className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
                   cardBoxBase
                 } ${isInteractive ? 'cursor-pointer' : ''} ${
                   isQuoteMetaSelected
@@ -954,12 +973,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   </div>
                 )}
                 <div>
-                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60">
-                    <span className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
+                  <div className="pb-1.5 border-b border-slate-200/60">
+                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
                       Commercial Offer
-                    </span>
-                    <span className="text-xs font-mono font-semibold text-slate-500">
-                      {quotation.revision_number !== undefined ? `Rev ${quotation.revision_number}` : ''}
                     </span>
                   </div>
                   <div className="py-2 text-center">
@@ -1005,6 +1021,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           );
         })()}
+
+        {/* Project Subject Banner */}
+        {(quotation.subject || enquiry?.subject) && resolvedRecipientConfig.showSubject !== false && (
+          <div className="mb-3 px-3 py-1.5 bg-slate-100/70 border-l-2 border-slate-600 text-xs font-semibold text-slate-800 print:bg-transparent print:border-slate-800">
+            <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
+            {quotation.subject || enquiry?.subject}
+          </div>
+        )}
 
         {/* ========================================================
             ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
@@ -1716,7 +1740,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               Footer &amp; Legal
             </div>
           )}
-          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px] print:px-[12mm]" style={{ width: '100%', maxWidth: '100%' }}>
+          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px]" style={{ width: '100%', maxWidth: '100%' }}>
             <span className="flex items-center gap-1.5 flex-wrap">
               <span>Omni Suite Commercial Engine</span>
               <span>•</span>
@@ -1737,9 +1761,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <span>Date: {formatDate(quotation.created_at)}</span>
               {resolvedFooterConfig.showPageNumbers !== false && (
                 <>
-                  <span className="hidden print:inline-block">•</span>
-                  <span className="hidden print:inline-block font-mono text-[9px] text-slate-500">
-                    Page <span className="print-page-number" />
+                  <span>•</span>
+                  <span className="font-mono text-[9px] text-slate-500">
+                    Page <span className="print:hidden">1</span><span className="hidden print:inline print-page-number" />
                   </span>
                 </>
               )}

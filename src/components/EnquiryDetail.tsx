@@ -3897,21 +3897,42 @@ export default function EnquiryDetail({
       )}
 
       {/* Quotation Studio Drawer / Modal */}
-      {isQuotationStudioOpen && (
-        <QuotationStudioModal
-          isOpen={isQuotationStudioOpen}
-          onClose={() => {
-            setIsQuotationStudioOpen(false);
-            setEditingQuotation(null);
-          }}
-          enquiry={currentEnquiry}
-          salespersonName={resolveSalespersonName(currentEnquiry)}
-          activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
-          activeWorkspace={activeWorkspace}
-          user={user}
-          profile={documentProfile}
-          editingQuotation={editingQuotation}
-          onQuotationCreated={async (newQuote) => {
+      {isQuotationStudioOpen && (() => {
+        const contactName =
+          currentEnquiry.contact_person_name ||
+          matchedContact?.full_name ||
+          (matchedContact as any)?.name ||
+          currentEnquiry.concerned_person ||
+          (Array.isArray(currentEnquiry.concerned_persons) && currentEnquiry.concerned_persons[0]) ||
+          '';
+
+        const spName =
+          currentEnquiry.assigned_salesperson ||
+          resolveSalespersonName(currentEnquiry);
+
+        const enrichedEnquiry: Enquiry = {
+          ...currentEnquiry,
+          contact_person_name: contactName || undefined,
+          concerned_person: contactName || currentEnquiry.concerned_person,
+          assigned_salesperson: spName || undefined,
+          subject: currentEnquiry.subject || ''
+        };
+
+        return (
+          <QuotationStudioModal
+            isOpen={isQuotationStudioOpen}
+            onClose={() => {
+              setIsQuotationStudioOpen(false);
+              setEditingQuotation(null);
+            }}
+            enquiry={enrichedEnquiry}
+            salespersonName={spName || resolveSalespersonName(currentEnquiry)}
+            activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default'}
+            activeWorkspace={activeWorkspace}
+            user={user}
+            profile={documentProfile}
+            editingQuotation={editingQuotation}
+            onQuotationCreated={async (newQuote) => {
             setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
 
             // Deal Value Sync: Sync new quotation total and reference to enquiry
@@ -4017,9 +4038,10 @@ export default function EnquiryDetail({
               }
             }
           }}
-          triggerToast={triggerToast}
-        />
-      )}
+            triggerToast={triggerToast}
+          />
+        );
+      })()}
 
       {/* Standalone Quotation Document View Modal (Inspection) */}
       {viewingQuotation && (
