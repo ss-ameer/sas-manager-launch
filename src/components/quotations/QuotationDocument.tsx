@@ -28,7 +28,6 @@ import {
   Mail,
   Phone,
   Globe,
-  MapPin,
   CheckCircle2,
   AlertCircle,
   Landmark,
@@ -127,7 +126,13 @@ export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
   showSalesRep: true,
   showValidity: true,
   showEnquiryRef: true,
-  showSubject: true
+  showSubject: true,
+  recipientCardStyle: 'framed',
+  recipientCardWidth: '50',
+  recipientCardRadius: 'rounded',
+  offerCardStyle: 'framed',
+  offerCardWidth: '50',
+  offerCardRadius: 'rounded'
 };
 
 export interface QuotationDocumentProps {
@@ -512,7 +517,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0 !important;
+            margin: 15mm 14mm 15mm 14mm !important;
           }
           * {
             outline: none !important;
@@ -524,6 +529,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-recipient-meta,
           .quotation-recipient-info,
           .quotation-quote-meta,
+          .quotation-client-offer-grid,
           .document-print-footer,
           header,
           section,
@@ -551,9 +557,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           #quotation-printable-document,
           .quotation-document-container {
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
             margin: 0 auto !important;
             padding: 0 !important;
             position: static !important;
@@ -569,18 +575,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-print-sheet {
             height: auto !important;
-            min-height: 297mm !important;
+            min-height: auto !important;
             box-shadow: none !important;
             border: none !important;
             margin: 0 auto !important;
-            padding-left: 14mm !important;
-            padding-right: 14mm !important;
-            padding-top: 14mm !important;
-            padding-bottom: 16mm !important;
-            width: 210mm !important;
-            min-width: 210mm !important;
-            max-width: 210mm !important;
+            padding: 0 !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
             box-sizing: border-box !important;
+          }
+          .quotation-client-offer-grid {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
           .document-print-footer {
             position: static !important;
@@ -753,7 +760,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     if (senderAddress) {
                       segments.push(
                         <span key="addr" className="inline-flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span>{senderAddress}</span>
                         </span>
                       );
@@ -841,8 +847,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                   <div className={`text-xs text-slate-600 space-y-1 ${logoPosition === 'right' ? 'sm:text-left' : 'sm:text-right'}`}>
                     {senderAddress && (
-                      <p className={`flex items-center gap-1.5 ${logoPosition === 'right' ? 'sm:justify-start' : 'sm:justify-end'}`}>
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <p className={`${logoPosition === 'right' ? 'sm:text-left' : 'sm:text-right'}`}>
                         <span>{senderAddress}</span>
                       </p>
                     )}
@@ -875,26 +880,48 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {/* ========================================================
             2. CLIENT ("recipient_info") & COMMERCIAL OFFER ("quote_meta")
-            DECOUPLED 2-COLUMN GRID (LOCKED DIRECTLY ABOVE LINE ITEMS TABLE)
+            DECOUPLED CARDS (LOCKED DIRECTLY ABOVE LINE ITEMS TABLE)
            ======================================================== */}
         {(() => {
-          const recipientStyle = resolvedRecipientConfig.style || 'framed';
-          const isFramed = recipientStyle === 'framed';
+          const recStyle = resolvedRecipientConfig.recipientCardStyle || resolvedRecipientConfig.style || 'framed';
+          const recWidth = resolvedRecipientConfig.recipientCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
+          const recRadius = resolvedRecipientConfig.recipientCardRadius || 'rounded';
+
+          const offerStyle = resolvedRecipientConfig.offerCardStyle || resolvedRecipientConfig.style || 'framed';
+          const offerWidth = resolvedRecipientConfig.offerCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
+          const offerRadius = resolvedRecipientConfig.offerCardRadius || 'rounded';
+
+          const isStacked = recWidth === '100' || offerWidth === '100' || resolvedRecipientConfig.layout === 'stacked';
+
           const showAttention = resolvedRecipientConfig.showAttention !== false;
           const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
           const showValidity = resolvedRecipientConfig.showValidity !== false;
           const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
 
-          const cardBoxBase = isFramed
-            ? 'border border-slate-200 rounded-lg p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between'
-            : 'border-b border-slate-200 pb-2 bg-transparent h-full flex flex-col justify-between';
+          const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
+            const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+            if (style === 'framed') {
+              return `border border-slate-200 ${radiusClass} p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between`;
+            }
+            return `border-b border-slate-200 ${radiusClass} pb-2 bg-transparent h-full flex flex-col justify-between`;
+          };
+
+          const recipientCardBase = getCardClasses(recStyle, recRadius);
+          const offerCardBase = getCardClasses(offerStyle, offerRadius);
 
           return (
-            <div className="grid grid-cols-2 gap-4 w-full mb-4 quotation-client-offer-grid break-inside-avoid print:grid print:grid-cols-2 print:gap-4 print:mb-4" style={{ width: '100%', maxWidth: '100%' }}>
+            <div
+              className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
+                isStacked
+                  ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
+                  : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
+              }`}
+              style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+            >
               {/* Block A: recipient_info ("SUBMITTED TO / ATTENTION TO") */}
               <div
                 className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
-                  cardBoxBase
+                  recipientCardBase
                 } ${isInteractive ? 'cursor-pointer' : ''} ${
                   isRecipientSelected
                     ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
@@ -950,7 +977,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {/* Block B: quote_meta ("COMMERCIAL OFFER") */}
               <div
                 className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
-                  cardBoxBase
+                  offerCardBase
                 } ${isInteractive ? 'cursor-pointer' : ''} ${
                   isQuoteMetaSelected
                     ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
@@ -1023,10 +1050,29 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         })()}
 
         {/* Project Subject Banner */}
-        {(quotation.subject || enquiry?.subject) && resolvedRecipientConfig.showSubject !== false && (
-          <div className="mb-3 px-3 py-1.5 bg-slate-100/70 border-l-2 border-slate-600 text-xs font-semibold text-slate-800 print:bg-transparent print:border-slate-800">
+        {Boolean(quotation.subject || enquiry?.subject) && resolvedRecipientConfig.showSubject !== false && (
+          <div
+            className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 rounded relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
+              isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
+            } ${
+              activeSelectedSection === 'subject'
+                ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
+                : ''
+            }`}
+            onClick={isInteractive ? (e) => {
+              e.stopPropagation();
+              onSelectSection?.('subject');
+            } : undefined}
+          >
+            {isInteractive && (
+              <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Subject Banner
+              </div>
+            )}
             <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
-            {quotation.subject || enquiry?.subject}
+            <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
           </div>
         )}
 
@@ -1287,42 +1333,49 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
            ======================================================== */}
         {(() => {
           // Render functions for each modular document block
-          const renderTermsBlock = () => (
-            <div className="flex-1 flex flex-col justify-between w-full">
-              <div>
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
-                  <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                  Commercial Terms & Conditions
-                </div>
-                <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
-                  {quotation.applied_terms ? (
-                    <div className="whitespace-pre-line text-slate-600">
-                      {quotation.applied_terms}
-                    </div>
-                  ) : (
-                    <>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Price Basis:</span>
-                        <span className="text-slate-800 font-medium">Ex-Works / Delivered Site</span>
-                      </p>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Payment Terms:</span>
-                        <span className="text-slate-800 font-medium">100% Advance against PI / Approved Credit</span>
-                      </p>
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Validity:</span>
-                        <span className="text-slate-800 font-medium">
-                          {quotation.valid_until
-                            ? `Valid until ${formatDate(quotation.valid_until)}`
-                            : '30 Days from date of offer'}
-                        </span>
-                      </p>
-                    </>
-                  )}
+          const renderTermsBlock = () => {
+            const priceBasis = quotation.price_basis || 'Ex-Works / Delivered Site';
+            const paymentTerms = quotation.payment_terms || '100% Advance against PI / Approved Credit';
+            const validityText = quotation.valid_until
+              ? `Valid until ${formatDate(quotation.valid_until)}`
+              : '30 Days from date of offer';
+
+            const customNotes = quotation.custom_notes || (
+              quotation.applied_terms && !quotation.applied_terms.includes('Price Basis:')
+                ? quotation.applied_terms
+                : undefined
+            );
+
+            return (
+              <div className="flex-1 flex flex-col justify-between w-full">
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
+                    <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                    Commercial Terms & Conditions
+                  </div>
+                  <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
+                    <p className="flex justify-between">
+                      <span className="font-semibold text-slate-500">Price Basis:</span>
+                      <span className="text-slate-800 font-medium">{priceBasis}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="font-semibold text-slate-500">Payment Terms:</span>
+                      <span className="text-slate-800 font-medium">{paymentTerms}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="font-semibold text-slate-500">Validity:</span>
+                      <span className="text-slate-800 font-medium">{validityText}</span>
+                    </p>
+                    {customNotes && (
+                      <div className="mt-2 pt-2 border-t border-slate-200/60 whitespace-pre-line text-slate-600 text-xs">
+                        {customNotes}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          );
+            );
+          };
 
           const renderTotalsBlock = () => (
             <div className="flex-1 space-y-1.5 w-full flex flex-col justify-between">

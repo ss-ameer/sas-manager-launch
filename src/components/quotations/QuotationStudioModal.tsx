@@ -73,7 +73,8 @@ import {
   Settings2,
   Table,
   Type,
-  Tag
+  Tag,
+  Square
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -273,6 +274,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     selectedSection !== 'recipient_meta' &&
     selectedSection !== 'recipient_info' &&
     selectedSection !== 'quote_meta' &&
+    selectedSection !== 'subject' &&
     selectedSection !== 'footer'
       ? selectedSection
       : null;
@@ -304,6 +306,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       section === 'recipient_meta' ||
       section === 'recipient_info' ||
       section === 'quote_meta' ||
+      section === 'subject' ||
       section === 'footer'
     ) {
       setSelectedSection(section);
@@ -993,11 +996,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       tax_rate_percent: financialTotals.tax_rate_percent,
       tax_amount: financialTotals.tax_amount,
       grand_total: financialTotals.grand_total,
-      applied_terms: customNotes || [
-        `Price Basis: ${priceBasis}`,
-        `Payment Terms: ${paymentTerms}`,
-        `Validity: ${validityDays} Days from date of offer`
-      ].join('\n'),
+      price_basis: priceBasis,
+      payment_terms: paymentTerms,
+      custom_notes: customNotes,
+      applied_terms: customNotes,
       applied_bank_account: activeBankAccount,
       signatories: signatories,
       header_layout: headerLayout,
@@ -1097,7 +1099,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         tax_rate_percent: liveQuotation.tax_rate_percent,
         tax_amount: liveQuotation.tax_amount,
         grand_total: liveQuotation.grand_total,
-        applied_terms: liveQuotation.applied_terms,
+        price_basis: priceBasis,
+        payment_terms: paymentTerms,
+        custom_notes: customNotes,
+        applied_terms: customNotes,
         applied_bank_account: liveQuotation.applied_bank_account,
         signatories: liveQuotation.signatories,
         header_layout: headerLayout,
@@ -1303,43 +1308,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span className="flex items-center gap-1.5">
                     <Layout className="w-3.5 h-3.5 text-slate-500" />
-                    Header Layout & Density
+                    Table Density &amp; Style
                   </span>
                   {isLayoutOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
                 </button>
                 {isLayoutOpen && (
                   <div className="p-4 space-y-4 bg-white text-xs border-t border-slate-200">
-                    {/* Header Layout Selector */}
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1.5">
-                        Header Layout Architecture
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: 'split', label: 'Classic Split', desc: 'Side-by-side' },
-                          { id: 'centered_banner', label: 'Centered Banner', desc: 'Full-width top' },
-                          { id: 'modern_compact', label: 'Modern Compact', desc: 'Slim header bar' }
-                        ].map((layout) => {
-                          const isSelected = headerLayout === layout.id;
-                          return (
-                            <button
-                              key={layout.id}
-                              type="button"
-                              onClick={() => setHeaderLayout(layout.id as QuotationHeaderLayout)}
-                              className={`p-2 rounded-lg border flex flex-col items-center justify-center text-center transition cursor-pointer ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-[11px] font-bold block">{layout.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{layout.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
                     {/* Table Density Switch */}
                     <div>
                       <label className="block text-slate-500 font-medium mb-1.5">
@@ -1509,6 +1483,37 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
                           {selectedSection === 'quote_meta' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* Project Subject Banner Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('subject')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'subject'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <Tag className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Project Subject Banner
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
+                              {quotationSubject || 'No subject set'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'subject'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'subject' ? 'Inspecting' : 'Customize'}
                         </span>
                       </div>
 
@@ -2522,12 +2527,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered card container' },
                           { id: 'minimal' as const, label: 'Minimal', desc: 'Clean accent divider' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.style || 'framed') === item.id;
+                          const isSelected = (recipientConfig.recipientCardStyle || recipientConfig.style || 'framed') === item.id;
                           return (
                             <button
                               key={item.id}
                               type="button"
-                              onClick={() => setRecipientConfig((prev) => ({ ...prev, style: item.id }))}
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                recipientCardStyle: item.id,
+                                style: item.id
+                              }))}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
                                   ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
@@ -2542,10 +2551,81 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Attention To Toggle */}
+                    {/* 2. Card Width & Geometry */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Card Width Allocation
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Allocate 50% split width or full 100% width stacked layout.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: '50' as const, label: 'Half Width (50%)', desc: 'Side-by-side grid' },
+                          { id: '100' as const, label: 'Full Width (100%)', desc: 'Stacked banner' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.recipientCardWidth || '50') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                recipientCardWidth: item.id
+                              }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Card Corners */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Square className="w-3.5 h-3.5 text-blue-600" />
+                        Card Corner Radius
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'rounded' as const, label: 'Rounded Corners', desc: 'Modern enterprise' },
+                          { id: 'sharp' as const, label: 'Sharp Corners', desc: 'Classic rectangular' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.recipientCardRadius || 'rounded') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                recipientCardRadius: item.id
+                              }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 4. Attention To Toggle */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-blue-600" />
                         Attention Contact Visibility
                       </label>
                       <div className="pt-1">
@@ -2598,44 +2678,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           </div>
                         )}
                       </div>
-                    </div>
-
-                    {/* Project Subject Banner */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Tag className="w-3.5 h-3.5 text-blue-600" />
-                          Project Subject Banner
-                        </label>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={recipientConfig.showSubject !== false}
-                            onChange={(e) =>
-                              setRecipientConfig((prev) => ({
-                                ...prev,
-                                showSubject: e.target.checked
-                              }))
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Scope / project subject banner rendered above the line items table.
-                      </p>
-                      {recipientConfig.showSubject !== false && (
-                        <div className="space-y-1 pt-1">
-                          <input
-                            type="text"
-                            value={quotationSubject}
-                            onChange={(e) => setQuotationSubject(e.target.value)}
-                            placeholder="e.g. Proposal for RO Equipment – Job 3463"
-                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                          />
-                        </div>
-                      )}
                     </div>
 
                     {/* 3. B2B Corporate Snapshot Overview */}
@@ -2751,12 +2793,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered container' },
                           { id: 'minimal' as const, label: 'Minimal', desc: 'Clean divider' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.style || 'framed') === item.id;
+                          const isSelected = (recipientConfig.offerCardStyle || recipientConfig.style || 'framed') === item.id;
                           return (
                             <button
                               key={item.id}
                               type="button"
-                              onClick={() => setRecipientConfig((prev) => ({ ...prev, style: item.id }))}
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                offerCardStyle: item.id
+                              }))}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
                                   ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
@@ -2771,7 +2816,78 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Metadata Field Toggles */}
+                    {/* 2. Card Width & Geometry */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Card Width Allocation
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Allocate 50% split width or full 100% width stacked layout.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: '50' as const, label: 'Half Width (50%)', desc: 'Side-by-side grid' },
+                          { id: '100' as const, label: 'Full Width (100%)', desc: 'Stacked banner' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.offerCardWidth || '50') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                offerCardWidth: item.id
+                              }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Card Corners */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Square className="w-3.5 h-3.5 text-blue-600" />
+                        Card Corner Radius
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {[
+                          { id: 'rounded' as const, label: 'Rounded Corners', desc: 'Modern enterprise' },
+                          { id: 'sharp' as const, label: 'Sharp Corners', desc: 'Classic rectangular' }
+                        ].map((item) => {
+                          const isSelected = (recipientConfig.offerCardRadius || 'rounded') === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setRecipientConfig((prev) => ({
+                                ...prev,
+                                offerCardRadius: item.id
+                              }))}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{item.label}</span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 4. Metadata Field Toggles */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
@@ -2854,44 +2970,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Project Subject Banner */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Tag className="w-3.5 h-3.5 text-blue-600" />
-                          Project Subject Banner
-                        </label>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={recipientConfig.showSubject !== false}
-                            onChange={(e) =>
-                              setRecipientConfig((prev) => ({
-                                ...prev,
-                                showSubject: e.target.checked
-                              }))
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Scope / project subject banner rendered above the line items table.
-                      </p>
-                      {recipientConfig.showSubject !== false && (
-                        <div className="space-y-1 pt-1">
-                          <input
-                            type="text"
-                            value={quotationSubject}
-                            onChange={(e) => setQuotationSubject(e.target.value)}
-                            placeholder="e.g. Proposal for RO Equipment – Job 3463"
-                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                          />
-                        </div>
-                      )}
-                    </div>
-
                     {/* 3. Offer Summary Info */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -2918,6 +2996,97 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           </span>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {/* Retractable Right-Side Contextual Project Subject Banner Inspector Drawer */}
+              {selectedSection === 'subject' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Tag className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Project Subject Banner
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Structural Section • Document Scope
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Visibility Toggle */}
+                    <div className="border rounded-xl p-3 bg-white border-slate-200 shadow-2xs flex items-center justify-between gap-2">
+                      <div className="min-w-0 pr-1">
+                        <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                          Show Subject Banner
+                        </span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                          Render subject directly above line items
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={recipientConfig.showSubject !== false}
+                          onChange={(e) =>
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              showSubject: e.target.checked
+                            }))
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    {/* 2. Subject Line Input */}
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        Quotation Subject / Scope Line
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Concise summary of project scope, enquiry equipment or job reference.
+                      </p>
+                      <textarea
+                        rows={3}
+                        value={quotationSubject}
+                        onChange={(e) => setQuotationSubject(e.target.value)}
+                        placeholder="e.g. Proposal for RO Equipment – Job 3463"
+                        className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs leading-relaxed resize-none"
+                      />
+                      <p className="text-[10px] text-slate-400">
+                        Inherited automatically from customer enquiry subject if available.
+                      </p>
+                    </div>
+
+                    {/* Informational Guardrail Card */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Clean Enterprise Banner
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        The subject banner appears above the itemized table with balanced neutral styling and full print parity.
+                      </p>
                     </div>
                   </div>
                 </aside>

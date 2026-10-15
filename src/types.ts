@@ -1070,6 +1070,7 @@ export type StudioSelectedSection =
   | 'recipient_info'
   | 'quote_meta'
   | 'recipient_meta'
+  | 'subject'
   | 'footer'
   | null;
 
@@ -1098,6 +1099,12 @@ export interface QuotationRecipientConfig {
   showValidity?: boolean;
   showEnquiryRef?: boolean;
   showSubject?: boolean;
+  recipientCardStyle?: 'framed' | 'minimal';
+  recipientCardWidth?: '50' | '100';
+  recipientCardRadius?: 'rounded' | 'sharp';
+  offerCardStyle?: 'framed' | 'minimal';
+  offerCardWidth?: '50' | '100';
+  offerCardRadius?: 'rounded' | 'sharp';
 }
 
 export interface QuotationBlockConfig {
@@ -1224,6 +1231,9 @@ export interface Quotation extends SoftDeleteFields {
   client_address?: string;
   subject?: string;
   prepared_by?: string;
+  price_basis?: string;
+  payment_terms?: string;
+  custom_notes?: string;
   block_style?: 'framed' | 'minimal';
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;
