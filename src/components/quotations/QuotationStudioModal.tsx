@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Quotation,
@@ -77,7 +77,8 @@ import {
   Square,
   Check,
   ArrowLeftRight,
-  MoveVertical
+  MoveVertical,
+  CheckSquare
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -361,6 +362,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return editingQuotation?.applied_terms ?? '';
   });
 
+  // Per-item visible attributes mapping: itemId -> string[]
+  const [itemVisibleAttributes, setItemVisibleAttributes] = useState<Record<string, string[]>>(() => {
+    const initialMap: Record<string, string[]> = {};
+    if (editingQuotation?.line_items) {
+      editingQuotation.line_items.forEach((item, idx) => {
+        const key = item.id || `item_${idx}`;
+        if (item.visible_attributes) {
+          initialMap[key] = item.visible_attributes;
+        }
+      });
+    }
+    return initialMap;
+  });
+
   // Helper to check if a value is strictly an uppercase initial abbreviation (2-3 chars, e.g. "SS", "PV", "ANR")
   // Legitimate 3-letter names (e.g. "Ali", "Dan", "Tom", "Roy", "Guy", "Amy", "Joy") contain lowercase letters,
   // so /^[A-Z]{2,3}$/.test(...) evaluates to false, ensuring valid 3-letter legal names are NEVER discarded.
@@ -555,6 +570,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
       if (editingQuotation.subjectPlacement) {
         setSubjectPlacement(editingQuotation.subjectPlacement);
+      }
+      if (editingQuotation.line_items) {
+        const initialMap: Record<string, string[]> = {};
+        editingQuotation.line_items.forEach((item, idx) => {
+          const key = item.id || `item_${idx}`;
+          if (item.visible_attributes) {
+            initialMap[key] = item.visible_attributes;
+          }
+        });
+        setItemVisibleAttributes(initialMap);
       }
       if (editingQuotation.applied_bank_account?.id) {
         setSelectedBankId(editingQuotation.applied_bank_account.id);
@@ -809,8 +834,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
     ];
 
+    let baseItems: QuotationLineItem[];
     if (editingQuotation?.line_items && editingQuotation.line_items.length > 0) {
-      return editingQuotation.line_items.map((item, idx) => {
+      baseItems = editingQuotation.line_items.map((item, idx) => {
         if (item.attributes && item.attributes.length > 0) return item;
         // Enrich sample items if they match Item 1 or Item 2
         if (
@@ -846,58 +872,67 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         }
         return item;
       });
-    }
+    } else {
+      const rawItems: LineItem[] = enquiry?.line_items || [];
+      if (rawItems.length === 0) {
+        baseItems = FALLBACK_ITEMS;
+      } else {
+        baseItems = rawItems.map((li, idx) => {
+          const qty = Number(li.quantity) || 1;
+          const uPrice = Number(li.unit_price) || 0;
+          const tPrice = Number(li.total_price) || qty * uPrice;
 
-    const rawItems: LineItem[] = enquiry?.line_items || [];
-    if (rawItems.length === 0) {
-      return FALLBACK_ITEMS;
-    }
+          // Extract attributes if available
+          const brandAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value;
+          const modelAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
+          const originAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value;
 
-    return rawItems.map((li, idx) => {
-      const qty = Number(li.quantity) || 1;
-      const uPrice = Number(li.unit_price) || 0;
-      const tPrice = Number(li.total_price) || qty * uPrice;
+          let itemAttrs: QuotationItemAttribute[] | undefined = undefined;
+          if (Array.isArray(li.attributes) && li.attributes.length > 0) {
+            itemAttrs = li.attributes.map((a) => ({ key: a.key, value: a.value }));
+          } else if (idx === 0) {
+            itemAttrs = [
+              { key: 'Size', value: '9 Inch / DN200' },
+              { key: 'Material', value: 'EPDM Membrane / ABS Body' },
+              { key: 'Connection', value: '3/4" NPT Thread' },
+              { key: 'Design Flow', value: '2 - 5 Nm³/h' }
+            ];
+          } else if (idx === 1) {
+            itemAttrs = [
+              { key: 'Capacity', value: '15 LPH' },
+              { key: 'Pressure', value: '10 bar' },
+              { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
+            ];
+          }
 
-      // Extract attributes if available
-      const brandAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value;
-      const modelAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
-      const originAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value;
-
-      let itemAttrs: QuotationItemAttribute[] | undefined = undefined;
-      if (Array.isArray(li.attributes) && li.attributes.length > 0) {
-        itemAttrs = li.attributes.map((a) => ({ key: a.key, value: a.value }));
-      } else if (idx === 0) {
-        itemAttrs = [
-          { key: 'Size', value: '9 Inch / DN200' },
-          { key: 'Material', value: 'EPDM Membrane / ABS Body' },
-          { key: 'Connection', value: '3/4" NPT Thread' },
-          { key: 'Design Flow', value: '2 - 5 Nm³/h' }
-        ];
-      } else if (idx === 1) {
-        itemAttrs = [
-          { key: 'Capacity', value: '15 LPH' },
-          { key: 'Pressure', value: '10 bar' },
-          { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
-        ];
+          return {
+            id: li.id || `item_${idx}`,
+            item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
+            description: li.description || '',
+            quantity: qty,
+            unit: li.unit || 'pcs',
+            unit_price: uPrice,
+            total_price: tPrice,
+            brand_make: brandAttr || undefined,
+            model_part_no: modelAttr || undefined,
+            country_of_origin: originAttr || undefined,
+            availability: li.lead_time_note || 'Ex-Stock / Standard',
+            is_optional: false,
+            attributes: itemAttrs
+          };
+        });
       }
+    }
 
+    return baseItems.map((item, idx) => {
+      const itemKey = item.id || `item_${idx}`;
+      const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
       return {
-        id: li.id || `item_${idx}`,
-        item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
-        description: li.description || '',
-        quantity: qty,
-        unit: li.unit || 'pcs',
-        unit_price: uPrice,
-        total_price: tPrice,
-        brand_make: brandAttr || undefined,
-        model_part_no: modelAttr || undefined,
-        country_of_origin: originAttr || undefined,
-        availability: li.lead_time_note || 'Ex-Stock / Standard',
-        is_optional: false,
-        attributes: itemAttrs
+        ...item,
+        visible_attributes: customVisible
       };
     });
-  }, [editingQuotation, enquiry?.line_items]);
+  }, [editingQuotation, enquiry?.line_items, itemVisibleAttributes]);
 
   // Dynamically extract all unique attribute keys present across active line items
   const availableAttributeKeys = useMemo(() => {
@@ -942,6 +977,75 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setVisibleColumns((prev) => ({
       ...prev,
       hiddenAttributeKeys: [...availableAttributeKeys]
+    }));
+  };
+
+  // Helper to extract all specification attribute keys for a specific line item
+  const getItemAttributeKeys = useCallback((item: QuotationLineItem): string[] => {
+    const keys: string[] = [];
+    if (Array.isArray(item.attributes)) {
+      item.attributes.forEach((a) => {
+        if (a && a.key && a.key.trim() && !keys.includes(a.key.trim())) {
+          keys.push(a.key.trim());
+        }
+      });
+    }
+    const itemAny = item as any;
+    if (itemAny.attributes && typeof itemAny.attributes === 'object' && !Array.isArray(itemAny.attributes)) {
+      Object.keys(itemAny.attributes).forEach((k) => {
+        if (k.trim() && !keys.includes(k.trim())) keys.push(k.trim());
+      });
+    }
+    if (Array.isArray(itemAny.specs)) {
+      itemAny.specs.forEach((s: any) => {
+        if (s && s.key && s.key.trim() && !keys.includes(s.key.trim())) keys.push(s.key.trim());
+      });
+    }
+    if (Array.isArray(itemAny.specifications)) {
+      itemAny.specifications.forEach((s: any) => {
+        if (s && s.key && s.key.trim() && !keys.includes(s.key.trim())) keys.push(s.key.trim());
+      });
+    }
+    if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—' && !keys.includes('Brand')) {
+      keys.push('Brand');
+    }
+    if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—' && !keys.includes('Model')) {
+      keys.push('Model');
+    }
+    if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—' && !keys.includes('Origin')) {
+      keys.push('Origin');
+    }
+    if (item.availability && item.availability.trim() && !keys.includes('Delivery')) {
+      keys.push('Delivery');
+    }
+    return keys;
+  }, []);
+
+  const toggleItemAttribute = (itemKey: string, allItemKeys: string[], attrKey: string) => {
+    setItemVisibleAttributes((prev) => {
+      const current = prev[itemKey] ?? allItemKeys;
+      const isVisible = current.includes(attrKey);
+      const updated = isVisible
+        ? current.filter((k) => k !== attrKey)
+        : [...current, attrKey];
+      return {
+        ...prev,
+        [itemKey]: updated
+      };
+    });
+  };
+
+  const showAllItemAttributes = (itemKey: string, allItemKeys: string[]) => {
+    setItemVisibleAttributes((prev) => ({
+      ...prev,
+      [itemKey]: [...allItemKeys]
+    }));
+  };
+
+  const hideAllItemAttributes = (itemKey: string) => {
+    setItemVisibleAttributes((prev) => ({
+      ...prev,
+      [itemKey]: []
     }));
   };
 
@@ -3727,6 +3831,102 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   <span className="text-[10px]">{isVisible ? '✓' : '✕'}</span>
                                   <span>{key}</span>
                                 </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Per-Item Specification Attributes (Row-Level Control) */}
+                      {visibleColumns.showItemAttributes !== false && quotationLineItems.some((item) => getItemAttributeKeys(item).length > 0) && (
+                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                              <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                              Item Attributes (Row-Level)
+                            </label>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Per-Row Filter
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-normal">
+                            Selectively show or hide technical parameters on individual line items:
+                          </p>
+
+                          <div className="space-y-2 pt-1 max-h-64 overflow-y-auto pr-1">
+                            {quotationLineItems.map((item, idx) => {
+                              const itemKey = item.id || `item_${idx}`;
+                              const itemAttrs = getItemAttributeKeys(item);
+                              if (itemAttrs.length === 0) return null;
+
+                              const currentVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes ?? itemAttrs;
+                              const visibleCount = itemAttrs.filter((k) => currentVisible.includes(k)).length;
+
+                              return (
+                                <div
+                                  key={itemKey}
+                                  className="p-2.5 rounded-xl border border-slate-200/90 bg-slate-50/70 space-y-2"
+                                >
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <div className="min-w-0 flex items-center gap-1.5">
+                                      <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                        {idx + 1}
+                                      </span>
+                                      <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
+                                        {item.item_name}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <span className="text-[9.5px] font-mono text-slate-400">
+                                        {visibleCount}/{itemAttrs.length}
+                                      </span>
+                                      {itemAttrs.length >= 3 && (
+                                        <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
+                                          <button
+                                            type="button"
+                                            onClick={() => showAllItemAttributes(itemKey, itemAttrs)}
+                                            className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                            title="Show all attributes on this item"
+                                          >
+                                            Show All
+                                          </button>
+                                          <span className="text-slate-300 text-[9px]">•</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => hideAllItemAttributes(itemKey)}
+                                            className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                                            title="Hide all attributes on this item"
+                                          >
+                                            Hide All
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Attribute Toggle Chips */}
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {itemAttrs.map((attrKey) => {
+                                      const isVisible = currentVisible.includes(attrKey);
+                                      return (
+                                        <button
+                                          key={attrKey}
+                                          type="button"
+                                          onClick={() => toggleItemAttribute(itemKey, itemAttrs, attrKey)}
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium transition cursor-pointer ${
+                                            isVisible
+                                              ? 'bg-white text-blue-700 border border-blue-300 shadow-2xs hover:bg-blue-50/50'
+                                              : 'bg-slate-100 text-slate-400 border border-dashed border-slate-300 line-through hover:bg-slate-200/60'
+                                          }`}
+                                          title={isVisible ? `Hide ${attrKey} for item ${idx + 1}` : `Show ${attrKey} for item ${idx + 1}`}
+                                        >
+                                          <span className="text-[9px]">{isVisible ? '✓' : '✕'}</span>
+                                          <span>{attrKey}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>

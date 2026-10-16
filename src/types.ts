@@ -987,6 +987,8 @@ export interface QuotationLineItem {
   availability?: string;
   is_optional?: boolean;
   attributes?: QuotationItemAttribute[];
+  visible_attributes?: string[];
+  hidden_attributes?: string[];
 }
 
 export type QuotationItem = QuotationLineItem;

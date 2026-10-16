@@ -1310,10 +1310,32 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                             }
                           });
 
-                          // Non-destructive redaction: filter out hiddenAttributeKeys
-                          const visibleAttrs = allAttrs.filter(
-                            (attr) => !hiddenAttributeKeys.includes(attr.key)
-                          );
+                          // Non-destructive redaction:
+                          // 1. Global filter: hiddenAttributeKeys
+                          // 2. Per-item filter: item.visible_attributes (or item.hidden_attributes)
+                          const itemVisibleKeys = Array.isArray(item.visible_attributes)
+                            ? item.visible_attributes.map((k) => k.toLowerCase())
+                            : undefined;
+                          const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+                            ? item.hidden_attributes.map((k) => k.toLowerCase())
+                            : undefined;
+
+                          const visibleAttrs = allAttrs.filter((attr) => {
+                            const kLower = attr.key.toLowerCase();
+                            // Check global hiddenAttributeKeys
+                            if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                              return false;
+                            }
+                            // Check per-item explicit visible_attributes if defined
+                            if (itemVisibleKeys !== undefined) {
+                              return itemVisibleKeys.includes(kLower);
+                            }
+                            // Check per-item explicit hidden_attributes if defined
+                            if (itemHiddenKeys !== undefined) {
+                              return !itemHiddenKeys.includes(kLower);
+                            }
+                            return true;
+                          });
 
                           if (visibleAttrs.length === 0) return null;
 
