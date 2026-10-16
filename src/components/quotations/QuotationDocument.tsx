@@ -110,7 +110,8 @@ export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   showTrn: true,
   showCompanyName: true,
   logoSpacing: 'normal',
-  logoHeightPx: 44
+  logoHeightPx: 44,
+  repeatHeaderOnSubsequentPages: true
 };
 
 export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
@@ -197,17 +198,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
 
-  // Visual page-break cut line emulation
+  // Visual page-break cut line and multi-page running header emulation
   const sheetRef = React.useRef<HTMLElement | null>(null);
   const [pageMarkers, setPageMarkers] = React.useState<number[]>([1]);
+  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(false);
 
   React.useEffect(() => {
-    if (!showPageBreakGuides) return;
     const updateMarkers = () => {
       if (!sheetRef.current) return;
       const height = sheetRef.current.offsetHeight;
       const a4Px = (297 * 96) / 25.4;
       const totalPages = Math.ceil(height / a4Px);
+      const multi = height > a4Px + 40;
+      setIsMultiPage(multi);
       const markers: number[] = [];
       for (let i = 1; i <= Math.max(1, totalPages); i++) {
         if (i > 1 && height < (i - 1) * a4Px + 40) break;
@@ -283,6 +286,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ...(quotation.header_config || {}),
     ...(propHeaderConfig || {})
   };
+
+  const repeatHeaderOnSubsequentPages =
+    resolvedHeaderConfig.repeatHeaderOnSubsequentPages !== false &&
+    quotation.repeatHeaderOnSubsequentPages !== false &&
+    profile?.repeatHeaderOnSubsequentPages !== false;
 
   const resolvedRecipientConfig: QuotationRecipientConfig = {
     ...DEFAULT_RECIPIENT_CONFIG,
@@ -519,10 +527,41 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     signatoryType
   ]);
 
+  // Compact corporate running header rendered on Page 2+ (continuation sheets)
+  const renderCompactRunningHeader = (extraClass = '') => {
+    if (!repeatHeaderOnSubsequentPages) return null;
+    const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
+    const subjectText = quotation.subject?.trim();
+
+    return (
+      <div
+        className={`compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-3 w-full bg-white ${extraClass}`}
+        style={{ height: '26px' }}
+      >
+        {/* Left: Company Legal/Short Name */}
+        <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate max-w-[30%]">
+          {senderEntityName || 'Company'}
+        </div>
+
+        {/* Middle: Project Subject & Quotation Ref No */}
+        <div className="text-[8.5px] print:text-[7.5px] text-slate-600 font-medium truncate max-w-[280px] text-center px-2">
+          {subjectText ? `${subjectText} • ` : ''}{quoteRef}
+        </div>
+
+        {/* Right: Date & Document Ref indicator */}
+        <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
+          {formatDate(quotation.created_at)} • {quoteRef}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       id="quotation-printable-document"
-      className="quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
+      className={`quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block ${
+        repeatHeaderOnSubsequentPages ? 'has-running-header' : ''
+      }`}
       style={{ colorScheme: 'light' }}
     >
       {/* Scoped Print Stylesheet */}
@@ -534,6 +573,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           * {
             outline: none !important;
+          }
+          .quotation-running-header-print {
+            display: none !important;
+          }
+          .has-running-header .quotation-running-header-print {
+            display: flex !important;
+            position: fixed;
+            top: 0;
+            left: 14mm;
+            right: 14mm;
+            height: 26px;
+            z-index: 5;
+            background: #ffffff !important;
+            box-sizing: border-box !important;
+          }
+          .quotation-header-branding {
+            position: relative !important;
+            z-index: 20 !important;
+            background: #ffffff !important;
           }
           .print-page-break {
             break-before: page !important;
@@ -690,6 +748,32 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </span>
             </div>
           ))}
+
+        {/* On-screen Multi-Page Running Header Emulation (visible on Page 2+ in preview) */}
+        {repeatHeaderOnSubsequentPages &&
+          isMultiPage &&
+          pageMarkers.map((page) => (
+            <div
+              key={`preview-running-header-${page}`}
+              className="absolute left-[14mm] right-[14mm] pointer-events-none z-20 print:hidden"
+              style={{ top: `${page * 297 + 5}mm` }}
+            >
+              <div className="bg-white/95 backdrop-blur-2xs border border-blue-200/80 rounded px-2.5 py-1 shadow-xs">
+                <div className="text-[7.5px] uppercase font-mono text-blue-600 font-bold mb-0.5 flex items-center justify-between">
+                  <span>Page {page + 1} Running Header</span>
+                  <span className="text-[7px] text-slate-400 font-normal">Continuation Sheet</span>
+                </div>
+                {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
+              </div>
+            </div>
+          ))}
+
+        {/* Multi-Page Running Header (Repeats at top of Page 2+ in print) */}
+        {repeatHeaderOnSubsequentPages && (
+          <div className="quotation-running-header-print hidden print:flex pointer-events-none">
+            {renderCompactRunningHeader('w-full')}
+          </div>
+        )}
 
         {/* Top Accent Stripe */}
         <div
@@ -1435,7 +1519,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
 
             return (
-              <div className="flex-1 flex flex-col justify-between w-full">
+              <div className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                 <div>
                   <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
                     <FileCheck className="w-3.5 h-3.5 text-slate-500" />
@@ -1477,7 +1561,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           };
 
           const renderTotalsBlock = () => (
-            <div className="flex-1 space-y-1.5 w-full flex flex-col justify-between">
+            <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
               <div className="space-y-1.5 w-full">
                 <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
                   <span>Subtotal:</span>
@@ -1551,7 +1635,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           );
 
           const renderRemittanceBlock = () => (
-            <div className="flex-1 flex flex-col justify-between w-full">
+            <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
               <div>
                 <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] mb-1 pb-1 border-b border-slate-200/80">
                   <Landmark className="w-3.5 h-3.5 text-slate-500" />
@@ -1606,7 +1690,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           );
 
           const renderSignatoryBlock = () => (
-            <div className="flex-1 flex flex-col justify-end w-full">
+            <div className="signatory-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
               <div className="flex items-center justify-end gap-5 w-full">
                 {/* Official Stamp / Seal */}
                 {resolvedShowCompanySeal && profile?.stamp_seal_url && (
@@ -1660,7 +1744,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           );
 
           const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => (
-            <div className="w-full flex-1 flex flex-col justify-between">
+            <div className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
               <div>
                 <div className="flex items-center justify-between pb-1 border-b border-slate-200">
                   <span className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5">
@@ -1827,7 +1911,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   return (
                     <div
                       key={b.id}
-                      className={`${placementClass} break-inside-avoid quotation-block-slot`}
+                      className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card`}
                       style={{
                         breakInside: 'avoid',
                         pageBreakInside: 'avoid',
@@ -1837,9 +1921,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       }}
                     >
                       <div
-                        className={cardStyleClass}
+                        className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
                         onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
                         style={{
+                          breakInside: 'avoid',
+                          pageBreakInside: 'avoid',
                           ['--block-base' as any]: baseFontSize,
                           fontSize: 'var(--block-base)'
                         }}

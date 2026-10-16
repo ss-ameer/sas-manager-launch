@@ -2687,6 +2687,47 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
+                    {/* 4. Multi-Page Running Header Toggle */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        Multi-Page Running Header
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Show a slim corporate header at the top of subsequent sheets when quotation content spills onto Page 2+.
+                      </p>
+                      <div
+                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                          headerConfig.repeatHeaderOnSubsequentPages !== false
+                            ? 'bg-white border-slate-200 shadow-2xs'
+                            : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                            Repeat Compact Header on Page 2+
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                            Company name, quote ref & date on continuation sheets
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={headerConfig.repeatHeaderOnSubsequentPages !== false}
+                            onChange={(e) =>
+                              setHeaderConfig((prev) => ({
+                                ...prev,
+                                repeatHeaderOnSubsequentPages: e.target.checked
+                              }))
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+                    </div>
+
                     {/* Informational Guardrail Card */}
                     <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
                       <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">

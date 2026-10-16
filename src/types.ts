@@ -1040,6 +1040,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   show_company_seal?: boolean;
   showAmountInWords?: boolean;
   show_amount_in_words?: boolean;
+  repeatHeaderOnSubsequentPages?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
@@ -1091,6 +1092,7 @@ export interface QuotationHeaderConfig {
   logoHeightPx?: number; // e.g. 32 to 64px
   showCompanyName?: boolean; // default: true
   logoSpacing?: 'none' | 'tight' | 'normal' | 'spacious'; // default: 'normal'
+  repeatHeaderOnSubsequentPages?: boolean; // default: true (Repeats compact corporate running header on Page 2+)
 }
 
 export interface QuotationFooterConfig {
@@ -1236,6 +1238,7 @@ export interface Quotation extends SoftDeleteFields {
   show_company_seal?: boolean;
   showAmountInWords?: boolean;
   show_amount_in_words?: boolean;
+  repeatHeaderOnSubsequentPages?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
