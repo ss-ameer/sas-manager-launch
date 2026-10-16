@@ -6,7 +6,7 @@
  */
 
 import { sanitizeCompanyNameAndSuffix } from '../components/companies/CreateCompanyModal';
-import { formatAmountInWords } from '../utils/numberToWords';
+import { amountToWords, formatAmountInWords } from '../utils/numberToWords';
 import { QuotationPresetColumns } from '../types';
 
 // ==========================================
@@ -274,37 +274,49 @@ describe('Company Legal Suffix Sanitization', () => {
   });
 });
 
-describe('Number-to-Words UAE Currency Precision', () => {
-  it('should format whole dirhams without "Zero Fils"', () => {
-    const words300 = formatAmountInWords(300.0, 'AED');
-    expect(words300).toBe('Three Hundred AED Only');
+describe('Number-to-Words Dynamic Currency & Spelled-Out Subunits', () => {
+  it('should format whole dirhams without "Say" or currency prefixes', () => {
+    const words300 = amountToWords(300.0, 'AED');
+    expect(words300).toBe('Three Hundred Only');
+    expect(words300).notToContain('Say');
+    expect(words300).notToContain('AED');
     expect(words300).notToContain('Zero Fils');
 
-    const words1000 = formatAmountInWords(1000, 'AED');
-    expect(words1000).toBe('One Thousand AED Only');
-    expect(words1000).notToContain('Fils');
+    const words1000 = amountToWords(1000, 'AED');
+    expect(words1000).toBe('One Thousand Only');
 
-    const words45k = formatAmountInWords(45000, 'AED');
-    expect(words45k).toBe('Forty-Five Thousand AED Only');
+    const words1200 = amountToWords(1200, 'AED');
+    expect(words1200).toBe('One Thousand Two Hundred Only');
+
+    const words45k = amountToWords(45000, 'AED');
+    expect(words45k).toBe('Forty-Five Thousand Only');
   });
 
-  it('should format fractional dirhams with proper Fils subunit', () => {
-    const words105 = formatAmountInWords(105.5, 'AED');
-    expect(words105).toBe('One Hundred Five AED and Fifty Fils Only');
+  it('should format fractional subunits spelled out in words (AED -> Fils)', () => {
+    const words1176 = amountToWords(1176.24, 'AED');
+    expect(words1176).toBe('One Thousand One Hundred Seventy-Six and Twenty-Four Fils Only');
 
-    const words12 = formatAmountInWords(12.75, 'AED');
-    expect(words12).toBe('Twelve AED and Seventy-Five Fils Only');
+    const words105 = amountToWords(105.5, 'AED');
+    expect(words105).toBe('One Hundred Five and Fifty Fils Only');
+
+    const words12 = amountToWords(12.75, 'AED');
+    expect(words12).toBe('Twelve and Seventy-Five Fils Only');
+  });
+
+  it('should format foreign currency subunits correctly (USD -> Cents)', () => {
+    const wordsUSD = amountToWords(5462.5, 'USD');
+    expect(wordsUSD).toBe('Five Thousand Four Hundred Sixty-Two and Fifty Cents Only');
   });
 
   it('should handle IEEE-754 precision boundary cases cleanly', () => {
-    const wordsPoint05 = formatAmountInWords(100.05, 'AED');
-    expect(wordsPoint05).toBe('One Hundred AED and Five Fils Only');
+    const wordsPoint05 = amountToWords(100.05, 'AED');
+    expect(wordsPoint05).toBe('One Hundred and Five Fils Only');
 
-    const wordsPoint10 = formatAmountInWords(1000.1, 'AED');
-    expect(wordsPoint10).toBe('One Thousand AED and Ten Fils Only');
+    const wordsPoint10 = amountToWords(1000.1, 'AED');
+    expect(wordsPoint10).toBe('One Thousand and Ten Fils Only');
 
-    const wordsZero = formatAmountInWords(0, 'AED');
-    expect(wordsZero).toBe('Zero AED Only');
+    const wordsZero = amountToWords(0, 'AED');
+    expect(wordsZero).toBe('Zero Only');
   });
 });
 

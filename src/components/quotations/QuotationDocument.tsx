@@ -19,7 +19,7 @@ import {
   QuotationRecipientConfig,
   QuotationFooterConfig
 } from '../../types';
-import { formatAmountInWords } from '../../utils/numberToWords';
+import { amountToWords, amountToWordsAED, formatAmountInWords } from '../../utils/numberToWords';
 import {
   FileText,
   Building2,
@@ -308,8 +308,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ? 'text-sm'
     : 'text-xs';
 
-  const amountInWordsEnabled =
-    quotation.amount_in_words_enabled ?? profile?.amount_in_words_enabled ?? true;
+  const showAmountInWords =
+    quotation.showAmountInWords ??
+    quotation.show_amount_in_words ??
+    quotation.amount_in_words_enabled ??
+    propVisibleColumns?.showAmountInWords ??
+    profile?.showAmountInWords ??
+    profile?.amount_in_words_enabled ??
+    true;
+  const amountInWordsEnabled = showAmountInWords;
   const customerAcceptanceEnabled =
     quotation.customer_acceptance_enabled ?? profile?.customer_acceptance_enabled ?? true;
   const signatoryType: 'single' | 'dual' =
@@ -1534,14 +1541,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
 
               {/* Amount in Words */}
-              {amountInWordsEnabled && (
-                <div className="mt-2 pt-1.5 border-t border-slate-100 leading-tight">
-                  <span className="text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
-                    Amount in Words
-                  </span>
-                  <p className="font-medium text-slate-800 italic text-[var(--block-base)]">
-                    {formatAmountInWords(quotation.grand_total, currency)}
-                  </p>
+              {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
+                <div className="text-[9.5px] print:text-[8.5px] font-medium text-slate-700 italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
+                  <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
+                  {amountToWords(quotation.grand_total, currency)}
                 </div>
               )}
             </div>

@@ -36,56 +36,58 @@ export function integerToWords(num: number): string {
   let words = '';
   let scaleIndex = 0;
 
-  while (num > 0) {
-    const chunk = num % 1000;
+  let current = Math.floor(num);
+  while (current > 0) {
+    const chunk = current % 1000;
     if (chunk !== 0) {
       const chunkWords = convertChunk(chunk);
       const scale = SCALES[scaleIndex];
       words = chunkWords + (scale ? ' ' + scale : '') + (words ? ' ' + words : '');
     }
-    num = Math.floor(num / 1000);
+    current = Math.floor(current / 1000);
     scaleIndex++;
   }
 
   return words.trim();
 }
 
-export interface CurrencySubunitConfig {
-  unit: string;
-  subunit: string;
-}
-
-const CURRENCY_MAP: Record<string, CurrencySubunitConfig> = {
-  AED: { unit: 'Dirhams', subunit: 'Fils' },
-  USD: { unit: 'Dollars', subunit: 'Cents' },
-  EUR: { unit: 'Euros', subunit: 'Cents' },
-  GBP: { unit: 'Pounds', subunit: 'Pence' },
-  SAR: { unit: 'Riyals', subunit: 'Halalas' },
-  QAR: { unit: 'Riyals', subunit: 'Dirhams' },
-  BHD: { unit: 'Dinars', subunit: 'Fils' },
-  OMR: { unit: 'Rials', subunit: 'Baisa' },
-  KWD: { unit: 'Dinars', subunit: 'Fils' },
-  INR: { unit: 'Rupees', subunit: 'Paise' }
+const SUBUNIT_MAP: Record<string, string> = {
+  AED: 'Fils',
+  USD: 'Cents',
+  EUR: 'Cents',
+  GBP: 'Pence',
+  SAR: 'Halalas',
+  QAR: 'Dirhams',
+  BHD: 'Fils',
+  OMR: 'Baisa',
+  KWD: 'Fils',
+  INR: 'Paise'
 };
 
-export function formatAmountInWords(
+/**
+ * Converts numerical currency amount into words without "Say" or currency prefixes,
+ * spelling out subunits (Fils / Cents) in words:
+ * Examples:
+ * - 1,176.24 (AED) -> "One Thousand One Hundred Seventy-Six and Twenty-Four Fils Only"
+ * - 1,200.00 (AED) -> "One Thousand Two Hundred Only"
+ * - 5,462.50 (USD) -> "Five Thousand Four Hundred Sixty-Two and Fifty Cents Only"
+ * - 0 -> "Zero Only"
+ */
+export function amountToWords(
   amount: number | string | null | undefined,
-  currencyCode: string = 'AED'
+  currency: string = 'AED'
 ): string {
   if (amount === null || amount === undefined) {
     return 'Zero Only';
   }
 
   const numAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
-  if (isNaN(numAmount)) {
+  if (isNaN(numAmount) || numAmount === 0) {
     return 'Zero Only';
   }
 
-  const cleanCurrency = (currencyCode || 'AED').toUpperCase().trim();
-  const config = CURRENCY_MAP[cleanCurrency] || {
-    unit: cleanCurrency,
-    subunit: 'Cents'
-  };
+  const cleanCurrency = (currency || 'AED').toUpperCase().trim();
+  const subunit = SUBUNIT_MAP[cleanCurrency] || 'Cents';
 
   const rounded = Math.round((Math.abs(numAmount) + Number.EPSILON) * 100) / 100;
   const wholePart = Math.floor(rounded);
@@ -93,13 +95,24 @@ export function formatAmountInWords(
 
   const wholeWords = integerToWords(wholePart);
 
-  let result = '';
   if (decimalPart > 0) {
     const decimalWords = integerToWords(decimalPart);
-    result = `${wholeWords} ${cleanCurrency} and ${decimalWords} ${config.subunit} Only`;
-  } else {
-    result = `${wholeWords} ${cleanCurrency} Only`;
+    return `${wholeWords} and ${decimalWords} ${subunit} Only`;
   }
 
-  return result;
+  return `${wholeWords} Only`;
+}
+
+export function amountToWordsAED(
+  amount: number | string | null | undefined,
+  currency: string = 'AED'
+): string {
+  return amountToWords(amount, currency);
+}
+
+export function formatAmountInWords(
+  amount: number | string | null | undefined,
+  currencyCode: string = 'AED'
+): string {
+  return amountToWords(amount, currencyCode);
 }

@@ -1038,6 +1038,8 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
+  showAmountInWords?: boolean;
+  show_amount_in_words?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
@@ -1062,6 +1064,7 @@ export interface QuotationPresetColumns {
   showItemAttributes?: boolean;
   attributeDisplayFormat?: 'pills' | 'inline_text';
   hiddenAttributeKeys?: string[];
+  showAmountInWords?: boolean;
 }
 
 export type QuotationColumnConfig = QuotationPresetColumns;
@@ -1231,6 +1234,8 @@ export interface Quotation extends SoftDeleteFields {
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
+  showAmountInWords?: boolean;
+  show_amount_in_words?: boolean;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;

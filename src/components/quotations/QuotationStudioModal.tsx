@@ -1166,6 +1166,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       theme_accent: themeAccent,
       logo_position: logoPosition,
       amount_in_words_enabled: amountInWordsEnabled,
+      showAmountInWords: amountInWordsEnabled,
+      show_amount_in_words: amountInWordsEnabled,
       customer_acceptance_enabled: customerAcceptanceEnabled,
       signatory_type: signatoryType,
       primary_signatory_name: signatoryName,
@@ -1276,6 +1278,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         theme_accent: themeAccent,
         logo_position: logoPosition,
         amount_in_words_enabled: amountInWordsEnabled,
+        showAmountInWords: amountInWordsEnabled,
+        show_amount_in_words: amountInWordsEnabled,
         customer_acceptance_enabled: customerAcceptanceEnabled,
         signatory_type: signatoryType,
         primary_signatory_name: signatoryName,
@@ -4245,6 +4249,31 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           })}
                         </div>
                       </div>
+
+                      {/* Financial Totals Specific Options */}
+                      {selectedBlock.id === 'totals' && (
+                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-semibold text-slate-800 text-xs block">
+                                Show Amount in Words (Legal Phrasing)
+                              </span>
+                              <span className="text-[10.5px] text-slate-500">
+                                Formal legal spelling of Grand Total (e.g. "Say UAE Dirhams...")
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                              <input
+                                type="checkbox"
+                                checked={amountInWordsEnabled}
+                                onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Quick Jump to Other Blocks */}
                       <div className="pt-3 border-t border-slate-100">
