@@ -1041,6 +1041,10 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   showAmountInWords?: boolean;
   show_amount_in_words?: boolean;
   repeatHeaderOnSubsequentPages?: boolean;
+  showBankRemittance?: boolean;
+  showCustomerAcceptance?: boolean;
+  showSignatories?: boolean;
+  footerLayoutMode?: 'split' | 'stacked' | 'seller_only';
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
@@ -1081,6 +1085,7 @@ export type StudioSelectedSection =
   | 'recipient_meta'
   | 'subject'
   | 'footer'
+  | 'signatories'
   | null;
 
 export interface QuotationHeaderConfig {
@@ -1099,6 +1104,10 @@ export interface QuotationFooterConfig {
   showPageNumbers?: boolean; // default: true
   showDisclaimer?: boolean; // default: true
   customDisclaimer?: string;
+  showBankRemittance?: boolean; // default: true
+  showCustomerAcceptance?: boolean; // default: true
+  showSignatories?: boolean; // default: true
+  footerLayoutMode?: 'split' | 'stacked' | 'seller_only'; // default: 'split'
 }
 
 export interface QuotationRecipientConfig {
@@ -1161,6 +1170,10 @@ export interface QuotationPreset extends SoftDeleteFields {
   subject?: string;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
+  showBankRemittance?: boolean;
+  showCustomerAcceptance?: boolean;
+  showSignatories?: boolean;
+  footerLayoutMode?: 'split' | 'stacked' | 'seller_only';
   signatory_type?: 'single' | 'dual';
   primary_signatory_name?: string;
   primary_signatory_title?: string;
@@ -1239,6 +1252,10 @@ export interface Quotation extends SoftDeleteFields {
   showAmountInWords?: boolean;
   show_amount_in_words?: boolean;
   repeatHeaderOnSubsequentPages?: boolean;
+  showBankRemittance?: boolean;
+  showCustomerAcceptance?: boolean;
+  showSignatories?: boolean;
+  footerLayoutMode?: 'split' | 'stacked' | 'seller_only';
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;

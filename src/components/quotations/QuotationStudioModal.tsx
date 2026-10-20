@@ -245,9 +245,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       setSelectedSection(null);
     }
     if (id === 'terms') setShowCommercialTerms(enabled);
-    if (id === 'remittance') setShowBankDetails(enabled);
-    if (id === 'signatory') setShowCompanySeal(enabled);
-    if (id === 'acceptance') setCustomerAcceptanceEnabled(enabled);
+    if (id === 'remittance') {
+      setShowBankDetails(enabled);
+      setFooterConfig((prev) => ({ ...prev, showBankRemittance: enabled }));
+    }
+    if (id === 'signatory') {
+      setShowCompanySeal(enabled);
+      setFooterConfig((prev) => ({ ...prev, showSignatories: enabled }));
+    }
+    if (id === 'acceptance') {
+      setCustomerAcceptanceEnabled(enabled);
+      setFooterConfig((prev) => ({ ...prev, showCustomerAcceptance: enabled }));
+    }
   };
 
   const handleSetBlockPlacement = (id: QuotationBlockId, placement: 'left' | 'right' | 'full') => {
@@ -290,6 +299,56 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setLayoutBlocks((prev) => prev.map((b) => ({ ...b, style })));
   };
 
+  // Modular Closing Layout & Footer Card Handlers
+  const handleSetFooterLayoutMode = (mode: 'split' | 'stacked' | 'seller_only') => {
+    setFooterConfig((prev) => ({
+      ...prev,
+      footerLayoutMode: mode
+    }));
+    setLayoutBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id === 'signatory') {
+          return {
+            ...b,
+            placement: mode === 'split' ? 'left' : 'full'
+          };
+        }
+        if (b.id === 'acceptance') {
+          return {
+            ...b,
+            placement: mode === 'split' ? 'right' : 'full',
+            enabled: mode === 'seller_only' ? false : (footerConfig.showCustomerAcceptance !== false)
+          };
+        }
+        return b;
+      })
+    );
+  };
+
+  const handleToggleBankRemittance = (enabled: boolean) => {
+    setFooterConfig((prev) => ({ ...prev, showBankRemittance: enabled }));
+    setShowBankDetails(enabled);
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === 'remittance' ? { ...b, enabled } : b))
+    );
+  };
+
+  const handleToggleCustomerAcceptance = (enabled: boolean) => {
+    setFooterConfig((prev) => ({ ...prev, showCustomerAcceptance: enabled }));
+    setCustomerAcceptanceEnabled(enabled);
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === 'acceptance' ? { ...b, enabled } : b))
+    );
+  };
+
+  const handleToggleSignatories = (enabled: boolean) => {
+    setFooterConfig((prev) => ({ ...prev, showSignatories: enabled }));
+    setShowCompanySeal(enabled);
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === 'signatory' ? { ...b, enabled } : b))
+    );
+  };
+
   // Retractable Right-Side Contextual Block & Section Inspector selection
   const [selectedSection, setSelectedSection] = useState<StudioSelectedSection>(null);
   const selectedBlockId =
@@ -300,7 +359,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     selectedSection !== 'recipient_info' &&
     selectedSection !== 'quote_meta' &&
     selectedSection !== 'subject' &&
-    selectedSection !== 'footer'
+    selectedSection !== 'footer' &&
+    selectedSection !== 'signatories'
       ? selectedSection
       : null;
   const selectedBlock = useMemo(() => {
@@ -332,7 +392,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       section === 'recipient_info' ||
       section === 'quote_meta' ||
       section === 'subject' ||
-      section === 'footer'
+      section === 'footer' ||
+      section === 'signatories'
     ) {
       setSelectedSection(section);
     } else if (section) {
@@ -775,6 +836,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.footer_config) {
       setFooterConfig((prev) => ({ ...prev, ...preset.footer_config }));
     }
+    if (typeof preset.showBankRemittance === 'boolean') {
+      handleToggleBankRemittance(preset.showBankRemittance);
+    }
+    if (typeof preset.showCustomerAcceptance === 'boolean') {
+      handleToggleCustomerAcceptance(preset.showCustomerAcceptance);
+    }
+    if (typeof preset.showSignatories === 'boolean') {
+      handleToggleSignatories(preset.showSignatories);
+    }
+    if (preset.footerLayoutMode) {
+      handleSetFooterLayoutMode(preset.footerLayoutMode);
+    }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
         preset.layout_blocks.map((b) => ({
@@ -1169,6 +1242,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       showAmountInWords: amountInWordsEnabled,
       show_amount_in_words: amountInWordsEnabled,
       customer_acceptance_enabled: customerAcceptanceEnabled,
+      showBankRemittance: footerConfig.showBankRemittance !== false,
+      showCustomerAcceptance: footerConfig.showCustomerAcceptance !== false,
+      showSignatories: footerConfig.showSignatories !== false,
+      footerLayoutMode: footerConfig.footerLayoutMode || 'split',
       signatory_type: signatoryType,
       primary_signatory_name: signatoryName,
       primary_signatory_title: signatoryTitle,
@@ -1281,6 +1358,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         showAmountInWords: amountInWordsEnabled,
         show_amount_in_words: amountInWordsEnabled,
         customer_acceptance_enabled: customerAcceptanceEnabled,
+        showBankRemittance: footerConfig.showBankRemittance !== false,
+        showCustomerAcceptance: footerConfig.showCustomerAcceptance !== false,
+        showSignatories: footerConfig.showSignatories !== false,
+        footerLayoutMode: footerConfig.footerLayoutMode || 'split',
         signatory_type: signatoryType,
         primary_signatory_name: signatoryName,
         primary_signatory_title: signatoryTitle,
@@ -1364,6 +1445,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         theme_accent: themeAccent,
         amount_in_words_enabled: amountInWordsEnabled,
         customer_acceptance_enabled: customerAcceptanceEnabled,
+        showBankRemittance: footerConfig.showBankRemittance !== false,
+        showCustomerAcceptance: footerConfig.showCustomerAcceptance !== false,
+        showSignatories: footerConfig.showSignatories !== false,
+        footerLayoutMode: footerConfig.footerLayoutMode || 'split',
         signatory_type: signatoryType,
         primary_signatory_name: signatoryName,
         primary_signatory_title: signatoryTitle,
@@ -1763,7 +1848,38 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </span>
                       </div>
 
-                      {/* 5. Footer & Legal Baseline Section Card */}
+                      {/* 5. Signatories & Remittance Account Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('signatories')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'signatories'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <Stamp className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Signatories &amp; Closing
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                              {(footerConfig.footerLayoutMode || 'split').toUpperCase()} • {footerConfig.showSignatories !== false ? 'Signatures' : 'No Sig'} • {footerConfig.showCustomerAcceptance !== false ? 'Client Box' : 'No Client'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'signatories'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'signatories' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 6. Footer & Legal Baseline Section Card */}
                       <div
                         onClick={() => handleInspectSection('footer')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
@@ -2195,6 +2311,97 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 </button>
                 {isSignatoryOpen && (
                   <div className="p-4 space-y-3.5 bg-white text-xs border-t border-slate-200">
+                    {/* Closing Layout Mode */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-700 font-bold text-xs flex items-center gap-1.5">
+                          <Layout className="w-3.5 h-3.5 text-blue-600" />
+                          Closing Layout
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleInspectSection('signatories')}
+                          className="text-[10px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        >
+                          Open Inspector
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'split', label: 'Split (50/50)' },
+                          { id: 'stacked', label: 'Stacked' },
+                          { id: 'seller_only', label: 'Seller Only' }
+                        ].map((m) => {
+                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
+                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Modular Footer Cards Toggles */}
+                    <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                          <Landmark className="w-3.5 h-3.5 text-slate-400" />
+                          Display Bank Remittance Card
+                        </span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={footerConfig.showBankRemittance !== false}
+                            onChange={(e) => handleToggleBankRemittance(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                          <FileCheck className="w-3.5 h-3.5 text-slate-400" />
+                          Display Customer Acceptance / Stamp Box
+                        </span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
+                            disabled={footerConfig.footerLayoutMode === 'seller_only'}
+                            onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
+                        </label>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                          <Stamp className="w-3.5 h-3.5 text-slate-400" />
+                          Display Authorized Signatories
+                        </span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={footerConfig.showSignatories !== false}
+                            onChange={(e) => handleToggleSignatories(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Signatory Count</label>
@@ -3471,6 +3678,308 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 </aside>
               )}
 
+              {/* Retractable Right-Side Contextual Signatories & Remittance Account Inspector Drawer */}
+              {selectedSection === 'signatories' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Stamp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Signatories &amp; Remittance Account
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Closing Layout • Acceptance • Wire Details
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Closing Layout Mode: Segmented Button Control */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Layout className="w-3.5 h-3.5 text-blue-600" />
+                          Closing Layout
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {footerConfig.footerLayoutMode || 'split'}
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Select the closing card structure for authorized signatures and client confirmation.
+                      </p>
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'split', label: 'Split (50/50)' },
+                          { id: 'stacked', label: 'Stacked' },
+                          { id: 'seller_only', label: 'Seller Only' }
+                        ].map((m) => {
+                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
+                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        {footerConfig.footerLayoutMode === 'seller_only'
+                          ? 'Customer Acceptance box is omitted; Seller Signatures span full width.'
+                          : footerConfig.footerLayoutMode === 'stacked'
+                          ? 'Signatures render full-width directly above the full-width Acceptance box.'
+                          : 'Signatures & Stamp render on Left (50%), Customer Acceptance on Right (50%).'}
+                      </p>
+                    </div>
+
+                    {/* 2. Independent Toggle Switches for Footer Cards */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                        Closing Cards Visibility
+                      </label>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Independently show or hide closing and remittance modules.
+                      </p>
+                      <div className="space-y-1.5 pt-1">
+                        {/* Bank Remittance Card Toggle */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showBankRemittance !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                              Display Bank Remittance Card
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Bank wire details, IBAN &amp; beneficiary
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showBankRemittance !== false}
+                              onChange={(e) => handleToggleBankRemittance(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+
+                        {/* Customer Acceptance / Stamp Box Toggle */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                              Display Customer Acceptance / Stamp Box
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Client sign-back confirmation box
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
+                              disabled={footerConfig.footerLayoutMode === 'seller_only'}
+                              onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
+                          </label>
+                        </div>
+
+                        {/* Authorized Signatories Toggle */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showSignatories !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <Stamp className="w-3.5 h-3.5 text-slate-500" />
+                              Display Authorized Signatories
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Executive signatures &amp; company stamp
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showSignatories !== false}
+                              onChange={(e) => handleToggleSignatories(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. Signatory Details Configuration */}
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-blue-600" />
+                        Signatory Details &amp; Style
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">Signatory Count</label>
+                          <select
+                            value={signatoryType}
+                            onChange={(e) => {
+                              const val = e.target.value as 'single' | 'dual';
+                              setSignatoryType(val);
+                              setSignatoryMode(val);
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                          >
+                            <option value="single">Single Signatory</option>
+                            <option value="dual">Dual Signatory</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">Signature Style</label>
+                          <select
+                            value={signatureStyle}
+                            onChange={(e) => setSignatureStyle(e.target.value as QuotationSignatureStyle)}
+                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                          >
+                            <option value="script">Script (Cursive Autopen)</option>
+                            <option value="line">Classic Sign Line</option>
+                            <option value="image">Digital Image / Box</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Primary Signatory Inputs */}
+                      <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                        <span className="text-[10.5px] font-bold text-slate-700 block">Primary Signatory</span>
+                        <div className="space-y-1.5">
+                          <div>
+                            <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
+                            <input
+                              type="text"
+                              value={signatoryName}
+                              onChange={(e) => setSignatoryName(e.target.value)}
+                              placeholder="e.g. Syed Ameer Sibuma"
+                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 text-[10px] mb-0.5">Designation / Title</label>
+                            <input
+                              type="text"
+                              value={signatoryTitle}
+                              onChange={(e) => setSignatoryTitle(e.target.value)}
+                              placeholder="e.g. Account Manager"
+                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Secondary Signatory Inputs (if Dual) */}
+                      {signatoryType === 'dual' && (
+                        <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                          <span className="text-[10.5px] font-bold text-slate-700 block">Secondary Signatory</span>
+                          <div className="space-y-1.5">
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
+                              <input
+                                type="text"
+                                value={secondarySignatoryName}
+                                onChange={(e) => setSecondarySignatoryName(e.target.value)}
+                                placeholder="e.g. Authorized Director"
+                                className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">Designation / Title</label>
+                              <input
+                                type="text"
+                                value={secondarySignatoryTitle}
+                                onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
+                                placeholder="e.g. Commercial Approver"
+                                className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Remittance Bank Selection */}
+                      {activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0 && (
+                        <div>
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
+                            Bank Account Wire Details
+                          </label>
+                          <select
+                            value={selectedBankId}
+                            onChange={(e) => setSelectedBankId(e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                          >
+                            {activeProfile.bank_accounts.map((b) => (
+                              <option key={b.id || b.account_number} value={b.id || ''}>
+                                {b.bank_name} ({b.account_number}) - {b.currency || 'AED'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Informational Atomic Card Break Protection Guardrail */}
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Atomic Card Break Protection
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Signatories, stamp boxes, and customer acceptance cards enforce strict break-inside avoidance. If touching the 297mm A4 boundary, the browser pushes the intact container to Page 2+ rather than slicing text in half.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
               {/* Retractable Right-Side Contextual Footer & Legal Inspector Drawer */}
               {selectedSection === 'footer' && (
                 <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
@@ -3567,6 +4076,130 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   showDisclaimer: e.target.checked
                                 }))
                               }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Closing Layout Mode & Modular Footer Cards */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Layout className="w-3.5 h-3.5 text-blue-600" />
+                          Closing Layout
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {footerConfig.footerLayoutMode || 'split'}
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Configure the closing arrangement of signatories and customer acceptance box.
+                      </p>
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'split', label: 'Split (50/50)' },
+                          { id: 'stacked', label: 'Stacked' },
+                          { id: 'seller_only', label: 'Seller Only' }
+                        ].map((m) => {
+                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
+                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Independent Toggles */}
+                      <div className="space-y-1.5 pt-1">
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showBankRemittance !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                              Display Bank Remittance Card
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Bank wire details, IBAN &amp; beneficiary
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showBankRemittance !== false}
+                              onChange={(e) => handleToggleBankRemittance(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+                              Display Customer Acceptance / Stamp Box
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Client sign-back confirmation box
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
+                              disabled={footerConfig.footerLayoutMode === 'seller_only'}
+                              onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
+                          </label>
+                        </div>
+
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            footerConfig.showSignatories !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
+                              <Stamp className="w-3.5 h-3.5 text-slate-500" />
+                              Display Authorized Signatories
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                              Executive signatures &amp; company stamp
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={footerConfig.showSignatories !== false}
+                              onChange={(e) => handleToggleSignatories(e.target.checked)}
                               className="sr-only peer"
                             />
                             <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -4312,6 +4945,101 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               />
                               <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Signatory, Acceptance & Remittance Specific Options */}
+                      {(selectedBlock.id === 'signatory' || selectedBlock.id === 'acceptance' || selectedBlock.id === 'remittance') && (
+                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <Layout className="w-3.5 h-3.5 text-blue-600" />
+                              Closing Layout Mode
+                            </label>
+                            <span className="text-[10px] font-mono text-slate-400 capitalize">
+                              {footerConfig.footerLayoutMode || 'split'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            Configure closing presentation layout and toggle individual closing cards.
+                          </p>
+
+                          {/* 3-Way Segmented Control */}
+                          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                            {[
+                              { id: 'split', label: 'Split (50/50)' },
+                              { id: 'stacked', label: 'Stacked' },
+                              { id: 'seller_only', label: 'Seller Only' }
+                            ].map((m) => {
+                              const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => handleSetFooterLayoutMode(m.id as any)}
+                                  className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                      : 'hover:bg-white text-slate-600'
+                                  }`}
+                                >
+                                  {m.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Independent Toggle Switches */}
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                <Landmark className="w-3.5 h-3.5 text-slate-400" />
+                                Bank Remittance Card
+                              </span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={footerConfig.showBankRemittance !== false}
+                                  onChange={(e) => handleToggleBankRemittance(e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                              </label>
+                            </div>
+
+                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                <FileCheck className="w-3.5 h-3.5 text-slate-400" />
+                                Customer Acceptance / Stamp Box
+                              </span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
+                                  disabled={footerConfig.footerLayoutMode === 'seller_only'}
+                                  onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
+                              </label>
+                            </div>
+
+                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                <Stamp className="w-3.5 h-3.5 text-slate-400" />
+                                Authorized Signatories
+                              </span>
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={footerConfig.showSignatories !== false}
+                                  onChange={(e) => handleToggleSignatories(e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                              </label>
+                            </div>
                           </div>
                         </div>
                       )}

@@ -7,7 +7,7 @@
 
 import { sanitizeCompanyNameAndSuffix } from '../components/companies/CreateCompanyModal';
 import { amountToWords, formatAmountInWords } from '../utils/numberToWords';
-import { QuotationPresetColumns } from '../types';
+import { QuotationPresetColumns, QuotationFooterConfig, QuotationHeaderConfig } from '../types';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -342,6 +342,41 @@ describe('Signatory Attribution & Legal Name Safeguards', () => {
     expect(isInitialsOnly('A')).toBe(false);    // < 2 characters
     expect(isInitialsOnly(null)).toBe(false);
     expect(isInitialsOnly('')).toBe(false);
+  });
+});
+
+describe('Modular Footer Schema & Closing Layout Engine', () => {
+  it('should support all valid closing layout modes', () => {
+    const validModes: Array<'split' | 'stacked' | 'seller_only'> = ['split', 'stacked', 'seller_only'];
+    for (const mode of validModes) {
+      const config: QuotationFooterConfig = {
+        showBankRemittance: true,
+        showCustomerAcceptance: true,
+        showSignatories: true,
+        footerLayoutMode: mode
+      };
+      expect(config.footerLayoutMode).toBe(mode);
+    }
+  });
+
+  it('should support independent closing card toggles', () => {
+    const config: QuotationFooterConfig = {
+      showBankRemittance: false,
+      showCustomerAcceptance: true,
+      showSignatories: false,
+      footerLayoutMode: 'seller_only'
+    };
+    expect(config.showBankRemittance).toBe(false);
+    expect(config.showCustomerAcceptance).toBe(true);
+    expect(config.showSignatories).toBe(false);
+    expect(config.footerLayoutMode).toBe('seller_only');
+  });
+
+  it('should verify continuation header option on QuotationHeaderConfig', () => {
+    const headerConfig: QuotationHeaderConfig = {
+      repeatHeaderOnSubsequentPages: true
+    };
+    expect(headerConfig.repeatHeaderOnSubsequentPages).toBe(true);
   });
 });
 

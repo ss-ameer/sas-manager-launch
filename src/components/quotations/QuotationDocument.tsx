@@ -117,7 +117,11 @@ export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
 export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
   showPageNumbers: true,
   showDisclaimer: true,
-  customDisclaimer: 'Computer-generated commercial document. Valid without manual signature when electronically issued.'
+  customDisclaimer: 'Computer-generated commercial document. Valid without manual signature when electronically issued.',
+  showBankRemittance: true,
+  showCustomerAcceptance: true,
+  showSignatories: true,
+  footerLayoutMode: 'split'
 };
 
 export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
@@ -233,6 +237,41 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     'framed';
   const isMinimal = resolvedBlockStyle === 'minimal';
 
+  const resolvedFooterConfig: QuotationFooterConfig = {
+    ...DEFAULT_FOOTER_CONFIG,
+    ...(profile?.footer_config || {}),
+    ...(quotation.footer_config || {}),
+    ...(propFooterConfig || {})
+  };
+
+  const showBankRemittance =
+    resolvedFooterConfig.showBankRemittance ??
+    quotation.showBankRemittance ??
+    quotation.show_bank_details ??
+    profile?.showBankRemittance ??
+    profile?.show_bank_details ??
+    showBankDetails ??
+    true;
+
+  const showCustomerAcceptance =
+    resolvedFooterConfig.showCustomerAcceptance ??
+    quotation.showCustomerAcceptance ??
+    quotation.customer_acceptance_enabled ??
+    profile?.showCustomerAcceptance ??
+    profile?.customer_acceptance_enabled ??
+    true;
+
+  const showSignatories =
+    resolvedFooterConfig.showSignatories ??
+    quotation.showSignatories ??
+    (showStampAndSignatures || quotation.show_company_seal || profile?.show_company_seal || true);
+
+  const footerLayoutMode: 'split' | 'stacked' | 'seller_only' =
+    resolvedFooterConfig.footerLayoutMode ||
+    quotation.footerLayoutMode ||
+    profile?.footerLayoutMode ||
+    'split';
+
   // Resolve modular layout blocks
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
     const raw =
@@ -241,14 +280,53 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       (quotation as any).presentation_preset?.layout_blocks ||
       DEFAULT_QUOTATION_BLOCKS;
 
-    return raw.map((b) => ({
-      ...b,
-      // If block has its own style, use it; otherwise fall back to global resolvedBlockStyle
-      style: b.style || resolvedBlockStyle,
-      fontScale: b.fontScale || 'standard',
-      padding: b.padding || 'standard'
-    }));
-  }, [layoutBlocks, quotation.layout_blocks, (quotation as any).presentation_preset?.layout_blocks, resolvedBlockStyle]);
+    return raw.map((b) => {
+      let enabled = b.enabled;
+      let placement = b.placement;
+
+      if (b.id === 'remittance') {
+        if (!showBankRemittance) {
+          enabled = false;
+        }
+      } else if (b.id === 'signatory') {
+        if (!showSignatories) {
+          enabled = false;
+        } else if (footerLayoutMode === 'split') {
+          placement = 'left';
+        } else if (footerLayoutMode === 'stacked') {
+          placement = 'full';
+        } else if (footerLayoutMode === 'seller_only') {
+          placement = 'full';
+        }
+      } else if (b.id === 'acceptance') {
+        if (!showCustomerAcceptance || footerLayoutMode === 'seller_only') {
+          enabled = false;
+        } else if (footerLayoutMode === 'split') {
+          placement = 'right';
+        } else if (footerLayoutMode === 'stacked') {
+          placement = 'full';
+        }
+      }
+
+      return {
+        ...b,
+        enabled,
+        placement,
+        style: b.style || resolvedBlockStyle,
+        fontScale: b.fontScale || 'standard',
+        padding: b.padding || 'standard'
+      };
+    });
+  }, [
+    layoutBlocks,
+    quotation.layout_blocks,
+    (quotation as any).presentation_preset?.layout_blocks,
+    resolvedBlockStyle,
+    showBankRemittance,
+    showSignatories,
+    showCustomerAcceptance,
+    footerLayoutMode
+  ]);
 
   // Resolve theme accent
   const activeThemeKey: QuotationThemeAccent =
@@ -299,12 +377,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ...(propRecipientConfig || {})
   };
 
-  const resolvedFooterConfig: QuotationFooterConfig = {
-    ...DEFAULT_FOOTER_CONFIG,
-    ...(profile?.footer_config || {}),
-    ...(quotation.footer_config || {}),
-    ...(propFooterConfig || {})
-  };
 
   // Table Density helpers
   const isCompact = tableDensity === 'compact';
@@ -749,24 +821,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           ))}
 
-        {/* On-screen Multi-Page Running Header Emulation (visible on Page 2+ in preview) */}
-        {repeatHeaderOnSubsequentPages &&
-          isMultiPage &&
-          pageMarkers.map((page) => (
-            <div
-              key={`preview-running-header-${page}`}
-              className="absolute left-[14mm] right-[14mm] pointer-events-none z-20 print:hidden"
-              style={{ top: `${page * 297 + 5}mm` }}
-            >
-              <div className="bg-white/95 backdrop-blur-2xs border border-blue-200/80 rounded px-2.5 py-1 shadow-xs">
-                <div className="text-[7.5px] uppercase font-mono text-blue-600 font-bold mb-0.5 flex items-center justify-between">
-                  <span>Page {page + 1} Running Header</span>
-                  <span className="text-[7px] text-slate-400 font-normal">Continuation Sheet</span>
-                </div>
-                {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
-              </div>
-            </div>
-          ))}
 
         {/* Multi-Page Running Header (Repeats at top of Page 2+ in print) */}
         {repeatHeaderOnSubsequentPages && (
@@ -1691,53 +1745,65 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
           const renderSignatoryBlock = () => (
             <div className="signatory-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div className="flex items-center justify-end gap-5 w-full">
-                {/* Official Stamp / Seal */}
-                {resolvedShowCompanySeal && profile?.stamp_seal_url && (
-                  <div className="flex flex-col items-center">
-                    <img
-                      src={profile.stamp_seal_url}
-                      alt="Official Seal"
-                      className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                    <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
-                      Company Seal
-                    </span>
+              <div className={`flex items-center ${footerLayoutMode === 'seller_only' ? 'justify-between' : 'justify-end'} gap-5 w-full`}>
+                {footerLayoutMode === 'seller_only' && (
+                  <div className="text-left text-slate-600 pr-4">
+                    <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider">
+                      For and on behalf of {senderEntityName || 'Company'}
+                    </p>
+                    <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
+                      Authorized Signatures &amp; Official Seal
+                    </p>
                   </div>
                 )}
-
-                {/* Signatories Rendering */}
-                <div className="flex gap-4 justify-end">
-                  {resolvedSignatories.map((sig, sIdx) => (
-                    <div key={sIdx} className="text-center min-w-[120px]">
-                      <div className="h-10 flex items-end justify-center mb-1">
-                        {signatureStyle === 'image' && sig.signature_url ? (
-                          <img
-                            src={sig.signature_url}
-                            alt={sig.name}
-                            className="max-h-10 object-contain"
-                          />
-                        ) : signatureStyle === 'script' ? (
-                          <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                            {sig.name}
-                          </span>
-                        ) : signatureStyle === 'image' ? (
-                          <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                            Digital Signature
-                          </div>
-                        ) : (
-                          /* 'line' style: clean spacing above the single baseline below */
-                          <div className="h-4" />
-                        )}
-                      </div>
-                      <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                      <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
-                      <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
+                <div className="flex items-center gap-5 shrink-0">
+                  {/* Official Stamp / Seal */}
+                  {resolvedShowCompanySeal && profile?.stamp_seal_url && (
+                    <div className="flex flex-col items-center">
+                      <img
+                        src={profile.stamp_seal_url}
+                        alt="Official Seal"
+                        className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                      <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
+                        Company Seal
+                      </span>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Signatories Rendering */}
+                  <div className="flex gap-4 justify-end">
+                    {resolvedSignatories.map((sig, sIdx) => (
+                      <div key={sIdx} className="text-center min-w-[120px]">
+                        <div className="h-10 flex items-end justify-center mb-1">
+                          {signatureStyle === 'image' && sig.signature_url ? (
+                            <img
+                              src={sig.signature_url}
+                              alt={sig.name}
+                              className="max-h-10 object-contain"
+                            />
+                          ) : signatureStyle === 'script' ? (
+                            <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
+                              {sig.name}
+                            </span>
+                          ) : signatureStyle === 'image' ? (
+                            <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+                              Digital Signature
+                            </div>
+                          ) : (
+                            /* 'line' style: clean spacing above the single baseline below */
+                            <div className="h-4" />
+                          )}
+                        </div>
+                        <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
+                        <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
+                        <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1883,7 +1949,34 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           });
 
           return (
-            <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+            <>
+              {/* On-screen Page 2+ Continuation Header (Strictly Normal DOM Flow, NEVER Absolute) */}
+              {repeatHeaderOnSubsequentPages && isMultiPage && (
+                <div className="quotation-continuation-header-flow w-full my-4 print:hidden">
+                  {/* Visual Page Break Indicator in Normal Flow */}
+                  <div className="relative py-2.5 flex items-center justify-center">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t-2 border-dashed border-rose-300"></div>
+                    </div>
+                    <div className="relative bg-rose-50 px-3 py-0.5 rounded-full border border-rose-200 text-rose-700 text-[10px] font-mono flex items-center gap-1.5 shadow-2xs">
+                      <span>✂</span> A4 Page Break • Continuation Sheet (Page 2)
+                    </div>
+                  </div>
+
+                  {/* Normal Flow Running Header — pushes content down, zero collision */}
+                  <div className="mt-2 p-2 bg-slate-50/80 border border-slate-200/90 rounded-lg">
+                    <div className="text-[8px] uppercase font-mono text-blue-700 font-bold mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>📄</span> Continuation Sheet Running Header
+                      </span>
+                      <span className="text-[7.5px] text-slate-400 font-normal">Page 2+ • Normal DOM Flow</span>
+                    </div>
+                    {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
+                  </div>
+                </div>
+              )}
+
+              <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
               <div
                 className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
                 style={{ width: '100%', maxWidth: '100%' }}
@@ -1941,8 +2034,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 })}
               </div>
             </section>
-          );
-        })()}
+          </>
+        );
+      })()}
 
         {/* ========================================================
             DOCUMENT SYSTEM MICRO-FOOTER WATERMARK
