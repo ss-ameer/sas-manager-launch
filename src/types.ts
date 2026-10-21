@@ -965,6 +965,7 @@ export type QuotationLogoPosition = 'left' | 'center' | 'right';
 export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact';
 export type QuotationTableDensity = 'compact' | 'comfortable';
 export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
+export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
 
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
 
@@ -1035,6 +1036,8 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
   table_font_scale?: QuotationTableFontScale;
+  fontSizeScale?: QuotationFontSizeScale;
+  font_size_scale?: QuotationFontSizeScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
@@ -1086,6 +1089,7 @@ export type StudioSelectedSection =
   | 'subject'
   | 'footer'
   | 'signatories'
+  | 'style'
   | null;
 
 export interface QuotationHeaderConfig {
@@ -1108,6 +1112,7 @@ export interface QuotationFooterConfig {
   showCustomerAcceptance?: boolean; // default: true
   showSignatories?: boolean; // default: true
   footerLayoutMode?: 'split' | 'stacked' | 'seller_only'; // default: 'split'
+  fontSizeScale?: QuotationFontSizeScale;
 }
 
 export interface QuotationRecipientConfig {
@@ -1160,6 +1165,8 @@ export interface QuotationPreset extends SoftDeleteFields {
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
   table_font_scale?: QuotationTableFontScale;
+  fontSizeScale?: QuotationFontSizeScale;
+  font_size_scale?: QuotationFontSizeScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
@@ -1246,6 +1253,8 @@ export interface Quotation extends SoftDeleteFields {
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
   table_font_scale?: QuotationTableFontScale;
+  fontSizeScale?: QuotationFontSizeScale;
+  font_size_scale?: QuotationFontSizeScale;
   show_bank_details?: boolean;
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;

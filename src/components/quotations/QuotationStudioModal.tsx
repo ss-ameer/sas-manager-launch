@@ -19,6 +19,7 @@ import {
   QuotationHeaderLayout,
   QuotationTableDensity,
   QuotationTableFontScale,
+  QuotationFontSizeScale,
   QuotationBlockConfig,
   QuotationBlockId,
   StudioSelectedSection,
@@ -158,6 +159,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [tableFontScale, setTableFontScale] = useState<QuotationTableFontScale>(
     editingQuotation?.table_font_scale || profile?.table_font_scale || (editingQuotation?.table_density === 'compact' ? 'compact' : 'standard')
   );
+  const [fontSizeScale, setFontSizeScale] = useState<QuotationFontSizeScale>(() => {
+    if (editingQuotation?.fontSizeScale) return editingQuotation.fontSizeScale;
+    if ((editingQuotation as any)?.font_size_scale) return (editingQuotation as any).font_size_scale;
+    if (profile?.fontSizeScale) return profile.fontSizeScale;
+    if ((profile as any)?.font_size_scale) return (profile as any).font_size_scale;
+    return editingQuotation?.table_font_scale === 'compact' ? 'compact' : editingQuotation?.table_font_scale === 'prominent' ? 'comfortable' : 'standard';
+  });
   const [showBankDetails, setShowBankDetails] = useState<boolean>(
     editingQuotation?.show_bank_details ?? profile?.show_bank_details ?? true
   );
@@ -299,6 +307,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setLayoutBlocks((prev) => prev.map((b) => ({ ...b, style })));
   };
 
+  const handleSetFontSizeScale = (scale: QuotationFontSizeScale) => {
+    setFontSizeScale(scale);
+    setTableFontScale(scale === 'compact' ? 'compact' : scale === 'large' ? 'prominent' : 'standard');
+    setFooterConfig((prev) => ({ ...prev, fontSizeScale: scale }));
+  };
+
   // Modular Closing Layout & Footer Card Handlers
   const handleSetFooterLayoutMode = (mode: 'split' | 'stacked' | 'seller_only') => {
     setFooterConfig((prev) => ({
@@ -360,7 +374,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     selectedSection !== 'quote_meta' &&
     selectedSection !== 'subject' &&
     selectedSection !== 'footer' &&
-    selectedSection !== 'signatories'
+    selectedSection !== 'signatories' &&
+    selectedSection !== 'style'
       ? selectedSection
       : null;
   const selectedBlock = useMemo(() => {
@@ -393,7 +408,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       section === 'quote_meta' ||
       section === 'subject' ||
       section === 'footer' ||
-      section === 'signatories'
+      section === 'signatories' ||
+      section === 'style'
     ) {
       setSelectedSection(section);
     } else if (section) {
@@ -814,6 +830,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
     if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
+    if (preset.fontSizeScale || (preset as any).font_size_scale) {
+      handleSetFontSizeScale(preset.fontSizeScale || (preset as any).font_size_scale);
+    }
     if (typeof preset.show_bank_details === 'boolean') setShowBankDetails(preset.show_bank_details);
     if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
     if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
@@ -1233,6 +1252,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       signatories: signatories,
       header_layout: headerLayout,
       table_density: tableDensity,
+      table_font_scale: tableFontScale,
+      fontSizeScale: fontSizeScale,
+      font_size_scale: fontSizeScale,
       show_bank_details: showBankDetails,
       show_commercial_terms: showCommercialTerms,
       show_company_seal: showCompanySeal,
@@ -1349,6 +1371,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         header_layout: headerLayout,
         table_density: tableDensity,
         table_font_scale: tableFontScale,
+        fontSizeScale: fontSizeScale,
+        font_size_scale: fontSizeScale,
         show_bank_details: showBankDetails,
         show_commercial_terms: showCommercialTerms,
         show_company_seal: showCompanySeal,
@@ -1439,6 +1463,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         header_layout: headerLayout,
         table_density: tableDensity,
         table_font_scale: tableFontScale,
+        fontSizeScale: fontSizeScale,
+        font_size_scale: fontSizeScale,
         show_bank_details: showBankDetails,
         show_commercial_terms: showCommercialTerms,
         show_company_seal: showCompanySeal,
@@ -1595,6 +1621,47 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             >
                               <span>{d.label}</span>
                               <span className="text-[10px] text-slate-400 font-normal">{d.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Uniform Typography Scale Engine */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Type className="w-3.5 h-3.5 text-blue-600" />
+                          Uniform Typography Scale
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {fontSizeScale}
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Dynamically scale font sizes across table cells, descriptions, terms, and closing cards.
+                      </p>
+                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'compact', label: 'Compact', pt: '9pt' },
+                          { id: 'standard', label: 'Standard', pt: '10pt' },
+                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
+                          { id: 'large', label: 'Large', pt: '12pt' }
+                        ].map((s) => {
+                          const isSelected = fontSizeScale === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => handleSetFontSizeScale(s.id as QuotationFontSizeScale)}
+                              className={`py-1.5 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
+                              <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
                             </button>
                           );
                         })}
@@ -1907,6 +1974,37 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
                           {selectedSection === 'footer' ? 'Inspecting' : 'Customize'}
+                        </span>
+                      </div>
+
+                      {/* 7. Style & Typography Inspector Section Card */}
+                      <div
+                        onClick={() => handleInspectSection('style')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'style'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <Palette className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Style &amp; Typography
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 capitalize">
+                              {fontSizeScale} scale • {blockStyle}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'style'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'style' ? 'Inspecting' : 'Customize'}
                         </span>
                       </div>
                     </div>
@@ -2658,6 +2756,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     columnConfig={visibleColumns}
                     tableDensity={tableDensity}
                     tableFontScale={tableFontScale}
+                    fontSizeScale={fontSizeScale}
                     headerConfig={headerConfig}
                     recipientConfig={recipientConfig}
                     footerConfig={footerConfig}
@@ -4664,33 +4763,39 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                     {/* 3. Table Typography Scaling */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Type className="w-3.5 h-3.5 text-blue-600" />
-                        Table Typography Scaling
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Type className="w-3.5 h-3.5 text-blue-600" />
+                          Table Typography Scaling
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {fontSizeScale}
+                        </span>
+                      </div>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
                         Scale font sizes for descriptions, item titles, and numbers across table cells.
                       </p>
-                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                         {[
-                          { id: 'compact', label: 'Compact', size: '10.5px' },
-                          { id: 'standard', label: 'Standard', size: '12px' },
-                          { id: 'prominent', label: 'Prominent', size: '13.5px' }
+                          { id: 'compact', label: 'Compact', pt: '9pt' },
+                          { id: 'standard', label: 'Standard', pt: '10pt' },
+                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
+                          { id: 'large', label: 'Large', pt: '12pt' }
                         ].map((s) => {
-                          const isSelected = tableFontScale === s.id;
+                          const isSelected = fontSizeScale === s.id;
                           return (
                             <button
                               key={s.id}
                               type="button"
-                              onClick={() => setTableFontScale(s.id as QuotationTableFontScale)}
-                              className={`py-2 px-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                              onClick={() => handleSetFontSizeScale(s.id as QuotationFontSizeScale)}
+                              className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
                                 isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
                               }`}
                             >
-                              <span className="text-xs font-semibold">{s.label}</span>
-                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{s.size}</span>
+                              <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
+                              <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
                             </button>
                           );
                         })}
@@ -4706,6 +4811,195 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       <p className="text-[10px] text-slate-500 leading-relaxed">
                         The Line Items Table is anchored above commercial terms and totals. Density and column choices are saved with this quote snapshot.
                       </p>
+                    </div>
+                  </div>
+                </aside>
+              )}
+
+              {/* Retractable Right-Side Contextual Style & Typography Inspector Drawer */}
+              {selectedSection === 'style' && (
+                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  {/* Drawer Header */}
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Palette className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-xs truncate">
+                          Style &amp; Typography Inspector
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Font Scaling • Borders • Density
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSection(null)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                      title="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="p-4 space-y-4 text-xs">
+                    {/* 1. Uniform Typography Scale Engine */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Type className="w-3.5 h-3.5 text-blue-600" />
+                          Typography Scale Engine
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {fontSizeScale}
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Select global typography scale applied uniformly across table rows, terms, totals, and signatures.
+                      </p>
+                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'compact', label: 'Compact', pt: '9pt' },
+                          { id: 'standard', label: 'Standard', pt: '10pt' },
+                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
+                          { id: 'large', label: 'Large', pt: '12pt' }
+                        ].map((s) => {
+                          const isSelected = fontSizeScale === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => handleSetFontSizeScale(s.id as QuotationFontSizeScale)}
+                              className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
+                              <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Global Presentation Layout Style (Framed vs Minimal) */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                          Card Presentation Style
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono capitalize">{blockStyle}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'framed', label: 'Framed', desc: 'Enterprise card borders' },
+                          { id: 'minimal', label: 'Minimal', desc: 'Clean hairline dividers' }
+                        ].map((b) => {
+                          const isSelected = blockStyle === b.id;
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => handleSetGlobalBlockStyle(b.id as 'framed' | 'minimal')}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }`}
+                            >
+                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                {b.label}
+                              </span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{b.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Universal Corner Radius */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Square className="w-3.5 h-3.5 text-blue-600" />
+                          Universal Corner Radius
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono capitalize">
+                          {globalCardRadius === 'sharp' ? 'Sharp (0px)' : 'Rounded (8px)'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'rounded' as const, label: 'Rounded (8px)', desc: 'Organic modern' },
+                          { id: 'sharp' as const, label: 'Sharp (0px)', desc: 'Enterprise crisp' }
+                        ].map((cr) => {
+                          const isSelected = globalCardRadius === cr.id;
+                          return (
+                            <button
+                              key={cr.id}
+                              type="button"
+                              onClick={() => {
+                                setGlobalCardRadius(cr.id);
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  globalCardRadius: cr.id,
+                                  recipientCardRadius: cr.id,
+                                  offerCardRadius: cr.id
+                                }));
+                              }}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }`}
+                            >
+                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                {cr.label}
+                              </span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{cr.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 4. Itemized Table Density */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Table className="w-3.5 h-3.5 text-blue-600" />
+                        Table Density
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'comfortable', label: 'Comfortable', desc: 'Spacious padding' },
+                          { id: 'compact', label: 'Compact', desc: 'Dense line items' }
+                        ].map((d) => {
+                          const isSelected = tableDensity === d.id;
+                          return (
+                            <button
+                              key={d.id}
+                              type="button"
+                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
+                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
+                              }`}
+                            >
+                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                {d.label}
+                              </span>
+                              <span className="text-[9.5px] text-slate-400 mt-0.5">{d.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </aside>
@@ -5150,6 +5444,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             visibleColumns={visibleColumns}
             tableDensity={tableDensity}
             tableFontScale={tableFontScale}
+            fontSizeScale={fontSizeScale}
             headerConfig={headerConfig}
             recipientConfig={recipientConfig}
             footerConfig={footerConfig}

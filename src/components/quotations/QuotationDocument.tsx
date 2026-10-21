@@ -12,6 +12,7 @@ import {
   QuotationHeaderLayout,
   QuotationTableDensity,
   QuotationTableFontScale,
+  QuotationFontSizeScale,
   QuotationBlockConfig,
   QuotationBlockId,
   StudioSelectedSection,
@@ -148,6 +149,7 @@ export interface QuotationDocumentProps {
   isCompactView?: boolean;
   tableDensity?: QuotationTableDensity;
   tableFontScale?: QuotationTableFontScale;
+  fontSizeScale?: QuotationFontSizeScale;
   headerConfig?: QuotationHeaderConfig;
   recipientConfig?: QuotationRecipientConfig;
   footerConfig?: QuotationFooterConfig;
@@ -178,6 +180,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   isCompactView = true,
   tableDensity: propTableDensity,
   tableFontScale: propTableFontScale,
+  fontSizeScale: propFontSizeScale,
   headerConfig: propHeaderConfig,
   recipientConfig: propRecipientConfig,
   footerConfig: propFooterConfig,
@@ -343,6 +346,50 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     propTableDensity || quotation.table_density || profile?.table_density || (isCompactView ? 'compact' : 'comfortable');
   const tableFontScale: QuotationTableFontScale =
     propTableFontScale || quotation.table_font_scale || profile?.table_font_scale || (tableDensity === 'compact' ? 'compact' : 'standard');
+
+  const fontSizeScale: 'compact' | 'standard' | 'comfortable' | 'large' =
+    propFontSizeScale ||
+    quotation.fontSizeScale ||
+    quotation.font_size_scale ||
+    profile?.fontSizeScale ||
+    profile?.font_size_scale ||
+    (tableFontScale === 'compact' ? 'compact' : tableFontScale === 'prominent' ? 'comfortable' : 'standard') ||
+    'standard';
+
+  const typoScale = React.useMemo(() => {
+    switch (fontSizeScale) {
+      case 'compact':
+        return {
+          body: 'text-[8.5px] print:text-[8px]',
+          heading: 'text-[9.5px] print:text-[9px]',
+          sub: 'text-[8px] print:text-[7.5px]',
+          rawBase: '8.5px'
+        };
+      case 'comfortable':
+        return {
+          body: 'text-[10.5px] print:text-[10px]',
+          heading: 'text-[11.5px] print:text-[11px]',
+          sub: 'text-[9.5px] print:text-[9px]',
+          rawBase: '10.5px'
+        };
+      case 'large':
+        return {
+          body: 'text-[11.5px] print:text-[11px]',
+          heading: 'text-[12.5px] print:text-[12px]',
+          sub: 'text-[10.5px] print:text-[10px]',
+          rawBase: '11.5px'
+        };
+      case 'standard':
+      default:
+        return {
+          body: 'text-[9.5px] print:text-[9px]',
+          heading: 'text-[10.5px] print:text-[10px]',
+          sub: 'text-[8.5px] print:text-[8px]',
+          rawBase: '9.5px'
+        };
+    }
+  }, [fontSizeScale]);
+
   const resolvedShowBankDetails: boolean =
     quotation.show_bank_details ?? profile?.show_bank_details ?? showBankDetails;
   const resolvedShowCommercialTerms: boolean =
@@ -382,11 +429,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const isCompact = tableDensity === 'compact';
   const thPad = isCompact ? 'py-1.5' : 'py-2.5';
   const tdPad = isCompact ? 'py-1.5' : 'py-2.5';
-  const tableFontSize = tableFontScale === 'compact'
-    ? 'text-[10.5px]'
-    : tableFontScale === 'prominent'
-    ? 'text-sm'
-    : 'text-xs';
+  const tableFontSize = typoScale.body;
+  const tableHeadingSize = typoScale.heading;
 
   const showAmountInWords =
     quotation.showAmountInWords ??
@@ -822,9 +866,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           ))}
 
 
-        {/* Multi-Page Running Header (Repeats at top of Page 2+ in print) */}
-        {repeatHeaderOnSubsequentPages && (
-          <div className="quotation-running-header-print hidden print:flex pointer-events-none">
+        {/* Multi-Page Running Header strictly isolated from Page 1 */}
+        {repeatHeaderOnSubsequentPages && isMultiPage && (
+          <div className="quotation-running-header-print hidden print:hidden pointer-events-none">
             {renderCompactRunningHeader('w-full')}
           </div>
         )}
@@ -1651,7 +1695,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         {formatCurrency(quotation.tax_amount)}
                       </span>
                     </div>
-                    <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 italic">
+                    <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
                       * Taxes EXTRA to client account as applicable
                     </p>
                   </div>
@@ -1680,7 +1724,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
               {/* Amount in Words */}
               {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
-                <div className="text-[9.5px] print:text-[8.5px] font-medium text-slate-700 italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
+                <div className="text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
                   <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
                   {amountToWords(quotation.grand_total, currency)}
                 </div>
@@ -1982,7 +2026,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 style={{ width: '100%', maxWidth: '100%' }}
               >
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
-                  const baseFontSize = b.fontScale === 'compact' ? '9px' : b.fontScale === 'prominent' ? '11px' : '10px';
+                  const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
                   const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
                   const isSelected = activeSelectedSection === b.id;
                   const isInteractive = Boolean(onSelectSection || onSelectBlock);
