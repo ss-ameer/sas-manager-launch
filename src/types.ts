@@ -1105,7 +1105,17 @@ export interface QuotationPresetColumns {
 
 export type QuotationColumnConfig = QuotationPresetColumns;
 
-export type QuotationBlockId = 'terms' | 'remittance' | 'totals' | 'signatory' | 'acceptance';
+export type QuotationBlockType =
+  | 'terms'
+  | 'totals'
+  | 'remittance'
+  | 'signatory'
+  | 'signatories'
+  | 'acceptance'
+  | 'page_break'
+  | 'spacer';
+
+export type QuotationBlockId = QuotationBlockType | string;
 
 export type StudioSelectedSection =
   | QuotationBlockId
@@ -1118,6 +1128,7 @@ export type StudioSelectedSection =
   | 'footer'
   | 'signatories'
   | 'style'
+  | string
   | null;
 
 export interface QuotationHeaderConfig {
@@ -1166,12 +1177,18 @@ export interface QuotationRecipientConfig {
 }
 
 export interface QuotationBlockConfig {
-  id: QuotationBlockId;
-  enabled: boolean;
-  placement: 'left' | 'right' | 'full'; // 'left' = col-start-1 col-span-1, 'right' = col-start-2 col-span-1, 'full' = col-span-2
-  style: 'framed' | 'minimal';
+  id: string;
+  type?: QuotationBlockType;
+  title?: string;
+  is_visible?: boolean;
+  enabled?: boolean;
+  placement?: 'left' | 'right' | 'full'; // 'left' = col-start-1 col-span-1, 'right' = col-start-2 col-span-1, 'full' = col-span-2
+  style?: 'framed' | 'minimal';
   fontScale?: 'compact' | 'standard' | 'prominent'; // compact = 9px base, standard = 10px base, prominent = 11px base
   padding?: 'compact' | 'standard'; // compact = p-2, standard = p-3
+  spacer_height_mm?: number; // default: 20, range: 5 to 100
+  spacer_fill_remaining?: boolean; // default: false
+  show_continuation_header?: boolean; // for page_break blocks, default: true
 }
 
 export interface QuotationLayoutSettings {

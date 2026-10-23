@@ -267,185 +267,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     profile?.footerLayoutMode ||
     'split';
 
-  // 1-PAGE VS 2-PAGE VS DYNAMIC AUTO ENGINE:
-  const effectivePageMode: QuotationPageMode =
-    propPageMode ||
-    quotation.pageMode ||
-    (quotation as any).page_mode ||
-    propFooterConfig?.pageMode ||
-    profile?.pageMode ||
-    'auto';
-
   const rawLineItems: QuotationLineItem[] = React.useMemo(() => {
     return quotation.line_items || [];
   }, [quotation.line_items]);
-
-  const documentPages: QuotationSheetPage[] = React.useMemo(() => {
-    const allItems = rawLineItems;
-
-    // Explicit 1-Page mode: force all items and closing blocks onto Page 1
-    if (effectivePageMode === '1-page') {
-      return [
-        {
-          pageNumber: 1,
-          items: allItems,
-          startIndex: 0,
-          hasClosingBlocks: true,
-          isFirstPage: true,
-          isLastPage: true
-        }
-      ];
-    }
-
-    // Explicit 2-Page mode: items on Page 1 (up to 5), remainder and closing blocks on Page 2
-    if (effectivePageMode === '2-page') {
-      if (allItems.length <= 5) {
-        return [
-          {
-            pageNumber: 1,
-            items: allItems,
-            startIndex: 0,
-            hasClosingBlocks: false,
-            isFirstPage: true,
-            isLastPage: false
-          },
-          {
-            pageNumber: 2,
-            items: [],
-            startIndex: allItems.length,
-            hasClosingBlocks: true,
-            isFirstPage: false,
-            isLastPage: true
-          }
-        ];
-      } else {
-        return [
-          {
-            pageNumber: 1,
-            items: allItems.slice(0, 5),
-            startIndex: 0,
-            hasClosingBlocks: false,
-            isFirstPage: true,
-            isLastPage: false
-          },
-          {
-            pageNumber: 2,
-            items: allItems.slice(5),
-            startIndex: 5,
-            hasClosingBlocks: true,
-            isFirstPage: false,
-            isLastPage: true
-          }
-        ];
-      }
-    }
-
-    // Auto Mode:
-    // If quote has minimal closing blocks and <= 2 items, fit on 1 page:
-    if (allItems.length <= 2 && !showBankRemittance && !showCustomerAcceptance) {
-      return [
-        {
-          pageNumber: 1,
-          items: allItems,
-          startIndex: 0,
-          hasClosingBlocks: true,
-          isFirstPage: true,
-          isLastPage: true
-        }
-      ];
-    }
-
-    // Standard quote (0 to 5 items): 2 pages
-    if (allItems.length <= 5) {
-      return [
-        {
-          pageNumber: 1,
-          items: allItems,
-          startIndex: 0,
-          hasClosingBlocks: false,
-          isFirstPage: true,
-          isLastPage: false
-        },
-        {
-          pageNumber: 2,
-          items: [],
-          startIndex: allItems.length,
-          hasClosingBlocks: true,
-          isFirstPage: false,
-          isLastPage: true
-        }
-      ];
-    }
-
-    // Multi-item quote (> 5 items):
-    // Page 1: Header + client cards + first 5 items
-    // Continuation pages: 7 items per page
-    // Closing blocks need ~130mm, so they can coexist with at most 2 items on the final page,
-    // or take a standalone final page if remaining items > 2.
-    const pages: QuotationSheetPage[] = [];
-    pages.push({
-      pageNumber: 1,
-      items: allItems.slice(0, 5),
-      startIndex: 0,
-      hasClosingBlocks: false,
-      isFirstPage: true,
-      isLastPage: false
-    });
-
-    let remaining = allItems.slice(5);
-    let curIndex = 5;
-
-    while (remaining.length > 0) {
-      const pageNum = pages.length + 1;
-      if (remaining.length <= 2) {
-        pages.push({
-          pageNumber: pageNum,
-          items: remaining,
-          startIndex: curIndex,
-          hasClosingBlocks: true,
-          isFirstPage: false,
-          isLastPage: true
-        });
-        remaining = [];
-      } else if (remaining.length <= 7) {
-        pages.push({
-          pageNumber: pageNum,
-          items: remaining,
-          startIndex: curIndex,
-          hasClosingBlocks: false,
-          isFirstPage: false,
-          isLastPage: false
-        });
-        curIndex += remaining.length;
-        pages.push({
-          pageNumber: pageNum + 1,
-          items: [],
-          startIndex: curIndex,
-          hasClosingBlocks: true,
-          isFirstPage: false,
-          isLastPage: true
-        });
-        remaining = [];
-      } else {
-        const chunk = remaining.slice(0, 7);
-        pages.push({
-          pageNumber: pageNum,
-          items: chunk,
-          startIndex: curIndex,
-          hasClosingBlocks: false,
-          isFirstPage: false,
-          isLastPage: false
-        });
-        curIndex += 7;
-        remaining = remaining.slice(7);
-      }
-    }
-
-    return pages;
-  }, [rawLineItems, effectivePageMode, showBankRemittance, showCustomerAcceptance]);
-
-  const totalPages = documentPages.length;
-  const isMultiPage = totalPages > 1;
 
   // Resolve modular layout blocks
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
@@ -456,14 +280,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       DEFAULT_QUOTATION_BLOCKS;
 
     return raw.map((b) => {
-      let enabled = b.enabled;
-      let placement = b.placement;
+      let enabled = b.enabled ?? b.is_visible ?? true;
+      let placement = b.placement || 'full';
 
-      if (b.id === 'remittance') {
+      if (b.id === 'remittance' || b.type === 'remittance') {
         if (!showBankRemittance) {
           enabled = false;
         }
-      } else if (b.id === 'signatory') {
+      } else if (b.id === 'signatory' || b.id === 'signatories' || b.type === 'signatory' || b.type === 'signatories') {
         if (!showSignatories) {
           enabled = false;
         } else if (footerLayoutMode === 'split') {
@@ -473,7 +297,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         } else if (footerLayoutMode === 'seller_only') {
           placement = 'full';
         }
-      } else if (b.id === 'acceptance') {
+      } else if (b.id === 'acceptance' || b.type === 'acceptance') {
         if (!showCustomerAcceptance || footerLayoutMode === 'seller_only') {
           enabled = false;
         } else if (footerLayoutMode === 'split') {
@@ -486,6 +310,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       return {
         ...b,
         enabled,
+        is_visible: enabled,
         placement,
         style: b.style || resolvedBlockStyle,
         fontScale: b.fontScale || 'standard',
@@ -950,11 +775,73 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     </footer>
   );
 
+  // Partition active layoutBlocks by page_break blocks into discrete A4 sheets
+  const sheetPartitions = React.useMemo(() => {
+    const activeBlocks = resolvedBlocks.filter((b) => {
+      if (b.enabled === false || b.is_visible === false) return false;
+      if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
+        if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
+        if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
+        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+        if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
+      }
+      return true;
+    });
+
+    const sheets: Array<{
+      sheetNumber: number;
+      blocks: QuotationBlockConfig[];
+      pageBreakBlock?: QuotationBlockConfig;
+      showContinuationHeader: boolean;
+    }> = [
+      {
+        sheetNumber: 1,
+        blocks: [],
+        showContinuationHeader: false
+      }
+    ];
+
+    activeBlocks.forEach((b) => {
+      const bType =
+        b.type ||
+        (b.id?.startsWith('break_')
+          ? 'page_break'
+          : b.id?.startsWith('spacer_')
+          ? 'spacer'
+          : b.id);
+
+      if (bType === 'page_break') {
+        sheets.push({
+          sheetNumber: sheets.length + 1,
+          blocks: [],
+          pageBreakBlock: b,
+          showContinuationHeader: b.show_continuation_header !== false
+        });
+      } else {
+        sheets[sheets.length - 1].blocks.push(b);
+      }
+    });
+
+    return sheets;
+  }, [
+    resolvedBlocks,
+    layoutBlocks,
+    quotation.layout_blocks,
+    (quotation as any).presentation_preset?.layout_blocks,
+    resolvedShowCommercialTerms,
+    resolvedShowBankDetails,
+    showStampAndSignatures,
+    resolvedShowCompanySeal,
+    customerAcceptanceEnabled
+  ]);
+
+  const totalSheets = sheetPartitions.length;
+  const totalPages = totalSheets;
+
   // ========================================================
   // MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
-  // Rendered on Page 1 (for 1-page proposals) or Page 2 (for multi-page continuation)
   // ========================================================
-  const renderBlocksGrid = () => {
+  const renderBlocksGrid = (blocksForSheet: QuotationBlockConfig[] = resolvedBlocks) => {
     const renderTermsBlock = () => {
       const priceBasis = quotation.price_basis?.trim();
       const paymentTerms = quotation.payment_terms?.trim();
@@ -1292,139 +1179,204 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       </div>
     );
 
-    const activeBlocks = resolvedBlocks.filter((b) => {
-      if (b.enabled === false) return false;
+    const targetBlocks = blocksForSheet.filter((b) => {
+      if (b.enabled === false || b.is_visible === false) return false;
       if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
         if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-        if (b.id === 'signatory' && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
         if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
       }
       return true;
     });
 
-    let currentRow = 1;
-    let rowHasLeft = false;
-    let rowHasRight = false;
+    if (targetBlocks.length === 0) return null;
 
-    const positionedBlocks = activeBlocks.map((b) => {
-      if (b.placement === 'full') {
-        if (rowHasLeft || rowHasRight) {
-          currentRow++;
-          rowHasLeft = false;
-          rowHasRight = false;
-        }
-        const rowStart = currentRow;
-        currentRow++;
-        return {
-          b,
-          gridRowStart: rowStart,
-          gridColumnStart: 1,
-          gridColumnEnd: 3,
-          placementClass: 'col-span-2 col-start-1 w-full'
-        };
-      } else if (b.placement === 'left') {
-        if (rowHasLeft) {
-          currentRow++;
-          rowHasLeft = false;
-          rowHasRight = false;
-        }
-        const rowStart = currentRow;
-        rowHasLeft = true;
-        if (rowHasLeft && rowHasRight) {
-          currentRow++;
-          rowHasLeft = false;
-          rowHasRight = false;
-        }
-        return {
-          b,
-          gridRowStart: rowStart,
-          gridColumnStart: 1,
-          gridColumnEnd: 2,
-          placementClass: 'col-span-1 col-start-1'
-        };
+    // Group targetBlocks into sequential segments: either 'spacer' or contiguous 'grid' blocks
+    type BlockSegment =
+      | { kind: 'spacer'; block: QuotationBlockConfig }
+      | { kind: 'grid'; blocks: QuotationBlockConfig[] };
+
+    const segments: BlockSegment[] = [];
+    targetBlocks.forEach((b) => {
+      const bType = b.type || (b.id?.startsWith('spacer_') ? 'spacer' : b.id);
+      if (bType === 'spacer') {
+        segments.push({ kind: 'spacer', block: b });
       } else {
-        if (rowHasRight) {
-          currentRow++;
-          rowHasLeft = false;
-          rowHasRight = false;
+        const lastSeg = segments[segments.length - 1];
+        if (lastSeg && lastSeg.kind === 'grid') {
+          lastSeg.blocks.push(b);
+        } else {
+          segments.push({ kind: 'grid', blocks: [b] });
         }
-        const rowStart = currentRow;
-        rowHasRight = true;
-        if (rowHasLeft && rowHasRight) {
-          currentRow++;
-          rowHasLeft = false;
-          rowHasRight = false;
-        }
-        return {
-          b,
-          gridRowStart: rowStart,
-          gridColumnStart: 2,
-          gridColumnEnd: 3,
-          placementClass: 'col-span-1 col-start-2'
-        };
       }
     });
 
     return (
-      <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
-        <div
-          className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
-          style={{ width: '100%', maxWidth: '100%' }}
-        >
-          {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
-            const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
-            const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
+      <>
+        {segments.map((seg, segIdx) => {
+          if (seg.kind === 'spacer') {
+            const b = seg.block;
             const isSelected = activeSelectedSection === b.id;
             const isInteractive = Boolean(onSelectSection || onSelectBlock);
-
-            const cardStyleClass = [
-              padClass,
-              `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
-              b.style === 'minimal'
-                ? 'border border-transparent bg-transparent'
-                : 'border border-slate-200 bg-slate-50/50',
-              isInteractive ? 'cursor-pointer' : '',
-              isSelected
-                ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                : isInteractive
-                ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                : ''
-            ].filter(Boolean).join(' ');
-
             return (
               <div
                 key={b.id}
-                className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card`}
+                onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
                 style={{
-                  breakInside: 'avoid',
-                  pageBreakInside: 'avoid',
-                  gridRowStart,
-                  gridColumnStart,
-                  gridColumnEnd
+                  height: b.spacer_fill_remaining ? undefined : `${b.spacer_height_mm || 20}mm`
                 }}
+                className={`${b.spacer_fill_remaining ? 'flex-1 w-full min-h-[10mm]' : 'w-full shrink-0'} ${
+                  isInteractive
+                    ? 'cursor-pointer rounded-lg border border-dashed border-transparent hover:border-slate-300 hover:bg-slate-50/60 print:border-none print:bg-transparent transition-all relative group'
+                    : ''
+                } ${
+                  isSelected
+                    ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/20 print:ring-0 print:border-none print:bg-transparent'
+                    : ''
+                }`}
               >
-                <div
-                  className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
-                  onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
-                  style={{
-                    breakInside: 'avoid',
-                    pageBreakInside: 'avoid',
-                    ['--block-base' as any]: baseFontSize,
-                    fontSize: 'var(--block-base)'
-                  }}
-                >
-                  {b.id === 'terms' && renderTermsBlock()}
-                  {b.id === 'totals' && renderTotalsBlock()}
-                  {b.id === 'remittance' && renderRemittanceBlock()}
-                  {b.id === 'signatory' && renderSignatoryBlock()}
-                  {b.id === 'acceptance' && renderAcceptanceBlock(b.placement)}
-                </div>
+                {isInteractive && (
+                  <div
+                    className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity print:hidden ${
+                      isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    }`}
+                  >
+                    <span className="px-2 py-0.5 rounded bg-slate-800/75 text-white text-[9px] font-mono">
+                      Spacer ({b.spacer_fill_remaining ? 'Fill Remaining' : `${b.spacer_height_mm || 20}mm`})
+                    </span>
+                  </div>
+                )}
               </div>
             );
-          })}
-        </div>
-      </section>
+          }
+
+          let currentRow = 1;
+          let rowHasLeft = false;
+          let rowHasRight = false;
+
+          const positionedBlocks = seg.blocks.map((b) => {
+            if (b.placement === 'full') {
+              if (rowHasLeft || rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              currentRow++;
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 1,
+                gridColumnEnd: 3,
+                placementClass: 'col-span-2 col-start-1 w-full'
+              };
+            } else if (b.placement === 'left') {
+              if (rowHasLeft) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              rowHasLeft = true;
+              if (rowHasLeft && rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 1,
+                gridColumnEnd: 2,
+                placementClass: 'col-span-1 col-start-1'
+              };
+            } else {
+              if (rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              const rowStart = currentRow;
+              rowHasRight = true;
+              if (rowHasLeft && rowHasRight) {
+                currentRow++;
+                rowHasLeft = false;
+                rowHasRight = false;
+              }
+              return {
+                b,
+                gridRowStart: rowStart,
+                gridColumnStart: 2,
+                gridColumnEnd: 3,
+                placementClass: 'col-span-1 col-start-2'
+              };
+            }
+          });
+
+          return (
+            <section key={`grid_seg_${segIdx}`} className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+              <div
+                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
+                {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
+                  const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
+                  const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
+                  const isSelected = activeSelectedSection === b.id;
+                  const isInteractive = Boolean(onSelectSection || onSelectBlock);
+                  const bType = b.type || b.id;
+
+                  const cardStyleClass = [
+                    padClass,
+                    `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
+                    b.style === 'minimal'
+                      ? 'border border-transparent bg-transparent'
+                      : 'border border-slate-200 bg-slate-50/50',
+                    isInteractive ? 'cursor-pointer' : '',
+                    isSelected
+                      ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                      : isInteractive
+                      ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                      : ''
+                  ].filter(Boolean).join(' ');
+
+                  return (
+                    <div
+                      key={b.id}
+                      className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card`}
+                      style={{
+                        breakInside: 'avoid',
+                        pageBreakInside: 'avoid',
+                        gridRowStart,
+                        gridColumnStart,
+                        gridColumnEnd
+                      }}
+                    >
+                      <div
+                        className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
+                        onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
+                        style={{
+                          breakInside: 'avoid',
+                          pageBreakInside: 'avoid',
+                          ['--block-base' as any]: baseFontSize,
+                          fontSize: 'var(--block-base)'
+                        }}
+                      >
+                        {(bType === 'terms' || b.id === 'terms') && renderTermsBlock()}
+                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock()}
+                        {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock()}
+                        {(bType === 'signatory' || bType === 'signatories' || b.id === 'signatory' || b.id === 'signatories') && renderSignatoryBlock()}
+                        {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b.placement)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </>
     );
   };
 
@@ -2155,9 +2107,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-page-sheet {
             width: 210mm !important;
-            height: 297mm !important;
             min-height: 297mm !important;
-            max-height: 297mm !important;
             margin: 0 !important;
             padding: 14mm !important;
             box-shadow: none !important;
@@ -2166,9 +2116,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             background: #ffffff !important;
             page-break-after: always !important;
             break-after: page !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            overflow: hidden !important;
           }
           .quotation-page-sheet:last-child {
             page-break-after: auto !important;
@@ -2283,18 +2230,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       `}</style>
 
       {/* ========================================================
-          DYNAMIC DISCRETE A4 SHEETS (PAGINATED CHUNKER)
+          DYNAMIC DISCRETE A4 SHEETS (PARTITIONED BY PAGE BREAKS)
          ======================================================== */}
-      {documentPages.map((page, pageIdx) => {
-        const isFirst = page.isFirstPage;
-        const isLast = page.isLastPage;
+      {sheetPartitions.map((sheet, sheetIdx) => {
+        const isFirst = sheetIdx === 0;
+        const isLast = sheetIdx === sheetPartitions.length - 1;
         const isContinuation = !isFirst;
+        const isBreakSelected = Boolean(sheet.pageBreakBlock && activeSelectedSection === sheet.pageBreakBlock.id);
 
         return (
           <article
-            key={page.pageNumber}
-            ref={isFirst ? sheetRef : (pageIdx === 1 ? page2Ref : undefined)}
-            className={`quotation-page-sheet quotation-page-${page.pageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+            key={sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`}
+            ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
+            className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
               isLast ? 'print:break-after-avoid' : 'print:break-after-page'
             } print:min-h-screen`}
             style={{ boxSizing: 'border-box' }}
@@ -2305,26 +2253,46 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               style={{ backgroundColor: accentColor }}
             />
 
+            {/* Interactive Page Break Badge on Continuation Sheets (Screen Only) */}
+            {isContinuation && isInteractive && sheet.pageBreakBlock && (
+              <div
+                onClick={() =>
+                  onSelectSection
+                    ? onSelectSection(sheet.pageBreakBlock!.id)
+                    : onSelectBlock?.(sheet.pageBreakBlock!.id)
+                }
+                className={`mb-2 px-2.5 py-1 rounded-md border border-dashed flex items-center justify-between text-[10px] font-mono cursor-pointer transition print:hidden ${
+                  isBreakSelected
+                    ? 'bg-amber-100/90 border-amber-400 text-amber-900 ring-2 ring-amber-400/50'
+                    : 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-300 text-amber-800'
+                }`}
+              >
+                <span>✂ Page Break • Sheet {sheet.sheetNumber} of {totalSheets}</span>
+                <span className="text-[9px] underline">Inspect Page Break</span>
+              </div>
+            )}
+
             {/* Page Body Content */}
             <div className={`flex-1 flex flex-col justify-start w-full ${isContinuation ? 'pt-[4mm]' : ''}`}>
               {isFirst ? (
-                renderTopSection()
+                <>
+                  {renderTopSection()}
+                  {renderItemsTable(rawLineItems, 0, rawLineItems.length === 0, false)}
+                </>
               ) : (
+                sheet.showContinuationHeader &&
                 repeatHeaderOnSubsequentPages && (
-                  <div className={`quotation-page${page.pageNumber}-continuation-header w-full mb-3`}>
-                    {renderCompactRunningHeader(page.pageNumber, totalPages)}
+                  <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
+                    {renderCompactRunningHeader(sheet.sheetNumber, totalSheets)}
                   </div>
                 )
               )}
 
-              {(isFirst || page.items.length > 0) &&
-                renderItemsTable(page.items, page.startIndex, isFirst && page.items.length === 0, isContinuation)}
-
-              {page.hasClosingBlocks && renderBlocksGrid()}
+              {renderBlocksGrid(sheet.blocks)}
             </div>
 
             {/* Sheet Micro-Footer: Locked to bottom of Sheet */}
-            {renderFooter(page.pageNumber, totalPages)}
+            {renderFooter(sheet.sheetNumber, totalSheets)}
           </article>
         );
       })}

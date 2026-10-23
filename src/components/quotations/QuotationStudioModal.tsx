@@ -82,7 +82,9 @@ import {
   ArrowLeftRight,
   MoveVertical,
   CheckSquare,
-  Edit3
+  Edit3,
+  Scissors,
+  Trash2
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -99,12 +101,50 @@ export interface QuotationStudioModalProps {
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-const BLOCK_META: Record<QuotationBlockId, { label: string; desc: string; icon: any }> = {
+const BLOCK_META: Record<string, { label: string; desc: string; icon: any }> = {
   terms: { label: 'Commercial Terms', desc: 'Price basis, payment & validity', icon: FileCheck },
   totals: { label: 'Financial Totals', desc: 'Subtotal, freight, taxes & grand total', icon: DollarSign },
   remittance: { label: 'Bank Remittance', desc: 'Bank wire instructions & account numbers', icon: Landmark },
   signatory: { label: 'Signatures & Stamp', desc: 'Executive signatories & company seal', icon: Stamp },
+  signatories: { label: 'Signatures & Stamp', desc: 'Executive signatories & company seal', icon: Stamp },
   acceptance: { label: 'Customer Acceptance', desc: 'Client confirmation & sign-back box', icon: ShieldCheck }
+};
+
+const getBlockMeta = (block: QuotationBlockConfig): { label: string; desc: string; icon: any } => {
+  const blockType =
+    block.type ||
+    (block.id?.startsWith('break_')
+      ? 'page_break'
+      : block.id?.startsWith('spacer_')
+      ? 'spacer'
+      : block.id);
+  if (blockType === 'page_break') {
+    return {
+      label: block.title || 'Page Break',
+      desc:
+        block.show_continuation_header !== false
+          ? 'Starts a new A4 sheet with running header'
+          : 'Starts a new A4 sheet without running header',
+      icon: Scissors
+    };
+  }
+  if (blockType === 'spacer') {
+    return {
+      label: block.title || 'Spacer',
+      desc: block.spacer_fill_remaining
+        ? 'Expands to fill remaining vertical sheet space'
+        : `Vertical spacing block (${block.spacer_height_mm || 20}mm)`,
+      icon: MoveVertical
+    };
+  }
+  return (
+    BLOCK_META[block.id] ||
+    BLOCK_META[blockType] || {
+      label: block.title || block.id,
+      desc: 'Modular document section',
+      icon: Layers
+    }
+  );
 };
 
 export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
@@ -251,6 +291,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
     return raw.map((b) => ({
       ...b,
+      enabled: b.enabled ?? b.is_visible ?? true,
+      is_visible: b.is_visible ?? b.enabled ?? true,
       fontScale: b.fontScale || 'standard',
       padding: b.padding || 'standard'
     }));
@@ -258,7 +300,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
     setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, enabled } : b))
+      prev.map((b) => (b.id === id ? { ...b, enabled, is_visible: enabled } : b))
     );
     // Inspector Selection Guard: Automatically close/deselect drawer if the toggled block was selected and is now hidden
     if (!enabled && selectedSection === id) {
@@ -312,6 +354,52 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       next.splice(targetIndex, 0, moved);
       return next;
     });
+  };
+
+  const handleAddPageBreak = () => {
+    const newId = 'break_' + Date.now();
+    const newBlock: QuotationBlockConfig = {
+      id: newId,
+      type: 'page_break',
+      title: 'Page Break',
+      is_visible: true,
+      enabled: true,
+      placement: 'full',
+      style: 'minimal',
+      show_continuation_header: true
+    };
+    setLayoutBlocks((prev) => [...prev, newBlock]);
+    setSelectedSection(newId);
+  };
+
+  const handleAddSpacer = () => {
+    const newId = 'spacer_' + Date.now();
+    const newBlock: QuotationBlockConfig = {
+      id: newId,
+      type: 'spacer',
+      title: 'Spacer',
+      spacer_height_mm: 20,
+      spacer_fill_remaining: false,
+      is_visible: true,
+      enabled: true,
+      placement: 'full',
+      style: 'minimal'
+    };
+    setLayoutBlocks((prev) => [...prev, newBlock]);
+    setSelectedSection(newId);
+  };
+
+  const handleDeleteBlock = (id: QuotationBlockId) => {
+    setLayoutBlocks((prev) => prev.filter((b) => b.id !== id));
+    if (selectedSection === id) {
+      setSelectedSection(null);
+    }
+  };
+
+  const handleUpdateBlockConfig = (id: QuotationBlockId, patch: Partial<QuotationBlockConfig>) => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, ...patch } : b))
+    );
   };
 
   const handleSetGlobalBlockStyle = (style: 'framed' | 'minimal') => {
@@ -2226,11 +2314,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                       <div className="space-y-1.5 mt-2">
                         {layoutBlocks.map((block, idx) => {
-                          const meta = BLOCK_META[block.id];
+                          const meta = getBlockMeta(block);
                           const Icon = meta.icon;
                           const isFirst = idx === 0;
                           const isLast = idx === layoutBlocks.length - 1;
                           const isInspected = selectedBlockId === block.id;
+                          const blockType =
+                            block.type ||
+                            (block.id.startsWith('break_')
+                              ? 'page_break'
+                              : block.id.startsWith('spacer_')
+                              ? 'spacer'
+                              : block.id);
+                          const isRemovable = blockType === 'page_break' || blockType === 'spacer';
 
                           return (
                             <div
@@ -2238,8 +2334,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
                                 isInspected
                                   ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                                  : block.enabled
-                                  ? 'bg-white hover:bg-slate-50/80 border-slate-200'
+                                  : block.enabled !== false && block.is_visible !== false
+                                  ? blockType === 'page_break'
+                                    ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200'
+                                    : blockType === 'spacer'
+                                    ? 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200 border-dashed'
+                                    : 'bg-white hover:bg-slate-50/80 border-slate-200'
                                   : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                               }`}
                             >
@@ -2268,46 +2368,96 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                                 <input
                                   type="checkbox"
-                                  checked={block.enabled}
+                                  checked={block.enabled !== false && block.is_visible !== false}
                                   onChange={(e) => handleToggleBlockEnabled(block.id, e.target.checked)}
                                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                                  title={block.enabled ? 'Click to hide block' : 'Click to show block'}
+                                  title={block.enabled !== false ? 'Click to hide block' : 'Click to show block'}
                                 />
 
                                 <div
                                   className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
                                   onClick={() => handleInspectBlock(block.id)}
                                 >
-                                  <Icon className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <Icon className={`w-3.5 h-3.5 shrink-0 ${blockType === 'page_break' ? 'text-amber-600' : 'text-slate-500'}`} />
                                   <div className="min-w-0">
                                     <p className="font-semibold text-slate-800 text-xs truncate">
                                       {meta.label}
                                     </p>
                                     <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
-                                      <span className="capitalize">{block.placement}</span>
-                                      <span>•</span>
-                                      <span className="capitalize">{block.style}</span>
+                                      {blockType === 'page_break' ? (
+                                        <>
+                                          <span className="text-amber-700 font-semibold">New A4 Sheet</span>
+                                          <span>•</span>
+                                          <span>{block.show_continuation_header !== false ? 'Running Header' : 'No Header'}</span>
+                                        </>
+                                      ) : blockType === 'spacer' ? (
+                                        <>
+                                          <span>{block.spacer_fill_remaining ? 'Fill Space' : `${block.spacer_height_mm || 20}mm`}</span>
+                                          <span>•</span>
+                                          <span>Vertical Gap</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="capitalize">{block.placement || 'full'}</span>
+                                          <span>•</span>
+                                          <span className="capitalize">{block.style || 'framed'}</span>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
                               </div>
 
-                              {/* Inspect / Edit Button */}
-                              <button
-                                type="button"
-                                onClick={() => handleInspectBlock(block.id)}
-                                className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                                  isInspected
-                                    ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                }`}
-                              >
-                                <Settings2 className="w-3 h-3" />
-                                <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
-                              </button>
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isRemovable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteBlock(block.id)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                    title={`Delete ${meta.label}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleInspectBlock(block.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                    isInspected
+                                      ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  <Settings2 className="w-3 h-3" />
+                                  <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
+                      </div>
+
+                      {/* Block Controls Bar: + Page Break & + Spacer */}
+                      <div className="grid grid-cols-2 gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={handleAddPageBreak}
+                          className="py-1.5 px-2.5 rounded-xl border border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-100/70 text-amber-800 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          title="Insert a Page Break block to start a new A4 sheet"
+                        >
+                          <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                          <span>+ Page Break</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddSpacer}
+                          className="py-1.5 px-2.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          title="Insert an adjustable vertical Spacer block"
+                        >
+                          <MoveVertical className="w-3.5 h-3.5 text-slate-500" />
+                          <span>+ Spacer</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2861,40 +3011,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               </div>
 
               <div className="flex items-center space-x-2">
-                {/* Master Page Mode Control */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs mr-2">
-                  <button
-                    type="button"
-                    onClick={() => setPageMode('1-page')}
-                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
-                      pageMode === '1-page' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Force all content onto a single compact page"
-                  >
-                    1-Page
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPageMode('2-page')}
-                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
-                      pageMode === '2-page' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Standard 2-page proposal (Items on Page 1, Closing Blocks on Page 2)"
-                  >
-                    2-Page
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPageMode('auto')}
-                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
-                      pageMode === 'auto' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Auto-distribute based on line items count"
-                  >
-                    Auto
-                  </button>
-                </div>
-
                 {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] text-slate-500 font-medium hidden md:inline">Scale:</span>
@@ -5397,18 +5513,29 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Block Inspector Drawer */}
               {selectedBlock && (() => {
-                const meta = BLOCK_META[selectedBlock.id];
+                const meta = getBlockMeta(selectedBlock);
                 const Icon = meta.icon;
                 const blockIndex = layoutBlocks.findIndex((b) => b.id === selectedBlock.id);
                 const isFirst = blockIndex === 0;
                 const isLast = blockIndex === layoutBlocks.length - 1;
+                const selectedBlockType =
+                  selectedBlock.type ||
+                  (selectedBlock.id.startsWith('break_')
+                    ? 'page_break'
+                    : selectedBlock.id.startsWith('spacer_')
+                    ? 'spacer'
+                    : selectedBlock.id);
 
                 return (
                   <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                     {/* Drawer Header */}
                     <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                          selectedBlockType === 'page_break'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
                           <Icon className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
@@ -5439,13 +5566,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             Document Visibility
                           </span>
                           <span className="text-[10.5px] text-slate-500">
-                            {selectedBlock.enabled ? 'Rendered on quotation' : 'Hidden from output'}
+                            {selectedBlock.enabled !== false && selectedBlock.is_visible !== false
+                              ? 'Active in layout sequence'
+                              : 'Hidden from output'}
                           </span>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={selectedBlock.enabled}
+                            checked={selectedBlock.enabled !== false && selectedBlock.is_visible !== false}
                             onChange={(e) => handleToggleBlockEnabled(selectedBlock.id, e.target.checked)}
                             className="sr-only peer"
                           />
@@ -5480,274 +5609,429 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       </div>
 
-                      {/* 3. Placement Selector: 3-Way Segmented Control */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                          <span className="text-slate-500 font-medium">Placement Track</span>
-                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.placement} width</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                          {[
-                            { id: 'left', label: 'Left 50%' },
-                            { id: 'full', label: 'Full 100%' },
-                            { id: 'right', label: 'Right 50%' }
-                          ].map((p) => {
-                            const isSelected = selectedBlock.placement === p.id;
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => handleSetBlockPlacement(selectedBlock.id, p.id as any)}
-                                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                    : 'hover:bg-white text-slate-600'
-                                }`}
-                              >
-                                {p.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Paired Left & Right blocks on the same row stretch to equal height automatically.
-                        </p>
-                      </div>
+                      {/* PAGE BREAK INSPECTOR PANEL */}
+                      {selectedBlockType === 'page_break' && (
+                        <div className="space-y-4 pt-2 border-t border-slate-100">
+                          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <span className="font-semibold text-slate-800 text-xs block">
+                                  Show Continuation Header on next page
+                                </span>
+                                <span className="text-[10.5px] text-slate-500">
+                                  Renders compact corporate running header at the top of the new A4 sheet
+                                </span>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedBlock.show_continuation_header !== false}
+                                  onChange={(e) =>
+                                    handleUpdateBlockConfig(selectedBlock.id, {
+                                      show_continuation_header: e.target.checked
+                                    })
+                                  }
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                              </label>
+                            </div>
+                          </div>
 
-                      {/* 4. Style Selector: Framed vs Minimal */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                          <span className="text-slate-500 font-medium">Presentation Style</span>
-                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.style}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBlock(selectedBlock.id)}
+                            className="w-full py-2 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete Page Break</span>
+                          </button>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: 'framed', label: 'Framed', desc: 'Card border & fill' },
-                            { id: 'minimal', label: 'Minimal', desc: 'Hairline divider' }
-                          ].map((s) => {
-                            const isSelected = selectedBlock.style === s.id;
-                            return (
-                              <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => handleSetBlockStyle(selectedBlock.id, s.id as any)}
-                                className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer ${
-                                  isSelected
-                                    ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-600/20'
-                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                                }`}
-                              >
-                                <p className="font-semibold text-xs">{s.label}</p>
-                                <p className="text-[10px] text-slate-400 mt-0.5">{s.desc}</p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      )}
 
-                      {/* 5. Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                          <span className="text-slate-500 font-medium">Typography Scale</span>
-                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.fontScale || 'standard'}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                          {[
-                            { id: 'compact', label: 'Small', size: '9px' },
-                            { id: 'standard', label: 'Base', size: '10px' },
-                            { id: 'prominent', label: 'Large', size: '11px' }
-                          ].map((f) => {
-                            const isSelected = (selectedBlock.fontScale || 'standard') === f.id;
-                            return (
-                              <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => handleSetBlockFontScale(selectedBlock.id, f.id as any)}
-                                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                    : 'hover:bg-white text-slate-600'
-                                }`}
-                              >
-                                <div>{f.label}</div>
-                                <div className={`text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{f.size}</div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* 6. Padding: Tight (p-2) vs Normal (p-3) */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                          <span className="text-slate-500 font-medium">Card Padding</span>
-                          <span className="font-mono text-slate-400 capitalize">{selectedBlock.padding || 'standard'}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: 'compact', label: 'Tight', desc: 'p-2 (8px)' },
-                            { id: 'standard', label: 'Normal', desc: 'p-3 (12px)' }
-                          ].map((p) => {
-                            const isSelected = (selectedBlock.padding || 'standard') === p.id;
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => handleSetBlockPadding(selectedBlock.id, p.id as any)}
-                                className={`py-1.5 px-2.5 rounded-xl border text-center transition cursor-pointer ${
-                                  isSelected
-                                    ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                                }`}
-                              >
-                                <p className="text-xs font-semibold">{p.label}</p>
-                                <p className="text-[10px] text-slate-400 mt-0.5">{p.desc}</p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Financial Totals Specific Options */}
-                      {selectedBlock.id === 'totals' && (
-                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-semibold text-slate-800 text-xs block">
-                                Show Amount in Words (Legal Phrasing)
-                              </span>
-                              <span className="text-[10.5px] text-slate-500">
-                                Formal legal spelling of Grand Total (e.g. "Say UAE Dirhams...")
+                      {/* SPACER INSPECTOR PANEL */}
+                      {selectedBlockType === 'spacer' && (
+                        <div className="space-y-4 pt-2 border-t border-slate-100">
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Height Presets</span>
+                              <span className="font-mono text-slate-700 font-semibold">
+                                {selectedBlock.spacer_fill_remaining
+                                  ? 'Fill Remaining'
+                                  : `${selectedBlock.spacer_height_mm || 20}mm`}
                               </span>
                             </div>
-                            <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                { label: '10mm', mm: 10, fill: false },
+                                { label: '20mm', mm: 20, fill: false },
+                                { label: '40mm', mm: 40, fill: false },
+                                { label: 'Fill Remaining', mm: 20, fill: true }
+                              ].map((preset) => {
+                                const isSelected = preset.fill
+                                  ? Boolean(selectedBlock.spacer_fill_remaining)
+                                  : !selectedBlock.spacer_fill_remaining &&
+                                    (selectedBlock.spacer_height_mm || 20) === preset.mm;
+                                return (
+                                  <button
+                                    key={preset.label}
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateBlockConfig(selectedBlock.id, {
+                                        spacer_fill_remaining: preset.fill,
+                                        spacer_height_mm: preset.fill
+                                          ? selectedBlock.spacer_height_mm || 20
+                                          : preset.mm
+                                      })
+                                    }
+                                    className={`py-2 px-2.5 rounded-xl border text-center text-xs font-medium transition cursor-pointer ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-600 text-white font-semibold shadow-2xs'
+                                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    {preset.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {!selectedBlock.spacer_fill_remaining && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-600 font-medium">Custom Height (mm)</span>
+                                <span className="font-mono font-bold text-blue-700">
+                                  {selectedBlock.spacer_height_mm || 20} mm
+                                </span>
+                              </div>
                               <input
-                                type="checkbox"
-                                checked={amountInWordsEnabled}
-                                onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
-                                className="sr-only peer"
+                                type="range"
+                                min={5}
+                                max={100}
+                                step={5}
+                                value={selectedBlock.spacer_height_mm || 20}
+                                onChange={(e) =>
+                                  handleUpdateBlockConfig(selectedBlock.id, {
+                                    spacer_fill_remaining: false,
+                                    spacer_height_mm: Number(e.target.value)
+                                  })
+                                }
+                                className="w-full accent-blue-600 cursor-pointer"
                               />
-                              <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
-                          </div>
+                              <div className="flex justify-between text-[9.5px] text-slate-400 font-mono">
+                                <span>5mm</span>
+                                <span>50mm</span>
+                                <span>100mm</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBlock(selectedBlock.id)}
+                            className="w-full py-2 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete Spacer</span>
+                          </button>
                         </div>
                       )}
 
-                      {/* Signatory, Acceptance & Remittance Specific Options */}
-                      {(selectedBlock.id === 'signatory' || selectedBlock.id === 'acceptance' || selectedBlock.id === 'remittance') && (
-                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                              <Layout className="w-3.5 h-3.5 text-blue-600" />
-                              Closing Layout Mode
-                            </label>
-                            <span className="text-[10px] font-mono text-slate-400 capitalize">
-                              {footerConfig.footerLayoutMode || 'split'}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500">
-                            Configure closing presentation layout and toggle individual closing cards.
-                          </p>
-
-                          {/* 3-Way Segmented Control */}
-                          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                            {[
-                              { id: 'split', label: 'Split (50/50)' },
-                              { id: 'stacked', label: 'Stacked' },
-                              { id: 'seller_only', label: 'Seller Only' }
-                            ].map((m) => {
-                              const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
-                              return (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => handleSetFooterLayoutMode(m.id as any)}
-                                  className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                      : 'hover:bg-white text-slate-600'
-                                  }`}
-                                >
-                                  {m.label}
-                                </button>
-                              );
-                            })}
+                      {/* STANDARD BLOCK CONTROLS */}
+                      {selectedBlockType !== 'page_break' && selectedBlockType !== 'spacer' && (
+                        <>
+                          {/* 3. Placement Selector: 3-Way Segmented Control */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Placement Track</span>
+                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.placement} width</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                              {[
+                                { id: 'left', label: 'Left 50%' },
+                                { id: 'full', label: 'Full 100%' },
+                                { id: 'right', label: 'Right 50%' }
+                              ].map((p) => {
+                                const isSelected = selectedBlock.placement === p.id;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => handleSetBlockPlacement(selectedBlock.id, p.id as any)}
+                                    className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                        : 'hover:bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    {p.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Paired Left & Right blocks on the same row stretch to equal height automatically.
+                            </p>
                           </div>
 
-                          {/* Independent Toggle Switches */}
-                          <div className="space-y-1.5 pt-1">
-                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                <Landmark className="w-3.5 h-3.5 text-slate-400" />
-                                Bank Remittance Card
-                              </span>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={footerConfig.showBankRemittance !== false}
-                                  onChange={(e) => handleToggleBankRemittance(e.target.checked)}
-                                  className="sr-only peer"
-                                />
-                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                              </label>
+                          {/* 4. Style Selector: Framed vs Minimal */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Presentation Style</span>
+                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.style}</span>
                             </div>
-
-                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                <FileCheck className="w-3.5 h-3.5 text-slate-400" />
-                                Customer Acceptance / Stamp Box
-                              </span>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
-                                  disabled={footerConfig.footerLayoutMode === 'seller_only'}
-                                  onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
-                                  className="sr-only peer"
-                                />
-                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
-                              </label>
-                            </div>
-
-                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                              <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                <Stamp className="w-3.5 h-3.5 text-slate-400" />
-                                Authorized Signatories
-                              </span>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={footerConfig.showSignatories !== false}
-                                  onChange={(e) => handleToggleSignatories(e.target.checked)}
-                                  className="sr-only peer"
-                                />
-                                <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                              </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                { id: 'framed', label: 'Framed', desc: 'Card border & fill' },
+                                { id: 'minimal', label: 'Minimal', desc: 'Hairline divider' }
+                              ].map((s) => {
+                                const isSelected = selectedBlock.style === s.id;
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => handleSetBlockStyle(selectedBlock.id, s.id as any)}
+                                    className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <p className="font-semibold text-xs">{s.label}</p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">{s.desc}</p>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
-                        </div>
+
+                          {/* 5. Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Typography Scale</span>
+                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.fontScale || 'standard'}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                              {[
+                                { id: 'compact', label: 'Small', size: '9px' },
+                                { id: 'standard', label: 'Base', size: '10px' },
+                                { id: 'prominent', label: 'Large', size: '11px' }
+                              ].map((f) => {
+                                const isSelected = (selectedBlock.fontScale || 'standard') === f.id;
+                                return (
+                                  <button
+                                    key={f.id}
+                                    type="button"
+                                    onClick={() => handleSetBlockFontScale(selectedBlock.id, f.id as any)}
+                                    className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                        : 'hover:bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    <div>{f.label}</div>
+                                    <div className={`text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{f.size}</div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 6. Padding: Tight (p-2) vs Normal (p-3) */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Card Padding</span>
+                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.padding || 'standard'}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                { id: 'compact', label: 'Tight', desc: 'p-2 (8px)' },
+                                { id: 'standard', label: 'Normal', desc: 'p-3 (12px)' }
+                              ].map((p) => {
+                                const isSelected = (selectedBlock.padding || 'standard') === p.id;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => handleSetBlockPadding(selectedBlock.id, p.id as any)}
+                                    className={`py-1.5 px-2.5 rounded-xl border text-center transition cursor-pointer ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <p className="text-xs font-semibold">{p.label}</p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">{p.desc}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Financial Totals Specific Options */}
+                          {selectedBlock.id === 'totals' && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="font-semibold text-slate-800 text-xs block">
+                                    Show Amount in Words (Legal Phrasing)
+                                  </span>
+                                  <span className="text-[10.5px] text-slate-500">
+                                    Formal legal spelling of Grand Total (e.g. "Say UAE Dirhams...")
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={amountInWordsEnabled}
+                                    onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Signatory, Acceptance & Remittance Specific Options */}
+                          {(selectedBlock.id === 'signatory' || selectedBlock.id === 'acceptance' || selectedBlock.id === 'remittance') && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                                  <Layout className="w-3.5 h-3.5 text-blue-600" />
+                                  Closing Layout Mode
+                                </label>
+                                <span className="text-[10px] font-mono text-slate-400 capitalize">
+                                  {footerConfig.footerLayoutMode || 'split'}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-500">
+                                Configure closing presentation layout and toggle individual closing cards.
+                              </p>
+
+                              {/* 3-Way Segmented Control */}
+                              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                {[
+                                  { id: 'split', label: 'Split (50/50)' },
+                                  { id: 'stacked', label: 'Stacked' },
+                                  { id: 'seller_only', label: 'Seller Only' }
+                                ].map((m) => {
+                                  const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
+                                  return (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => handleSetFooterLayoutMode(m.id as any)}
+                                      className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                          : 'hover:bg-white text-slate-600'
+                                      }`}
+                                    >
+                                      {m.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Independent Toggle Switches */}
+                              <div className="space-y-1.5 pt-1">
+                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                    <Landmark className="w-3.5 h-3.5 text-slate-400" />
+                                    Bank Remittance Card
+                                  </span>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={footerConfig.showBankRemittance !== false}
+                                      onChange={(e) => handleToggleBankRemittance(e.target.checked)}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                                  </label>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                    <FileCheck className="w-3.5 h-3.5 text-slate-400" />
+                                    Customer Acceptance / Stamp Box
+                                  </span>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
+                                      disabled={footerConfig.footerLayoutMode === 'seller_only'}
+                                      onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
+                                  </label>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
+                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                                    <Stamp className="w-3.5 h-3.5 text-slate-400" />
+                                    Authorized Signatories
+                                  </span>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={footerConfig.showSignatories !== false}
+                                      onChange={(e) => handleToggleSignatories(e.target.checked)}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
 
-                      {/* Quick Jump to Other Blocks */}
-                      <div className="pt-3 border-t border-slate-100">
-                        <label className="block text-slate-400 text-[10px] uppercase tracking-wider mb-2 font-semibold">
-                          Jump to Block
-                        </label>
-                        <div className="flex flex-wrap gap-1">
-                          {layoutBlocks.map((b) => (
-                            <button
-                              key={b.id}
-                              type="button"
-                              onClick={() => handleInspectBlock(b.id)}
-                              className={`px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
-                                selectedBlock.id === b.id
-                                  ? 'bg-blue-600 text-white font-semibold'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                              }`}
-                            >
-                              {BLOCK_META[b.id].label.split(' ')[0]}
-                            </button>
-                          ))}
+                      {/* Quick Jump & Add Blocks */}
+                      <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                        <div>
+                          <label className="block text-slate-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">
+                            Jump to Block
+                          </label>
+                          <div className="flex flex-wrap gap-1">
+                            {layoutBlocks.map((b) => (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => handleInspectBlock(b.id)}
+                                className={`px-2 py-1 rounded text-[10px] font-medium transition cursor-pointer ${
+                                  selectedBlock.id === b.id
+                                    ? 'bg-blue-600 text-white font-semibold'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {getBlockMeta(b).label.split(' ')[0]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleAddPageBreak}
+                            className="py-1.5 px-2 rounded-lg border border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-100/70 text-amber-800 font-semibold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
+                          >
+                            <Scissors className="w-3 h-3 text-amber-600" />
+                            <span>+ Page Break</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddSpacer}
+                            className="py-1.5 px-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
+                          >
+                            <MoveVertical className="w-3 h-3 text-slate-500" />
+                            <span>+ Spacer</span>
+                          </button>
                         </div>
                       </div>
                     </div>
