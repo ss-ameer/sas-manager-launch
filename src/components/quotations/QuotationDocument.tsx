@@ -206,32 +206,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
 
-  // Visual page-break cut line and multi-page running header emulation
+  // Visual page-break cut line and multi-page pagination engine
   const sheetRef = React.useRef<HTMLElement | null>(null);
-  const [pageMarkers, setPageMarkers] = React.useState<number[]>([1]);
-  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(false);
+  const tableRef = React.useRef<HTMLDivElement | null>(null);
 
-  React.useEffect(() => {
-    const updateMarkers = () => {
-      if (!sheetRef.current) return;
-      const height = sheetRef.current.offsetHeight;
-      const a4Px = (297 * 96) / 25.4;
-      const totalPages = Math.ceil(height / a4Px);
-      const multi = height > a4Px + 40;
-      setIsMultiPage(multi);
-      const markers: number[] = [];
-      for (let i = 1; i <= Math.max(1, totalPages); i++) {
-        if (i > 1 && height < (i - 1) * a4Px + 40) break;
-        markers.push(i);
-      }
-      setPageMarkers(markers.length > 0 ? markers : [1]);
-    };
+  // Determine whether Line Items + Totals exceeds 270mm threshold
+  const [shouldBreakBeforeTotals, setShouldBreakBeforeTotals] = React.useState<boolean>(() => {
+    const itemCount = quotation.line_items?.length || 0;
+    if (itemCount >= 2) return true;
+    if (itemCount === 1) {
+      const item = quotation.line_items[0];
+      const hasAttrs = Boolean(item.attributes && item.attributes.length > 0);
+      const hasSpecs = Boolean(item.brand_make || item.model_part_no || item.country_of_origin);
+      const hasLongDesc = Boolean(item.description && item.description.length > 80);
+      return Boolean(hasAttrs || hasSpecs || hasLongDesc);
+    }
+    return false;
+  });
 
-    updateMarkers();
-    const ro = new ResizeObserver(updateMarkers);
-    if (sheetRef.current) ro.observe(sheetRef.current);
-    return () => ro.disconnect();
-  }, [showPageBreakGuides, quotation, layoutBlocks]);
+  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(shouldBreakBeforeTotals);
 
   // Resolve presentation theme & block style
   const resolvedBlockStyle: 'framed' | 'minimal' =
@@ -390,6 +383,49 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         };
     }
   }, [fontSizeScale]);
+
+  React.useEffect(() => {
+    const assessPageBreak = () => {
+      const limit270Px = (270 * 96) / 25.4; // 1020.47px
+      const totalsEstimatePx = 220; // ~58mm for totals block + margins
+
+      if (tableRef.current) {
+        const tableBottomPx = tableRef.current.offsetTop + tableRef.current.offsetHeight;
+        // Hard defense: If tableBottom + totals exceeds 270mm, push Totals to Page 2
+        if (tableBottomPx + totalsEstimatePx > limit270Px) {
+          setShouldBreakBeforeTotals(true);
+          setIsMultiPage(true);
+          return;
+        }
+      }
+
+      // Check total sheet height if blocks are on page 1
+      if (sheetRef.current) {
+        const height = sheetRef.current.offsetHeight;
+        if (height > limit270Px) {
+          setShouldBreakBeforeTotals(true);
+          setIsMultiPage(true);
+          return;
+        }
+      }
+
+      // Default heuristic check based on item count and attributes
+      const itemCount = quotation.line_items?.length || 0;
+      if (itemCount >= 2) {
+        setShouldBreakBeforeTotals(true);
+        setIsMultiPage(true);
+      } else {
+        setShouldBreakBeforeTotals(false);
+        setIsMultiPage(false);
+      }
+    };
+
+    assessPageBreak();
+    const ro = new ResizeObserver(assessPageBreak);
+    if (tableRef.current) ro.observe(tableRef.current);
+    if (sheetRef.current) ro.observe(sheetRef.current);
+    return () => ro.disconnect();
+  }, [showPageBreakGuides, quotation, layoutBlocks, tableDensity, tableFontScale, fontSizeScale]);
 
   const resolvedShowBankDetails: boolean =
     quotation.show_bank_details ?? profile?.show_bank_details ?? showBankDetails;
@@ -715,6 +751,69 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
+  // Reusable micro-footer watermark helper
+  const renderFooter = (pageNumber: number, totalPages: number) => (
+    <footer
+      className={`document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+        isInteractive ? 'cursor-pointer' : ''
+      } ${
+        isFooterSelected
+          ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+          : isInteractive
+          ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+          : ''
+      }`}
+      onClick={isInteractive ? (e) => {
+        e.stopPropagation();
+        onSelectSection?.('footer');
+        onSelectBlock?.('footer' as any);
+      } : undefined}
+      style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+    >
+      {isInteractive && (
+        <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+          isFooterSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+        }`}>
+          Footer &amp; Legal
+        </div>
+      )}
+      <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px]" style={{ width: '100%', maxWidth: '100%' }}>
+        <span className="flex items-center gap-1.5 flex-wrap">
+          <span>Omni Suite Commercial Engine</span>
+          <span>•</span>
+          <span className="font-mono font-medium text-slate-500">Ref: {quotation.formatted_quote_ref || quotation.quote_number}</span>
+          {quotation.revision_number !== undefined && (
+            <>
+              <span>•</span>
+              <span>Rev {quotation.revision_number}</span>
+            </>
+          )}
+          {enquiry?.enquiry_number && (
+            <>
+              <span>•</span>
+              <span>Enq: {enquiry.enquiry_number}</span>
+            </>
+          )}
+          <span>•</span>
+          <span>Date: {formatDate(quotation.created_at)}</span>
+          {resolvedFooterConfig.showPageNumbers !== false && (
+            <>
+              <span>•</span>
+              <span className="font-mono text-[9px] text-slate-500">
+                Page <span className="print:hidden">{pageNumber} of {totalPages}</span><span className="hidden print:inline print-page-number" />
+              </span>
+            </>
+          )}
+        </span>
+        {resolvedFooterConfig.showDisclaimer !== false && (
+          <span className="mt-1 sm:mt-0 italic">
+            {resolvedFooterConfig.customDisclaimer || 'Computer-generated commercial document. Valid without manual signature when electronically issued.'}
+          </span>
+        )}
+      </div>
+    </footer>
+  );
+
   return (
     <div
       id="quotation-printable-document"
@@ -879,13 +978,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             gap: 0.75rem !important;
             width: 100% !important;
           }
+          .quotation-page-2 {
+            break-before: page !important;
+            page-break-before: always !important;
+          }
+          .quotation-page-cutoff-divider,
+          .quotation-page2-continuation-header {
+            display: none !important;
+          }
         }
       `}</style>
 
-      {/* Decoupled A4 Page Sheet with Strict 210mm x 297mm Physical Geometry */}
+      {/* Reusable Document System Micro-Footer Helper */}
+      {(() => null)()}
+      {/* We define renderFooter as an inline closure or helper function */}
+
+      {/* Decoupled A4 Page Sheet with Strict 210mm Physical Geometry */}
       <article
         ref={sheetRef}
-        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 min-h-[297mm] mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 flex flex-col justify-between font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:min-h-[297mm] print:shadow-none print:border-none print:m-0"
+        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:shadow-none print:border-none print:m-0"
         style={{
           boxSizing: 'border-box',
           paddingLeft: '14mm',
@@ -894,28 +1005,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           paddingBottom: '16mm'
         }}
       >
-        {/* Visual Page-Break Cut Line Emulation (screen only, print:hidden) */}
-        {showPageBreakGuides &&
-          pageMarkers.map((page) => (
-            <div
-              key={page}
-              className="absolute left-0 right-0 pointer-events-none z-30 border-b-2 border-dashed border-rose-400/70 print:hidden"
-              style={{ top: `${page * 297}mm` }}
-            >
-              <span className="absolute right-2 -top-2.5 bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-mono px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1 select-none">
-                <span>✂</span> A4 Page {page} Cutoff ({page * 297}mm)
-              </span>
-            </div>
-          ))}
-
-
-        {/* Multi-Page Running Header strictly isolated from Page 1 */}
-        {repeatHeaderOnSubsequentPages && isMultiPage && (
-          <div className="quotation-running-header-print hidden print:hidden pointer-events-none">
-            {renderCompactRunningHeader('w-full')}
-          </div>
-        )}
-
         {/* Top Accent Stripe */}
         <div
           className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full print:max-w-none"
@@ -923,11 +1012,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         />
 
         {/* ========================================================
-            HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
+            PAGE 1 CONTAINER (HEADER, SNAPSHOT CARDS, ITEMS TABLE & FOOTER)
            ======================================================== */}
-        {/* ========================================================
-            1. HEADER & COMPANY BRANDING (SELECTABLE STRUCTURAL SECTION)
-           ======================================================== */}
+        <div
+          className="quotation-page-1 flex flex-col justify-between w-full"
+          style={{ minHeight: isMultiPage ? 'calc(297mm - 30mm)' : 'auto' }}
+        >
+          <div>
+            {/* ========================================================
+                HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
+               ======================================================== */}
+            {/* ========================================================
+                1. HEADER & COMPANY BRANDING (SELECTABLE STRUCTURAL SECTION)
+               ======================================================== */}
         {(() => {
           const effectiveHeaderAlign = resolvedHeaderConfig.alignment || (headerLayout === 'centered_banner' ? 'centered' : 'split');
           const logoHeight = resolvedHeaderConfig.logoHeightPx || 44;
@@ -1372,7 +1469,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
            ======================================================== */}
         <section
-          className={`flex-1 my-2 w-full transition-all duration-150 ${
+          ref={tableRef}
+          className={`quotation-items-section flex-1 my-2 w-full transition-all duration-150 ${
             (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
           } quotation-structural-section relative group print:pt-4 ${
             isInteractive ? 'cursor-pointer' : ''
@@ -1638,10 +1736,56 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </table>
           </div>
         </section>
+          </div>
+          {isMultiPage && renderFooter(1, 2)}
+        </div>
 
         {/* ========================================================
-            MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
+            A4 PAGE 1 CUTOFF MARKER (END OF PAGE 1 INDICATOR)
            ======================================================== */}
+        {isMultiPage && (
+          <div className="quotation-page-cutoff-divider relative py-3 my-2 flex items-center justify-center print:hidden w-full select-none">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t-2 border-dashed border-rose-400"></div>
+            </div>
+            <div className="relative bg-rose-50 px-3.5 py-1 rounded-full border border-rose-300 text-rose-700 text-[10px] font-mono font-medium flex items-center gap-1.5 shadow-sm">
+              <span className="text-rose-500">✂</span>
+              <span>A4 Page 1 Cutoff (297mm) • Continuation Below</span>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            PAGE 2 CONTINUATION SHEET RUNNING HEADER (START OF PAGE 2)
+           ======================================================== */}
+        {isMultiPage && repeatHeaderOnSubsequentPages && (
+          <div className="quotation-page2-continuation-header w-full mb-3 print:hidden">
+            <div className="p-2.5 bg-slate-50/90 border border-slate-200 rounded-lg shadow-2xs">
+              <div className="text-[8.5px] uppercase font-mono text-blue-700 font-bold mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <span>📄</span> Page 2 Continuation Sheet • Commercial Execution
+                </span>
+                <span className="text-[7.5px] text-slate-400 font-normal">Page 2 of 2 • Normal DOM Flow</span>
+              </div>
+              {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            PAGE 2 CONTAINER (MODULAR DOCUMENT BLOCKS GRID & CLOSING FOOTER)
+           ======================================================== */}
+        <div className={`quotation-page-2 flex flex-col justify-between w-full ${!isMultiPage ? 'mt-2' : ''}`}>
+          <div>
+            {isMultiPage && repeatHeaderOnSubsequentPages && (
+              <div className="hidden print:block mb-2">
+                {renderCompactRunningHeader()}
+              </div>
+            )}
+
+            {/* ========================================================
+                MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
+               ======================================================== */}
         {(() => {
           // Render functions for each modular document block
           const renderTermsBlock = () => {
@@ -2036,34 +2180,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           });
 
           return (
-            <>
-              {/* On-screen Page 2+ Continuation Header (Strictly Normal DOM Flow, NEVER Absolute) */}
-              {repeatHeaderOnSubsequentPages && isMultiPage && (
-                <div className="quotation-continuation-header-flow w-full my-4 print:hidden">
-                  {/* Visual Page Break Indicator in Normal Flow */}
-                  <div className="relative py-2.5 flex items-center justify-center">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t-2 border-dashed border-rose-300"></div>
-                    </div>
-                    <div className="relative bg-rose-50 px-3 py-0.5 rounded-full border border-rose-200 text-rose-700 text-[10px] font-mono flex items-center gap-1.5 shadow-2xs">
-                      <span>✂</span> A4 Page Break • Continuation Sheet (Page 2)
-                    </div>
-                  </div>
-
-                  {/* Normal Flow Running Header — pushes content down, zero collision */}
-                  <div className="mt-2 p-2 bg-slate-50/80 border border-slate-200/90 rounded-lg">
-                    <div className="text-[8px] uppercase font-mono text-blue-700 font-bold mb-1 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <span>📄</span> Continuation Sheet Running Header
-                      </span>
-                      <span className="text-[7.5px] text-slate-400 font-normal">Page 2+ • Normal DOM Flow</span>
-                    </div>
-                    {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
-                  </div>
-                </div>
-              )}
-
-              <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+            <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
               <div
                 className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
                 style={{ width: '100%', maxWidth: '100%' }}
@@ -2121,75 +2238,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 })}
               </div>
             </section>
-          </>
-        );
-      })()}
-
-        {/* ========================================================
-            DOCUMENT SYSTEM MICRO-FOOTER WATERMARK
-           ======================================================== */}
-        {/* ========================================================
-            DOCUMENT SYSTEM MICRO-FOOTER WATERMARK (SELECTABLE STRUCTURAL SECTION)
-           ======================================================== */}
-        <footer
-          className={`document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
-            isInteractive ? 'cursor-pointer' : ''
-          } ${
-            isFooterSelected
-              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-              : isInteractive
-              ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-              : ''
-          }`}
-          onClick={isInteractive ? (e) => {
-            e.stopPropagation();
-            onSelectSection?.('footer');
-            onSelectBlock?.('footer' as any);
-          } : undefined}
-          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-        >
-          {isInteractive && (
-            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-              isFooterSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-            }`}>
-              Footer &amp; Legal
-            </div>
-          )}
-          <div className="flex flex-col sm:flex-row justify-between items-center text-[9.5px] text-slate-400 w-full print:flex-row print:justify-between print:text-[8.5px]" style={{ width: '100%', maxWidth: '100%' }}>
-            <span className="flex items-center gap-1.5 flex-wrap">
-              <span>Omni Suite Commercial Engine</span>
-              <span>•</span>
-              <span className="font-mono font-medium text-slate-500">Ref: {quotation.formatted_quote_ref || quotation.quote_number}</span>
-              {quotation.revision_number !== undefined && (
-                <>
-                  <span>•</span>
-                  <span>Rev {quotation.revision_number}</span>
-                </>
-              )}
-              {enquiry?.enquiry_number && (
-                <>
-                  <span>•</span>
-                  <span>Enq: {enquiry.enquiry_number}</span>
-                </>
-              )}
-              <span>•</span>
-              <span>Date: {formatDate(quotation.created_at)}</span>
-              {resolvedFooterConfig.showPageNumbers !== false && (
-                <>
-                  <span>•</span>
-                  <span className="font-mono text-[9px] text-slate-500">
-                    Page <span className="print:hidden">1</span><span className="hidden print:inline print-page-number" />
-                  </span>
-                </>
-              )}
-            </span>
-            {resolvedFooterConfig.showDisclaimer !== false && (
-              <span className="mt-1 sm:mt-0 italic">
-                {resolvedFooterConfig.customDisclaimer || 'Computer-generated commercial document. Valid without manual signature when electronically issued.'}
-              </span>
-            )}
+          );
+        })()}
           </div>
-        </footer>
+          {renderFooter(isMultiPage ? 2 : 1, isMultiPage ? 2 : 1)}
+        </div>
       </article>
     </div>
   );
