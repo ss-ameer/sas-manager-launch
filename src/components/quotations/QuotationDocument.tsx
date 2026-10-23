@@ -6,6 +6,7 @@ import {
   QuotationPreset,
   QuotationPresetColumns,
   DocumentProfileBankAccount,
+  BankAccountProfile,
   QuotationThemeAccent,
   QuotationSignatureStyle,
   QuotationLogoPosition,
@@ -450,12 +451,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const signatureStyle: QuotationSignatureStyle =
     quotation.signature_style || profile?.signature_style || 'script';
 
-  // Bank account selection: prefer explicitly applied on quotation, then profile default, then first profile account
-  const bankAccount: DocumentProfileBankAccount | undefined =
-    quotation.applied_bank_account ||
-    profile?.bank_accounts?.find((b) => b.is_default) ||
-    profile?.bank_accounts?.[0];
-
   // Helper formatting numbers
   const formatCurrency = (val?: number) => {
     const num = Number(val) || 0;
@@ -531,6 +526,54 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const senderPhone = profile?.phone || quotation.sender_snapshot?.phone;
   const senderEmail = profile?.email || quotation.sender_snapshot?.email;
   const senderWebsite = profile?.website;
+
+  // Bank account selection: prefer explicitly applied on quotation / selectedBank, then by remittanceBankId, then profile default, then first profile account
+  const rawBank: any =
+    quotation.selectedBank ||
+    quotation.selected_bank ||
+    propFooterConfig?.selectedBank ||
+    (quotation.remittanceBankId || propFooterConfig?.remittanceBankId || quotation.remittance_bank_id
+      ? profile?.bank_accounts?.find(
+          (b) => b.id === (quotation.remittanceBankId || propFooterConfig?.remittanceBankId || quotation.remittance_bank_id)
+        ) ||
+        (profile as any)?.bankAccounts?.find(
+          (b: any) => b.id === (quotation.remittanceBankId || propFooterConfig?.remittanceBankId || quotation.remittance_bank_id)
+        )
+      : undefined) ||
+    quotation.applied_bank_account ||
+    profile?.bank_accounts?.find((b) => b.is_default || (b as any).isDefault) ||
+    profile?.bank_accounts?.[0] ||
+    (profile as any)?.bankAccounts?.find((b: any) => b.isDefault || b.is_default) ||
+    (profile as any)?.bankAccounts?.[0];
+
+  const resolvedBank = React.useMemo(() => {
+    if (!rawBank) return undefined;
+    const bName = (rawBank.bankName || rawBank.bank_name || '').trim();
+    const bAcctNo = (rawBank.accountNumber || rawBank.account_number || '').trim();
+    const bIban = (rawBank.iban || '').trim();
+    const bSwift = (rawBank.swiftCode || rawBank.swift_bic || '').trim();
+    const bBeneficiary = (
+      rawBank.beneficiaryName ||
+      rawBank.account_name ||
+      profile?.legal_entity_name ||
+      (profile as any)?.company_legal_name ||
+      senderEntityName ||
+      ''
+    ).trim();
+
+    if (!bName && !bAcctNo && !bIban && !bSwift) return undefined;
+
+    return {
+      bankName: bName || 'Corporate Bank',
+      beneficiaryName: bBeneficiary || 'Account Holder',
+      accountNumber: bAcctNo,
+      iban: bIban,
+      swiftCode: bSwift,
+      currency: rawBank.currency || currency || 'AED'
+    };
+  }, [rawBank, profile, senderEntityName, currency]);
+
+  const bankAccount: DocumentProfileBankAccount | undefined = rawBank;
   const enquiryRef = quotation.enquiry_id || enquiry?.enquiry_number || enquiry?.reference || enquiry?.id;
   const resolvedSalesRep =
     salesRepName ||
@@ -1739,44 +1782,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   <Landmark className="w-3.5 h-3.5 text-slate-500" />
                   Bank Remittance Details
                 </div>
-                {bankAccount ? (
+                {resolvedBank ? (
                   <div className="text-[var(--block-base)] text-slate-700 space-y-0.5 mt-1.5">
-                    <p>
-                      <span className="text-slate-500">Bank:</span>{' '}
-                      <span className="font-semibold text-slate-900">{bankAccount.bank_name}</span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Beneficiary:</span>{' '}
-                      <span className="font-medium text-slate-800">
-                        {bankAccount.account_name ||
-                          (bankAccount as any)?.beneficiary_name ||
-                          profile?.legal_entity_name ||
-                          (profile as any)?.company_legal_name ||
-                          senderEntityName}
-                      </span>
-                    </p>
-                    <p>
-                      <span className="text-slate-500">Account No:</span>{' '}
-                      <span className="font-mono font-medium text-slate-900">
-                        {bankAccount.account_number}
-                      </span>
-                    </p>
-                    {bankAccount.iban && (
+                    {resolvedBank.bankName && (
+                      <p>
+                        <span className="text-slate-500">Bank:</span>{' '}
+                        <span className="font-semibold text-slate-900">{resolvedBank.bankName}</span>
+                      </p>
+                    )}
+                    {resolvedBank.beneficiaryName && (
+                      <p>
+                        <span className="text-slate-500">Beneficiary:</span>{' '}
+                        <span className="font-medium text-slate-800">{resolvedBank.beneficiaryName}</span>
+                      </p>
+                    )}
+                    {resolvedBank.accountNumber && (
+                      <p>
+                        <span className="text-slate-500">Account No:</span>{' '}
+                        <span className="font-mono font-medium text-slate-900">
+                          {resolvedBank.accountNumber}
+                        </span>
+                      </p>
+                    )}
+                    {resolvedBank.iban ? (
                       <p>
                         <span className="text-slate-500">IBAN:</span>{' '}
                         <span className="font-mono font-bold text-slate-900">
-                          {bankAccount.iban}
+                          {resolvedBank.iban}
                         </span>
                       </p>
-                    )}
-                    {bankAccount.swift_bic && (
+                    ) : null}
+                    {resolvedBank.swiftCode ? (
                       <p>
                         <span className="text-slate-500">SWIFT / BIC:</span>{' '}
                         <span className="font-mono font-semibold text-slate-900">
-                          {bankAccount.swift_bic}
+                          {resolvedBank.swiftCode}
                         </span>
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 ) : (
                   <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">

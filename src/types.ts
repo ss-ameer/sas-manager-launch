@@ -994,6 +994,25 @@ export interface QuotationLineItem {
 
 export type QuotationItem = QuotationLineItem;
 
+export interface BankAccountProfile {
+  id: string;
+  bankName: string;
+  beneficiaryName: string;
+  accountNumber: string;
+  iban: string;
+  swiftCode?: string;
+  branchName?: string;
+  currency: string;
+  isDefault?: boolean;
+  // Aliases for compatibility
+  bank_name?: string;
+  account_name?: string;
+  account_number?: string;
+  swift_bic?: string;
+  branch_address?: string;
+  is_default?: boolean;
+}
+
 export interface DocumentProfileBankAccount {
   id?: string;
   bank_name: string;
@@ -1004,6 +1023,13 @@ export interface DocumentProfileBankAccount {
   branch_address?: string;
   currency?: string;
   is_default?: boolean;
+  // Aliases for camelCase compatibility
+  bankName?: string;
+  beneficiaryName?: string;
+  accountNumber?: string;
+  swiftCode?: string;
+  branchName?: string;
+  isDefault?: boolean;
 }
 
 export interface WorkspaceDocumentProfile extends SoftDeleteFields {
@@ -1113,6 +1139,8 @@ export interface QuotationFooterConfig {
   showSignatories?: boolean; // default: true
   footerLayoutMode?: 'split' | 'stacked' | 'seller_only'; // default: 'split'
   fontSizeScale?: QuotationFontSizeScale;
+  remittanceBankId?: string;
+  selectedBank?: BankAccountProfile;
 }
 
 export interface QuotationRecipientConfig {
@@ -1174,6 +1202,10 @@ export interface QuotationPreset extends SoftDeleteFields {
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
+  remittanceBankId?: string;
+  remittance_bank_id?: string;
+  selectedBank?: BankAccountProfile;
+  selected_bank?: BankAccountProfile;
   subject?: string;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
@@ -1239,6 +1271,10 @@ export interface Quotation extends SoftDeleteFields {
   grand_total: number;
   applied_terms?: string;
   applied_bank_account?: DocumentProfileBankAccount;
+  remittanceBankId?: string;
+  remittance_bank_id?: string;
+  selectedBank?: BankAccountProfile;
+  selected_bank?: BankAccountProfile;
   signatories?: QuotationSignatory[];
   theme_accent?: QuotationThemeAccent;
   amount_in_words_enabled?: boolean;

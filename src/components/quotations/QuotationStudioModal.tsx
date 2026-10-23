@@ -20,6 +20,7 @@ import {
   QuotationTableDensity,
   QuotationTableFontScale,
   QuotationFontSizeScale,
+  BankAccountProfile,
   QuotationBlockConfig,
   QuotationBlockId,
   StudioSelectedSection,
@@ -79,7 +80,8 @@ import {
   Check,
   ArrowLeftRight,
   MoveVertical,
-  CheckSquare
+  CheckSquare,
+  Edit3
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -563,10 +565,42 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       'Commercial Approver'
   );
 
-  // Bank selection
-  const [selectedBankId, setSelectedBankId] = useState<string>(
-    editingQuotation?.applied_bank_account?.id || ''
-  );
+  // Multi-Account Bank Registry Selection & Custom Overrides
+  const [selectedBankId, setSelectedBankId] = useState<string>(() => {
+    return (
+      editingQuotation?.remittanceBankId ||
+      editingQuotation?.remittance_bank_id ||
+      editingQuotation?.applied_bank_account?.id ||
+      editingQuotation?.footer_config?.remittanceBankId ||
+      profile?.bank_accounts?.find((b) => b.is_default)?.id ||
+      profile?.bank_accounts?.[0]?.id ||
+      ''
+    );
+  });
+
+  const [customBankOverride, setCustomBankOverride] = useState<{
+    bankName?: string;
+    beneficiaryName?: string;
+    accountNumber?: string;
+    iban?: string;
+    swiftCode?: string;
+    branchName?: string;
+  } | null>(() => {
+    if (editingQuotation?.selectedBank || editingQuotation?.applied_bank_account) {
+      const b: any = editingQuotation.selectedBank || editingQuotation.applied_bank_account;
+      return {
+        bankName: b.bankName || b.bank_name,
+        beneficiaryName: b.beneficiaryName || b.account_name,
+        accountNumber: b.accountNumber || b.account_number,
+        iban: b.iban,
+        swiftCode: b.swiftCode || b.swift_bic,
+        branchName: b.branchName || b.branch_address
+      };
+    }
+    return null;
+  });
+
+  const [isEditingBankDetails, setIsEditingBankDetails] = useState<boolean>(false);
 
   // Attention Contact Person inheritance
   const [clientContactPerson, setClientContactPerson] = useState<string>(() => {
@@ -834,6 +868,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       handleSetFontSizeScale(preset.fontSizeScale || (preset as any).font_size_scale);
     }
     if (typeof preset.show_bank_details === 'boolean') setShowBankDetails(preset.show_bank_details);
+    if (preset.remittanceBankId || (preset as any).remittance_bank_id) {
+      handleSelectBank(preset.remittanceBankId || (preset as any).remittance_bank_id);
+    }
     if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
     if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
     if (preset.theme_accent) setThemeAccent(preset.theme_accent);
@@ -1151,15 +1188,133 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     );
   }, [quotationLineItems, freightAmount, taxMode, taxRatePercent]);
 
-  // Selected bank account
+  // Dynamic Bank Profile Registry from workspace document profile
+  const bankRegistry: BankAccountProfile[] = useMemo(() => {
+    const list: any[] = activeProfile?.bank_accounts || profile?.bank_accounts || [];
+    const accounts: BankAccountProfile[] = list.map((b, idx) => ({
+      id: b.id || `bank-${idx}`,
+      bankName: b.bankName || b.bank_name || 'Corporate Bank',
+      beneficiaryName: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
+      accountNumber: b.accountNumber || b.account_number || '',
+      iban: b.iban || '',
+      swiftCode: b.swiftCode || b.swift_bic || '',
+      branchName: b.branchName || b.branch_address || '',
+      currency: b.currency || 'AED',
+      isDefault: b.isDefault ?? b.is_default ?? false,
+      bank_name: b.bankName || b.bank_name || 'Corporate Bank',
+      account_name: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
+      account_number: b.accountNumber || b.account_number || '',
+      swift_bic: b.swiftCode || b.swift_bic || ''
+    }));
+
+    if (accounts.length === 0 && editingQuotation?.applied_bank_account) {
+      const b: any = editingQuotation.applied_bank_account;
+      accounts.push({
+        id: b.id || 'quote-bank-applied',
+        bankName: b.bankName || b.bank_name || 'Corporate Bank',
+        beneficiaryName: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
+        accountNumber: b.accountNumber || b.account_number || '',
+        iban: b.iban || '',
+        swiftCode: b.swiftCode || b.swift_bic || '',
+        branchName: b.branchName || b.branch_address || '',
+        currency: b.currency || 'AED',
+        isDefault: true,
+        bank_name: b.bankName || b.bank_name || 'Corporate Bank',
+        account_name: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
+        account_number: b.accountNumber || b.account_number || '',
+        swift_bic: b.swiftCode || b.swift_bic || ''
+      });
+    }
+
+    return accounts;
+  }, [activeProfile, profile, editingQuotation]);
+
+  // Selected bank account with custom override capability
   const activeBankAccount: DocumentProfileBankAccount | undefined = useMemo(() => {
-    if (!activeProfile?.bank_accounts) return undefined;
-    return (
-      activeProfile.bank_accounts.find((b) => b.id === selectedBankId) ||
-      activeProfile.bank_accounts.find((b) => b.is_default) ||
-      activeProfile.bank_accounts[0]
-    );
-  }, [activeProfile, selectedBankId]);
+    let base =
+      bankRegistry.find((b) => b.id === selectedBankId) ||
+      bankRegistry.find((b) => b.isDefault || b.is_default) ||
+      bankRegistry[0];
+
+    if (!base && !customBankOverride) return undefined;
+
+    const bName = customBankOverride?.bankName ?? (base?.bankName || base?.bank_name || 'Corporate Bank');
+    const bBeneficiary =
+      customBankOverride?.beneficiaryName ??
+      (base?.beneficiaryName || base?.account_name || activeProfile?.legal_entity_name || '');
+    const bAcctNo = customBankOverride?.accountNumber ?? (base?.accountNumber || base?.account_number || '');
+    const bIban = customBankOverride?.iban ?? (base?.iban || '');
+    const bSwift = customBankOverride?.swiftCode ?? (base?.swiftCode || base?.swift_bic || '');
+    const bBranch = customBankOverride?.branchName ?? (base?.branchName || base?.branch_address || '');
+    const bCurr = base?.currency || 'AED';
+
+    return {
+      id: base?.id || selectedBankId || 'active-bank',
+      bankName: bName,
+      bank_name: bName,
+      beneficiaryName: bBeneficiary,
+      account_name: bBeneficiary,
+      accountNumber: bAcctNo,
+      account_number: bAcctNo,
+      iban: bIban,
+      swiftCode: bSwift,
+      swift_bic: bSwift,
+      branchName: bBranch,
+      branch_address: bBranch,
+      currency: bCurr,
+      isDefault: base?.isDefault || false,
+      is_default: base?.is_default || false
+    };
+  }, [bankRegistry, selectedBankId, customBankOverride, activeProfile]);
+
+  const activeBankProfile: BankAccountProfile | undefined = activeBankAccount as unknown as BankAccountProfile;
+
+  const handleSelectBank = (bankId: string) => {
+    setSelectedBankId(bankId);
+    const target = bankRegistry.find((b) => b.id === bankId);
+    if (target) {
+      setCustomBankOverride({
+        bankName: target.bankName,
+        beneficiaryName: target.beneficiaryName,
+        accountNumber: target.accountNumber,
+        iban: target.iban,
+        swiftCode: target.swiftCode,
+        branchName: target.branchName
+      });
+      setFooterConfig((prev) => ({
+        ...prev,
+        remittanceBankId: bankId,
+        selectedBank: target
+      }));
+    } else {
+      setCustomBankOverride(null);
+      setFooterConfig((prev) => ({
+        ...prev,
+        remittanceBankId: bankId
+      }));
+    }
+  };
+
+  const handleResetBankOverride = () => {
+    const target = bankRegistry.find((b) => b.id === selectedBankId) || bankRegistry[0];
+    if (target) {
+      setCustomBankOverride({
+        bankName: target.bankName,
+        beneficiaryName: target.beneficiaryName,
+        accountNumber: target.accountNumber,
+        iban: target.iban,
+        swiftCode: target.swiftCode,
+        branchName: target.branchName
+      });
+      setFooterConfig((prev) => ({
+        ...prev,
+        remittanceBankId: target.id,
+        selectedBank: target
+      }));
+    } else {
+      setCustomBankOverride(null);
+    }
+  };
 
   // Resolved Signatories array
   const signatories = useMemo(() => {
@@ -1249,6 +1404,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       custom_notes: customNotes,
       applied_terms: customNotes,
       applied_bank_account: activeBankAccount,
+      remittanceBankId: selectedBankId,
+      remittance_bank_id: selectedBankId,
+      selectedBank: activeBankProfile,
+      selected_bank: activeBankProfile,
       signatories: signatories,
       header_layout: headerLayout,
       table_density: tableDensity,
@@ -1281,7 +1440,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       layout_blocks: layoutBlocks,
       header_config: headerConfig,
       recipient_config: recipientConfig,
-      footer_config: footerConfig,
+      footer_config: {
+        ...footerConfig,
+        remittanceBankId: selectedBankId,
+        selectedBank: activeBankProfile
+      },
       visible_columns: visibleColumns,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
@@ -1367,6 +1530,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         custom_notes: customNotes,
         applied_terms: customNotes,
         applied_bank_account: liveQuotation.applied_bank_account,
+        remittanceBankId: selectedBankId,
+        remittance_bank_id: selectedBankId,
+        selectedBank: activeBankProfile,
+        selected_bank: activeBankProfile,
         signatories: liveQuotation.signatories,
         header_layout: headerLayout,
         table_density: tableDensity,
@@ -1399,7 +1566,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
-        footer_config: footerConfig,
+        footer_config: {
+          ...footerConfig,
+          remittanceBankId: selectedBankId,
+          selectedBank: activeBankProfile
+        },
         visible_columns: visibleColumns as any,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
@@ -1489,7 +1660,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
-        footer_config: footerConfig
+        remittanceBankId: selectedBankId,
+        remittance_bank_id: selectedBankId,
+        selectedBank: activeBankProfile,
+        selected_bank: activeBankProfile,
+        footer_config: {
+          ...footerConfig,
+          remittanceBankId: selectedBankId,
+          selectedBank: activeBankProfile
+        }
       };
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -2585,19 +2764,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     )}
 
-                    {activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0 && (
-                      <div className="pt-2 border-t border-slate-100">
-                        <label className="block text-slate-500 font-medium mb-1">Remittance Bank</label>
+                    {bankRegistry && bankRegistry.length > 0 && (
+                      <div className="pt-2 border-t border-slate-100 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-slate-500 font-medium text-xs">Remittance Bank</label>
+                          <span className="text-[10px] text-slate-400 font-mono">{bankRegistry.length} in registry</span>
+                        </div>
                         <select
                           value={selectedBankId}
-                          onChange={(e) => setSelectedBankId(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                          onChange={(e) => handleSelectBank(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
                         >
-                          {activeProfile.bank_accounts.map((b) => (
-                            <option key={b.id || b.account_number} value={b.id || ''}>
-                              {b.bank_name} ({b.account_number}) - {b.currency || 'AED'}
-                            </option>
-                          ))}
+                          {bankRegistry.map((b) => {
+                            const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
+                            return (
+                              <option key={b.id} value={b.id}>
+                                {b.bankName} - {acctLabel} ({b.currency})
+                              </option>
+                            );
+                          })}
                         </select>
                       </div>
                     )}
@@ -4044,25 +4229,175 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* Remittance Bank Selection */}
-                      {activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0 && (
-                        <div>
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
-                            Bank Account Wire Details
+                      {/* Remittance Bank Registry Selector & Overrides */}
+                      <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5 text-blue-600" />
+                            Remittance Bank Account
                           </label>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200">
+                            {bankRegistry.length} in Registry
+                          </span>
+                        </div>
+
+                        {/* Dropdown Selector formatted as: [Bank Name] - [Account No / IBAN] ([Currency]) */}
+                        <div className="space-y-1">
                           <select
                             value={selectedBankId}
-                            onChange={(e) => setSelectedBankId(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
+                            onChange={(e) => handleSelectBank(e.target.value)}
+                            className="w-full rounded-xl border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                           >
-                            {activeProfile.bank_accounts.map((b) => (
-                              <option key={b.id || b.account_number} value={b.id || ''}>
-                                {b.bank_name} ({b.account_number}) - {b.currency || 'AED'}
-                              </option>
-                            ))}
+                            {bankRegistry.map((b) => {
+                              const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
+                              return (
+                                <option key={b.id} value={b.id}>
+                                  {b.bankName} - {acctLabel} ({b.currency})
+                                </option>
+                              );
+                            })}
+                            {bankRegistry.length === 0 && (
+                              <option value="">Default Corporate Wire Account (AED)</option>
+                            )}
                           </select>
                         </div>
-                      )}
+
+                        {/* Active Bank Card & Custom Override Action Trigger */}
+                        {activeBankAccount && (
+                          <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5 text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-slate-900 flex items-center gap-1.5 truncate">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                                <span className="truncate">{activeBankAccount.bankName || activeBankAccount.bank_name}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsEditingBankDetails(!isEditingBankDetails)}
+                                className={`text-[10px] font-medium flex items-center gap-1 px-2 py-0.5 rounded-md transition cursor-pointer shrink-0 ${
+                                  isEditingBankDetails
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                {isEditingBankDetails ? 'Done' : 'Edit Wire Details'}
+                              </button>
+                            </div>
+
+                            <div className="text-slate-600 space-y-0.5 font-mono text-[10px] leading-tight">
+                              <div>Beneficiary: <span className="text-slate-800 font-sans">{activeBankAccount.beneficiaryName || activeBankAccount.account_name}</span></div>
+                              <div>Acct: <span className="text-slate-900 font-semibold">{activeBankAccount.accountNumber || activeBankAccount.account_number || '—'}</span></div>
+                              {activeBankAccount.iban && (
+                                <div className="truncate">IBAN: <span className="text-slate-900 font-bold">{activeBankAccount.iban}</span></div>
+                              )}
+                              {activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic ? (
+                                <div>SWIFT: <span className="text-slate-800 font-semibold">{activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic}</span></div>
+                              ) : null}
+                            </div>
+
+                            {/* Inline Fields to edit active IBAN/SWIFT details directly for custom overrides */}
+                            {isEditingBankDetails && (
+                              <div className="mt-2 pt-2 border-t border-slate-200/80 space-y-2 animate-in fade-in duration-150">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-bold text-blue-900">
+                                    Custom Wire Overrides
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={handleResetBankOverride}
+                                    className="text-[9.5px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <RotateCcw className="w-2.5 h-2.5" />
+                                    Reset to Default
+                                  </button>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <div>
+                                    <label className="block text-slate-500 text-[10px] mb-0.5">Bank Name</label>
+                                    <input
+                                      type="text"
+                                      value={customBankOverride?.bankName ?? (activeBankAccount.bankName || activeBankAccount.bank_name || '')}
+                                      onChange={(e) =>
+                                        setCustomBankOverride((prev) => ({
+                                          ...(prev || {}),
+                                          bankName: e.target.value
+                                        }))
+                                      }
+                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white"
+                                      placeholder="Bank Name"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-slate-500 text-[10px] mb-0.5">Beneficiary Name</label>
+                                    <input
+                                      type="text"
+                                      value={customBankOverride?.beneficiaryName ?? (activeBankAccount.beneficiaryName || activeBankAccount.account_name || '')}
+                                      onChange={(e) =>
+                                        setCustomBankOverride((prev) => ({
+                                          ...(prev || {}),
+                                          beneficiaryName: e.target.value
+                                        }))
+                                      }
+                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white"
+                                      placeholder="Beneficiary Account Name"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-slate-500 text-[10px] mb-0.5">Account Number</label>
+                                    <input
+                                      type="text"
+                                      value={customBankOverride?.accountNumber ?? (activeBankAccount.accountNumber || activeBankAccount.account_number || '')}
+                                      onChange={(e) =>
+                                        setCustomBankOverride((prev) => ({
+                                          ...(prev || {}),
+                                          accountNumber: e.target.value
+                                        }))
+                                      }
+                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono"
+                                      placeholder="Account Number"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-slate-500 text-[10px] mb-0.5">IBAN</label>
+                                    <input
+                                      type="text"
+                                      value={customBankOverride?.iban ?? (activeBankAccount.iban || '')}
+                                      onChange={(e) =>
+                                        setCustomBankOverride((prev) => ({
+                                          ...(prev || {}),
+                                          iban: e.target.value.toUpperCase()
+                                        }))
+                                      }
+                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono uppercase"
+                                      placeholder="AE..."
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-slate-500 text-[10px] mb-0.5">SWIFT / BIC (Optional)</label>
+                                    <input
+                                      type="text"
+                                      value={customBankOverride?.swiftCode ?? (activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic || '')}
+                                      onChange={(e) =>
+                                        setCustomBankOverride((prev) => ({
+                                          ...(prev || {}),
+                                          swiftCode: e.target.value.toUpperCase()
+                                        }))
+                                      }
+                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono uppercase"
+                                      placeholder="e.g. EBILAEADXXX"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Informational Atomic Card Break Protection Guardrail */}

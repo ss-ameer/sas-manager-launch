@@ -7,7 +7,13 @@
 
 import { sanitizeCompanyNameAndSuffix } from '../components/companies/CreateCompanyModal';
 import { amountToWords, formatAmountInWords } from '../utils/numberToWords';
-import { QuotationPresetColumns, QuotationFooterConfig, QuotationHeaderConfig } from '../types';
+import {
+  QuotationPresetColumns,
+  QuotationFooterConfig,
+  QuotationHeaderConfig,
+  BankAccountProfile,
+  Quotation
+} from '../types';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -377,6 +383,85 @@ describe('Modular Footer Schema & Closing Layout Engine', () => {
       repeatHeaderOnSubsequentPages: true
     };
     expect(headerConfig.repeatHeaderOnSubsequentPages).toBe(true);
+  });
+});
+
+describe('Multi-Account Bank Remittance Registry & Selector', () => {
+  const bankA: BankAccountProfile = {
+    id: 'bank-1',
+    bankName: 'Emirates NBD',
+    beneficiaryName: 'Water Treatment Systems LLC',
+    accountNumber: '1029384756',
+    iban: 'AE0702600001029384756',
+    swiftCode: 'EBILAEADXXX',
+    branchName: 'Main Branch, Dubai',
+    currency: 'AED',
+    isDefault: true
+  };
+
+  const bankB: BankAccountProfile = {
+    id: 'bank-2',
+    bankName: 'First Abu Dhabi Bank (FAB)',
+    beneficiaryName: 'Water Treatment Systems LLC',
+    accountNumber: '9988776655',
+    iban: 'AE4403000009988776655',
+    swiftCode: 'NBADAEAAXXX',
+    currency: 'USD',
+    isDefault: false
+  };
+
+  it('should conform to BankAccountProfile schema with all required fields', () => {
+    expect(bankA.id).toBe('bank-1');
+    expect(bankA.bankName).toBe('Emirates NBD');
+    expect(bankA.beneficiaryName).toBe('Water Treatment Systems LLC');
+    expect(bankA.accountNumber).toBe('1029384756');
+    expect(bankA.iban).toBe('AE0702600001029384756');
+    expect(bankA.swiftCode).toBe('EBILAEADXXX');
+    expect(bankA.currency).toBe('AED');
+    expect(bankA.isDefault).toBe(true);
+  });
+
+  it('should embed selectedBank and remittanceBankId in QuotationFooterConfig', () => {
+    const footerConfig: QuotationFooterConfig = {
+      showBankRemittance: true,
+      remittanceBankId: 'bank-2',
+      selectedBank: bankB
+    };
+    expect(footerConfig.remittanceBankId).toBe('bank-2');
+    expect(footerConfig.selectedBank?.bankName).toBe('First Abu Dhabi Bank (FAB)');
+    expect(footerConfig.selectedBank?.currency).toBe('USD');
+  });
+
+  it('should format selector label as [Bank Name] - [Account No / IBAN] ([Currency])', () => {
+    const formatLabel = (b: BankAccountProfile) => {
+      const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
+      return `${b.bankName} - ${acctLabel} (${b.currency})`;
+    };
+    expect(formatLabel(bankA)).toBe('Emirates NBD - 1029384756 (AED)');
+    expect(formatLabel(bankB)).toBe('First Abu Dhabi Bank (FAB) - 9988776655 (USD)');
+  });
+
+  it('should resolve default bank when no explicit bank is selected', () => {
+    const registry = [bankB, bankA];
+    const defaultBank = registry.find((b) => b.isDefault) || registry[0];
+    expect(defaultBank.id).toBe('bank-1');
+    expect(defaultBank.bankName).toBe('Emirates NBD');
+  });
+
+  it('should support custom wire detail overrides on active bank account', () => {
+    const override = {
+      bankName: 'Custom Overseas Bank',
+      iban: 'GB82WEST12345698765432',
+      swiftCode: 'NWBKGB2L'
+    };
+    const merged = {
+      ...bankA,
+      ...override
+    };
+    expect(merged.bankName).toBe('Custom Overseas Bank');
+    expect(merged.iban).toBe('GB82WEST12345698765432');
+    expect(merged.swiftCode).toBe('NWBKGB2L');
+    expect(merged.accountNumber).toBe('1029384756'); // retained base
   });
 });
 
