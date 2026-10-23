@@ -19,7 +19,9 @@ import {
   StudioSelectedSection,
   QuotationHeaderConfig,
   QuotationRecipientConfig,
-  QuotationFooterConfig
+  QuotationFooterConfig,
+  QuotationPageMode,
+  QuotationLineItem
 } from '../../types';
 import { amountToWords, amountToWordsAED, formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -142,6 +144,15 @@ export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
   offerCardRadius: 'rounded'
 };
 
+export interface QuotationSheetPage {
+  pageNumber: number;
+  items: QuotationLineItem[];
+  startIndex: number;
+  hasClosingBlocks: boolean;
+  isFirstPage: boolean;
+  isLastPage: boolean;
+}
+
 export interface QuotationDocumentProps {
   quotation: Quotation;
   profile?: WorkspaceDocumentProfile | null;
@@ -154,6 +165,7 @@ export interface QuotationDocumentProps {
   headerConfig?: QuotationHeaderConfig;
   recipientConfig?: QuotationRecipientConfig;
   footerConfig?: QuotationFooterConfig;
+  pageMode?: QuotationPageMode;
   showBankDetails?: boolean;
   showStampAndSignatures?: boolean;
   user?: { displayName?: string; name?: string; email?: string } | null;
@@ -185,6 +197,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   headerConfig: propHeaderConfig,
   recipientConfig: propRecipientConfig,
   footerConfig: propFooterConfig,
+  pageMode: propPageMode,
   showBankDetails = true,
   showStampAndSignatures = true,
   user,
@@ -254,23 +267,185 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     profile?.footerLayoutMode ||
     'split';
 
-  // 1-PAGE VS 2-PAGE ADAPTIVE LOGIC:
-  // A standard quotation with Line Items + Commercial Terms + Financial Totals + Bank Remittance + Signatures + Customer Acceptance requires 2 pages.
-  // Set isMultiPage = true whenever:
-  // - itemCount >= 2 AND (showBankRemittance !== false || showCustomerAcceptance !== false)
-  // - OR itemCount > 2
-  // - OR explicit multi-page preset/flag is enabled.
-  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(() => {
-    if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
-      return true;
+  // 1-PAGE VS 2-PAGE VS DYNAMIC AUTO ENGINE:
+  const effectivePageMode: QuotationPageMode =
+    propPageMode ||
+    quotation.pageMode ||
+    (quotation as any).page_mode ||
+    propFooterConfig?.pageMode ||
+    profile?.pageMode ||
+    'auto';
+
+  const rawLineItems: QuotationLineItem[] = React.useMemo(() => {
+    return quotation.line_items || [];
+  }, [quotation.line_items]);
+
+  const documentPages: QuotationSheetPage[] = React.useMemo(() => {
+    const allItems = rawLineItems;
+
+    // Explicit 1-Page mode: force all items and closing blocks onto Page 1
+    if (effectivePageMode === '1-page') {
+      return [
+        {
+          pageNumber: 1,
+          items: allItems,
+          startIndex: 0,
+          hasClosingBlocks: true,
+          isFirstPage: true,
+          isLastPage: true
+        }
+      ];
     }
-    const itemCount = quotation.line_items?.length || 0;
-    if (itemCount > 2) return true;
-    if (itemCount >= 2 && (showBankRemittance !== false || showCustomerAcceptance !== false)) {
-      return true;
+
+    // Explicit 2-Page mode: items on Page 1 (up to 5), remainder and closing blocks on Page 2
+    if (effectivePageMode === '2-page') {
+      if (allItems.length <= 5) {
+        return [
+          {
+            pageNumber: 1,
+            items: allItems,
+            startIndex: 0,
+            hasClosingBlocks: false,
+            isFirstPage: true,
+            isLastPage: false
+          },
+          {
+            pageNumber: 2,
+            items: [],
+            startIndex: allItems.length,
+            hasClosingBlocks: true,
+            isFirstPage: false,
+            isLastPage: true
+          }
+        ];
+      } else {
+        return [
+          {
+            pageNumber: 1,
+            items: allItems.slice(0, 5),
+            startIndex: 0,
+            hasClosingBlocks: false,
+            isFirstPage: true,
+            isLastPage: false
+          },
+          {
+            pageNumber: 2,
+            items: allItems.slice(5),
+            startIndex: 5,
+            hasClosingBlocks: true,
+            isFirstPage: false,
+            isLastPage: true
+          }
+        ];
+      }
     }
-    return false;
-  });
+
+    // Auto Mode:
+    // If quote has minimal closing blocks and <= 2 items, fit on 1 page:
+    if (allItems.length <= 2 && !showBankRemittance && !showCustomerAcceptance) {
+      return [
+        {
+          pageNumber: 1,
+          items: allItems,
+          startIndex: 0,
+          hasClosingBlocks: true,
+          isFirstPage: true,
+          isLastPage: true
+        }
+      ];
+    }
+
+    // Standard quote (0 to 5 items): 2 pages
+    if (allItems.length <= 5) {
+      return [
+        {
+          pageNumber: 1,
+          items: allItems,
+          startIndex: 0,
+          hasClosingBlocks: false,
+          isFirstPage: true,
+          isLastPage: false
+        },
+        {
+          pageNumber: 2,
+          items: [],
+          startIndex: allItems.length,
+          hasClosingBlocks: true,
+          isFirstPage: false,
+          isLastPage: true
+        }
+      ];
+    }
+
+    // Multi-item quote (> 5 items):
+    // Page 1: Header + client cards + first 5 items
+    // Continuation pages: 7 items per page
+    // Closing blocks need ~130mm, so they can coexist with at most 2 items on the final page,
+    // or take a standalone final page if remaining items > 2.
+    const pages: QuotationSheetPage[] = [];
+    pages.push({
+      pageNumber: 1,
+      items: allItems.slice(0, 5),
+      startIndex: 0,
+      hasClosingBlocks: false,
+      isFirstPage: true,
+      isLastPage: false
+    });
+
+    let remaining = allItems.slice(5);
+    let curIndex = 5;
+
+    while (remaining.length > 0) {
+      const pageNum = pages.length + 1;
+      if (remaining.length <= 2) {
+        pages.push({
+          pageNumber: pageNum,
+          items: remaining,
+          startIndex: curIndex,
+          hasClosingBlocks: true,
+          isFirstPage: false,
+          isLastPage: true
+        });
+        remaining = [];
+      } else if (remaining.length <= 7) {
+        pages.push({
+          pageNumber: pageNum,
+          items: remaining,
+          startIndex: curIndex,
+          hasClosingBlocks: false,
+          isFirstPage: false,
+          isLastPage: false
+        });
+        curIndex += remaining.length;
+        pages.push({
+          pageNumber: pageNum + 1,
+          items: [],
+          startIndex: curIndex,
+          hasClosingBlocks: true,
+          isFirstPage: false,
+          isLastPage: true
+        });
+        remaining = [];
+      } else {
+        const chunk = remaining.slice(0, 7);
+        pages.push({
+          pageNumber: pageNum,
+          items: chunk,
+          startIndex: curIndex,
+          hasClosingBlocks: false,
+          isFirstPage: false,
+          isLastPage: false
+        });
+        curIndex += 7;
+        remaining = remaining.slice(7);
+      }
+    }
+
+    return pages;
+  }, [rawLineItems, effectivePageMode, showBankRemittance, showCustomerAcceptance]);
+
+  const totalPages = documentPages.length;
+  const isMultiPage = totalPages > 1;
 
   // Resolve modular layout blocks
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
@@ -387,42 +562,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     }
   }, [fontSizeScale]);
 
-  React.useEffect(() => {
-    const assessPageBreak = () => {
-      // 1. If explicit multi-page preset or configuration
-      if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
-        setIsMultiPage(true);
-        return;
-      }
-
-      const itemCount = quotation.line_items?.length || 0;
-      // 2. Multi-page condition:
-      // Standard quotation with Line Items + Commercial Terms + Financial Totals + Bank Remittance + Signatures + Customer Acceptance requires 2 pages.
-      if (itemCount > 2 || (itemCount >= 2 && (showBankRemittance !== false || showCustomerAcceptance !== false))) {
-        setIsMultiPage(true);
-        return;
-      }
-
-      // 3. For 1 line item, check overflow limit
-      // Limit 260mm in CSS pixels: (260 * 96) / 25.4 ≈ 982.68px
-      const limit260Px = (260 * 96) / 25.4;
-
-      if (sheetRef.current) {
-        const height = sheetRef.current.scrollHeight;
-        // If content height overflows 260mm, spawn Page 2
-        if (height > limit260Px) {
-          setIsMultiPage(true);
-          return;
-        }
-      }
-    };
-
-    assessPageBreak();
-    const ro = new ResizeObserver(assessPageBreak);
-    if (tableRef.current) ro.observe(tableRef.current);
-    if (sheetRef.current) ro.observe(sheetRef.current);
-    return () => ro.disconnect();
-  }, [showPageBreakGuides, quotation, layoutBlocks, tableDensity, tableFontScale, fontSizeScale, showBankRemittance, showCustomerAcceptance]);
 
   const resolvedShowBankDetails: boolean =
     quotation.show_bank_details ?? profile?.show_bank_details ?? showBankDetails;
@@ -720,7 +859,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   ]);
 
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
-  const renderCompactRunningHeader = (extraClass = '') => {
+  const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
     if (!repeatHeaderOnSubsequentPages) return null;
     const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
     const subjectText = quotation.subject?.trim();
@@ -742,7 +881,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {/* Right: Date & Document Ref indicator */}
         <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
-          {formatDate(quotation.created_at)} • {quoteRef} • Page 2 of 2
+          {formatDate(quotation.created_at)} • {quoteRef} • Page {pageNumber} of {total}
         </div>
       </div>
     );
@@ -797,7 +936,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <>
               <span>•</span>
               <span className="font-mono text-[9px] text-slate-500">
-                Page <span className="print:hidden">{pageNumber} of {totalPages}</span><span className="hidden print:inline print-page-number" />
+                Page {pageNumber} of {totalPages}
               </span>
             </>
           )}
@@ -1289,6 +1428,707 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
+  const renderTopSection = () => {
+    const effectiveHeaderAlign = resolvedHeaderConfig.alignment || (headerLayout === 'centered_banner' ? 'centered' : 'split');
+    const logoHeight = resolvedHeaderConfig.logoHeightPx || 44;
+    const showPhone = resolvedHeaderConfig.showPhone !== false && Boolean(senderPhone);
+    const showEmail = resolvedHeaderConfig.showEmail !== false && Boolean(senderEmail);
+    const showWebsite = resolvedHeaderConfig.showWebsite !== false && Boolean(senderWebsite);
+    const showTrn = resolvedHeaderConfig.showTrn !== false && Boolean(senderTrn);
+    const showCompanyName = resolvedHeaderConfig.showCompanyName !== false;
+    const logoSpacingClass =
+      resolvedHeaderConfig.logoSpacing === 'none'
+        ? 'mb-0 pb-0'
+        : resolvedHeaderConfig.logoSpacing === 'tight'
+        ? 'mb-2 pb-0'
+        : resolvedHeaderConfig.logoSpacing === 'spacious'
+        ? 'mb-6 pb-2'
+        : 'mb-4 pb-1';
+
+    const resolvedGlobalRadius =
+      propGlobalCardRadius ||
+      quotation.globalCardRadius ||
+      profile?.globalCardRadius ||
+      resolvedRecipientConfig.globalCardRadius ||
+      'rounded';
+    const globalRadiusClass = resolvedGlobalRadius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+
+    const resolvedCardsOrder =
+      propCardsOrder ||
+      quotation.cardsOrder ||
+      profile?.cardsOrder ||
+      resolvedRecipientConfig.cardsOrder ||
+      'recipient_first';
+
+    const resolvedSubjectPlacement =
+      propSubjectPlacement ||
+      quotation.subjectPlacement ||
+      profile?.subjectPlacement ||
+      resolvedRecipientConfig.subjectPlacement ||
+      'below_cards';
+
+    const recStyle = resolvedRecipientConfig.recipientCardStyle || resolvedRecipientConfig.style || 'framed';
+    const recWidth = resolvedRecipientConfig.recipientCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
+    const recRadius = resolvedRecipientConfig.recipientCardRadius || resolvedGlobalRadius;
+
+    const offerStyle = resolvedRecipientConfig.offerCardStyle || resolvedRecipientConfig.style || 'framed';
+    const offerWidth = resolvedRecipientConfig.offerCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
+    const offerRadius = resolvedRecipientConfig.offerCardRadius || resolvedGlobalRadius;
+
+    const isStacked = recWidth === '100' || offerWidth === '100' || resolvedRecipientConfig.layout === 'stacked';
+
+    const showAttention = resolvedRecipientConfig.showAttention !== false;
+    const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
+    const showValidity = resolvedRecipientConfig.showValidity !== false;
+    const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
+
+    const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
+      const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+      if (style === 'framed') {
+        return `border border-slate-200 ${radiusClass} p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between`;
+      }
+      return `border-b border-slate-200 ${radiusClass} pb-2 bg-transparent h-full flex flex-col justify-between`;
+    };
+
+    const recipientCardBase = getCardClasses(recStyle, recRadius);
+    const offerCardBase = getCardClasses(offerStyle, offerRadius);
+
+    const renderSubjectBanner = () => {
+      if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
+        return null;
+      }
+      return (
+        <div
+          className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 ${globalRadiusClass} relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
+            isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
+          } ${
+            activeSelectedSection === 'subject'
+              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
+              : ''
+          }`}
+          onClick={isInteractive ? (e) => {
+            e.stopPropagation();
+            onSelectSection?.('subject');
+          } : undefined}
+        >
+          {isInteractive && (
+            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            }`}>
+              Subject Banner
+            </div>
+          )}
+          <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
+          <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
+        </div>
+      );
+    };
+
+    const renderRecipientCard = () => (
+      <div
+        key="recipient_card"
+        className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
+          recipientCardBase
+        } ${isInteractive ? 'cursor-pointer' : ''} ${
+          isRecipientSelected
+            ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+            : isInteractive
+            ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+            : ''
+        }`}
+        onClick={isInteractive ? (e) => {
+          e.stopPropagation();
+          onSelectSection?.('recipient_info');
+          onSelectBlock?.('recipient_info' as any);
+        } : undefined}
+        style={{ width: '100%', maxWidth: '100%' }}
+      >
+        {isInteractive && (
+          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+            isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+          }`}>
+            Submitted To
+          </div>
+        )}
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
+            Submitted To / Attention To
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">
+            {clientEntityName}
+          </h3>
+          {showAttention && (
+            <p className="text-xs text-slate-700 font-medium mt-0.5">
+              Attn:{' '}
+              <span className="text-slate-900 font-semibold">
+                {clientContactPerson || 'Procurement / Commercial Dept.'}
+              </span>
+            </p>
+          )}
+          <p className="text-xs text-slate-600 mt-1">
+            {clientAddress}
+          </p>
+        </div>
+        <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
+          <p>
+            <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
+          </p>
+          {(clientPhone || clientEmail) && (
+            <p className="text-slate-500 text-[11px]">
+              {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+
+    const renderOfferCard = () => (
+      <div
+        key="offer_card"
+        className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
+          offerCardBase
+        } ${isInteractive ? 'cursor-pointer' : ''} ${
+          isQuoteMetaSelected
+            ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+            : isInteractive
+            ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+            : ''
+        }`}
+        onClick={isInteractive ? (e) => {
+          e.stopPropagation();
+          onSelectSection?.('quote_meta');
+          onSelectBlock?.('quote_meta' as any);
+        } : undefined}
+        style={{ width: '100%', maxWidth: '100%' }}
+      >
+        {isInteractive && (
+          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+            isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+          }`}>
+            Commercial Offer
+          </div>
+        )}
+        <div>
+          <div className="pb-1.5 border-b border-slate-200/60">
+            <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+              Commercial Offer
+            </span>
+          </div>
+          <div className="py-2 text-center">
+            <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
+              {quotation.formatted_quote_ref || quotation.quote_number}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+          <div>
+            <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+            <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+          </div>
+          {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+            <div>
+              <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+              <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+            </div>
+          )}
+          {showSalesRep && resolvedSalesRep && (
+            <div>
+              <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
+              <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+            </div>
+          )}
+          {showEnquiryRef && enquiryRef && (
+            <div>
+              <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+              <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+            </div>
+          )}
+          {quotation.status && (
+            <div className="col-span-2 pt-0.5 flex items-center justify-between">
+              <span className="text-slate-400 text-[10px] uppercase">Status</span>
+              <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                {quotation.status}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
+    return (
+      <>
+        <header
+          className={`quotation-header-branding border-b border-slate-200 pb-4 mb-4 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+            isInteractive ? 'cursor-pointer' : ''
+          } ${
+            isHeaderSelected
+              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+              : isInteractive
+              ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+              : ''
+          }`}
+          onClick={isInteractive ? (e) => {
+            e.stopPropagation();
+            if (onSelectSection) {
+              onSelectSection('header');
+            } else if (onSelectBlock) {
+              onSelectBlock('header' as any);
+            }
+          } : undefined}
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
+          {isInteractive && (
+            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              isHeaderSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            }`}>
+              Header &amp; Branding
+            </div>
+          )}
+
+          {effectiveHeaderAlign === 'centered' ? (
+            /* Centered Stack Banner */
+            <div className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`} style={{ width: '100%', maxWidth: '100%' }}>
+              <div className="pb-1">
+                {profile?.logo_url && !logoLoadFailed ? (
+                  <img
+                    src={profile.logo_url}
+                    alt={senderEntityName}
+                    style={{ height: `${logoHeight}px` }}
+                    className="max-w-[240px] object-contain"
+                    onError={() => setLogoLoadFailed(true)}
+                  />
+                ) : (
+                  <div
+                    className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
+                    style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
+                  >
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                )}
+              </div>
+              {showCompanyName && (
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                  {senderEntityName}
+                </h1>
+              )}
+              {/* Address, Contacts & TRN */}
+              {(() => {
+                const segments: React.ReactNode[] = [];
+                if (senderAddress) {
+                  segments.push(
+                    <span key="addr" className="inline-flex items-center gap-1">
+                      <span>{senderAddress}</span>
+                    </span>
+                  );
+                }
+                if (showPhone) {
+                  segments.push(
+                    <span key="phone" className="inline-flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderPhone}</span>
+                    </span>
+                  );
+                }
+                if (showEmail) {
+                  segments.push(
+                    <span key="email" className="inline-flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderEmail}</span>
+                    </span>
+                  );
+                }
+                if (showTrn) {
+                  segments.push(
+                    <span key="trn" className="inline-flex items-center gap-1">
+                      <span className="text-slate-400 font-medium">TRN:</span>
+                      <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
+                    </span>
+                  );
+                }
+                if (showWebsite) {
+                  segments.push(
+                    <span key="web" className="inline-flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderWebsite}</span>
+                    </span>
+                  );
+                }
+                if (segments.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-0.5 leading-relaxed">
+                    {segments.map((segment, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
+                        <span>{segment}</span>
+                        {idx < segments.length - 1 && (
+                          <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
+            <div className={`flex flex-row justify-between items-start gap-4 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
+              <div className={`${logoPosition === 'right' ? 'w-[45%] text-right flex-col items-end' : 'w-[52%] text-left'} flex-shrink-0 flex items-start gap-3.5`}>
+                {profile?.logo_url && !logoLoadFailed ? (
+                  <img
+                    src={profile.logo_url}
+                    alt={senderEntityName}
+                    style={{ height: `${logoHeight}px` }}
+                    className="max-w-[180px] object-contain shrink-0"
+                    onError={() => setLogoLoadFailed(true)}
+                  />
+                ) : (
+                  <div
+                    className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                    style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
+                  >
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  {showCompanyName && (
+                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
+                      {senderEntityName}
+                    </h1>
+                  )}
+                  {showTrn && (
+                    <p className="text-xs font-semibold text-slate-600 mt-0.5">
+                      TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className={`${logoPosition === 'right' ? 'w-[52%] text-left items-start' : 'w-[45%] text-right items-end'} flex-shrink-0 flex flex-col space-y-1`}>
+                {senderAddress && (
+                  <p className="text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black leading-snug break-words max-w-full">
+                    <span>{senderAddress}</span>
+                  </p>
+                )}
+                <div className={`flex flex-col gap-0.5 text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black ${logoPosition === 'right' ? 'items-start' : 'items-end'}`}>
+                  {showPhone && senderPhone && (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderPhone}</span>
+                    </span>
+                  )}
+                  {showEmail && senderEmail && (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderEmail}</span>
+                    </span>
+                  )}
+                  {showWebsite && senderWebsite && (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderWebsite}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </header>
+
+        {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
+        <div
+          className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
+            isStacked
+              ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
+              : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
+          }`}
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          {resolvedCardsOrder === 'offer_first' ? (
+            <>
+              {renderOfferCard()}
+              {renderRecipientCard()}
+            </>
+          ) : (
+            <>
+              {renderRecipientCard()}
+              {renderOfferCard()}
+            </>
+          )}
+        </div>
+        {resolvedSubjectPlacement === 'below_cards' && renderSubjectBanner()}
+      </>
+    );
+  };
+
+  const renderItemsTable = (
+    pageItems: QuotationLineItem[],
+    startIndex: number,
+    showEmptyPlaceholder: boolean,
+    isContinuation: boolean = false
+  ) => {
+    return (
+      <section
+        ref={!isContinuation ? tableRef : undefined}
+        className={`quotation-items-section flex-1 my-2 w-full transition-all duration-150 ${
+          (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
+        } quotation-structural-section relative group ${!isContinuation ? 'print:pt-4' : 'print:pt-1'} ${
+          isInteractive ? 'cursor-pointer' : ''
+        } ${
+          isTableSelected
+            ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+            : isInteractive
+            ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+            : ''
+        }`}
+        onClick={isInteractive ? (e) => {
+          e.stopPropagation();
+          if (onSelectSection) {
+            onSelectSection('items_table');
+          } else if (onSelectBlock) {
+            onSelectBlock('items_table' as any);
+          }
+        } : undefined}
+        style={{ width: '100%', maxWidth: '100%' }}
+      >
+        {isInteractive && !isContinuation && (
+          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+            isTableSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+          }`}>
+            {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
+          </div>
+        )}
+        <div className={`${
+          (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
+        } border border-slate-200 overflow-hidden w-full`} style={{ width: '100%', maxWidth: '100%' }}>
+          <table
+            className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
+            style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
+          >
+            <colgroup><col style={{ width: '5%' }} /><col style={{ width: '52%' }} /><col style={{ width: '7%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '14%' }} /></colgroup>
+            <thead style={{ display: 'table-header-group' }}>
+              <tr
+                className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
+                style={{
+                  backgroundColor: theme.subtleBg || '#f8fafc',
+                  borderColor: '#e2e8f0',
+                  breakInside: 'avoid',
+                  pageBreakInside: 'avoid'
+                }}
+              >
+                <th
+                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
+                >
+                  #
+                </th>
+                <th
+                  className={`${thPad} px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-left`}
+                >
+                  Description &amp; Technical Specifications
+                </th>
+                <th
+                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center font-mono`}
+                >
+                  Qty
+                </th>
+                <th
+                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
+                >
+                  UOM
+                </th>
+                <th
+                  className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right`}
+                >
+                  Unit Price
+                </th>
+                <th
+                  className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right`}
+                >
+                  Total ({currency})
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
+              {pageItems.length > 0 ? (
+                pageItems.map((item, idx) => {
+                  const itemNumber = startIndex + idx + 1;
+                  return (
+                    <tr
+                      key={item.id || itemNumber}
+                      className={`break-inside-avoid transition-colors ${
+                        item.is_optional
+                          ? 'bg-amber-50/50 hover:bg-amber-50'
+                          : 'hover:bg-slate-50/60'
+                      }`}
+                      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                    >
+                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
+                        {itemNumber}
+                      </td>
+                      <td className={`${tdPad} px-2.5 align-top break-words`}>
+                        <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
+                          <span>{item.item_name || 'Standard Line Item'}</span>
+                          {item.is_optional && (
+                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
+                              Optional
+                            </span>
+                          )}
+                        </div>
+                        {item.description && (
+                          <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
+                            {item.description}
+                          </div>
+                        )}
+                        {/* Technical Specifications & Attributes Block */}
+                        {(() => {
+                          if (!showItemAttributes) return null;
+                          const allAttrs: Array<{ key: string; value: string }> = [];
+
+                          if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+                            allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
+                          }
+                          if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+                            allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
+                          }
+                          if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+                            allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
+                          }
+                          if (showAvailability && item.availability && item.availability.trim()) {
+                            allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
+                          }
+
+                          const rawAttrs: Array<{ key: string; value: string }> = [];
+                          const itemAny = item as any;
+
+                          if (Array.isArray(item.attributes)) {
+                            item.attributes.forEach((attr) => {
+                              if (attr && (attr.key || (attr as any).name) && attr.value) {
+                                rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
+                              }
+                            });
+                          } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+                            Object.entries(itemAny.attributes).forEach(([k, v]) => {
+                              if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                rawAttrs.push({ key: k.trim(), value: String(v).trim() });
+                              }
+                            });
+                          }
+
+                          if (Array.isArray(itemAny.specs)) {
+                            itemAny.specs.forEach((s: any) => {
+                              if (s && s.key && s.value) {
+                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                              }
+                            });
+                          }
+
+                          if (Array.isArray(itemAny.specifications)) {
+                            itemAny.specifications.forEach((s: any) => {
+                              if (s && s.key && s.value) {
+                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                              }
+                            });
+                          }
+
+                          rawAttrs.forEach((attr) => {
+                            const kLower = attr.key.toLowerCase();
+                            if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                              allAttrs.push(attr);
+                            }
+                          });
+
+                          const itemVisibleKeys = Array.isArray(item.visible_attributes)
+                            ? item.visible_attributes.map((k) => k.toLowerCase())
+                            : undefined;
+                          const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+                            ? item.hidden_attributes.map((k) => k.toLowerCase())
+                            : undefined;
+
+                          const visibleAttrs = allAttrs.filter((attr) => {
+                            const kLower = attr.key.toLowerCase();
+                            if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                              return false;
+                            }
+                            if (itemVisibleKeys !== undefined) {
+                              return itemVisibleKeys.includes(kLower);
+                            }
+                            if (itemHiddenKeys !== undefined) {
+                              return !itemHiddenKeys.includes(kLower);
+                            }
+                            return true;
+                          });
+
+                          if (visibleAttrs.length === 0) return null;
+
+                          if (attributeDisplayFormat === 'inline_text') {
+                            return (
+                              <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
+                                <span className="font-semibold text-slate-700">Specs: </span>
+                                {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
+                              {visibleAttrs.map((attr, aIdx) => (
+                                <span
+                                  key={aIdx}
+                                  className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
+                                >
+                                  <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                  <span>{attr.value}</span>
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                        {item.quantity}
+                      </td>
+                      <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
+                        <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
+                          {item.unit || 'pcs'}
+                        </span>
+                      </td>
+                      <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                        {Number(item.unit_price || 0).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </td>
+                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                        {item.is_optional ? (
+                          <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
+                            [Excluded]
+                          </span>
+                        ) : (
+                          Number(item.total_price || 0).toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : showEmptyPlaceholder ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-8 text-center text-slate-400 italic"
+                  >
+                    No line items specified for this offer.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div
       id="quotation-printable-document"
@@ -1363,12 +2203,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-          }
-          body {
-            counter-reset: page 1;
-          }
-          .print-page-number::after {
-            content: counter(page);
           }
           #quotation-printable-document,
           .quotation-document-container {
@@ -1449,776 +2283,51 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       `}</style>
 
       {/* ========================================================
-          PAGE 1 DISCRETE A4 SHEET
+          DYNAMIC DISCRETE A4 SHEETS (PAGINATED CHUNKER)
          ======================================================== */}
-      <article
-        ref={sheetRef}
-        className="quotation-page-sheet quotation-page-1 relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-page print:min-h-screen"
-        style={{ boxSizing: 'border-box' }}
-      >
-        {/* Top Accent Stripe */}
-        <div
-          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-          style={{ backgroundColor: accentColor }}
-        />
+      {documentPages.map((page, pageIdx) => {
+        const isFirst = page.isFirstPage;
+        const isLast = page.isLastPage;
+        const isContinuation = !isFirst;
 
-        {/* Page 1 Body Content */}
-        <div className="flex-1 flex flex-col justify-start w-full">
-            {/* ========================================================
-                HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
-               ======================================================== */}
-            {/* ========================================================
-                1. HEADER & COMPANY BRANDING (SELECTABLE STRUCTURAL SECTION)
-               ======================================================== */}
-        {(() => {
-          const effectiveHeaderAlign = resolvedHeaderConfig.alignment || (headerLayout === 'centered_banner' ? 'centered' : 'split');
-          const logoHeight = resolvedHeaderConfig.logoHeightPx || 44;
-          const showPhone = resolvedHeaderConfig.showPhone !== false && Boolean(senderPhone);
-          const showEmail = resolvedHeaderConfig.showEmail !== false && Boolean(senderEmail);
-          const showWebsite = resolvedHeaderConfig.showWebsite !== false && Boolean(senderWebsite);
-          const showTrn = resolvedHeaderConfig.showTrn !== false && Boolean(senderTrn);
-          const showCompanyName = resolvedHeaderConfig.showCompanyName !== false;
-          const logoSpacingClass =
-            resolvedHeaderConfig.logoSpacing === 'none'
-              ? 'mb-0 pb-0'
-              : resolvedHeaderConfig.logoSpacing === 'tight'
-              ? 'mb-2 pb-0'
-              : resolvedHeaderConfig.logoSpacing === 'spacious'
-              ? 'mb-6 pb-2'
-              : 'mb-4 pb-1';
+        return (
+          <article
+            key={page.pageNumber}
+            ref={isFirst ? sheetRef : (pageIdx === 1 ? page2Ref : undefined)}
+            className={`quotation-page-sheet quotation-page-${page.pageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+              isLast ? 'print:break-after-avoid' : 'print:break-after-page'
+            } print:min-h-screen`}
+            style={{ boxSizing: 'border-box' }}
+          >
+            {/* Top Accent Stripe */}
+            <div
+              className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+              style={{ backgroundColor: accentColor }}
+            />
 
-          return (
-            <header
-              className={`quotation-header-branding border-b border-slate-200 pb-4 mb-4 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section ${
-                isInteractive ? 'cursor-pointer' : ''
-              } ${
-                isHeaderSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                  : isInteractive
-                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                  : ''
-              }`}
-              onClick={isInteractive ? (e) => {
-                e.stopPropagation();
-                if (onSelectSection) {
-                  onSelectSection('header');
-                } else if (onSelectBlock) {
-                  onSelectBlock('header' as any);
-                }
-              } : undefined}
-              style={{ width: '100%', maxWidth: '100%' }}
-            >
-              {isInteractive && (
-                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                  isHeaderSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                }`}>
-                  Header &amp; Branding
-                </div>
-              )}
-
-              {effectiveHeaderAlign === 'centered' ? (
-                /* Centered Stack Banner */
-                <div className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`} style={{ width: '100%', maxWidth: '100%' }}>
-                  <div className="pb-1">
-                    {profile?.logo_url && !logoLoadFailed ? (
-                      <img
-                        src={profile.logo_url}
-                        alt={senderEntityName}
-                        style={{ height: `${logoHeight}px` }}
-                        className="max-w-[240px] object-contain"
-                        onError={() => setLogoLoadFailed(true)}
-                      />
-                    ) : (
-                      <div
-                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                        style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
-                      >
-                        <Building2 className="w-6 h-6" />
-                      </div>
-                    )}
-                  </div>
-                  {showCompanyName && (
-                    <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                      {senderEntityName}
-                    </h1>
-                  )}
-                  {/* Address, Contacts & TRN */}
-                  {(() => {
-                    const segments: React.ReactNode[] = [];
-                    if (senderAddress) {
-                      segments.push(
-                        <span key="addr" className="inline-flex items-center gap-1">
-                          <span>{senderAddress}</span>
-                        </span>
-                      );
-                    }
-                    if (showPhone) {
-                      segments.push(
-                        <span key="phone" className="inline-flex items-center gap-1">
-                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderPhone}</span>
-                        </span>
-                      );
-                    }
-                    if (showEmail) {
-                      segments.push(
-                        <span key="email" className="inline-flex items-center gap-1">
-                          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderEmail}</span>
-                        </span>
-                      );
-                    }
-                    if (showTrn) {
-                      segments.push(
-                        <span key="trn" className="inline-flex items-center gap-1">
-                          <span className="text-slate-400 font-medium">TRN:</span>
-                          <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
-                        </span>
-                      );
-                    }
-                    if (showWebsite) {
-                      segments.push(
-                        <span key="web" className="inline-flex items-center gap-1">
-                          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderWebsite}</span>
-                        </span>
-                      );
-                    }
-                    if (segments.length === 0) return null;
-                    return (
-                      <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-0.5 leading-relaxed">
-                        {segments.map((segment, idx) => (
-                          <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
-                            <span>{segment}</span>
-                            {idx < segments.length - 1 && (
-                              <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
+            {/* Page Body Content */}
+            <div className={`flex-1 flex flex-col justify-start w-full ${isContinuation ? 'pt-[4mm]' : ''}`}>
+              {isFirst ? (
+                renderTopSection()
               ) : (
-                /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
-                <div className={`flex flex-row justify-between items-start gap-4 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
-                  <div className={`${logoPosition === 'right' ? 'w-[45%] text-right flex-col items-end' : 'w-[52%] text-left'} flex-shrink-0 flex items-start gap-3.5`}>
-                    {profile?.logo_url && !logoLoadFailed ? (
-                      <img
-                        src={profile.logo_url}
-                        alt={senderEntityName}
-                        style={{ height: `${logoHeight}px` }}
-                        className="max-w-[180px] object-contain shrink-0"
-                        onError={() => setLogoLoadFailed(true)}
-                      />
-                    ) : (
-                      <div
-                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
-                        style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
-                      >
-                        <Building2 className="w-6 h-6" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      {showCompanyName && (
-                        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                          {senderEntityName}
-                        </h1>
-                      )}
-                      {showTrn && (
-                        <p className="text-xs font-semibold text-slate-600 mt-0.5">
-                          TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
-                        </p>
-                      )}
-                    </div>
+                repeatHeaderOnSubsequentPages && (
+                  <div className={`quotation-page${page.pageNumber}-continuation-header w-full mb-3`}>
+                    {renderCompactRunningHeader(page.pageNumber, totalPages)}
                   </div>
-
-                  <div className={`${logoPosition === 'right' ? 'w-[52%] text-left items-start' : 'w-[45%] text-right items-end'} flex-shrink-0 flex flex-col space-y-1`}>
-                    {senderAddress && (
-                      <p className="text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black leading-snug break-words max-w-full">
-                        <span>{senderAddress}</span>
-                      </p>
-                    )}
-                    <div className={`flex flex-col gap-0.5 text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black ${logoPosition === 'right' ? 'items-start' : 'items-end'}`}>
-                      {showPhone && senderPhone && (
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderPhone}</span>
-                        </span>
-                      )}
-                      {showEmail && senderEmail && (
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderEmail}</span>
-                        </span>
-                      )}
-                      {showWebsite && senderWebsite && (
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{senderWebsite}</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                )
               )}
-            </header>
-          );
-        })()}
 
-        {/* ========================================================
-            2. CLIENT ("recipient_info") & COMMERCIAL OFFER ("quote_meta")
-            DECOUPLED CARDS & SUBJECT BANNER
-           ======================================================== */}
-        {(() => {
-          const resolvedGlobalRadius =
-            propGlobalCardRadius ||
-            quotation.globalCardRadius ||
-            profile?.globalCardRadius ||
-            resolvedRecipientConfig.globalCardRadius ||
-            'rounded';
-          const globalRadiusClass = resolvedGlobalRadius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+              {(isFirst || page.items.length > 0) &&
+                renderItemsTable(page.items, page.startIndex, isFirst && page.items.length === 0, isContinuation)}
 
-          const resolvedCardsOrder =
-            propCardsOrder ||
-            quotation.cardsOrder ||
-            profile?.cardsOrder ||
-            resolvedRecipientConfig.cardsOrder ||
-            'recipient_first';
-
-          const resolvedSubjectPlacement =
-            propSubjectPlacement ||
-            quotation.subjectPlacement ||
-            profile?.subjectPlacement ||
-            resolvedRecipientConfig.subjectPlacement ||
-            'below_cards';
-
-          const recStyle = resolvedRecipientConfig.recipientCardStyle || resolvedRecipientConfig.style || 'framed';
-          const recWidth = resolvedRecipientConfig.recipientCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-          const recRadius = resolvedRecipientConfig.recipientCardRadius || resolvedGlobalRadius;
-
-          const offerStyle = resolvedRecipientConfig.offerCardStyle || resolvedRecipientConfig.style || 'framed';
-          const offerWidth = resolvedRecipientConfig.offerCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-          const offerRadius = resolvedRecipientConfig.offerCardRadius || resolvedGlobalRadius;
-
-          const isStacked = recWidth === '100' || offerWidth === '100' || resolvedRecipientConfig.layout === 'stacked';
-
-          const showAttention = resolvedRecipientConfig.showAttention !== false;
-          const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
-          const showValidity = resolvedRecipientConfig.showValidity !== false;
-          const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
-
-          const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
-            const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
-            if (style === 'framed') {
-              return `border border-slate-200 ${radiusClass} p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between`;
-            }
-            return `border-b border-slate-200 ${radiusClass} pb-2 bg-transparent h-full flex flex-col justify-between`;
-          };
-
-          const recipientCardBase = getCardClasses(recStyle, recRadius);
-          const offerCardBase = getCardClasses(offerStyle, offerRadius);
-
-          const renderSubjectBanner = () => {
-            if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
-              return null;
-            }
-            return (
-              <div
-                className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 ${globalRadiusClass} relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
-                  isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
-                } ${
-                  activeSelectedSection === 'subject'
-                    ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
-                    : ''
-                }`}
-                onClick={isInteractive ? (e) => {
-                  e.stopPropagation();
-                  onSelectSection?.('subject');
-                } : undefined}
-              >
-                {isInteractive && (
-                  <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                    activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                  }`}>
-                    Subject Banner
-                  </div>
-                )}
-                <span className="text-slate-500 font-normal mr-1.5">Subject:</span>
-                <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
-              </div>
-            );
-          };
-
-          const renderRecipientCard = () => (
-            <div
-              key="recipient_card"
-              className={`quotation-recipient-info relative group transition-all duration-150 quotation-structural-section ${
-                recipientCardBase
-              } ${isInteractive ? 'cursor-pointer' : ''} ${
-                isRecipientSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                  : isInteractive
-                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                  : ''
-              }`}
-              onClick={isInteractive ? (e) => {
-                e.stopPropagation();
-                onSelectSection?.('recipient_info');
-                onSelectBlock?.('recipient_info' as any);
-              } : undefined}
-              style={{ width: '100%', maxWidth: '100%' }}
-            >
-              {isInteractive && (
-                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                  isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                }`}>
-                  Submitted To
-                </div>
-              )}
-              <div>
-                <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
-                  Submitted To / Attention To
-                </div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  {clientEntityName}
-                </h3>
-                {showAttention && (
-                  <p className="text-xs text-slate-700 font-medium mt-0.5">
-                    Attn:{' '}
-                    <span className="text-slate-900 font-semibold">
-                      {clientContactPerson || 'Procurement / Commercial Dept.'}
-                    </span>
-                  </p>
-                )}
-                <p className="text-xs text-slate-600 mt-1">
-                  {clientAddress}
-                </p>
-              </div>
-              <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
-                <p>
-                  <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
-                </p>
-                {(clientPhone || clientEmail) && (
-                  <p className="text-slate-500 text-[11px]">
-                    {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
-                  </p>
-                )}
-              </div>
+              {page.hasClosingBlocks && renderBlocksGrid()}
             </div>
-          );
 
-          const renderOfferCard = () => (
-            <div
-              key="offer_card"
-              className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
-                offerCardBase
-              } ${isInteractive ? 'cursor-pointer' : ''} ${
-                isQuoteMetaSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                  : isInteractive
-                  ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                  : ''
-              }`}
-              onClick={isInteractive ? (e) => {
-                e.stopPropagation();
-                onSelectSection?.('quote_meta');
-                onSelectBlock?.('quote_meta' as any);
-              } : undefined}
-              style={{ width: '100%', maxWidth: '100%' }}
-            >
-              {isInteractive && (
-                <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-                  isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-                }`}>
-                  Commercial Offer
-                </div>
-              )}
-              <div>
-                <div className="pb-1.5 border-b border-slate-200/60">
-                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
-                    Commercial Offer
-                  </span>
-                </div>
-                <div className="py-2 text-center">
-                  <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
-                    {quotation.formatted_quote_ref || quotation.quote_number}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
-                <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Date</span>
-                  <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-                </div>
-                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
-                  </div>
-                )}
-                {showSalesRep && resolvedSalesRep && (
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
-                    <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
-                  </div>
-                )}
-                {showEnquiryRef && enquiryRef && (
-                  <div>
-                    <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
-                    <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
-                  </div>
-                )}
-                {quotation.status && (
-                  <div className="col-span-2 pt-0.5 flex items-center justify-between">
-                    <span className="text-slate-400 text-[10px] uppercase">Status</span>
-                    <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
-                      {quotation.status}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-
-          return (
-            <>
-              {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
-              <div
-                className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
-                  isStacked
-                    ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
-                    : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
-                }`}
-                style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-              >
-                {resolvedCardsOrder === 'offer_first' ? (
-                  <>
-                    {renderOfferCard()}
-                    {renderRecipientCard()}
-                  </>
-                ) : (
-                  <>
-                    {renderRecipientCard()}
-                    {renderOfferCard()}
-                  </>
-                )}
-              </div>
-              {resolvedSubjectPlacement === 'below_cards' && renderSubjectBanner()}
-            </>
-          );
-        })()}
-
-        {/* ========================================================
-            ITEMIZED TABLE (ENTERPRISE 6-COLUMN STANDARD - SELECTABLE STRUCTURAL SECTION)
-           ======================================================== */}
-        <section
-          ref={tableRef}
-          className={`quotation-items-section flex-1 my-2 w-full transition-all duration-150 ${
-            (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
-          } quotation-structural-section relative group print:pt-4 ${
-            isInteractive ? 'cursor-pointer' : ''
-          } ${
-            isTableSelected
-              ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-              : isInteractive
-              ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-              : ''
-          }`}
-          onClick={isInteractive ? (e) => {
-            e.stopPropagation();
-            if (onSelectSection) {
-              onSelectSection('items_table');
-            } else if (onSelectBlock) {
-              onSelectBlock('items_table' as any);
-            }
-          } : undefined}
-          style={{ width: '100%', maxWidth: '100%' }}
-        >
-          {isInteractive && (
-            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-              isTableSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-            }`}>
-              {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
-            </div>
-          )}
-          <div className={`${
-            (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
-          } border border-slate-200 overflow-hidden w-full`} style={{ width: '100%', maxWidth: '100%' }}>
-            <table
-              className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
-              style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
-            >
-              <colgroup><col style={{ width: '5%' }} /><col style={{ width: '52%' }} /><col style={{ width: '7%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '14%' }} /></colgroup>
-              <thead style={{ display: 'table-header-group' }}>
-                <tr
-                  className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
-                  style={{
-                    backgroundColor: theme.subtleBg || '#f8fafc',
-                    borderColor: '#e2e8f0',
-                    breakInside: 'avoid',
-                    pageBreakInside: 'avoid'
-                  }}
-                >
-                  <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
-                  >
-                    #
-                  </th>
-                  <th
-                    className={`${thPad} px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-left`}
-                  >
-                    Description & Technical Specifications
-                  </th>
-                  <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center font-mono`}
-                  >
-                    Qty
-                  </th>
-                  <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
-                  >
-                    UOM
-                  </th>
-                  <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right`}
-                  >
-                    Unit Price
-                  </th>
-                  <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right`}
-                  >
-                    Total ({currency})
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
-                {quotation.line_items?.length ? (
-                  quotation.line_items.map((item, idx) => (
-                    <tr
-                      key={item.id || idx}
-                      className={`break-inside-avoid transition-colors ${
-                        item.is_optional
-                          ? 'bg-amber-50/50 hover:bg-amber-50'
-                          : 'hover:bg-slate-50/60'
-                      }`}
-                      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                    >
-                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
-                        {idx + 1}
-                      </td>
-                      <td className={`${tdPad} px-2.5 align-top break-words`}>
-                        <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
-                          <span>{item.item_name || 'Standard Line Item'}</span>
-                          {item.is_optional && (
-                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
-                              Optional
-                            </span>
-                          )}
-                        </div>
-                        {item.description && (
-                          <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
-                            {item.description}
-                          </div>
-                        )}
-                        {/* Technical Specifications & Attributes Block */}
-                        {(() => {
-                          if (!showItemAttributes) return null;
-
-                          // Build combined attributes list
-                          const allAttrs: Array<{ key: string; value: string }> = [];
-
-                          // 1. Column attributes if enabled
-                          if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-                            allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
-                          }
-                          if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-                            allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
-                          }
-                          if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-                            allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
-                          }
-                          if (showAvailability && item.availability && item.availability.trim()) {
-                            allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
-                          }
-
-                          // 2. Structured & dynamic item attributes
-                          const rawAttrs: Array<{ key: string; value: string }> = [];
-                          const itemAny = item as any;
-
-                          if (Array.isArray(item.attributes)) {
-                            item.attributes.forEach((attr) => {
-                              if (attr && (attr.key || (attr as any).name) && attr.value) {
-                                rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
-                              }
-                            });
-                          } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
-                            Object.entries(itemAny.attributes).forEach(([k, v]) => {
-                              if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                rawAttrs.push({ key: k.trim(), value: String(v).trim() });
-                              }
-                            });
-                          }
-
-                          if (Array.isArray(itemAny.specs)) {
-                            itemAny.specs.forEach((s: any) => {
-                              if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                              }
-                            });
-                          }
-
-                          if (Array.isArray(itemAny.specifications)) {
-                            itemAny.specifications.forEach((s: any) => {
-                              if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                              }
-                            });
-                          }
-
-                          // Deduplicate
-                          rawAttrs.forEach((attr) => {
-                            const kLower = attr.key.toLowerCase();
-                            if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
-                              allAttrs.push(attr);
-                            }
-                          });
-
-                          // Non-destructive redaction:
-                          // 1. Global filter: hiddenAttributeKeys
-                          // 2. Per-item filter: item.visible_attributes (or item.hidden_attributes)
-                          const itemVisibleKeys = Array.isArray(item.visible_attributes)
-                            ? item.visible_attributes.map((k) => k.toLowerCase())
-                            : undefined;
-                          const itemHiddenKeys = Array.isArray(item.hidden_attributes)
-                            ? item.hidden_attributes.map((k) => k.toLowerCase())
-                            : undefined;
-
-                          const visibleAttrs = allAttrs.filter((attr) => {
-                            const kLower = attr.key.toLowerCase();
-                            // Check global hiddenAttributeKeys
-                            if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
-                              return false;
-                            }
-                            // Check per-item explicit visible_attributes if defined
-                            if (itemVisibleKeys !== undefined) {
-                              return itemVisibleKeys.includes(kLower);
-                            }
-                            // Check per-item explicit hidden_attributes if defined
-                            if (itemHiddenKeys !== undefined) {
-                              return !itemHiddenKeys.includes(kLower);
-                            }
-                            return true;
-                          });
-
-                          if (visibleAttrs.length === 0) return null;
-
-                          if (attributeDisplayFormat === 'inline_text') {
-                            return (
-                              <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
-                                <span className="font-semibold text-slate-700">Specs: </span>
-                                {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
-                              </div>
-                            );
-                          }
-
-                          // Default: pills
-                          return (
-                            <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
-                              {visibleAttrs.map((attr, idx) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
-                                >
-                                  <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                  <span>{attr.value}</span>
-                                </span>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                        {item.quantity}
-                      </td>
-                      <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
-                        <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
-                          {item.unit || 'pcs'}
-                        </span>
-                      </td>
-                      <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
-                        {Number(item.unit_price || 0).toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
-                        {item.is_optional ? (
-                          <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
-                            [Excluded]
-                          </span>
-                        ) : (
-                          Number(item.total_price || 0).toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="py-8 text-center text-slate-400 italic"
-                    >
-                      No line items specified for this offer.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-        {/* In 1-Page mode: Commercial Terms, Totals & Signatures sit directly on Page 1 */}
-        {!isMultiPage && renderBlocksGrid()}
-      </div>
-
-      {/* Page 1 Micro-Footer: Locked to bottom of Sheet 1 */}
-      {renderFooter(1, isMultiPage ? 2 : 1)}
-    </article>
-
-    {/* ========================================================
-        PAGE 2 DISCRETE A4 SHEET (SPAWNED WHEN MULTI-PAGE REQUIRED)
-       ======================================================== */}
-    {isMultiPage && (
-      <article
-        ref={page2Ref}
-        className="quotation-page-sheet quotation-page-2 relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-avoid print:min-h-screen"
-        style={{ boxSizing: 'border-box' }}
-      >
-        {/* Top Accent Stripe */}
-        <div
-          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-          style={{ backgroundColor: accentColor }}
-        />
-
-        {/* Page 2 Body Content */}
-        <div className="flex-1 flex flex-col justify-start w-full pt-[4mm]">
-          {/* Clean Continuation Running Header with clean 18mm top clearance */}
-          {repeatHeaderOnSubsequentPages && (
-            <div className="quotation-page2-continuation-header w-full mb-3">
-              {renderCompactRunningHeader()}
-            </div>
-          )}
-          {renderBlocksGrid()}
-        </div>
-
-        {/* Page 2 Micro-Footer: Locked to bottom of Sheet 2 */}
-        {renderFooter(2, 2)}
-      </article>
-    )}
+            {/* Sheet Micro-Footer: Locked to bottom of Sheet */}
+            {renderFooter(page.pageNumber, totalPages)}
+          </article>
+        );
+      })}
   </div>
   );
 };

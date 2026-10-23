@@ -28,7 +28,8 @@ import {
   QuotationRecipientConfig,
   QuotationFooterConfig,
   QuotationItemAttribute,
-  QuotationLineItem
+  QuotationLineItem,
+  QuotationPageMode
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import {
@@ -232,6 +233,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     ...(profile?.footer_config || {}),
     ...(editingQuotation?.footer_config || {})
   }));
+  const [pageMode, setPageMode] = useState<QuotationPageMode>(() => {
+    return (
+      editingQuotation?.pageMode ||
+      editingQuotation?.footer_config?.pageMode ||
+      profile?.pageMode ||
+      profile?.footer_config?.pageMode ||
+      'auto'
+    );
+  });
   const [layoutBlocks, setLayoutBlocks] = useState<QuotationBlockConfig[]>(() => {
     let raw = DEFAULT_QUOTATION_BLOCKS;
     if (editingQuotation?.layout_blocks && editingQuotation.layout_blocks.length > 0) {
@@ -748,6 +758,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         setSecondarySignatoryTitle(editingQuotation.secondary_signatory_title);
       } else if (editingQuotation.signatories?.[1]?.designation) {
         setSecondarySignatoryTitle(editingQuotation.signatories[1].designation);
+      }
+      if (editingQuotation.pageMode) {
+        setPageMode(editingQuotation.pageMode);
       }
     }
   }, [editingQuotation]);
@@ -1437,11 +1450,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       globalCardRadius: globalCardRadius,
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
+      pageMode: pageMode,
       layout_blocks: layoutBlocks,
       header_config: headerConfig,
       recipient_config: recipientConfig,
       footer_config: {
         ...footerConfig,
+        pageMode: pageMode,
         remittanceBankId: selectedBankId,
         selectedBank: activeBankProfile
       },
@@ -1491,7 +1506,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     visibleColumns,
     clientContactPerson,
     preparedBy,
-    quotationSubject
+    quotationSubject,
+    pageMode
   ]);
 
   // Handle Save (Draft or Issued)
@@ -1563,11 +1579,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         globalCardRadius: globalCardRadius,
         cardsOrder: cardsOrder,
         subjectPlacement: subjectPlacement,
+        pageMode: pageMode,
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
         footer_config: {
           ...footerConfig,
+          pageMode: pageMode,
           remittanceBankId: selectedBankId,
           selectedBank: activeBankProfile
         },
@@ -1657,6 +1675,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         globalCardRadius: globalCardRadius,
         cardsOrder: cardsOrder,
         subjectPlacement: subjectPlacement,
+        pageMode: pageMode,
         layout_blocks: layoutBlocks,
         header_config: headerConfig,
         recipient_config: recipientConfig,
@@ -1666,6 +1685,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         selected_bank: activeBankProfile,
         footer_config: {
           ...footerConfig,
+          pageMode: pageMode,
           remittanceBankId: selectedBankId,
           selectedBank: activeBankProfile
         }
@@ -2841,6 +2861,40 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* Master Page Mode Control */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs mr-2">
+                  <button
+                    type="button"
+                    onClick={() => setPageMode('1-page')}
+                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
+                      pageMode === '1-page' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Force all content onto a single compact page"
+                  >
+                    1-Page
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPageMode('2-page')}
+                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
+                      pageMode === '2-page' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Standard 2-page proposal (Items on Page 1, Closing Blocks on Page 2)"
+                  >
+                    2-Page
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPageMode('auto')}
+                    className={`px-2 py-1 rounded-md font-medium transition cursor-pointer ${
+                      pageMode === 'auto' ? 'bg-white text-blue-700 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Auto-distribute based on line items count"
+                  >
+                    Auto
+                  </button>
+                </div>
+
                 {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] text-slate-500 font-medium hidden md:inline">Scale:</span>
@@ -2945,6 +2999,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     headerConfig={headerConfig}
                     recipientConfig={recipientConfig}
                     footerConfig={footerConfig}
+                    pageMode={pageMode}
                     isCompactView={tableDensity === 'compact'}
                     showBankDetails={showBankDetails}
                     showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
@@ -5783,6 +5838,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             headerConfig={headerConfig}
             recipientConfig={recipientConfig}
             footerConfig={footerConfig}
+            pageMode={pageMode}
             columnConfig={visibleColumns}
             isCompactView={tableDensity === 'compact'}
             showBankDetails={showBankDetails}

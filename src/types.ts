@@ -966,6 +966,7 @@ export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compac
 export type QuotationTableDensity = 'compact' | 'comfortable';
 export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
+export type QuotationPageMode = 'auto' | '1-page' | '2-page';
 
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
 
@@ -1081,6 +1082,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   globalCardRadius?: 'rounded' | 'sharp';
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
+  pageMode?: QuotationPageMode;
   bank_accounts: DocumentProfileBankAccount[];
   is_default?: boolean;
   createdAt?: string;
@@ -1141,6 +1143,7 @@ export interface QuotationFooterConfig {
   fontSizeScale?: QuotationFontSizeScale;
   remittanceBankId?: string;
   selectedBank?: BankAccountProfile;
+  pageMode?: QuotationPageMode;
 }
 
 export interface QuotationRecipientConfig {
@@ -1224,6 +1227,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   globalCardRadius?: 'rounded' | 'sharp';
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
+  pageMode?: QuotationPageMode;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1319,6 +1323,7 @@ export interface Quotation extends SoftDeleteFields {
   globalCardRadius?: 'rounded' | 'sharp';
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
+  pageMode?: QuotationPageMode;
   layout_blocks?: QuotationBlockConfig[];
   pdf_storage_path?: string;
   pdf_download_url?: string;
