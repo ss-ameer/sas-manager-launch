@@ -211,23 +211,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const page2Ref = React.useRef<HTMLElement | null>(null);
   const tableRef = React.useRef<HTMLDivElement | null>(null);
 
-  // 1-PAGE VS 2-PAGE ADAPTIVE LOGIC:
-  // If line items count <= 3 and total content fits comfortably within Page 1 (under 260mm height),
-  // allow Commercial Terms, Totals, and Signatures to remain on Page 1 as a single-page proposal.
-  // Only spawn the Page 2 Sheet container if line items exceed the threshold or if the operator selects a multi-page preset.
-  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(() => {
-    if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
-      return true;
-    }
-    const itemCount = quotation.line_items?.length || 0;
-    if (itemCount > 3) return true;
-    if (itemCount === 3) {
-      const totalAttrs = quotation.line_items?.reduce((acc, it) => acc + (it.attributes?.length || 0), 0) || 0;
-      if (totalAttrs > 2) return true;
-    }
-    return false;
-  });
-
   // Resolve presentation theme & block style
   const resolvedBlockStyle: 'framed' | 'minimal' =
     blockStyle ||
@@ -270,6 +253,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     quotation.footerLayoutMode ||
     profile?.footerLayoutMode ||
     'split';
+
+  // 1-PAGE VS 2-PAGE ADAPTIVE LOGIC:
+  // A standard quotation with Line Items + Commercial Terms + Financial Totals + Bank Remittance + Signatures + Customer Acceptance requires 2 pages.
+  // Set isMultiPage = true whenever:
+  // - itemCount >= 2 AND (showBankRemittance !== false || showCustomerAcceptance !== false)
+  // - OR itemCount > 2
+  // - OR explicit multi-page preset/flag is enabled.
+  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(() => {
+    if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
+      return true;
+    }
+    const itemCount = quotation.line_items?.length || 0;
+    if (itemCount > 2) return true;
+    if (itemCount >= 2 && (showBankRemittance !== false || showCustomerAcceptance !== false)) {
+      return true;
+    }
+    return false;
+  });
 
   // Resolve modular layout blocks
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
@@ -395,13 +396,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       }
 
       const itemCount = quotation.line_items?.length || 0;
-      // 2. If line items > 3, definitely multi-page
-      if (itemCount > 3) {
+      // 2. Multi-page condition:
+      // Standard quotation with Line Items + Commercial Terms + Financial Totals + Bank Remittance + Signatures + Customer Acceptance requires 2 pages.
+      if (itemCount > 2 || (itemCount >= 2 && (showBankRemittance !== false || showCustomerAcceptance !== false))) {
         setIsMultiPage(true);
         return;
       }
 
-      // 3. For <= 3 line items:
+      // 3. For 1 line item, check overflow limit
       // Limit 260mm in CSS pixels: (260 * 96) / 25.4 ≈ 982.68px
       const limit260Px = (260 * 96) / 25.4;
 
@@ -413,11 +415,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           return;
         }
       }
-
-      // If items <= 2, comfortably single-page
-      if (itemCount <= 2 && (!quotation.line_items?.[0]?.description || quotation.line_items[0].description.length < 150)) {
-        setIsMultiPage(false);
-      }
     };
 
     assessPageBreak();
@@ -425,7 +422,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     if (tableRef.current) ro.observe(tableRef.current);
     if (sheetRef.current) ro.observe(sheetRef.current);
     return () => ro.disconnect();
-  }, [showPageBreakGuides, quotation, layoutBlocks, tableDensity, tableFontScale, fontSizeScale]);
+  }, [showPageBreakGuides, quotation, layoutBlocks, tableDensity, tableFontScale, fontSizeScale, showBankRemittance, showCustomerAcceptance]);
 
   const resolvedShowBankDetails: boolean =
     quotation.show_bank_details ?? profile?.show_bank_details ?? showBankDetails;
@@ -1318,8 +1315,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-page-sheet {
             width: 210mm !important;
-            min-height: 297mm !important;
             height: 297mm !important;
+            min-height: 297mm !important;
+            max-height: 297mm !important;
             margin: 0 !important;
             padding: 14mm !important;
             box-shadow: none !important;
@@ -1328,6 +1326,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             background: #ffffff !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            overflow: hidden !important;
           }
           .quotation-page-sheet:last-child {
             page-break-after: auto !important;
@@ -1452,7 +1453,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
          ======================================================== */}
       <article
         ref={sheetRef}
-        className="quotation-page-sheet quotation-page-1 relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-page print:min-h-screen"
+        className="quotation-page-sheet quotation-page-1 relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-page print:min-h-screen"
         style={{ boxSizing: 'border-box' }}
       >
         {/* Top Accent Stripe */}
@@ -2194,7 +2195,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     {isMultiPage && (
       <article
         ref={page2Ref}
-        className="quotation-page-sheet quotation-page-2 relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-avoid print:min-h-screen"
+        className="quotation-page-sheet quotation-page-2 relative w-[210mm] min-w-[210mm] max-w-[210mm] h-[297mm] min-h-[297mm] max-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between overflow-hidden mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-avoid print:min-h-screen"
         style={{ boxSizing: 'border-box' }}
       >
         {/* Top Accent Stripe */}
