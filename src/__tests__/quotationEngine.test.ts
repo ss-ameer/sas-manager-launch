@@ -465,6 +465,101 @@ describe('Multi-Account Bank Remittance Registry & Selector', () => {
   });
 });
 
+describe('Commercial Terms Deduplication & Adaptive Pagination Logic', () => {
+  // Deduplication helper matching QuotationDocument.tsx
+  const deduplicateNotes = (
+    rawNotes?: string,
+    priceBasis?: string,
+    paymentTerms?: string,
+    validityText?: string
+  ) => {
+    if (!rawNotes) return undefined;
+    const lines = rawNotes.split('\n');
+    const filtered = lines.filter((line) => {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+      if (!trimmed) return false;
+      if (priceBasis) {
+        if (lower.startsWith('price basis:') || lower.startsWith('price basis -') || lower.startsWith('price basis')) return false;
+        if (lower === priceBasis.toLowerCase()) return false;
+      }
+      if (paymentTerms) {
+        if (lower.startsWith('payment terms:') || lower.startsWith('payment terms -') || lower.startsWith('payment:') || lower.startsWith('payment -')) return false;
+        if (lower === paymentTerms.toLowerCase()) return false;
+      }
+      if (validityText) {
+        if (lower.startsWith('validity:') || lower.startsWith('validity -') || lower.startsWith('valid until:') || lower.startsWith('valid until')) return false;
+      }
+      return true;
+    });
+    const cleaned = filtered.join('\n').trim();
+    return cleaned.length > 0 ? cleaned : undefined;
+  };
+
+  it('should suppress repeating Price Basis, Payment Terms, and Validity in custom notes', () => {
+    const raw = `Price Basis: FOB Dubai Airport
+Payment Terms: 100% Advance
+Validity: 30 days
+Delivery within 2 weeks after PO confirmation.
+Standard manufacturer 1-year warranty applies.`;
+
+    const result = deduplicateNotes(
+      raw,
+      'FOB Dubai Airport',
+      '100% Advance',
+      'Valid until 30 Dec 2026'
+    );
+
+    expect(result).notToContain('Price Basis:');
+    expect(result).notToContain('Payment Terms:');
+    expect(result).notToContain('Validity:');
+    expect(result).toContain('Delivery within 2 weeks after PO confirmation.');
+    expect(result).toContain('Standard manufacturer 1-year warranty applies.');
+  });
+
+  it('should return undefined if all lines in custom notes were duplicate key-values', () => {
+    const raw = `Price Basis: Ex-Works
+Payment Terms: Net 30 Days`;
+
+    const result = deduplicateNotes(raw, 'Ex-Works', 'Net 30 Days');
+    expect(result).toBe(undefined);
+  });
+
+  // Adaptive Pagination evaluator matching QuotationDocument.tsx
+  const evaluateIsMultiPage = (
+    itemCount: number,
+    isExplicitMultiPage?: boolean,
+    measuredHeightPx?: number
+  ) => {
+    if (isExplicitMultiPage === true) return true;
+    if (itemCount > 3) return true;
+    const limit260Px = (260 * 96) / 25.4; // 982.68px
+    if (measuredHeightPx !== undefined && measuredHeightPx > limit260Px) {
+      return true;
+    }
+    return false;
+  };
+
+  it('should keep <= 3 items on a single page if content fits comfortably within 260mm', () => {
+    expect(evaluateIsMultiPage(1, false, 650)).toBe(false);
+    expect(evaluateIsMultiPage(2, false, 820)).toBe(false);
+    expect(evaluateIsMultiPage(3, false, 950)).toBe(false);
+  });
+
+  it('should spawn Page 2 if line items exceed the threshold of 3', () => {
+    expect(evaluateIsMultiPage(4, false, 800)).toBe(true);
+    expect(evaluateIsMultiPage(10, false, 1200)).toBe(true);
+  });
+
+  it('should spawn Page 2 if operator selects a multi-page preset even with 1 item', () => {
+    expect(evaluateIsMultiPage(1, true, 500)).toBe(true);
+  });
+
+  it('should spawn Page 2 if measured height for <= 3 items exceeds 260mm threshold', () => {
+    expect(evaluateIsMultiPage(2, false, 1050)).toBe(true);
+  });
+});
+
 // ==========================================
 // TEST REPORT SUMMARY
 // ==========================================

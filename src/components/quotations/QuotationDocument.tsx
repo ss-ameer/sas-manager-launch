@@ -208,23 +208,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   // Visual page-break cut line and multi-page pagination engine
   const sheetRef = React.useRef<HTMLElement | null>(null);
+  const page2Ref = React.useRef<HTMLElement | null>(null);
   const tableRef = React.useRef<HTMLDivElement | null>(null);
 
-  // Determine whether Line Items + Totals exceeds 270mm threshold
-  const [shouldBreakBeforeTotals, setShouldBreakBeforeTotals] = React.useState<boolean>(() => {
+  // 1-PAGE VS 2-PAGE ADAPTIVE LOGIC:
+  // If line items count <= 3 and total content fits comfortably within Page 1 (under 260mm height),
+  // allow Commercial Terms, Totals, and Signatures to remain on Page 1 as a single-page proposal.
+  // Only spawn the Page 2 Sheet container if line items exceed the threshold or if the operator selects a multi-page preset.
+  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(() => {
+    if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
+      return true;
+    }
     const itemCount = quotation.line_items?.length || 0;
-    if (itemCount >= 2) return true;
-    if (itemCount === 1) {
-      const item = quotation.line_items[0];
-      const hasAttrs = Boolean(item.attributes && item.attributes.length > 0);
-      const hasSpecs = Boolean(item.brand_make || item.model_part_no || item.country_of_origin);
-      const hasLongDesc = Boolean(item.description && item.description.length > 80);
-      return Boolean(hasAttrs || hasSpecs || hasLongDesc);
+    if (itemCount > 3) return true;
+    if (itemCount === 3) {
+      const totalAttrs = quotation.line_items?.reduce((acc, it) => acc + (it.attributes?.length || 0), 0) || 0;
+      if (totalAttrs > 2) return true;
     }
     return false;
   });
-
-  const [isMultiPage, setIsMultiPage] = React.useState<boolean>(shouldBreakBeforeTotals);
 
   // Resolve presentation theme & block style
   const resolvedBlockStyle: 'framed' | 'minimal' =
@@ -386,36 +388,34 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   React.useEffect(() => {
     const assessPageBreak = () => {
-      const limit270Px = (270 * 96) / 25.4; // 1020.47px
-      const totalsEstimatePx = 220; // ~58mm for totals block + margins
-
-      if (tableRef.current) {
-        const tableBottomPx = tableRef.current.offsetTop + tableRef.current.offsetHeight;
-        // Hard defense: If tableBottom + totals exceeds 270mm, push Totals to Page 2
-        if (tableBottomPx + totalsEstimatePx > limit270Px) {
-          setShouldBreakBeforeTotals(true);
-          setIsMultiPage(true);
-          return;
-        }
-      }
-
-      // Check total sheet height if blocks are on page 1
-      if (sheetRef.current) {
-        const height = sheetRef.current.offsetHeight;
-        if (height > limit270Px) {
-          setShouldBreakBeforeTotals(true);
-          setIsMultiPage(true);
-          return;
-        }
-      }
-
-      // Default heuristic check based on item count and attributes
-      const itemCount = quotation.line_items?.length || 0;
-      if (itemCount >= 2) {
-        setShouldBreakBeforeTotals(true);
+      // 1. If explicit multi-page preset or configuration
+      if ((quotation as any).is_multi_page === true || (quotation as any).presentation_preset?.is_multi_page === true) {
         setIsMultiPage(true);
-      } else {
-        setShouldBreakBeforeTotals(false);
+        return;
+      }
+
+      const itemCount = quotation.line_items?.length || 0;
+      // 2. If line items > 3, definitely multi-page
+      if (itemCount > 3) {
+        setIsMultiPage(true);
+        return;
+      }
+
+      // 3. For <= 3 line items:
+      // Limit 260mm in CSS pixels: (260 * 96) / 25.4 ≈ 982.68px
+      const limit260Px = (260 * 96) / 25.4;
+
+      if (sheetRef.current) {
+        const height = sheetRef.current.scrollHeight;
+        // If content height overflows 260mm, spawn Page 2
+        if (height > limit260Px) {
+          setIsMultiPage(true);
+          return;
+        }
+      }
+
+      // If items <= 2, comfortably single-page
+      if (itemCount <= 2 && (!quotation.line_items?.[0]?.description || quotation.line_items[0].description.length < 150)) {
         setIsMultiPage(false);
       }
     };
@@ -745,7 +745,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {/* Right: Date & Document Ref indicator */}
         <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
-          {formatDate(quotation.created_at)} • {quoteRef}
+          {formatDate(quotation.created_at)} • {quoteRef} • Page 2 of 2
         </div>
       </div>
     );
@@ -814,12 +814,488 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     </footer>
   );
 
+  // ========================================================
+  // MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
+  // Rendered on Page 1 (for 1-page proposals) or Page 2 (for multi-page continuation)
+  // ========================================================
+  const renderBlocksGrid = () => {
+    const renderTermsBlock = () => {
+      const priceBasis = quotation.price_basis?.trim();
+      const paymentTerms = quotation.payment_terms?.trim();
+      const validityText = quotation.valid_until && quotation.valid_until.trim() !== ''
+        ? `Valid until ${formatDate(quotation.valid_until)}`
+        : undefined;
+
+      const rawCustomNotes = (quotation.custom_notes && quotation.custom_notes.trim() !== '')
+        ? quotation.custom_notes.trim()
+        : (quotation.applied_terms && quotation.applied_terms.trim() !== '')
+        ? quotation.applied_terms.trim()
+        : undefined;
+
+      // Clean Commercial Terms Deduplication:
+      // If structured key-value rows (Price Basis, Payment Terms, Validity) are displayed,
+      // suppress repeating them verbatim or as labeled lines in the notes block below.
+      const customNotes = (() => {
+        if (!rawCustomNotes) return undefined;
+        const lines = rawCustomNotes.split('\n');
+        const filtered = lines.filter((line) => {
+          const trimmed = line.trim();
+          const lower = trimmed.toLowerCase();
+          if (!trimmed) return false;
+          if (priceBasis) {
+            if (lower.startsWith('price basis:') || lower.startsWith('price basis -') || lower.startsWith('price basis')) return false;
+            if (lower === priceBasis.toLowerCase()) return false;
+          }
+          if (paymentTerms) {
+            if (lower.startsWith('payment terms:') || lower.startsWith('payment terms -') || lower.startsWith('payment:') || lower.startsWith('payment -')) return false;
+            if (lower === paymentTerms.toLowerCase()) return false;
+          }
+          if (validityText || quotation.valid_until) {
+            if (lower.startsWith('validity:') || lower.startsWith('validity -') || lower.startsWith('valid until:') || lower.startsWith('valid until')) return false;
+          }
+          return true;
+        });
+        const cleaned = filtered.join('\n').trim();
+        return cleaned.length > 0 ? cleaned : undefined;
+      })();
+
+      const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
+
+      return (
+        <div className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div>
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
+              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
+              Commercial Terms &amp; Conditions
+            </div>
+            <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
+              {priceBasis && (
+                <p className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Price Basis:</span>
+                  <span className="text-slate-800 font-medium">{priceBasis}</span>
+                </p>
+              )}
+              {paymentTerms && (
+                <p className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Payment Terms:</span>
+                  <span className="text-slate-800 font-medium">{paymentTerms}</span>
+                </p>
+              )}
+              {validityText && (
+                <p className="flex justify-between">
+                  <span className="font-semibold text-slate-500">Validity:</span>
+                  <span className="text-slate-800 font-medium">{validityText}</span>
+                </p>
+              )}
+              {customNotes && (
+                <div className={`whitespace-pre-line text-slate-600 text-xs ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
+                  {customNotes}
+                </div>
+              )}
+              {!hasAnyContent && (
+                <p className="text-slate-400 italic text-[10px] py-1">
+                  No commercial terms specified.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderTotalsBlock = () => (
+      <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div className="space-y-1.5 w-full">
+          <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
+            <span>Subtotal:</span>
+            <span className="font-mono font-semibold text-slate-800">
+              {formatCurrency(quotation.subtotal)}
+            </span>
+          </div>
+
+          {Number(quotation.freight_amount) > 0 && (
+            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
+              <span>Freight / Logistics:</span>
+              <span className="font-mono font-semibold text-slate-800">
+                {formatCurrency(quotation.freight_amount)}
+              </span>
+            </div>
+          )}
+
+          {/* Tax Mode Display */}
+          {quotation.tax_mode === 'tax_calculated' && (
+            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
+              <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
+              <span className="font-mono font-semibold text-slate-800">
+                {formatCurrency(quotation.tax_amount)}
+              </span>
+            </div>
+          )}
+
+          {quotation.tax_mode === 'taxes_extra' && (
+            <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5 text-[var(--block-base)]">
+              <div className="flex justify-between">
+                <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {formatCurrency(quotation.tax_amount)}
+                </span>
+              </div>
+              <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
+                * Taxes EXTRA to client account as applicable
+              </p>
+            </div>
+          )}
+
+          {quotation.tax_mode === 'tax_exempt' && (
+            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center text-[var(--block-base)]">
+              <span>Tax Status:</span>
+              <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                Tax Exempt (0%)
+              </span>
+            </div>
+          )}
+
+          {/* Grand Total */}
+          <div
+            className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
+            style={{ borderColor: accentColor }}
+          >
+            <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
+            <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: accentColor }}>
+              {formatCurrency(quotation.grand_total)}
+            </span>
+          </div>
+        </div>
+
+        {/* Amount in Words */}
+        {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
+          <div className="text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
+            <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
+            <span className="not-italic">{amountToWords(quotation.grand_total, currency)}</span>
+          </div>
+        )}
+      </div>
+    );
+
+    const renderRemittanceBlock = () => (
+      <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div>
+          <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] mb-1 pb-1 border-b border-slate-200/80">
+            <Landmark className="w-3.5 h-3.5 text-slate-500" />
+            Bank Remittance Details
+          </div>
+          {resolvedBank ? (
+            <div className="text-[var(--block-base)] text-slate-700 space-y-0.5 mt-1.5">
+              {resolvedBank.bankName && (
+                <p>
+                  <span className="text-slate-500">Bank:</span>{' '}
+                  <span className="font-semibold text-slate-900">{resolvedBank.bankName}</span>
+                </p>
+              )}
+              {resolvedBank.beneficiaryName && (
+                <p>
+                  <span className="text-slate-500">Beneficiary:</span>{' '}
+                  <span className="font-medium text-slate-800">{resolvedBank.beneficiaryName}</span>
+                </p>
+              )}
+              {resolvedBank.accountNumber && (
+                <p>
+                  <span className="text-slate-500">Account No:</span>{' '}
+                  <span className="font-mono font-medium text-slate-900">
+                    {resolvedBank.accountNumber}
+                  </span>
+                </p>
+              )}
+              {resolvedBank.iban ? (
+                <p>
+                  <span className="text-slate-500">IBAN:</span>{' '}
+                  <span className="font-mono font-bold text-slate-900">
+                    {resolvedBank.iban}
+                  </span>
+                </p>
+              ) : null}
+              {resolvedBank.swiftCode ? (
+                <p>
+                  <span className="text-slate-500">SWIFT / BIC:</span>{' '}
+                  <span className="font-mono font-semibold text-slate-900">
+                    {resolvedBank.swiftCode}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
+              Thank you for your business. Please contact us for electronic wire instructions.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
+    const renderSignatoryBlock = () => (
+      <div className="signatory-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div className={`flex items-center ${footerLayoutMode === 'seller_only' ? 'justify-between' : 'justify-end'} gap-5 w-full`}>
+          {footerLayoutMode === 'seller_only' && (
+            <div className="text-left text-slate-600 pr-4">
+              <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider">
+                For and on behalf of {senderEntityName || 'Company'}
+              </p>
+              <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
+                Authorized Signatures &amp; Official Seal
+              </p>
+            </div>
+          )}
+          <div className="flex items-center gap-5 shrink-0">
+            {/* Official Stamp / Seal */}
+            {resolvedShowCompanySeal && profile?.stamp_seal_url && (
+              <div className="flex flex-col items-center">
+                <img
+                  src={profile.stamp_seal_url}
+                  alt="Official Seal"
+                  className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
+                  Company Seal
+                </span>
+              </div>
+            )}
+
+            {/* Signatories Rendering */}
+            <div className="flex gap-4 justify-end">
+              {resolvedSignatories.map((sig, sIdx) => (
+                <div key={sIdx} className="text-center min-w-[120px]">
+                  <div className="h-10 flex items-end justify-center mb-1">
+                    {signatureStyle === 'image' && sig.signature_url ? (
+                      <img
+                        src={sig.signature_url}
+                        alt={sig.name}
+                        className="max-h-10 object-contain"
+                      />
+                    ) : signatureStyle === 'script' ? (
+                      <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
+                        {sig.name}
+                      </span>
+                    ) : signatureStyle === 'image' ? (
+                      <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+                        Digital Signature
+                      </div>
+                    ) : (
+                      <div className="h-4" />
+                    )}
+                  </div>
+                  <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
+                  <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
+                  <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => (
+      <div className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+        <div>
+          <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+            <span className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5">
+              <FileCheck className="w-3.5 h-3.5 text-slate-600" />
+              Customer Acceptance &amp; Confirmation
+            </span>
+            <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+              Sign &amp; Return Copy with Purchase Order
+            </span>
+          </div>
+          <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
+            We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
+          </p>
+        </div>
+
+        {placement === 'full' ? (
+          <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[var(--block-base)]">
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
+              <div className="h-5 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
+              <div className="h-5 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
+              <div className="h-5 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
+              <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[var(--block-base)]">
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
+              <div className="h-4 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
+              <div className="h-4 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
+              <div className="h-4 border-b border-slate-300 mt-1" />
+            </div>
+            <div>
+              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
+              <div className="h-4 border-b border-slate-300 border-dotted mt-1" />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+
+    const activeBlocks = resolvedBlocks.filter((b) => {
+      if (b.enabled === false) return false;
+      if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
+        if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
+        if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
+        if (b.id === 'signatory' && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+        if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
+      }
+      return true;
+    });
+
+    let currentRow = 1;
+    let rowHasLeft = false;
+    let rowHasRight = false;
+
+    const positionedBlocks = activeBlocks.map((b) => {
+      if (b.placement === 'full') {
+        if (rowHasLeft || rowHasRight) {
+          currentRow++;
+          rowHasLeft = false;
+          rowHasRight = false;
+        }
+        const rowStart = currentRow;
+        currentRow++;
+        return {
+          b,
+          gridRowStart: rowStart,
+          gridColumnStart: 1,
+          gridColumnEnd: 3,
+          placementClass: 'col-span-2 col-start-1 w-full'
+        };
+      } else if (b.placement === 'left') {
+        if (rowHasLeft) {
+          currentRow++;
+          rowHasLeft = false;
+          rowHasRight = false;
+        }
+        const rowStart = currentRow;
+        rowHasLeft = true;
+        if (rowHasLeft && rowHasRight) {
+          currentRow++;
+          rowHasLeft = false;
+          rowHasRight = false;
+        }
+        return {
+          b,
+          gridRowStart: rowStart,
+          gridColumnStart: 1,
+          gridColumnEnd: 2,
+          placementClass: 'col-span-1 col-start-1'
+        };
+      } else {
+        if (rowHasRight) {
+          currentRow++;
+          rowHasLeft = false;
+          rowHasRight = false;
+        }
+        const rowStart = currentRow;
+        rowHasRight = true;
+        if (rowHasLeft && rowHasRight) {
+          currentRow++;
+          rowHasLeft = false;
+          rowHasRight = false;
+        }
+        return {
+          b,
+          gridRowStart: rowStart,
+          gridColumnStart: 2,
+          gridColumnEnd: 3,
+          placementClass: 'col-span-1 col-start-2'
+        };
+      }
+    });
+
+    return (
+      <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+        <div
+          className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
+          {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
+            const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
+            const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
+            const isSelected = activeSelectedSection === b.id;
+            const isInteractive = Boolean(onSelectSection || onSelectBlock);
+
+            const cardStyleClass = [
+              padClass,
+              `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
+              b.style === 'minimal'
+                ? 'border border-transparent bg-transparent'
+                : 'border border-slate-200 bg-slate-50/50',
+              isInteractive ? 'cursor-pointer' : '',
+              isSelected
+                ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+                : isInteractive
+                ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+                : ''
+            ].filter(Boolean).join(' ');
+
+            return (
+              <div
+                key={b.id}
+                className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card`}
+                style={{
+                  breakInside: 'avoid',
+                  pageBreakInside: 'avoid',
+                  gridRowStart,
+                  gridColumnStart,
+                  gridColumnEnd
+                }}
+              >
+                <div
+                  className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
+                  onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
+                  style={{
+                    breakInside: 'avoid',
+                    pageBreakInside: 'avoid',
+                    ['--block-base' as any]: baseFontSize,
+                    fontSize: 'var(--block-base)'
+                  }}
+                >
+                  {b.id === 'terms' && renderTermsBlock()}
+                  {b.id === 'totals' && renderTotalsBlock()}
+                  {b.id === 'remittance' && renderRemittanceBlock()}
+                  {b.id === 'signatory' && renderSignatoryBlock()}
+                  {b.id === 'acceptance' && renderAcceptanceBlock(b.placement)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div
       id="quotation-printable-document"
-      className={`quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 bg-slate-100 p-2 sm:p-4 md:p-8 flex justify-center text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block ${
-        repeatHeaderOnSubsequentPages ? 'has-running-header' : ''
-      }`}
+      className="quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 flex flex-col items-center bg-transparent text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
       style={{ colorScheme: 'light' }}
     >
       {/* Scoped Print Stylesheet */}
@@ -827,7 +1303,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         @media print {
           @page {
             size: A4 portrait;
-            margin: 15mm 14mm 15mm 14mm !important;
+            margin: 0 !important;
           }
           * {
             outline: none !important;
@@ -835,26 +1311,27 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-running-header-print {
             display: none !important;
           }
-          .has-running-header .quotation-running-header-print {
-            display: flex !important;
-            position: fixed;
-            top: 0;
-            left: 14mm;
-            right: 14mm;
-            height: 26px;
-            z-index: 5;
-            background: #ffffff !important;
-            box-sizing: border-box !important;
-          }
           .quotation-header-branding {
             position: relative !important;
             z-index: 20 !important;
             background: #ffffff !important;
           }
-          .print-page-break {
-            break-before: page !important;
-            page-break-before: always !important;
-            padding-top: 18mm !important;
+          .quotation-page-sheet {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            margin: 0 !important;
+            padding: 14mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            box-sizing: border-box !important;
+            background: #ffffff !important;
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+          .quotation-page-sheet:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
           }
           .break-inside-avoid {
             break-inside: avoid !important;
@@ -910,18 +1387,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             margin: 0 !important;
             padding: 0 !important;
           }
-          .quotation-print-sheet {
-            height: auto !important;
-            min-height: auto !important;
-            box-shadow: none !important;
-            border: none !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-            width: 100% !important;
-            min-width: 100% !important;
-            max-width: 100% !important;
-            box-sizing: border-box !important;
-          }
           .quotation-client-offer-grid {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
@@ -930,20 +1395,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             position: static !important;
             width: 100% !important;
             background: transparent !important;
-            padding-top: 8px !important;
-            padding-bottom: 4px !important;
+            padding-top: 6px !important;
+            padding-bottom: 2px !important;
             border-top: 1px solid #e2e8f0 !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
+            margin-top: auto !important;
           }
-          .quotation-print-sheet table,
-          .quotation-print-sheet .terms-card,
-          .quotation-print-sheet .remittance-card,
-          .quotation-print-sheet header,
-          .quotation-print-sheet footer,
-          .quotation-print-sheet section,
-          .quotation-print-sheet .top-accent-bar,
-          .quotation-print-sheet .header-flex-container {
+          .quotation-page-sheet table,
+          .quotation-page-sheet .terms-card,
+          .quotation-page-sheet .remittance-card,
+          .quotation-page-sheet header,
+          .quotation-page-sheet footer,
+          .quotation-page-sheet section,
+          .quotation-page-sheet .top-accent-bar,
+          .quotation-page-sheet .header-flex-container {
             width: 100% !important;
             max-width: 100% !important;
           }
@@ -978,47 +1444,25 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             gap: 0.75rem !important;
             width: 100% !important;
           }
-          .quotation-page-2 {
-            break-before: page !important;
-            page-break-before: always !important;
-          }
-          .quotation-page-cutoff-divider,
-          .quotation-page2-continuation-header {
-            display: none !important;
-          }
         }
       `}</style>
 
-      {/* Reusable Document System Micro-Footer Helper */}
-      {(() => null)()}
-      {/* We define renderFooter as an inline closure or helper function */}
-
-      {/* Decoupled A4 Page Sheet with Strict 210mm Physical Geometry */}
+      {/* ========================================================
+          PAGE 1 DISCRETE A4 SHEET
+         ======================================================== */}
       <article
         ref={sheetRef}
-        className="quotation-print-sheet quotation-a4-sheet relative w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 mx-auto bg-white text-slate-800 shadow-xl border border-slate-200 font-sans box-border print:w-[210mm] print:min-w-[210mm] print:max-w-none print:shadow-none print:border-none print:m-0"
-        style={{
-          boxSizing: 'border-box',
-          paddingLeft: '14mm',
-          paddingRight: '14mm',
-          paddingTop: '14mm',
-          paddingBottom: '16mm'
-        }}
+        className="quotation-page-sheet quotation-page-1 relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-page print:min-h-screen"
+        style={{ boxSizing: 'border-box' }}
       >
         {/* Top Accent Stripe */}
         <div
-          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full print:max-w-none"
-          style={{ backgroundColor: accentColor, width: '100%', maxWidth: '100%' }}
+          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+          style={{ backgroundColor: accentColor }}
         />
 
-        {/* ========================================================
-            PAGE 1 CONTAINER (HEADER, SNAPSHOT CARDS, ITEMS TABLE & FOOTER)
-           ======================================================== */}
-        <div
-          className="quotation-page-1 flex flex-col justify-between w-full"
-          style={{ minHeight: isMultiPage ? 'calc(297mm - 30mm)' : 'auto' }}
-        >
-          <div>
+        {/* Page 1 Body Content */}
+        <div className="flex-1 flex flex-col justify-start w-full">
             {/* ========================================================
                 HEADER & META BLOCK (VARIANTS: split, centered_banner, modern_compact)
                ======================================================== */}
@@ -1736,514 +2180,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </table>
           </div>
         </section>
-          </div>
-          {isMultiPage && renderFooter(1, 2)}
+        {/* In 1-Page mode: Commercial Terms, Totals & Signatures sit directly on Page 1 */}
+        {!isMultiPage && renderBlocksGrid()}
+      </div>
+
+      {/* Page 1 Micro-Footer: Locked to bottom of Sheet 1 */}
+      {renderFooter(1, isMultiPage ? 2 : 1)}
+    </article>
+
+    {/* ========================================================
+        PAGE 2 DISCRETE A4 SHEET (SPAWNED WHEN MULTI-PAGE REQUIRED)
+       ======================================================== */}
+    {isMultiPage && (
+      <article
+        ref={page2Ref}
+        className="quotation-page-sheet quotation-page-2 relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] print:break-after-avoid print:min-h-screen"
+        style={{ boxSizing: 'border-box' }}
+      >
+        {/* Top Accent Stripe */}
+        <div
+          className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+          style={{ backgroundColor: accentColor }}
+        />
+
+        {/* Page 2 Body Content */}
+        <div className="flex-1 flex flex-col justify-start w-full pt-[4mm]">
+          {/* Clean Continuation Running Header with clean 18mm top clearance */}
+          {repeatHeaderOnSubsequentPages && (
+            <div className="quotation-page2-continuation-header w-full mb-3">
+              {renderCompactRunningHeader()}
+            </div>
+          )}
+          {renderBlocksGrid()}
         </div>
 
-        {/* ========================================================
-            A4 PAGE 1 CUTOFF MARKER (END OF PAGE 1 INDICATOR)
-           ======================================================== */}
-        {isMultiPage && (
-          <div className="quotation-page-cutoff-divider relative py-3 my-2 flex items-center justify-center print:hidden w-full select-none">
-            <div className="absolute inset-0 flex items-center" aria-hidden="true">
-              <div className="w-full border-t-2 border-dashed border-rose-400"></div>
-            </div>
-            <div className="relative bg-rose-50 px-3.5 py-1 rounded-full border border-rose-300 text-rose-700 text-[10px] font-mono font-medium flex items-center gap-1.5 shadow-sm">
-              <span className="text-rose-500">✂</span>
-              <span>A4 Page 1 Cutoff (297mm) • Continuation Below</span>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================
-            PAGE 2 CONTINUATION SHEET RUNNING HEADER (START OF PAGE 2)
-           ======================================================== */}
-        {isMultiPage && repeatHeaderOnSubsequentPages && (
-          <div className="quotation-page2-continuation-header w-full mb-3 print:hidden">
-            <div className="p-2.5 bg-slate-50/90 border border-slate-200 rounded-lg shadow-2xs">
-              <div className="text-[8.5px] uppercase font-mono text-blue-700 font-bold mb-1.5 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <span>📄</span> Page 2 Continuation Sheet • Commercial Execution
-                </span>
-                <span className="text-[7.5px] text-slate-400 font-normal">Page 2 of 2 • Normal DOM Flow</span>
-              </div>
-              {renderCompactRunningHeader('mb-0 pb-0 border-b-0')}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================
-            PAGE 2 CONTAINER (MODULAR DOCUMENT BLOCKS GRID & CLOSING FOOTER)
-           ======================================================== */}
-        <div className={`quotation-page-2 flex flex-col justify-between w-full ${!isMultiPage ? 'mt-2' : ''}`}>
-          <div>
-            {isMultiPage && repeatHeaderOnSubsequentPages && (
-              <div className="hidden print:block mb-2">
-                {renderCompactRunningHeader()}
-              </div>
-            )}
-
-            {/* ========================================================
-                MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
-               ======================================================== */}
-        {(() => {
-          // Render functions for each modular document block
-          const renderTermsBlock = () => {
-            const priceBasis = quotation.price_basis?.trim();
-            const paymentTerms = quotation.payment_terms?.trim();
-            const validityText = quotation.valid_until && quotation.valid_until.trim() !== ''
-              ? `Valid until ${formatDate(quotation.valid_until)}`
-              : undefined;
-
-            const customNotes = (quotation.custom_notes && quotation.custom_notes.trim() !== '')
-              ? quotation.custom_notes.trim()
-              : (quotation.applied_terms && !quotation.applied_terms.includes('Price Basis:') && quotation.applied_terms.trim() !== '')
-              ? quotation.applied_terms.trim()
-              : undefined;
-
-            const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
-
-            return (
-              <div className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                <div>
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200">
-                    <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                    Commercial Terms & Conditions
-                  </div>
-                  <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
-                    {priceBasis && (
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Price Basis:</span>
-                        <span className="text-slate-800 font-medium">{priceBasis}</span>
-                      </p>
-                    )}
-                    {paymentTerms && (
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Payment Terms:</span>
-                        <span className="text-slate-800 font-medium">{paymentTerms}</span>
-                      </p>
-                    )}
-                    {validityText && (
-                      <p className="flex justify-between">
-                        <span className="font-semibold text-slate-500">Validity:</span>
-                        <span className="text-slate-800 font-medium">{validityText}</span>
-                      </p>
-                    )}
-                    {customNotes && (
-                      <div className={`whitespace-pre-line text-slate-600 text-xs ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
-                        {customNotes}
-                      </div>
-                    )}
-                    {!hasAnyContent && (
-                      <p className="text-slate-400 italic text-[10px] py-1">
-                        No commercial terms specified.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          };
-
-          const renderTotalsBlock = () => (
-            <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div className="space-y-1.5 w-full">
-                <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
-                  <span>Subtotal:</span>
-                  <span className="font-mono font-semibold text-slate-800">
-                    {formatCurrency(quotation.subtotal)}
-                  </span>
-                </div>
-
-                {Number(quotation.freight_amount) > 0 && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
-                    <span>Freight / Logistics:</span>
-                    <span className="font-mono font-semibold text-slate-800">
-                      {formatCurrency(quotation.freight_amount)}
-                    </span>
-                  </div>
-                )}
-
-                {/* Tax Mode Display */}
-                {quotation.tax_mode === 'tax_calculated' && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
-                    <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-                    <span className="font-mono font-semibold text-slate-800">
-                      {formatCurrency(quotation.tax_amount)}
-                    </span>
-                  </div>
-                )}
-
-                {quotation.tax_mode === 'taxes_extra' && (
-                  <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5 text-[var(--block-base)]">
-                    <div className="flex justify-between">
-                      <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-                      <span className="font-mono font-semibold text-slate-800">
-                        {formatCurrency(quotation.tax_amount)}
-                      </span>
-                    </div>
-                    <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
-                      * Taxes EXTRA to client account as applicable
-                    </p>
-                  </div>
-                )}
-
-                {quotation.tax_mode === 'tax_exempt' && (
-                  <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center text-[var(--block-base)]">
-                    <span>Tax Status:</span>
-                    <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                      Tax Exempt (0%)
-                    </span>
-                  </div>
-                )}
-
-                {/* Grand Total */}
-                <div
-                  className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
-                  style={{ borderColor: accentColor }}
-                >
-                  <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
-                  <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: accentColor }}>
-                    {formatCurrency(quotation.grand_total)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Amount in Words */}
-              {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
-                <div className="text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
-                  <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
-                  {amountToWords(quotation.grand_total, currency)}
-                </div>
-              )}
-            </div>
-          );
-
-          const renderRemittanceBlock = () => (
-            <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div>
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 uppercase tracking-wider text-[calc(var(--block-base)*1.05)] mb-1 pb-1 border-b border-slate-200/80">
-                  <Landmark className="w-3.5 h-3.5 text-slate-500" />
-                  Bank Remittance Details
-                </div>
-                {resolvedBank ? (
-                  <div className="text-[var(--block-base)] text-slate-700 space-y-0.5 mt-1.5">
-                    {resolvedBank.bankName && (
-                      <p>
-                        <span className="text-slate-500">Bank:</span>{' '}
-                        <span className="font-semibold text-slate-900">{resolvedBank.bankName}</span>
-                      </p>
-                    )}
-                    {resolvedBank.beneficiaryName && (
-                      <p>
-                        <span className="text-slate-500">Beneficiary:</span>{' '}
-                        <span className="font-medium text-slate-800">{resolvedBank.beneficiaryName}</span>
-                      </p>
-                    )}
-                    {resolvedBank.accountNumber && (
-                      <p>
-                        <span className="text-slate-500">Account No:</span>{' '}
-                        <span className="font-mono font-medium text-slate-900">
-                          {resolvedBank.accountNumber}
-                        </span>
-                      </p>
-                    )}
-                    {resolvedBank.iban ? (
-                      <p>
-                        <span className="text-slate-500">IBAN:</span>{' '}
-                        <span className="font-mono font-bold text-slate-900">
-                          {resolvedBank.iban}
-                        </span>
-                      </p>
-                    ) : null}
-                    {resolvedBank.swiftCode ? (
-                      <p>
-                        <span className="text-slate-500">SWIFT / BIC:</span>{' '}
-                        <span className="font-mono font-semibold text-slate-900">
-                          {resolvedBank.swiftCode}
-                        </span>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
-                    Thank you for your business. Please contact us for electronic wire instructions.
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-
-          const renderSignatoryBlock = () => (
-            <div className="signatory-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div className={`flex items-center ${footerLayoutMode === 'seller_only' ? 'justify-between' : 'justify-end'} gap-5 w-full`}>
-                {footerLayoutMode === 'seller_only' && (
-                  <div className="text-left text-slate-600 pr-4">
-                    <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider">
-                      For and on behalf of {senderEntityName || 'Company'}
-                    </p>
-                    <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
-                      Authorized Signatures &amp; Official Seal
-                    </p>
-                  </div>
-                )}
-                <div className="flex items-center gap-5 shrink-0">
-                  {/* Official Stamp / Seal */}
-                  {resolvedShowCompanySeal && profile?.stamp_seal_url && (
-                    <div className="flex flex-col items-center">
-                      <img
-                        src={profile.stamp_seal_url}
-                        alt="Official Seal"
-                        className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                      <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
-                        Company Seal
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Signatories Rendering */}
-                  <div className="flex gap-4 justify-end">
-                    {resolvedSignatories.map((sig, sIdx) => (
-                      <div key={sIdx} className="text-center min-w-[120px]">
-                        <div className="h-10 flex items-end justify-center mb-1">
-                          {signatureStyle === 'image' && sig.signature_url ? (
-                            <img
-                              src={sig.signature_url}
-                              alt={sig.name}
-                              className="max-h-10 object-contain"
-                            />
-                          ) : signatureStyle === 'script' ? (
-                            <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                              {sig.name}
-                            </span>
-                          ) : signatureStyle === 'image' ? (
-                            <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                              Digital Signature
-                            </div>
-                          ) : (
-                            /* 'line' style: clean spacing above the single baseline below */
-                            <div className="h-4" />
-                          )}
-                        </div>
-                        <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                        <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
-                        <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-
-          const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => (
-            <div className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-              <div>
-                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-                  <span className="font-bold text-slate-800 text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5">
-                    <FileCheck className="w-3.5 h-3.5 text-slate-600" />
-                    Customer Acceptance & Confirmation
-                  </span>
-                  <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                    Sign & Return Copy with Purchase Order
-                  </span>
-                </div>
-                <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
-                  We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
-                </p>
-              </div>
-
-              {placement === 'full' ? (
-                /* Standard 4-column layout for full width */
-                <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[var(--block-base)]">
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
-                    <div className="h-5 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
-                    <div className="h-5 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
-                    <div className="h-5 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
-                    <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
-                  </div>
-                </div>
-              ) : (
-                /* Adaptive 2x2 grid for 50% left/right placement */
-                <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[var(--block-base)]">
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
-                    <div className="h-4 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
-                    <div className="h-4 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
-                    <div className="h-4 border-b border-slate-300 mt-1" />
-                  </div>
-                  <div>
-                    <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
-                    <div className="h-4 border-b border-slate-300 border-dotted mt-1" />
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-
-          // Filter active blocks respecting enabled flag and legacy visibility options if layout_blocks not explicitly provided
-          const activeBlocks = resolvedBlocks.filter((b) => {
-            if (b.enabled === false) return false;
-            if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
-              if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
-              if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-              if (b.id === 'signatory' && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
-              if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
-            }
-            return true;
-          });
-
-          // Row-slot engine: Pair sequential Left and Right blocks into the same grid row to equalize height (items-stretch),
-          // while allowing single-sided blocks (e.g. Right only) to remain anchored to their column track with natural height.
-          let currentRow = 1;
-          let rowHasLeft = false;
-          let rowHasRight = false;
-
-          const positionedBlocks = activeBlocks.map((b) => {
-            if (b.placement === 'full') {
-              if (rowHasLeft || rowHasRight) {
-                currentRow++;
-                rowHasLeft = false;
-                rowHasRight = false;
-              }
-              const rowStart = currentRow;
-              currentRow++;
-              return {
-                b,
-                gridRowStart: rowStart,
-                gridColumnStart: 1,
-                gridColumnEnd: 3,
-                placementClass: 'col-span-2 col-start-1 w-full'
-              };
-            } else if (b.placement === 'left') {
-              if (rowHasLeft) {
-                currentRow++;
-                rowHasLeft = false;
-                rowHasRight = false;
-              }
-              const rowStart = currentRow;
-              rowHasLeft = true;
-              if (rowHasLeft && rowHasRight) {
-                currentRow++;
-                rowHasLeft = false;
-                rowHasRight = false;
-              }
-              return {
-                b,
-                gridRowStart: rowStart,
-                gridColumnStart: 1,
-                gridColumnEnd: 2,
-                placementClass: 'col-span-1 col-start-1'
-              };
-            } else {
-              // placement === 'right'
-              if (rowHasRight) {
-                currentRow++;
-                rowHasLeft = false;
-                rowHasRight = false;
-              }
-              const rowStart = currentRow;
-              rowHasRight = true;
-              if (rowHasLeft && rowHasRight) {
-                currentRow++;
-                rowHasLeft = false;
-                rowHasRight = false;
-              }
-              return {
-                b,
-                gridRowStart: rowStart,
-                gridColumnStart: 2,
-                gridColumnEnd: 3,
-                placementClass: 'col-span-1 col-start-2'
-              };
-            }
-          });
-
-          return (
-            <section className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
-              <div
-                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
-                style={{ width: '100%', maxWidth: '100%' }}
-              >
-                {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
-                  const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
-                  const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
-                  const isSelected = activeSelectedSection === b.id;
-                  const isInteractive = Boolean(onSelectSection || onSelectBlock);
-
-                  const cardStyleClass = [
-                    padClass,
-                    `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
-                    b.style === 'minimal'
-                      ? 'border border-transparent bg-transparent'
-                      : 'border border-slate-200 bg-slate-50/50',
-                    isInteractive ? 'cursor-pointer' : '',
-                    isSelected
-                      ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-                      : isInteractive
-                      ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-                      : ''
-                  ].filter(Boolean).join(' ');
-
-                  return (
-                    <div
-                      key={b.id}
-                      className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card`}
-                      style={{
-                        breakInside: 'avoid',
-                        pageBreakInside: 'avoid',
-                        gridRowStart,
-                        gridColumnStart,
-                        gridColumnEnd
-                      }}
-                    >
-                      <div
-                        className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
-                        onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
-                        style={{
-                          breakInside: 'avoid',
-                          pageBreakInside: 'avoid',
-                          ['--block-base' as any]: baseFontSize,
-                          fontSize: 'var(--block-base)'
-                        }}
-                      >
-                        {b.id === 'terms' && renderTermsBlock()}
-                        {b.id === 'totals' && renderTotalsBlock()}
-                        {b.id === 'remittance' && renderRemittanceBlock()}
-                        {b.id === 'signatory' && renderSignatoryBlock()}
-                        {b.id === 'acceptance' && renderAcceptanceBlock(b.placement)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })()}
-          </div>
-          {renderFooter(isMultiPage ? 2 : 1, isMultiPage ? 2 : 1)}
-        </div>
+        {/* Page 2 Micro-Footer: Locked to bottom of Sheet 2 */}
+        {renderFooter(2, 2)}
       </article>
-    </div>
+    )}
+  </div>
   );
 };

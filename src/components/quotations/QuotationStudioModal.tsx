@@ -2932,7 +2932,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     transformOrigin: 'top center',
                     transition: 'transform 0.1s ease-out'
                   }}
-                  className="preview-canvas-wrapper m-auto inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] shadow-2xl print:hidden text-left"
+                  className="preview-canvas-wrapper m-auto inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] print:hidden text-left"
                 >
                   <QuotationDocument
                     quotation={liveQuotation}
