@@ -30,7 +30,8 @@ import {
   QuotationItemAttribute,
   QuotationLineItem,
   QuotationPageMode,
-  Attachment
+  Attachment,
+  EnquiryQuotationSyncPayload
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import {
@@ -102,6 +103,7 @@ export interface QuotationStudioModalProps {
   profile?: WorkspaceDocumentProfile | null;
   editingQuotation?: Quotation | null;
   onQuotationCreated?: (quotation: Quotation) => void;
+  onEnquirySync?: (syncPayload: EnquiryQuotationSyncPayload) => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -162,6 +164,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   profile,
   editingQuotation,
   onQuotationCreated,
+  onEnquirySync,
   triggerToast
 }) => {
   if (!isOpen) return null;
@@ -170,6 +173,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [presets, setPresets] = useState<QuotationPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  // Active Quotation Revision & Lifecycle Status State
+  const [activeQuotationId, setActiveQuotationId] = useState<string>(
+    () => editingQuotation?.id || ''
+  );
+  const [parentQuotationId, setParentQuotationId] = useState<string | undefined>(
+    () => editingQuotation?.parent_quotation_id || editingQuotation?.parent_quote_id
+  );
+  const [revisionNumber, setRevisionNumber] = useState<number>(
+    () => editingQuotation?.revision_number ?? 1
+  );
+  const [formattedQuoteRefOverride, setFormattedQuoteRefOverride] = useState<string>(
+    () => editingQuotation?.formatted_quote_ref || ''
+  );
+  const [quotationStatus, setQuotationStatus] = useState<Quotation['status']>(
+    () => editingQuotation?.status || 'Draft'
+  );
 
   // Column visibility & technical attributes toggles
   const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>(() => ({
@@ -1689,20 +1709,22 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/, '');
-    const revNum = editingQuotation?.revision_number ?? 0;
-    const formattedQuoteRef =
-      editingQuotation?.formatted_quote_ref || `${cleanQuoteNumber}-R${revNum}`;
+    const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
+    const formattedQuoteRef = formattedQuoteRefOverride
+      ? formattedQuoteRefOverride.replace(/-R\d+$/i, `-R${revNum}`)
+      : `${cleanQuoteNumber}-R${revNum}`;
 
     return {
-      id: editingQuotation?.id || 'preview_draft',
+      id: activeQuotationId || editingQuotation?.id || 'preview_draft',
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
       enquiry_id: enquiry.id || '',
       quote_number: cleanQuoteNumber,
       revision_number: revNum,
       formatted_quote_ref: formattedQuoteRef,
-      parent_quote_id: editingQuotation?.parent_quote_id,
-      status: editingQuotation?.status || 'Draft',
+      parent_quote_id: parentQuotationId,
+      parent_quotation_id: parentQuotationId,
+      status: quotationStatus || 'Draft',
       client_snapshot: {
         entity_name: enquiry.company_name || enquiry.client_company || 'Valued Client',
         contact_person: clientContactPerson || enquiry.concerned_person || undefined,
@@ -1839,17 +1861,38 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     clientContactPerson,
     preparedBy,
     quotationSubject,
-    pageMode
+    pageMode,
+    activeQuotationId,
+    parentQuotationId,
+    revisionNumber,
+    formattedQuoteRefOverride,
+    quotationStatus
   ]);
 
-  // Handle Save (Draft or Issued)
-  const handleSaveQuotation = async (status: 'Draft' | 'Sent') => {
+  // One-click deep-clone revision handler (R1 -> R2, etc.)
+  const handleCloneAsNextRevision = () => {
+    const cloned = QuotationRepository.cloneQuotationAsNextRevision(liveQuotation);
+    setActiveQuotationId(cloned.id || '');
+    setParentQuotationId(cloned.parent_quotation_id || liveQuotation.id);
+    setRevisionNumber(cloned.revision_number);
+    setFormattedQuoteRefOverride(cloned.formatted_quote_ref);
+    setQuotationStatus('Draft');
+    triggerToast?.(`Cloned as Revision R${cloned.revision_number}`, 'success');
+  };
+
+  // Handle Save (Draft, Issued, or Custom Lifecycle Status)
+  const handleSaveQuotation = async (statusOverride?: Quotation['status']) => {
     if (isSaving) return;
     setIsSaving(true);
     try {
+      const effectiveStatus = statusOverride || quotationStatus || 'Draft';
+      setQuotationStatus(effectiveStatus);
+
       const quoteId =
-        editingQuotation?.id ||
-        `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        activeQuotationId && activeQuotationId !== 'preview_draft'
+          ? activeQuotationId
+          : editingQuotation?.id ||
+            `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
       const payload: Quotation = {
         id: quoteId,
@@ -1859,8 +1902,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         quote_number: liveQuotation.quote_number,
         revision_number: liveQuotation.revision_number,
         formatted_quote_ref: liveQuotation.formatted_quote_ref,
-        parent_quote_id: liveQuotation.parent_quote_id,
-        status: status,
+        parent_quote_id: liveQuotation.parent_quotation_id || liveQuotation.parent_quote_id,
+        parent_quotation_id: liveQuotation.parent_quotation_id || liveQuotation.parent_quote_id,
+        status: effectiveStatus,
         client_snapshot: liveQuotation.client_snapshot,
         client_contact_person: clientContactPerson || liveQuotation.client_contact_person,
         prepared_by: preparedBy || liveQuotation.prepared_by,
@@ -1929,25 +1973,28 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         currency: liveQuotation.currency
       };
 
-      const saved = editingQuotation?.id
-        ? await QuotationRepository.saveQuotation(payload)
-        : await QuotationRepository.createQuotation(payload);
+      const saved = await QuotationRepository.saveQuotation(payload);
 
-      // If issuing a revision with a parent quotation, ensure predecessor parent is marked 'Superseded'
-      if (status === 'Sent' && payload.parent_quote_id) {
+      // Mark superseded revisions where applicable and sync Enquiry pipeline fields
+      const parentId = payload.parent_quotation_id || payload.parent_quote_id;
+      if (parentId) {
         try {
-          await QuotationRepository.updateQuotation(payload.parent_quote_id, {
-            status: 'Superseded'
+          await QuotationRepository.updateQuotation(parentId, {
+            status: 'Superseded',
+            superseded_by_id: saved.id
           });
         } catch (supErr) {
           console.warn('[QuotationStudioModal] Predecessor update notice:', supErr);
         }
       }
 
+      const syncPayload = await QuotationRepository.syncQuotationRevisionAndEnquiry(saved);
+      onEnquirySync?.(syncPayload);
+
       triggerToast?.(
-        status === 'Sent'
+        effectiveStatus === 'Sent'
           ? `Quotation #${saved.formatted_quote_ref} issued successfully!`
-          : `Quotation #${saved.formatted_quote_ref} draft saved!`,
+          : `Quotation #${saved.formatted_quote_ref} (${effectiveStatus}) saved!`,
         'success'
       );
 
@@ -2144,21 +2191,75 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     <div className="quotation-modal-container fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
       <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Top Bar */}
-        <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 print:hidden">
+        <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap shrink-0 print:hidden">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center flex-wrap gap-2">
                 <h2 className="text-base font-bold text-slate-900">Quotation Studio</h2>
                 <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
                   {liveQuotation.formatted_quote_ref}
                 </span>
+
+                {/* Interactive Quotation Status Lifecycle Selector Pill */}
+                <div className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
+                  {(
+                    [
+                      { id: 'Draft', label: 'Draft' },
+                      { id: 'Sent', label: 'Sent' },
+                      { id: 'Approved', label: 'Approved' },
+                      { id: 'Rejected', label: 'Rejected' },
+                      { id: 'Superseded', label: 'Superseded' }
+                    ] as const
+                  ).map((st) => {
+                    const isActive = (quotationStatus || 'Draft') === st.id;
+                    const activeColor =
+                      st.id === 'Approved'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : st.id === 'Sent'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : st.id === 'Rejected'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : st.id === 'Superseded'
+                        ? 'bg-amber-600 text-white shadow-2xs'
+                        : 'bg-slate-800 text-white shadow-2xs';
+                    return (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => setQuotationStatus(st.id)}
+                        className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer ${
+                          isActive
+                            ? activeColor
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                        }`}
+                      >
+                        {st.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* One-Click Revision Cloner Button */}
+                <button
+                  type="button"
+                  onClick={handleCloneAsNextRevision}
+                  title={`Deep-clone current quotation into Revision R${(liveQuotation.revision_number || 1) + 1}`}
+                  className="px-2.5 py-1 text-[11px] font-bold font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                >
+                  <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
+                </button>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 mt-0.5">
                 Client: <span className="font-semibold text-slate-700">{liveQuotation.client_snapshot.entity_name}</span>
                 {salespersonName && ` • Assigned: ${salespersonName}`}
+                {liveQuotation.parent_quotation_id && (
+                  <span className="ml-2 text-[10.5px] font-mono text-indigo-600">
+                    • Revision R{liveQuotation.revision_number || 1}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -3663,12 +3764,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleSaveQuotation('Draft')}
+                  onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
                   disabled={isSaving}
                   className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Save Draft</span>
+                  <span>{quotationStatus && quotationStatus !== 'Draft' ? `Save (${quotationStatus})` : 'Save Draft'}</span>
                 </button>
 
                 <button

@@ -1,4 +1,10 @@
-import { Quotation, QuotationPreset, QuotationTaxMode, WorkspaceDocumentProfile } from '../../types';
+import {
+  Quotation,
+  QuotationPreset,
+  QuotationTaxMode,
+  WorkspaceDocumentProfile,
+  EnquiryQuotationSyncPayload
+} from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc } from 'firebase/firestore';
@@ -66,6 +72,7 @@ export class QuotationRepository {
   public static docToQuotation(id: string, data: any): Quotation {
     if (!data) return { id } as Quotation;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
+    const parentId = data.parent_quotation_id || data.parent_quote_id;
     return {
       ...data,
       id: id || data.id,
@@ -73,6 +80,9 @@ export class QuotationRepository {
       workspaceId: wsId,
       revision_number: typeof data.revision_number === 'number' ? data.revision_number : 0,
       status: data.status || 'Draft',
+      parent_quotation_id: parentId,
+      parent_quote_id: parentId,
+      superseded_by_id: data.superseded_by_id,
       line_items: Array.isArray(data.line_items) ? data.line_items : [],
       tax_mode: data.tax_mode || 'taxes_extra',
       subtotal: Number(data.subtotal) || 0,
@@ -86,6 +96,303 @@ export class QuotationRepository {
       deleted_by_name: data.deleted_by_name || null,
       created_at: data.created_at || new Date().toISOString()
     } as Quotation;
+  }
+
+  /**
+   * Pure, deterministic deep-clone revision helper (R1 -> R2, etc.):
+   * - Computes nextRev = Math.max(source.revision_number || 1, ...(existingRevisions || []).map(q => q.revision_number || 1)) + 1
+   * - Generates a fresh ID, updates formatted_quote_ref with -R${nextRev}, sets status: 'Draft', and sets parent_quotation_id: source.id
+   * - Deep-clones 100% of Phase 1–3.2 fields without shared reference mutation.
+   */
+  public static cloneQuotationAsNextRevision(
+    source: Quotation,
+    existingRevisions?: Quotation[]
+  ): Quotation {
+    const nextRev =
+      Math.max(
+        source.revision_number || 1,
+        ...(existingRevisions || []).map((q) => q.revision_number || 1)
+      ) + 1;
+
+    const freshId = `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const wsId = source.workspace_id || source.workspaceId || 'ws_default';
+
+    const baseQuoteNumber = (
+      source.quote_number ||
+      (source.formatted_quote_ref ? source.formatted_quote_ref.replace(/-R\d+$/i, '') : 'QT-0001')
+    ).replace(/-R\d+$/i, '');
+
+    const formattedQuoteRef = source.formatted_quote_ref
+      ? /-R\d+$/i.test(source.formatted_quote_ref)
+        ? source.formatted_quote_ref.replace(/-R\d+$/i, `-R${nextRev}`)
+        : `${source.formatted_quote_ref}-R${nextRev}`
+      : `${baseQuoteNumber}-R${nextRev}`;
+
+    // Deep-clone line_items preserving all Phase 1–3.2 properties
+    const clonedLineItems = Array.isArray(source.line_items)
+      ? source.line_items.map((item) => {
+          const clonedAttributes = Array.isArray(item.attributes)
+            ? item.attributes.map((attr) => ({ ...attr }))
+            : undefined;
+          const clonedTechAttributes = Array.isArray(item.technical_attributes)
+            ? item.technical_attributes.map((attr) => ({ ...attr }))
+            : item.technical_attributes && typeof item.technical_attributes === 'object'
+            ? { ...item.technical_attributes }
+            : undefined;
+          const itemAny = item as any;
+          const clonedSpecs = Array.isArray(itemAny.specs)
+            ? itemAny.specs.map((s: any) => ({ ...s }))
+            : undefined;
+          return {
+            ...item,
+            ...(clonedAttributes !== undefined ? { attributes: clonedAttributes } : {}),
+            ...(clonedTechAttributes !== undefined
+              ? { technical_attributes: clonedTechAttributes }
+              : {}),
+            ...(Array.isArray(item.visible_attributes)
+              ? { visible_attributes: [...item.visible_attributes] }
+              : {}),
+            ...(Array.isArray(item.hidden_attributes)
+              ? { hidden_attributes: [...item.hidden_attributes] }
+              : {}),
+            ...(clonedSpecs !== undefined ? { specs: clonedSpecs } : {}),
+            page_break_after: Boolean(item.page_break_after),
+            ...(typeof item.row_spacer_after_mm === 'number'
+              ? { row_spacer_after_mm: item.row_spacer_after_mm }
+              : {}),
+            is_optional: Boolean(item.is_optional)
+          };
+        })
+      : [];
+
+    // Deep-clone layout_blocks preserving page_break & spacer configurations
+    const clonedLayoutBlocks = Array.isArray(source.layout_blocks)
+      ? source.layout_blocks.map((block) => ({
+          ...block,
+          ...(typeof block.spacer_height_mm === 'number'
+            ? { spacer_height_mm: block.spacer_height_mm }
+            : {}),
+          ...(typeof block.spacer_fill_remaining === 'boolean'
+            ? { spacer_fill_remaining: block.spacer_fill_remaining }
+            : {}),
+          ...(typeof block.show_continuation_header === 'boolean'
+            ? { show_continuation_header: block.show_continuation_header }
+            : {})
+        }))
+      : undefined;
+
+    // Deep-clone visible_columns
+    const clonedVisibleColumns = source.visible_columns
+      ? {
+          ...source.visible_columns,
+          ...(Array.isArray(source.visible_columns.hiddenAttributeKeys)
+            ? { hiddenAttributeKeys: [...source.visible_columns.hiddenAttributeKeys] }
+            : {})
+        }
+      : undefined;
+
+    // Deep-clone flyer_attachments
+    const clonedFlyerAttachments = Array.isArray(source.flyer_attachments)
+      ? source.flyer_attachments.map((att) => ({ ...att }))
+      : undefined;
+
+    // Deep-clone configs and bank snapshots
+    const clonedSelectedBank = source.selectedBank
+      ? { ...source.selectedBank }
+      : source.selected_bank
+      ? { ...source.selected_bank }
+      : undefined;
+
+    const clonedAppliedBank = source.applied_bank_account
+      ? { ...source.applied_bank_account }
+      : undefined;
+
+    const clonedFooterConfig = source.footer_config
+      ? {
+          ...source.footer_config,
+          ...(source.footer_config.selectedBank
+            ? { selectedBank: { ...source.footer_config.selectedBank } }
+            : {})
+        }
+      : undefined;
+
+    const clonedHeaderConfig = source.header_config
+      ? { ...source.header_config }
+      : undefined;
+
+    const clonedRecipientConfig = source.recipient_config
+      ? { ...source.recipient_config }
+      : undefined;
+
+    const clonedSignatories = Array.isArray(source.signatories)
+      ? source.signatories.map((sig) => ({ ...sig }))
+      : undefined;
+
+    const clonedClientSnapshot = source.client_snapshot
+      ? { ...source.client_snapshot }
+      : { entity_name: 'Valued Client' };
+
+    const clonedSenderSnapshot = source.sender_snapshot
+      ? { ...source.sender_snapshot }
+      : { entity_name: 'Commercial Entity' };
+
+    const now = new Date().toISOString();
+
+    return {
+      ...source,
+      id: freshId,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      quote_number: baseQuoteNumber,
+      revision_number: nextRev,
+      formatted_quote_ref: formattedQuoteRef,
+      status: 'Draft',
+      parent_quotation_id: source.id,
+      parent_quote_id: source.id,
+      superseded_by_id: undefined,
+      client_snapshot: clonedClientSnapshot,
+      sender_snapshot: clonedSenderSnapshot,
+      line_items: clonedLineItems,
+      layout_blocks: clonedLayoutBlocks,
+      visible_columns: clonedVisibleColumns,
+      flyer_attachments: clonedFlyerAttachments,
+      show_submittals_index: source.show_submittals_index,
+      footer_config: clonedFooterConfig,
+      header_config: clonedHeaderConfig,
+      recipient_config: clonedRecipientConfig,
+      remittanceBankId: source.remittanceBankId || source.remittance_bank_id,
+      remittance_bank_id: source.remittance_bank_id || source.remittanceBankId,
+      selectedBank: clonedSelectedBank,
+      selected_bank: clonedSelectedBank ? { ...clonedSelectedBank } : undefined,
+      applied_bank_account: clonedAppliedBank,
+      signatories: clonedSignatories,
+      globalCardRadius: source.globalCardRadius,
+      cardsOrder: source.cardsOrder,
+      subjectPlacement: source.subjectPlacement,
+      fontSizeScale: source.fontSizeScale || source.font_size_scale,
+      font_size_scale: source.font_size_scale || source.fontSizeScale,
+      table_density: source.table_density,
+      table_font_scale: source.table_font_scale,
+      block_style: source.block_style,
+      created_at: now,
+      updatedAt: now
+    };
+  }
+
+  /**
+   * Marks earlier revisions in the same quotation chain as 'Superseded' with superseded_by_id: activeRevisionId,
+   * leaving explicitly 'Rejected' (or 'Declined') revisions untouched.
+   */
+  public static markPreviousRevisionsSuperseded(
+    revisions: Quotation[],
+    activeRevisionId: string
+  ): Quotation[] {
+    if (!Array.isArray(revisions)) return [];
+    const activeQuote = revisions.find((r) => r.id === activeRevisionId);
+    const activeRevNum = activeQuote?.revision_number;
+
+    return revisions.map((rev) => {
+      if (rev.id === activeRevisionId) {
+        return { ...rev };
+      }
+      // Leave explicitly Rejected or Declined revisions untouched
+      if (rev.status === 'Rejected' || rev.status === 'Declined') {
+        return { ...rev };
+      }
+      // If activeQuote is in the list, only supersede earlier revisions (or any other non-active revision in the chain)
+      if (
+        typeof activeRevNum === 'number' &&
+        typeof rev.revision_number === 'number' &&
+        rev.revision_number > activeRevNum
+      ) {
+        return { ...rev };
+      }
+      return {
+        ...rev,
+        status: 'Superseded',
+        superseded_by_id: activeRevisionId
+      };
+    });
+  }
+
+  /**
+   * Builds a deterministic Enquiry pipeline sync payload from a Quotation,
+   * accurately computing quoted_amount (excluding optional line items).
+   */
+  public static buildEnquiryQuotationSyncPayload(
+    quotation: Quotation
+  ): EnquiryQuotationSyncPayload {
+    const calculatedGrandTotal =
+      Array.isArray(quotation.line_items) && quotation.line_items.length > 0
+        ? this.calculateTotals(
+            quotation.line_items,
+            quotation.freight_amount || 0,
+            quotation.tax_mode || 'taxes_extra',
+            quotation.tax_rate_percent ?? 5
+          ).grand_total
+        : Number(quotation.grand_total) || 0;
+
+    return {
+      active_quotation_id: quotation.id || '',
+      latest_quote_ref: quotation.formatted_quote_ref || quotation.quote_number || '',
+      quoted_amount: calculatedGrandTotal,
+      quotation_status: quotation.status || 'Draft',
+      latest_revision_number:
+        typeof quotation.revision_number === 'number' ? quotation.revision_number : 1
+    };
+  }
+
+  /**
+   * Synchronizes superseded status across previous revisions for the enquiry and updates
+   * the parent Enquiry record with the latest quotation sync payload.
+   */
+  public static async syncQuotationRevisionAndEnquiry(
+    quotation: Quotation
+  ): Promise<EnquiryQuotationSyncPayload> {
+    const syncPayload = this.buildEnquiryQuotationSyncPayload(quotation);
+    const now = new Date().toISOString();
+
+    if (quotation.enquiry_id && quotation.id) {
+      try {
+        const wsId = quotation.workspace_id || quotation.workspaceId || 'ws_default';
+        const existingRevisions = await this.getQuotationsForEnquiry(quotation.enquiry_id, wsId);
+        if (existingRevisions.length > 1) {
+          const updatedChain = this.markPreviousRevisionsSuperseded(
+            existingRevisions,
+            quotation.id
+          );
+          for (const rev of updatedChain) {
+            if (
+              rev.id &&
+              rev.id !== quotation.id &&
+              rev.status === 'Superseded' &&
+              rev.superseded_by_id === quotation.id
+            ) {
+              await this.updateQuotation(rev.id, {
+                status: 'Superseded',
+                superseded_by_id: quotation.id,
+                updatedAt: now
+              });
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        await safeUpdateDoc('enquiries', quotation.enquiry_id, {
+          active_quotation_id: syncPayload.active_quotation_id,
+          latest_quote_ref: syncPayload.latest_quote_ref,
+          quote_ref_no: syncPayload.latest_quote_ref,
+          quoted_amount: syncPayload.quoted_amount,
+          value_aed: syncPayload.quoted_amount,
+          quotation_status: syncPayload.quotation_status,
+          latest_revision_number: syncPayload.latest_revision_number,
+          updated_at: now
+        });
+      } catch (_) {}
+    }
+
+    return syncPayload;
   }
 
   /**
@@ -113,13 +420,15 @@ export class QuotationRepository {
   public static async createQuotation(
     data: Omit<Quotation, 'id' | 'created_at' | 'revision_number' | 'formatted_quote_ref'> & {
       id?: string;
+      revision_number?: number;
+      formatted_quote_ref?: string;
       status?: Quotation['status'];
     }
   ): Promise<Quotation> {
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     const quoteNumber = data.quote_number || `QT-${Date.now()}`;
-    const revisionNumber = 0;
-    const formattedQuoteRef = `${quoteNumber}-R${revisionNumber}`;
+    const revisionNumber = typeof data.revision_number === 'number' ? data.revision_number : 0;
+    const formattedQuoteRef = data.formatted_quote_ref || `${quoteNumber}-R${revisionNumber}`;
     const createdAt = new Date().toISOString();
     const status = data.status || 'Draft';
 

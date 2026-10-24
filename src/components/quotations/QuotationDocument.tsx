@@ -1031,12 +1031,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           <span>Omni Suite Commercial Engine</span>
           <span>•</span>
           <span className="font-mono font-medium text-slate-500">Ref: {quotation.formatted_quote_ref || quotation.quote_number}</span>
-          {quotation.revision_number !== undefined && (
-            <>
-              <span>•</span>
-              <span>Rev {quotation.revision_number}</span>
-            </>
-          )}
+          <span>•</span>
+          <span>Rev {quotation.revision_number || 1}</span>
+          <span>•</span>
+          <span className="font-semibold uppercase text-slate-500">
+            {String(quotation.status || 'Draft').toUpperCase()}
+          </span>
           {enquiry?.enquiry_number && (
             <>
               <span>•</span>
@@ -1888,9 +1888,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </div>
         )}
         <div>
-          <div className="pb-1.5 border-b border-slate-200/60">
+          <div className="pb-1.5 border-b border-slate-200/60 flex items-center justify-between gap-2">
             <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
               Commercial Offer
+            </span>
+            <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
+              Rev {quotation.revision_number || 1}
             </span>
           </div>
           <div className="py-2 text-center">
@@ -1923,14 +1926,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
             </div>
           )}
-          {quotation.status && (
-            <div className="col-span-2 pt-0.5 flex items-center justify-between">
-              <span className="text-slate-400 text-[10px] uppercase">Status</span>
-              <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
-                {quotation.status}
-              </span>
-            </div>
-          )}
+          <div className="col-span-2 pt-0.5 flex items-center justify-between">
+            <span className="text-slate-400 text-[10px] uppercase">Status</span>
+            <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+              {String(quotation.status || 'Draft').toUpperCase()}
+            </span>
+          </div>
         </div>
       </div>
     );

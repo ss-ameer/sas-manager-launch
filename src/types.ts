@@ -973,7 +973,7 @@ export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
 export type QuotationPageMode = 'auto' | '1-page' | '2-page';
 
-export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Declined' | 'Superseded';
+export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Rejected' | 'Declined' | 'Superseded' | string;
 
 export interface QuotationItemAttribute {
   key: string;   // e.g. "Size", "Material", "Pressure", "Flow", "Color"
@@ -994,6 +994,7 @@ export interface QuotationLineItem {
   availability?: string;
   is_optional?: boolean;
   attributes?: QuotationItemAttribute[];
+  technical_attributes?: QuotationItemAttribute[] | Record<string, string>;
   visible_attributes?: string[];
   hidden_attributes?: string[];
   page_break_after?: boolean;
@@ -1193,6 +1194,7 @@ export interface QuotationBlockConfig {
   is_visible?: boolean;
   enabled?: boolean;
   placement?: 'left' | 'right' | 'full'; // 'left' = col-start-1 col-span-1, 'right' = col-start-2 col-span-1, 'full' = col-span-2
+  width?: '50' | '100' | 'full' | 'left' | 'right' | string;
   style?: 'framed' | 'minimal';
   fontScale?: 'compact' | 'standard' | 'prominent'; // compact = 9px base, standard = 10px base, prominent = 11px base
   padding?: 'compact' | 'standard'; // compact = p-2, standard = p-3
@@ -1366,6 +1368,8 @@ export interface Quotation extends SoftDeleteFields {
   updated_at?: string;
   valid_until?: string;
   parent_quote_id?: string; // Link to parent quote when revisioned
+  parent_quotation_id?: string; // ID of the previous revision this was cloned from
+  superseded_by_id?: string; // ID of the newer revision that superseded this quotation
   currency?: string;
   decline_reason?: string;
   decline_notes?: string;
@@ -1375,4 +1379,13 @@ export interface Quotation extends SoftDeleteFields {
   deleted_by_id?: string | null;
   deleted_by_name?: string | null;
 }
+
+export interface EnquiryQuotationSyncPayload {
+  active_quotation_id: string;
+  latest_quote_ref: string;
+  quoted_amount: number;
+  quotation_status: QuotationStatus;
+  latest_revision_number: number;
+}
+
 

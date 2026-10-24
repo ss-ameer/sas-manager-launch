@@ -1353,6 +1353,227 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
 });
 
 // ==========================================
+// 13. DEEP-CLONE QUOTATION REVISIONING (R1 -> R2), STATUS LIFECYCLE & ENQUIRY PIPELINE SYNC (PHASE 3.3)
+// ==========================================
+
+describe('13. Deep-Clone Quotation Revisioning (R1 -> R2), Status Lifecycle & Enquiry Pipeline Sync', () => {
+  const createSourceR1Quotation = (): Quotation => ({
+    id: 'quote_r1_100',
+    workspace_id: 'ws_industrial_1',
+    workspaceId: 'ws_industrial_1',
+    enquiry_id: 'enq_5501',
+    quote_number: 'TEST/10/2026/5',
+    revision_number: 1,
+    formatted_quote_ref: 'TEST/10/2026/5-R1',
+    status: 'Sent',
+    client_snapshot: {
+      entity_name: 'Gulf Petrochemical Utilities LLC',
+      contact_person: 'Eng. Khalid Al-Mansoor',
+      address: 'Jebel Ali Industrial Zone, Dubai, UAE'
+    },
+    sender_snapshot: {
+      entity_name: 'FlowLine Engineered Systems LLC',
+      trn: '100492817200003',
+      address: 'Dubai Science Park, UAE'
+    },
+    line_items: [
+      {
+        id: 'item_r1_1',
+        item_name: 'High-Efficiency Centrifugal Transfer Pump',
+        description: 'Horizontal end-suction with mechanical seal',
+        quantity: 2,
+        unit: 'SET',
+        unit_price: 12500,
+        total_price: 25000,
+        is_optional: false,
+        page_break_after: true,
+        row_spacer_after_mm: 15,
+        attributes: [
+          { key: 'Flow Rate', value: '150 m3/h' },
+          { key: 'Impeller', value: 'Duplex SS 2205' }
+        ],
+        visible_attributes: ['Flow Rate', 'Impeller']
+      },
+      {
+        id: 'item_r1_2',
+        item_name: 'Optional Spare Seal & Bearing Kit (2-Year)',
+        description: 'Recommended commissioning and 2-year spare kit',
+        quantity: 1,
+        unit: 'LOT',
+        unit_price: 4200,
+        total_price: 4200,
+        is_optional: true,
+        page_break_after: false,
+        attributes: [{ key: 'Shelf Life', value: '5 Years' }]
+      }
+    ],
+    tax_mode: 'taxes_extra',
+    subtotal: 25000,
+    freight_amount: 1000,
+    tax_rate_percent: 5,
+    tax_amount: 1300,
+    grand_total: 27300,
+    layout_blocks: [
+      { id: 'totals', type: 'totals', title: 'Financial Summary', is_visible: true, enabled: true, style: 'framed' },
+      { id: 'spacer_1', type: 'spacer', title: 'Spacer', is_visible: true, enabled: true, spacer_height_mm: 20, spacer_fill_remaining: false },
+      { id: 'break_1', type: 'page_break', title: 'Page Break', is_visible: true, enabled: true, show_continuation_header: true },
+      { id: 'terms', type: 'terms', title: 'Commercial Terms', is_visible: true, enabled: true, style: 'minimal' },
+      { id: 'signatories', type: 'signatories', title: 'Signatories', is_visible: true, enabled: true }
+    ],
+    visible_columns: {
+      brand: true,
+      model: true,
+      origin: true,
+      unit_price: false,
+      showUnitPrice: false,
+      showUom: true,
+      showLineTotal: true,
+      showItemAttributes: true,
+      attributeDisplayFormat: 'pills',
+      hiddenAttributeKeys: ['InternalCode'],
+      showAmountInWords: true
+    },
+    flyer_attachments: [
+      {
+        id: 'flyer_pump_curve',
+        name: 'Annex A: Pump Hydraulic Performance Curve',
+        url: 'https://example.com/pump-curve.png',
+        type: 'image/png',
+        render_as_annex_page: true
+      }
+    ],
+    show_submittals_index: true,
+    remittanceBankId: 'bank_aed_primary',
+    globalCardRadius: 'sharp',
+    cardsOrder: 'offer_first',
+    subjectPlacement: 'above_cards',
+    fontSizeScale: 'comfortable',
+    table_density: 'compact',
+    block_style: 'framed',
+    created_at: '2026-10-20T09:00:00.000Z'
+  });
+
+  it('13a. cloneQuotationAsNextRevision increments revision_number (1 -> 2), updates formatted_quote_ref (TEST/10/2026/5-R1 -> TEST/10/2026/5-R2), resets status to Draft, sets parent_quotation_id, and deep-clones line_items, layout_blocks, visible_columns, and flyer_attachments with zero reference bleed', () => {
+    const sourceR1 = createSourceR1Quotation();
+    const clonedR2 = QuotationRepository.cloneQuotationAsNextRevision(sourceR1);
+
+    expect(Boolean(clonedR2.id && clonedR2.id !== sourceR1.id)).toBe(true);
+    expect(clonedR2.revision_number).toBe(2);
+    expect(clonedR2.formatted_quote_ref).toBe('TEST/10/2026/5-R2');
+    expect(clonedR2.status).toBe('Draft');
+    expect(clonedR2.parent_quotation_id).toBe('quote_r1_100');
+    expect(clonedR2.parent_quote_id).toBe('quote_r1_100');
+
+    // Verify all Phase 1–3.2 properties were preserved on the clone
+    expect(clonedR2.line_items[0].page_break_after).toBe(true);
+    expect(clonedR2.line_items[0].row_spacer_after_mm).toBe(15);
+    expect(clonedR2.line_items[1].is_optional).toBe(true);
+    expect(clonedR2.layout_blocks?.length).toBe(5);
+    expect(clonedR2.layout_blocks?.[1].type).toBe('spacer');
+    expect(clonedR2.layout_blocks?.[1].spacer_height_mm).toBe(20);
+    expect(clonedR2.layout_blocks?.[2].type).toBe('page_break');
+    expect(clonedR2.layout_blocks?.[2].show_continuation_header).toBe(true);
+    expect(clonedR2.visible_columns?.showUnitPrice).toBe(false);
+    expect(clonedR2.visible_columns?.hiddenAttributeKeys).toEqual(['InternalCode']);
+    expect(clonedR2.flyer_attachments?.length).toBe(1);
+    expect(clonedR2.flyer_attachments?.[0].name).toBe('Annex A: Pump Hydraulic Performance Curve');
+    expect(clonedR2.globalCardRadius).toBe('sharp');
+    expect(clonedR2.cardsOrder).toBe('offer_first');
+    expect(clonedR2.subjectPlacement).toBe('above_cards');
+
+    // Mutate clonedR2 deeply and verify zero reference bleed into sourceR1
+    clonedR2.line_items[0].item_name = 'MUTATED PUMP R2';
+    clonedR2.line_items[0].page_break_after = false;
+    clonedR2.line_items[0].attributes![0].value = '999 m3/h';
+    clonedR2.layout_blocks![1].spacer_height_mm = 80;
+    clonedR2.visible_columns!.showUnitPrice = true;
+    clonedR2.visible_columns!.hiddenAttributeKeys!.push('NewHiddenKey');
+    clonedR2.flyer_attachments![0].name = 'MUTATED ANNEX TITLE';
+
+    expect(sourceR1.line_items[0].item_name).toBe('High-Efficiency Centrifugal Transfer Pump');
+    expect(sourceR1.line_items[0].page_break_after).toBe(true);
+    expect(sourceR1.line_items[0].attributes![0].value).toBe('150 m3/h');
+    expect(sourceR1.layout_blocks![1].spacer_height_mm).toBe(20);
+    expect(sourceR1.visible_columns!.showUnitPrice).toBe(false);
+    expect(sourceR1.visible_columns!.hiddenAttributeKeys).toEqual(['InternalCode']);
+    expect(sourceR1.flyer_attachments![0].name).toBe('Annex A: Pump Hydraulic Performance Curve');
+
+    // Also verify existingRevisions max revision calculation (e.g. if R2 and R3 already exist, next is R4)
+    const clonedR4 = QuotationRepository.cloneQuotationAsNextRevision(sourceR1, [
+      sourceR1,
+      clonedR2,
+      { ...clonedR2, id: 'quote_r3_100', revision_number: 3, formatted_quote_ref: 'TEST/10/2026/5-R3' }
+    ]);
+    expect(clonedR4.revision_number).toBe(4);
+    expect(clonedR4.formatted_quote_ref).toBe('TEST/10/2026/5-R4');
+  });
+
+  it('13b. markPreviousRevisionsSuperseded transitions prior active revisions to Superseded with superseded_by_id populated while leaving explicitly Rejected revisions untouched', () => {
+    const r1 = {
+      ...createSourceR1Quotation(),
+      id: 'quote_r1',
+      revision_number: 1,
+      formatted_quote_ref: 'TEST/10/2026/5-R1',
+      status: 'Rejected'
+    };
+    const r2 = {
+      ...createSourceR1Quotation(),
+      id: 'quote_r2',
+      revision_number: 2,
+      formatted_quote_ref: 'TEST/10/2026/5-R2',
+      status: 'Sent',
+      parent_quotation_id: 'quote_r1'
+    };
+    const r3 = {
+      ...createSourceR1Quotation(),
+      id: 'quote_r3',
+      revision_number: 3,
+      formatted_quote_ref: 'TEST/10/2026/5-R3',
+      status: 'Approved',
+      parent_quotation_id: 'quote_r2'
+    };
+
+    const updatedChain = QuotationRepository.markPreviousRevisionsSuperseded(
+      [r1, r2, r3],
+      'quote_r3'
+    );
+
+    // R1 was explicitly 'Rejected' -> stays 'Rejected'
+    expect(updatedChain[0].id).toBe('quote_r1');
+    expect(updatedChain[0].status).toBe('Rejected');
+    expect(updatedChain[0].superseded_by_id).toBe(undefined);
+
+    // R2 was 'Sent' -> transitions to 'Superseded' with superseded_by_id = 'quote_r3'
+    expect(updatedChain[1].id).toBe('quote_r2');
+    expect(updatedChain[1].status).toBe('Superseded');
+    expect(updatedChain[1].superseded_by_id).toBe('quote_r3');
+
+    // R3 is the active revision -> remains 'Approved'
+    expect(updatedChain[2].id).toBe('quote_r3');
+    expect(updatedChain[2].status).toBe('Approved');
+    expect(updatedChain[2].superseded_by_id).toBe(undefined);
+  });
+
+  it('13c. buildEnquiryQuotationSyncPayload produces accurate quoted_amount (excluding optional items), latest_quote_ref, quotation_status, and latest_revision_number', () => {
+    const sourceR1 = createSourceR1Quotation();
+    const clonedR2 = QuotationRepository.cloneQuotationAsNextRevision(sourceR1);
+    clonedR2.status = 'Approved';
+
+    // Non-optional item is 25,000 + 1,000 freight = 26,000 + 5% tax (1,300) = 27,300
+    // Optional item (4,200) must be excluded from quoted_amount
+    const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(clonedR2);
+
+    expect(syncPayload).toEqual({
+      active_quotation_id: clonedR2.id!,
+      latest_quote_ref: 'TEST/10/2026/5-R2',
+      quoted_amount: 27300,
+      quotation_status: 'Approved',
+      latest_revision_number: 2
+    });
+  });
+});
+
+// ==========================================
 // TEST REPORT SUMMARY
 // ==========================================
 
