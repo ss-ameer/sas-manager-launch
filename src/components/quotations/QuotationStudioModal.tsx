@@ -29,7 +29,8 @@ import {
   QuotationFooterConfig,
   QuotationItemAttribute,
   QuotationLineItem,
-  QuotationPageMode
+  QuotationPageMode,
+  Attachment
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import {
@@ -84,7 +85,10 @@ import {
   CheckSquare,
   Edit3,
   Scissors,
-  Trash2
+  Trash2,
+  Star,
+  Paperclip,
+  Upload
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -897,6 +901,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           }))
         );
       }
+      if (Array.isArray(editingQuotation.flyer_attachments)) {
+        setFlyerAttachments(editingQuotation.flyer_attachments);
+      }
+      if (typeof editingQuotation.show_submittals_index === 'boolean') {
+        setShowSubmittalsIndex(editingQuotation.show_submittals_index);
+      }
     }
   }, [editingQuotation]);
 
@@ -920,6 +930,98 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [isBrandingOpen, setIsBrandingOpen] = useState<boolean>(false);
   const [isTermsOpen, setIsTermsOpen] = useState<boolean>(false);
   const [isSignatoryOpen, setIsSignatoryOpen] = useState<boolean>(false);
+  const [isAnnexOpen, setIsAnnexOpen] = useState<boolean>(false);
+
+  // Technical Annexures & Flyers State
+  const [flyerAttachments, setFlyerAttachments] = useState<Attachment[]>(() =>
+    Array.isArray(editingQuotation?.flyer_attachments)
+      ? editingQuotation!.flyer_attachments!
+      : []
+  );
+  const [showSubmittalsIndex, setShowSubmittalsIndex] = useState<boolean>(
+    () => editingQuotation?.show_submittals_index ?? true
+  );
+  const [newAttachmentTitle, setNewAttachmentTitle] = useState<string>('');
+  const [newAttachmentUrl, setNewAttachmentUrl] = useState<string>('');
+  const annexFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleUploadAnnexFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    (Array.from(files) as File[]).forEach((file: File, idx: number) => {
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUri = typeof reader.result === 'string' ? reader.result : '';
+        if (!dataUri) return;
+        const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+        const newAtt: Attachment = {
+          id: `annex_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          name: cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`,
+          url: dataUri,
+          type: file.type || (isImage ? 'image/png' : 'application/pdf'),
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+          render_as_annex_page: isImage
+        };
+        setFlyerAttachments((prev) => [...prev, newAtt]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const handleAddAttachmentByUrl = () => {
+    const trimmedUrl = newAttachmentUrl.trim();
+    if (!trimmedUrl) {
+      triggerToast?.('Please enter an image or document URL.', 'error');
+      return;
+    }
+    const trimmedTitle =
+      newAttachmentTitle.trim() || `Annex ${String.fromCharCode(65 + flyerAttachments.length)}: Technical Submittal`;
+    const lowerUrl = trimmedUrl.toLowerCase();
+    const isPdfOrDoc =
+      lowerUrl.endsWith('.pdf') ||
+      lowerUrl.endsWith('.doc') ||
+      lowerUrl.endsWith('.docx') ||
+      lowerUrl.includes('application/pdf');
+    const newAtt: Attachment = {
+      id: `annex_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: trimmedTitle,
+      url: trimmedUrl,
+      type: isPdfOrDoc ? 'pdf' : 'image',
+      uploadedAt: new Date().toISOString(),
+      render_as_annex_page: !isPdfOrDoc
+    };
+    setFlyerAttachments((prev) => [...prev, newAtt]);
+    setNewAttachmentTitle('');
+    setNewAttachmentUrl('');
+  };
+
+  const handleUpdateAttachment = (id: string, patch: Partial<Attachment>) => {
+    setFlyerAttachments((prev) =>
+      prev.map((att, idx) =>
+        (att.id || `annex_${idx}`) === id ? { ...att, ...patch } : att
+      )
+    );
+  };
+
+  const handleMoveAttachment = (idx: number, direction: 'up' | 'down') => {
+    setFlyerAttachments((prev) => {
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const copy = [...prev];
+      const [moved] = copy.splice(idx, 1);
+      copy.splice(targetIdx, 0, moved);
+      return copy;
+    });
+  };
+
+  const handleDeleteAttachment = (id: string) => {
+    setFlyerAttachments((prev) =>
+      prev.filter((att, idx) => (att.id || `annex_${idx}`) !== id)
+    );
+  };
 
   // Load Presets on Mount
   useEffect(() => {
@@ -929,7 +1031,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         if (!isMounted) return;
         setPresets(loadedPresets);
         if (loadedPresets.length > 0 && !editingQuotation) {
-          applyPreset(loadedPresets[0]);
+          const defaultPreset =
+            loadedPresets.find((p) => p.is_default) || loadedPresets[0];
+          applyPreset(defaultPreset);
         }
       })
       .catch((err) => {
@@ -971,39 +1075,34 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   // Resolved active document profile prioritizing prop then hydrated repository profile
   const activeProfile = profile || workspaceProfile;
 
-  // Set default bank if profile exists
+  // Set default bank if profile exists and no explicit bank was already selected by draft/preset
   useEffect(() => {
-    if (activeProfile?.bank_accounts && activeProfile.bank_accounts.length > 0) {
+    if (
+      !selectedBankId &&
+      !editingQuotation?.applied_bank_account?.id &&
+      !editingQuotation?.remittanceBankId &&
+      activeProfile?.bank_accounts &&
+      activeProfile.bank_accounts.length > 0
+    ) {
       const def = activeProfile.bank_accounts.find((b) => b.is_default) || activeProfile.bank_accounts[0];
       if (def?.id) {
         setSelectedBankId(def.id);
       }
     }
-  }, [activeProfile]);
+  }, [activeProfile, selectedBankId, editingQuotation]);
 
-  // Apply chosen preset
+  // Apply chosen preset (Full Phase 1 & Phase 2 Snapshot Hydration)
   const applyPreset = (preset: QuotationPreset) => {
+    const hydrated = QuotationRepository.hydrateFromPresetSnapshot(preset);
     setSelectedPresetId(preset.id || '');
     if (preset.visible_columns) {
-      const resolvedUnitPrice =
-        preset.visible_columns.showUnitPrice !== undefined
-          ? preset.visible_columns.showUnitPrice
-          : preset.visible_columns.unit_price ?? true;
       setVisibleColumns((prev) => ({
         ...prev,
-        ...preset.visible_columns,
-        brand: preset.visible_columns.brand ?? true,
-        model: preset.visible_columns.model ?? true,
-        origin: preset.visible_columns.origin ?? true,
-        availability: preset.visible_columns.availability ?? true,
-        unit_price: resolvedUnitPrice,
-        showUnitPrice: resolvedUnitPrice,
-        showUom: preset.visible_columns.showUom ?? prev.showUom ?? true,
-        showLineTotal: preset.visible_columns.showLineTotal ?? prev.showLineTotal ?? true,
-        showItemAttributes: preset.visible_columns.showItemAttributes ?? prev.showItemAttributes ?? true,
-        attributeDisplayFormat: preset.visible_columns.attributeDisplayFormat ?? prev.attributeDisplayFormat ?? 'pills',
-        hiddenAttributeKeys: preset.visible_columns.hiddenAttributeKeys ?? prev.hiddenAttributeKeys ?? []
+        ...hydrated.visibleColumns
       }));
+      if (typeof hydrated.visibleColumns.showAmountInWords === 'boolean') {
+        setAmountInWordsEnabled(hydrated.visibleColumns.showAmountInWords);
+      }
     }
     if (preset.default_tax_mode) setTaxMode(preset.default_tax_mode);
     if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
@@ -1015,7 +1114,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         setSignatoryType(preset.signatory_mode);
       }
     }
-    if (preset.notes_template) setCustomNotes(preset.notes_template);
+    if (preset.notes_template !== undefined) setCustomNotes(preset.notes_template);
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
     if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
@@ -1023,52 +1122,120 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       handleSetFontSizeScale(preset.fontSizeScale || (preset as any).font_size_scale);
     }
     if (typeof preset.show_bank_details === 'boolean') setShowBankDetails(preset.show_bank_details);
-    if (preset.remittanceBankId || (preset as any).remittance_bank_id) {
-      handleSelectBank(preset.remittanceBankId || (preset as any).remittance_bank_id);
+    const presetBankId =
+      preset.remittanceBankId ||
+      (preset as any).remittance_bank_id ||
+      preset.footer_config?.remittanceBankId;
+    if (presetBankId) {
+      handleSelectBank(presetBankId);
     }
     if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
     if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
     if (preset.theme_accent) setThemeAccent(preset.theme_accent);
-    if (typeof preset.amount_in_words_enabled === 'boolean') setAmountInWordsEnabled(preset.amount_in_words_enabled);
-    if (typeof preset.customer_acceptance_enabled === 'boolean') setCustomerAcceptanceEnabled(preset.customer_acceptance_enabled);
+    if (typeof preset.amount_in_words_enabled === 'boolean') {
+      setAmountInWordsEnabled(preset.amount_in_words_enabled);
+    }
+    if (typeof preset.customer_acceptance_enabled === 'boolean') {
+      setCustomerAcceptanceEnabled(preset.customer_acceptance_enabled);
+    }
     if (preset.signatory_type) setSignatoryType(preset.signatory_type);
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.logo_position) setLogoPosition(preset.logo_position);
-    if (preset.block_style) setBlockStyle(preset.block_style);
-    if (preset.globalCardRadius) setGlobalCardRadius(preset.globalCardRadius);
-    if (preset.cardsOrder) setCardsOrder(preset.cardsOrder);
-    if (preset.subjectPlacement) setSubjectPlacement(preset.subjectPlacement);
+    if (preset.block_style) {
+      handleSetGlobalBlockStyle(preset.block_style);
+    }
+    if (preset.globalCardRadius) {
+      setGlobalCardRadius(preset.globalCardRadius);
+      setRecipientConfig((prev) => ({
+        ...prev,
+        globalCardRadius: preset.globalCardRadius,
+        recipientCardRadius: preset.globalCardRadius,
+        offerCardRadius: preset.globalCardRadius
+      }));
+    }
+    if (preset.cardsOrder) {
+      setCardsOrder(preset.cardsOrder);
+      setRecipientConfig((prev) => ({
+        ...prev,
+        cardsOrder: preset.cardsOrder
+      }));
+    }
+    if (preset.subjectPlacement) {
+      setSubjectPlacement(preset.subjectPlacement);
+      setRecipientConfig((prev) => ({
+        ...prev,
+        subjectPlacement: preset.subjectPlacement
+      }));
+    }
     if (preset.header_config) {
       setHeaderConfig((prev) => ({ ...prev, ...preset.header_config }));
     }
     if (preset.recipient_config) {
-      setRecipientConfig((prev) => ({ ...prev, ...preset.recipient_config }));
+      setRecipientConfig((prev) => ({
+        ...prev,
+        ...preset.recipient_config,
+        ...(preset.globalCardRadius ? { globalCardRadius: preset.globalCardRadius } : {}),
+        ...(preset.cardsOrder ? { cardsOrder: preset.cardsOrder } : {}),
+        ...(preset.subjectPlacement ? { subjectPlacement: preset.subjectPlacement } : {})
+      }));
     }
     if (preset.footer_config) {
-      setFooterConfig((prev) => ({ ...prev, ...preset.footer_config }));
+      setFooterConfig((prev) => ({
+        ...prev,
+        ...preset.footer_config,
+        ...(presetBankId ? { remittanceBankId: presetBankId } : {})
+      }));
     }
     if (typeof preset.showBankRemittance === 'boolean') {
       handleToggleBankRemittance(preset.showBankRemittance);
+    } else if (typeof preset.footer_config?.showBankRemittance === 'boolean') {
+      handleToggleBankRemittance(preset.footer_config.showBankRemittance);
     }
     if (typeof preset.showCustomerAcceptance === 'boolean') {
       handleToggleCustomerAcceptance(preset.showCustomerAcceptance);
+    } else if (typeof preset.footer_config?.showCustomerAcceptance === 'boolean') {
+      handleToggleCustomerAcceptance(preset.footer_config.showCustomerAcceptance);
     }
     if (typeof preset.showSignatories === 'boolean') {
       handleToggleSignatories(preset.showSignatories);
+    } else if (typeof preset.footer_config?.showSignatories === 'boolean') {
+      handleToggleSignatories(preset.footer_config.showSignatories);
     }
     if (preset.footerLayoutMode) {
       handleSetFooterLayoutMode(preset.footerLayoutMode);
+    } else if (preset.footer_config?.footerLayoutMode) {
+      handleSetFooterLayoutMode(preset.footer_config.footerLayoutMode);
     }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
-        preset.layout_blocks.map((b) => ({
+        preset.layout_blocks.map((b, idx) => ({
           ...b,
+          order: typeof b.order === 'number' ? b.order : idx,
           enabled: b.enabled ?? b.is_visible ?? true,
           is_visible: b.is_visible ?? b.enabled ?? true,
           fontScale: b.fontScale || 'standard',
-          padding: b.padding || 'standard'
+          padding: b.padding || 'standard',
+          ...(b.type === 'spacer' || b.id?.startsWith('spacer_')
+            ? {
+                type: 'spacer' as const,
+                spacer_height_mm: typeof b.spacer_height_mm === 'number' ? b.spacer_height_mm : 20,
+                spacer_fill_remaining: Boolean(b.spacer_fill_remaining)
+              }
+            : {}),
+          ...(b.type === 'page_break' || b.id?.startsWith('break_')
+            ? {
+                type: 'page_break' as const,
+                show_continuation_header: b.show_continuation_header !== false
+              }
+            : {})
         }))
       );
+    }
+    if (Array.isArray(preset.flyer_attachments)) {
+      setFlyerAttachments(hydrated.flyerAttachments);
+    }
+    if (typeof preset.show_submittals_index === 'boolean') {
+      setShowSubmittalsIndex(preset.show_submittals_index);
     }
     if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
@@ -1613,6 +1780,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
       layout_blocks: layoutBlocks,
+      flyer_attachments: flyerAttachments,
+      show_submittals_index: showSubmittalsIndex,
       header_config: headerConfig,
       recipient_config: recipientConfig,
       footer_config: {
@@ -1662,6 +1831,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     cardsOrder,
     subjectPlacement,
     layoutBlocks,
+    flyerAttachments,
+    showSubmittalsIndex,
     headerConfig,
     footerConfig,
     visibleColumns,
@@ -1742,6 +1913,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         subjectPlacement: subjectPlacement,
         pageMode: pageMode,
         layout_blocks: layoutBlocks,
+        flyer_attachments: flyerAttachments,
+        show_submittals_index: showSubmittalsIndex,
         header_config: headerConfig,
         recipient_config: recipientConfig,
         footer_config: {
@@ -1790,6 +1963,84 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
+  // Construct complete Phase 1 & Phase 2 preset snapshot from current studio settings
+  const buildCurrentPresetPayload = (
+    presetName: string,
+    isDefault?: boolean
+  ): Omit<QuotationPreset, 'id'> => {
+    return QuotationRepository.serializePresetSnapshot({
+      workspace_id: activeWorkspaceId,
+      workspaceId: activeWorkspaceId,
+      preset_name: presetName.trim(),
+      is_default: Boolean(isDefault),
+      header_profile_id: activeProfile?.id,
+      visible_columns: {
+        ...visibleColumns,
+        unit_price: visibleColumns.showUnitPrice !== false,
+        showUnitPrice: visibleColumns.showUnitPrice !== false,
+        showUom: visibleColumns.showUom !== false,
+        showLineTotal: visibleColumns.showLineTotal !== false,
+        showItemAttributes: visibleColumns.showItemAttributes !== false,
+        attributeDisplayFormat: visibleColumns.attributeDisplayFormat || 'pills',
+        hiddenAttributeKeys: visibleColumns.hiddenAttributeKeys || [],
+        showAmountInWords: amountInWordsEnabled
+      },
+      default_tax_mode: taxMode,
+      default_price_basis: priceBasis,
+      default_payment_terms: paymentTerms,
+      default_validity_days: validityDays,
+      signatory_mode: signatoryMode,
+      notes_template: customNotes,
+      header_layout: headerLayout,
+      table_density: tableDensity,
+      table_font_scale: tableFontScale,
+      fontSizeScale: fontSizeScale,
+      font_size_scale: fontSizeScale,
+      show_bank_details: showBankDetails,
+      show_commercial_terms: showCommercialTerms,
+      show_company_seal: showCompanySeal,
+      theme_accent: themeAccent,
+      amount_in_words_enabled: amountInWordsEnabled,
+      customer_acceptance_enabled: customerAcceptanceEnabled,
+      showBankRemittance: footerConfig.showBankRemittance !== false,
+      showCustomerAcceptance: footerConfig.showCustomerAcceptance !== false,
+      showSignatories: footerConfig.showSignatories !== false,
+      footerLayoutMode: footerConfig.footerLayoutMode || 'split',
+      signatory_type: signatoryType,
+      primary_signatory_name: signatoryName,
+      primary_signatory_title: signatoryTitle,
+      secondary_signatory_name: secondarySignatoryName,
+      secondary_signatory_title: secondarySignatoryTitle,
+      signature_style: signatureStyle,
+      logo_position: logoPosition,
+      block_style: blockStyle,
+      globalCardRadius: globalCardRadius,
+      cardsOrder: cardsOrder,
+      subjectPlacement: subjectPlacement,
+      pageMode: pageMode,
+      layout_blocks: layoutBlocks,
+      flyer_attachments: flyerAttachments,
+      show_submittals_index: showSubmittalsIndex,
+      header_config: headerConfig,
+      recipient_config: {
+        ...recipientConfig,
+        globalCardRadius,
+        cardsOrder,
+        subjectPlacement
+      },
+      remittanceBankId: selectedBankId,
+      remittance_bank_id: selectedBankId,
+      selectedBank: activeBankProfile,
+      selected_bank: activeBankProfile,
+      footer_config: {
+        ...footerConfig,
+        pageMode: pageMode,
+        remittanceBankId: selectedBankId,
+        selectedBank: activeBankProfile
+      }
+    });
+  };
+
   // Handle Save as New Template Preset
   const handleSaveNewPreset = async () => {
     if (!newPresetName.trim()) {
@@ -1798,62 +2049,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
     setIsSavingPreset(true);
     try {
-      const presetData: Omit<QuotationPreset, 'id'> = {
-        workspace_id: activeWorkspaceId,
-        workspaceId: activeWorkspaceId,
-        preset_name: newPresetName.trim(),
-        header_profile_id: activeProfile?.id,
-        visible_columns: visibleColumns,
-        default_tax_mode: taxMode,
-        default_price_basis: priceBasis,
-        default_payment_terms: paymentTerms,
-        default_validity_days: validityDays,
-        signatory_mode: signatoryMode,
-        notes_template: customNotes,
-        header_layout: headerLayout,
-        table_density: tableDensity,
-        table_font_scale: tableFontScale,
-        fontSizeScale: fontSizeScale,
-        font_size_scale: fontSizeScale,
-        show_bank_details: showBankDetails,
-        show_commercial_terms: showCommercialTerms,
-        show_company_seal: showCompanySeal,
-        theme_accent: themeAccent,
-        amount_in_words_enabled: amountInWordsEnabled,
-        customer_acceptance_enabled: customerAcceptanceEnabled,
-        showBankRemittance: footerConfig.showBankRemittance !== false,
-        showCustomerAcceptance: footerConfig.showCustomerAcceptance !== false,
-        showSignatories: footerConfig.showSignatories !== false,
-        footerLayoutMode: footerConfig.footerLayoutMode || 'split',
-        signatory_type: signatoryType,
-        primary_signatory_name: signatoryName,
-        primary_signatory_title: signatoryTitle,
-        secondary_signatory_name: secondarySignatoryName,
-        secondary_signatory_title: secondarySignatoryTitle,
-        signature_style: signatureStyle,
-        logo_position: logoPosition,
-        block_style: blockStyle,
-        globalCardRadius: globalCardRadius,
-        cardsOrder: cardsOrder,
-        subjectPlacement: subjectPlacement,
-        pageMode: pageMode,
-        layout_blocks: layoutBlocks,
-        header_config: headerConfig,
-        recipient_config: recipientConfig,
-        remittanceBankId: selectedBankId,
-        remittance_bank_id: selectedBankId,
-        selectedBank: activeBankProfile,
-        selected_bank: activeBankProfile,
-        footer_config: {
-          ...footerConfig,
-          pageMode: pageMode,
-          remittanceBankId: selectedBankId,
-          selectedBank: activeBankProfile
-        }
-      };
+      const presetData = buildCurrentPresetPayload(
+        newPresetName.trim(),
+        presets.length === 0
+      );
 
       const saved = await QuotationRepository.savePreset(presetData);
-      setPresets((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
+      setPresets((prev) => QuotationRepository.applyPresetUpdateInList(prev, saved));
       setSelectedPresetId(saved.id || '');
       setIsSavePresetModalOpen(false);
       setNewPresetName('');
@@ -1861,6 +2063,78 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     } catch (err) {
       console.error('[QuotationStudioModal] Error saving preset:', err);
       triggerToast?.('Failed to save preset.', 'error');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
+  // Selected custom preset object
+  const selectedPreset = useMemo(
+    () => presets.find((p) => p.id === selectedPresetId),
+    [presets, selectedPresetId]
+  );
+
+  // Overwrite currently selected custom preset with all current studio settings
+  const handleUpdatePreset = async () => {
+    if (!selectedPresetId || !selectedPreset) return;
+    setIsSavingPreset(true);
+    try {
+      const payload = buildCurrentPresetPayload(
+        selectedPreset.preset_name,
+        selectedPreset.is_default
+      );
+      const updated = await QuotationRepository.updatePreset(selectedPresetId, {
+        ...payload,
+        id: selectedPresetId,
+        createdAt: selectedPreset.createdAt
+      });
+      setPresets((prev) => QuotationRepository.applyPresetUpdateInList(prev, updated));
+      triggerToast?.(`Preset "${updated.preset_name}" updated with current studio settings!`, 'success');
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error updating preset:', err);
+      triggerToast?.('Failed to update preset.', 'error');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
+  // Mark currently selected preset as the workspace default
+  const handleSetDefaultPreset = async () => {
+    if (!selectedPresetId || !selectedPreset) return;
+    setIsSavingPreset(true);
+    try {
+      await QuotationRepository.setDefaultPreset(activeWorkspaceId, selectedPresetId);
+      setPresets((prev) =>
+        QuotationRepository.applyDefaultPresetInList(prev, selectedPresetId)
+      );
+      triggerToast?.(`"${selectedPreset.preset_name}" set as default preset!`, 'success');
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error setting default preset:', err);
+      triggerToast?.('Failed to set default preset.', 'error');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
+  // Delete currently selected custom preset with guard so system template is never broken
+  const handleDeletePreset = async () => {
+    if (!selectedPresetId || !selectedPreset) return;
+    const deletedName = selectedPreset.presetName || selectedPreset.preset_name;
+    setIsSavingPreset(true);
+    try {
+      await QuotationRepository.deletePreset(selectedPresetId);
+      const remaining = presets.filter((p) => p.id !== selectedPresetId);
+      setPresets(remaining);
+      const fallbackDefault = remaining.find((p) => p.is_default);
+      if (fallbackDefault) {
+        applyPreset(fallbackDefault);
+      } else {
+        setSelectedPresetId('');
+      }
+      triggerToast?.(`Preset "${deletedName}" deleted.`, 'info');
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error deleting preset:', err);
+      triggerToast?.('Failed to delete preset.', 'error');
     } finally {
       setIsSavingPreset(false);
     }
@@ -1927,7 +2201,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   <select
                     value={selectedPresetId}
                     onChange={(e) => {
-                      const found = presets.find((p) => p.id === e.target.value);
+                      const val = e.target.value;
+                      if (!val) {
+                        setSelectedPresetId('');
+                        return;
+                      }
+                      const found = presets.find((p) => p.id === val);
                       if (found) applyPreset(found);
                     }}
                     className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2.5 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -1935,11 +2214,61 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     <option value="">Standard Default Template</option>
                     {presets.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.preset_name}
+                        {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
+
+                {/* Quick-Action Lifecycle Controls when a custom preset is selected */}
+                {selectedPreset && (
+                  <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        disabled={isSavingPreset}
+                        onClick={handleUpdatePreset}
+                        title="Overwrite this preset with current studio settings"
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <Save className="w-3 h-3" />
+                        <span>💾 Update Preset</span>
+                      </button>
+
+                      {selectedPreset.is_default ? (
+                        <span
+                          title="This preset automatically hydrates new quotations"
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
+                        >
+                          <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                          <span>★ Default</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isSavingPreset}
+                          onClick={handleSetDefaultPreset}
+                          title="Set as default preset for new quotations in this workspace"
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Star className="w-3 h-3" />
+                          <span>⭐ Set Default</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSavingPreset}
+                      onClick={handleDeletePreset}
+                      title="Delete selected custom preset"
+                      className="px-2 py-1 text-[11px] font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>🗑️ Delete</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Layout Engine & Section Toggles Accordion */}
@@ -3123,6 +3452,197 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           })}
                         </select>
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Technical Annexures & Flyers Accordion */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsAnnexOpen(!isAnnexOpen)}
+                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Technical Annexures &amp; Flyers</span>
+                    {flyerAttachments.length > 0 && (
+                      <span className="px-1.5 py-0.2 text-[10px] font-mono rounded-full bg-blue-100 text-blue-700">
+                        {flyerAttachments.length}
+                      </span>
+                    )}
+                  </span>
+                  {isAnnexOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                </button>
+                {isAnnexOpen && (
+                  <div className="p-4 space-y-3.5 bg-white text-xs border-t border-slate-200">
+                    {/* Submittals Index Visibility Toggle */}
+                    <label className="flex items-center space-x-2 cursor-pointer select-none p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                      <input
+                        type="checkbox"
+                        checked={showSubmittalsIndex}
+                        onChange={(e) => setShowSubmittalsIndex(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-slate-700 font-medium text-[11px]">
+                        Show Technical Submittals Index on Quotation
+                      </span>
+                    </label>
+
+                    {/* Upload Image File or Add by Title + URL */}
+                    <div className="space-y-2 pt-1 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 text-[11px]">
+                          Add Datasheet / Product Flyer
+                        </span>
+                        <input
+                          ref={annexFileInputRef}
+                          type="file"
+                          accept="image/*,.pdf"
+                          multiple
+                          onChange={handleUploadAnnexFiles}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => annexFileInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>Upload File</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5 bg-slate-50/80 p-2.5 rounded-lg border border-slate-200/80">
+                        <input
+                          type="text"
+                          value={newAttachmentTitle}
+                          onChange={(e) => setNewAttachmentTitle(e.target.value)}
+                          placeholder="Display Title (e.g., Annex A: Disk Diffuser Datasheet)"
+                          className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs bg-white text-slate-800"
+                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={newAttachmentUrl}
+                            onChange={(e) => setNewAttachmentUrl(e.target.value)}
+                            placeholder="Image URL / Data-URI or Document Link"
+                            className="flex-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs bg-white text-slate-800 font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddAttachmentByUrl}
+                            className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-900 text-white font-semibold text-[11px] shrink-0 transition cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active Attachments List */}
+                    {flyerAttachments.length > 0 ? (
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <div className="flex items-center justify-between text-[10.5px] text-slate-500">
+                          <span className="font-semibold text-slate-700">Attached Submittals ({flyerAttachments.length})</span>
+                          <span className="font-mono">
+                            {flyerAttachments.filter((a) => a.render_as_annex_page !== false && a.url).length} A4 Annex Sheet(s)
+                          </span>
+                        </div>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+                          {flyerAttachments.map((att, idx) => {
+                            const attId = att.id || `annex_${idx}`;
+                            const isAnnexPage = att.render_as_annex_page !== false;
+                            const isFirst = idx === 0;
+                            const isLast = idx === flyerAttachments.length - 1;
+
+                            return (
+                              <div
+                                key={attId}
+                                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-5 h-5 rounded-md bg-slate-200 text-slate-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                                    #{idx + 1}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={att.name}
+                                    onChange={(e) =>
+                                      handleUpdateAttachment(attId, { name: e.target.value })
+                                    }
+                                    className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs bg-white text-slate-800 font-medium"
+                                    placeholder="Attachment Display Title"
+                                  />
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={isFirst}
+                                      onClick={() => handleMoveAttachment(idx, 'up')}
+                                      title="Move Up"
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-30 cursor-pointer"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isLast}
+                                      onClick={() => handleMoveAttachment(idx, 'down')}
+                                      title="Move Down"
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-600 disabled:opacity-30 cursor-pointer"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteAttachment(attId)}
+                                      title="Delete Attachment"
+                                      className="p-1 rounded hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateAttachment(attId, { render_as_annex_page: true })
+                                    }
+                                    className={`py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer ${
+                                      isAnnexPage
+                                        ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <span>📄 Full-Page Annex Sheet</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateAttachment(attId, { render_as_annex_page: false })
+                                    }
+                                    className={`py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer ${
+                                      !isAnnexPage
+                                        ? 'border-slate-800 bg-slate-800 text-white shadow-2xs'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <span>📎 Index Reference Only</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic text-center py-2">
+                        No technical flyers or datasheets attached yet.
+                      </p>
                     )}
                   </div>
                 )}

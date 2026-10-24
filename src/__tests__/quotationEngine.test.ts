@@ -14,13 +14,15 @@ import {
   BankAccountProfile,
   Quotation,
   QuotationBlockConfig,
-  QuotationLineItem
+  QuotationLineItem,
+  Attachment
 } from '../types';
 import {
   partitionBlocksIntoSheets,
   splitLineItemsIntoChunks,
   resolveTableColumnLayout,
   resolveSpacerPresentation,
+  resolveDocumentPaginationWithAnnexes,
   DEFAULT_QUOTATION_BLOCKS
 } from '../components/quotations/QuotationDocument';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -888,6 +890,465 @@ describe('10. Line-Item Row Page Breaks ("Split Table Here") & Dynamic Column Wi
     expect(financials.subtotal).toBe(26300);
     expect(financials.tax_amount).toBe(1315);
     expect(financials.grand_total).toBe(27615);
+  });
+});
+
+// ==========================================
+// SUITE 11: COMPLETE PRESET LIFECYCLE MANAGEMENT & FULL SNAPSHOT PERSISTENCE
+// ==========================================
+
+describe('Suite 11: Complete Preset Lifecycle Management & Full Snapshot Persistence', () => {
+  it('11a. Full preset snapshot serialization & hydration preserves layout_blocks (spacer & page_break), visible_columns (showUnitPrice, showUom), globalCardRadius, cardsOrder, and remittanceBankId', () => {
+    const rawSnapshot = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_lifecycle_test',
+      preset_name: 'Turnkey EPC Proposal Preset',
+      is_default: true,
+      default_tax_mode: 'taxes_extra',
+      default_price_basis: 'DDP Site',
+      default_payment_terms: '40% Advance, 60% Against Delivery',
+      default_validity_days: 45,
+      signatory_mode: 'dual',
+      table_density: 'compact',
+      fontSizeScale: 'comfortable',
+      block_style: 'minimal',
+      globalCardRadius: 'sharp',
+      cardsOrder: 'offer_first',
+      subjectPlacement: 'above_cards',
+      remittanceBankId: 'bank_usd_02',
+      visible_columns: {
+        brand: true,
+        model: true,
+        origin: false,
+        availability: true,
+        unit_price: false,
+        showUnitPrice: false,
+        showUom: false,
+        showLineTotal: true,
+        showItemAttributes: true,
+        attributeDisplayFormat: 'inline_text',
+        hiddenAttributeKeys: ['Connection'],
+        showAmountInWords: false
+      },
+      layout_blocks: [
+        { id: 'totals', type: 'totals', title: 'Financial Summary', enabled: true, order: 0 },
+        {
+          id: 'spacer_custom_1',
+          type: 'spacer',
+          title: 'Spacer',
+          enabled: true,
+          spacer_height_mm: 40,
+          spacer_fill_remaining: false,
+          order: 1
+        },
+        {
+          id: 'break_custom_1',
+          type: 'page_break',
+          title: 'Page Break',
+          enabled: true,
+          show_continuation_header: false,
+          order: 2
+        },
+        { id: 'terms', type: 'terms', title: 'Commercial Terms', enabled: true, order: 3 },
+        { id: 'remittance', type: 'remittance', title: 'Bank Remittance', enabled: true, order: 4 },
+        { id: 'signatory', type: 'signatories', title: 'Signatories', enabled: true, order: 5 },
+        { id: 'acceptance', type: 'acceptance', title: 'Acceptance', enabled: false, order: 6 }
+      ],
+      footer_config: {
+        footerLayoutMode: 'stacked',
+        showBankRemittance: true,
+        showCustomerAcceptance: false,
+        showSignatories: true,
+        showPageNumbers: true,
+        showDisclaimer: true,
+        customDisclaimer: 'Strict turnkey confidentiality applies.',
+        remittanceBankId: 'bank_usd_02'
+      }
+    });
+
+    const hydrated = QuotationRepository.hydrateFromPresetSnapshot({
+      ...rawSnapshot,
+      id: 'preset_epc_01'
+    });
+
+    expect(hydrated.presetId).toBe('preset_epc_01');
+    expect(hydrated.isDefault).toBe(true);
+    expect(hydrated.globalCardRadius).toBe('sharp');
+    expect(hydrated.cardsOrder).toBe('offer_first');
+    expect(hydrated.subjectPlacement).toBe('above_cards');
+    expect(hydrated.fontSizeScale).toBe('comfortable');
+    expect(hydrated.tableDensity).toBe('compact');
+    expect(hydrated.blockStyle).toBe('minimal');
+    expect(hydrated.remittanceBankId).toBe('bank_usd_02');
+    expect(hydrated.visibleColumns.showUnitPrice).toBe(false);
+    expect(hydrated.visibleColumns.unit_price).toBe(false);
+    expect(hydrated.visibleColumns.showUom).toBe(false);
+    expect(hydrated.visibleColumns.showLineTotal).toBe(true);
+    expect(hydrated.visibleColumns.attributeDisplayFormat).toBe('inline_text');
+    expect(hydrated.visibleColumns.hiddenAttributeKeys).toEqual(['Connection']);
+    expect(hydrated.visibleColumns.showAmountInWords).toBe(false);
+    expect(hydrated.amountInWordsEnabled).toBe(false);
+
+    // Verify layout_blocks order and custom spacer/page_break properties
+    expect(hydrated.layoutBlocks.length).toBe(7);
+    expect(hydrated.layoutBlocks.map((b) => b.id)).toEqual([
+      'totals',
+      'spacer_custom_1',
+      'break_custom_1',
+      'terms',
+      'remittance',
+      'signatory',
+      'acceptance'
+    ]);
+    expect(hydrated.layoutBlocks[1].type).toBe('spacer');
+    expect(hydrated.layoutBlocks[1].spacer_height_mm).toBe(40);
+    expect(hydrated.layoutBlocks[1].spacer_fill_remaining).toBe(false);
+    expect(hydrated.layoutBlocks[2].type).toBe('page_break');
+    expect(hydrated.layoutBlocks[2].show_continuation_header).toBe(false);
+    expect(hydrated.footerConfig.footerLayoutMode).toBe('stacked');
+    expect(hydrated.footerConfig.remittanceBankId).toBe('bank_usd_02');
+    expect(hydrated.footerConfig.customDisclaimer).toBe('Strict turnkey confidentiality applies.');
+  });
+
+  it('11b. Updating an existing preset replaces its configuration cleanly without duplicating preset IDs', () => {
+    const initialPresets = [
+      QuotationRepository.docToPreset('preset_1', {
+        workspace_id: 'ws_1',
+        preset_name: 'Standard Export',
+        globalCardRadius: 'rounded',
+        cardsOrder: 'recipient_first',
+        remittanceBankId: 'bank_aed_1',
+        visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true, showUnitPrice: true, showUom: true }
+      }),
+      QuotationRepository.docToPreset('preset_2', {
+        workspace_id: 'ws_1',
+        preset_name: 'Lump Sum Turnkey',
+        globalCardRadius: 'rounded',
+        cardsOrder: 'recipient_first',
+        remittanceBankId: 'bank_aed_1',
+        visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true, showUnitPrice: true, showUom: true }
+      })
+    ];
+
+    const updatedPreset2 = {
+      ...QuotationRepository.serializePresetSnapshot({
+        ...initialPresets[1],
+        globalCardRadius: 'sharp',
+        cardsOrder: 'offer_first',
+        remittanceBankId: 'bank_eur_9',
+        visible_columns: {
+          brand: true,
+          model: true,
+          origin: true,
+          availability: true,
+          unit_price: false,
+          showUnitPrice: false,
+          showUom: false
+        }
+      }),
+      id: 'preset_2'
+    };
+
+    const afterUpdate = QuotationRepository.applyPresetUpdateInList(initialPresets, updatedPreset2);
+    expect(afterUpdate.length).toBe(2);
+    expect(afterUpdate.map((p) => p.id)).toEqual(['preset_1', 'preset_2']);
+    expect(afterUpdate[1].globalCardRadius).toBe('sharp');
+    expect(afterUpdate[1].cardsOrder).toBe('offer_first');
+    expect(afterUpdate[1].remittanceBankId).toBe('bank_eur_9');
+    expect(afterUpdate[1].visible_columns.showUnitPrice).toBe(false);
+    expect(afterUpdate[1].visible_columns.showUom).toBe(false);
+  });
+
+  it('11c. Setting a default preset marks is_default: true exclusively on the target preset while clearing is_default on sibling presets', () => {
+    const presets = [
+      QuotationRepository.docToPreset('preset_alpha', {
+        workspace_id: 'ws_1',
+        preset_name: 'Alpha Preset',
+        is_default: true
+      }),
+      QuotationRepository.docToPreset('preset_beta', {
+        workspace_id: 'ws_1',
+        preset_name: 'Beta Preset',
+        is_default: false
+      }),
+      QuotationRepository.docToPreset('preset_gamma', {
+        workspace_id: 'ws_1',
+        preset_name: 'Gamma Preset',
+        is_default: false
+      })
+    ];
+
+    // Switch default to preset_beta
+    const step1 = QuotationRepository.applyDefaultPresetInList(presets, 'preset_beta');
+    expect(step1.map((p) => ({ id: p.id, is_default: p.is_default }))).toEqual([
+      { id: 'preset_alpha', is_default: false },
+      { id: 'preset_beta', is_default: true },
+      { id: 'preset_gamma', is_default: false }
+    ]);
+
+    // Switch default to preset_gamma
+    const step2 = QuotationRepository.applyDefaultPresetInList(step1, 'preset_gamma');
+    expect(step2.map((p) => ({ id: p.id, is_default: p.is_default }))).toEqual([
+      { id: 'preset_alpha', is_default: false },
+      { id: 'preset_beta', is_default: false },
+      { id: 'preset_gamma', is_default: true }
+    ]);
+    expect(step2.filter((p) => p.is_default).length).toBe(1);
+  });
+});
+
+// ==========================================
+// 12. TECHNICAL DATASHEET / FLYER ATTACHMENTS & A4 ANNEX SHEETS (PHASE 3.2)
+// ==========================================
+
+describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-Page A4 Annex Sheets', () => {
+  const sampleLineItems: QuotationLineItem[] = [
+    {
+      id: 'li_1',
+      item_name: 'EPDM Fine Bubble Disk Diffuser',
+      description: '9-inch membrane diffuser with 3/4" NPT connection',
+      unit: 'PCS',
+      quantity: 120,
+      unit_price: 45,
+      total_price: 5400,
+      page_break_after: false
+    },
+    {
+      id: 'li_2',
+      item_name: 'SS304 Air Distribution Header Pipework',
+      description: 'Pre-fabricated stainless steel header manifold',
+      unit: 'LOT',
+      quantity: 1,
+      unit_price: 8900,
+      total_price: 8900,
+      page_break_after: false
+    }
+  ];
+
+  it('12a. Quotations with 0 flyer_attachments leave totalDocumentPages equal to mainSheets.length and hide Submittals Index', () => {
+    const singlePageResult = resolveDocumentPaginationWithAnnexes(
+      DEFAULT_QUOTATION_BLOCKS,
+      sampleLineItems,
+      [],
+      true
+    );
+
+    expect(singlePageResult.mainSheets.length).toBe(1);
+    expect(singlePageResult.annexSheets.length).toBe(0);
+    expect(singlePageResult.totalDocumentPages).toBe(singlePageResult.mainSheets.length);
+    expect(singlePageResult.showSubmittalsIndex).toBe(false);
+    expect(singlePageResult.submittalsIndexEntries.length).toBe(0);
+
+    // Also test with a 2-page main quotation (via explicit page_break block)
+    const twoPageBlocks: QuotationBlockConfig[] = [
+      DEFAULT_QUOTATION_BLOCKS[0],
+      DEFAULT_QUOTATION_BLOCKS[1],
+      { id: 'pb_main', type: 'page_break', title: 'Page Break', is_visible: true, show_continuation_header: true },
+      DEFAULT_QUOTATION_BLOCKS[2],
+      DEFAULT_QUOTATION_BLOCKS[3]
+    ];
+    const twoPageResult = resolveDocumentPaginationWithAnnexes(
+      twoPageBlocks,
+      sampleLineItems,
+      undefined,
+      true
+    );
+    expect(twoPageResult.mainSheets.length).toBe(2);
+    expect(twoPageResult.annexSheets.length).toBe(0);
+    expect(twoPageResult.totalDocumentPages).toBe(2);
+  });
+
+  it('12b. Adding K image flyer_attachments with render_as_annex_page: true spawns K annex sheets and updates all main + annex footers to Page X of (mainSheets.length + K)', () => {
+    const twoPageBlocks: QuotationBlockConfig[] = [
+      DEFAULT_QUOTATION_BLOCKS[0],
+      DEFAULT_QUOTATION_BLOCKS[1],
+      { id: 'pb_main', type: 'page_break', title: 'Page Break', is_visible: true, show_continuation_header: true },
+      DEFAULT_QUOTATION_BLOCKS[2],
+      DEFAULT_QUOTATION_BLOCKS[3]
+    ];
+
+    const annexFlyers: Attachment[] = [
+      {
+        id: 'flyer_1',
+        name: 'Annex A: EPDM Fine Bubble Diffuser Curve & Headloss Datasheet',
+        url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        type: 'image/png',
+        render_as_annex_page: true
+      },
+      {
+        id: 'flyer_2',
+        name: 'Annex B: Rotary Lobe Blower Dimensional GA Drawing',
+        url: 'https://example.com/datasheets/blower-ga.png',
+        type: 'image/png',
+        render_as_annex_page: true
+      },
+      {
+        id: 'flyer_3',
+        name: 'Annex C: P&ID Process Flow Diagram',
+        url: 'https://example.com/datasheets/pid-diagram.jpg',
+        type: 'image/jpeg',
+        render_as_annex_page: true
+      }
+    ];
+
+    const result = resolveDocumentPaginationWithAnnexes(
+      twoPageBlocks,
+      sampleLineItems,
+      annexFlyers,
+      true
+    );
+
+    const K = annexFlyers.length; // 3
+    expect(result.mainSheets.length).toBe(2);
+    expect(result.annexSheets.length).toBe(K);
+    expect(result.totalDocumentPages).toBe(result.mainSheets.length + K); // 2 + 3 = 5
+
+    // Verify main + annex footer page labels follow unified "Page X of 5"
+    const mainFooterLabels = result.mainSheets.map((s) => s.pageLabel);
+    expect(mainFooterLabels).toEqual(['Page 1 of 5', 'Page 2 of 5']);
+
+    const annexFooterLabels = result.annexSheets.map((s) => s.pageLabel);
+    expect(annexFooterLabels).toEqual(['Page 3 of 5', 'Page 4 of 5', 'Page 5 of 5']);
+
+    const annexHeaders = result.annexSheets.map((s) => s.headerTitle);
+    expect(annexHeaders).toEqual([
+      'TECHNICAL ANNEX 1: Annex A: EPDM Fine Bubble Diffuser Curve & Headloss Datasheet',
+      'TECHNICAL ANNEX 2: Annex B: Rotary Lobe Blower Dimensional GA Drawing',
+      'TECHNICAL ANNEX 3: Annex C: P&ID Process Flow Diagram'
+    ]);
+  });
+
+  it('12c. Attachments with render_as_annex_page: false appear in the Submittals Index without incrementing the A4 sheet count', () => {
+    const mixedAttachments: Attachment[] = [
+      {
+        id: 'att_img_annex',
+        name: 'Annex A: Submersible Mixer Performance Curve',
+        url: 'https://example.com/mixer-curve.png',
+        type: 'image/png',
+        render_as_annex_page: true
+      },
+      {
+        id: 'att_pdf_ref',
+        name: 'ISO 9001 & CE Compliance Dossier (42-Page PDF)',
+        url: 'https://example.com/iso-dossier.pdf',
+        type: 'application/pdf',
+        render_as_annex_page: false
+      },
+      {
+        id: 'att_doc_ref',
+        name: 'Standard O&M Manual Reference Link',
+        url: 'https://example.com/om-manual.docx',
+        type: 'document',
+        render_as_annex_page: false
+      }
+    ];
+
+    const result = resolveDocumentPaginationWithAnnexes(
+      DEFAULT_QUOTATION_BLOCKS,
+      sampleLineItems,
+      mixedAttachments,
+      true
+    );
+
+    // 1 main sheet + only 1 full-page annex sheet (the 2 index-only attachments do NOT add sheets)
+    expect(result.mainSheets.length).toBe(1);
+    expect(result.annexSheets.length).toBe(1);
+    expect(result.totalDocumentPages).toBe(2);
+
+    // All 3 attachments appear in the Submittals Index with accurate badges
+    expect(result.showSubmittalsIndex).toBe(true);
+    expect(result.submittalsIndexEntries.length).toBe(3);
+    expect(result.submittalsIndexEntries[0]).toEqual({
+      indexNumber: 1,
+      id: 'att_img_annex',
+      name: 'Annex A: Submersible Mixer Performance Curve',
+      url: 'https://example.com/mixer-curve.png',
+      renderAsAnnexPage: true,
+      annexPageNumber: 2,
+      badgeLabel: 'Annex Page 2'
+    });
+    expect(result.submittalsIndexEntries[1]).toEqual({
+      indexNumber: 2,
+      id: 'att_pdf_ref',
+      name: 'ISO 9001 & CE Compliance Dossier (42-Page PDF)',
+      url: 'https://example.com/iso-dossier.pdf',
+      renderAsAnnexPage: false,
+      annexPageNumber: undefined,
+      badgeLabel: 'Enclosed Document'
+    });
+    expect(result.submittalsIndexEntries[2]).toEqual({
+      indexNumber: 3,
+      id: 'att_doc_ref',
+      name: 'Standard O&M Manual Reference Link',
+      url: 'https://example.com/om-manual.docx',
+      renderAsAnnexPage: false,
+      annexPageNumber: undefined,
+      badgeLabel: 'Enclosed Document'
+    });
+  });
+
+  it('12d. Preset snapshot serialization & hydration preserves flyer_attachments and show_submittals_index', () => {
+    const presetFlyers: Attachment[] = [
+      {
+        id: 'preset_flyer_1',
+        name: 'Annex A: Standard MBR Membrane Module Datasheet',
+        url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        type: 'image/png',
+        render_as_annex_page: true
+      },
+      {
+        id: 'preset_flyer_2',
+        name: 'Standard Warranty & Quality Assurance Certificate',
+        url: 'https://example.com/warranty-cert.pdf',
+        type: 'pdf',
+        render_as_annex_page: false
+      }
+    ];
+
+    const serialized = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_1',
+      preset_name: 'MBR Package With Standard Annexures',
+      visible_columns: {
+        brand: true,
+        model: true,
+        origin: true,
+        unit_price: true,
+        showUnitPrice: true,
+        showUom: true,
+        showLineTotal: true
+      },
+      default_tax_mode: 'taxes_extra',
+      default_validity_days: 30,
+      signatory_mode: 'dual',
+      flyer_attachments: presetFlyers,
+      show_submittals_index: true
+    });
+
+    expect(serialized.flyer_attachments?.length).toBe(2);
+    expect(serialized.show_submittals_index).toBe(true);
+
+    // Mutate original array to prove deep-clone isolation
+    presetFlyers[0].name = 'MUTATED_NAME';
+    expect(serialized.flyer_attachments![0].name).toBe('Annex A: Standard MBR Membrane Module Datasheet');
+
+    const storedDoc = QuotationRepository.docToPreset('preset_mbr_annex', serialized);
+    const hydrated = QuotationRepository.hydrateFromPresetSnapshot(storedDoc);
+
+    expect(hydrated.flyerAttachments.length).toBe(2);
+    expect(hydrated.flyerAttachments[0]).toEqual({
+      id: 'preset_flyer_1',
+      name: 'Annex A: Standard MBR Membrane Module Datasheet',
+      url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      type: 'image/png',
+      render_as_annex_page: true
+    });
+    expect(hydrated.flyerAttachments[1]).toEqual({
+      id: 'preset_flyer_2',
+      name: 'Standard Warranty & Quality Assurance Certificate',
+      url: 'https://example.com/warranty-cert.pdf',
+      type: 'pdf',
+      render_as_annex_page: false
+    });
+    expect(hydrated.showSubmittalsIndex).toBe(true);
   });
 });
 

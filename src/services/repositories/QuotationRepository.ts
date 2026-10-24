@@ -99,6 +99,7 @@ export class QuotationRepository {
       id: id || data.id,
       workspace_id: wsId,
       workspaceId: wsId,
+      is_default: Boolean(data.is_default),
       visible_columns: data.visible_columns || {},
       default_tax_mode: data.default_tax_mode || 'taxes_extra',
       default_validity_days: typeof data.default_validity_days === 'number' ? data.default_validity_days : 30,
@@ -632,17 +633,233 @@ export class QuotationRepository {
   }
 
   /**
+   * Serializes a complete studio preset snapshot preserving 100% of Phase 1 & Phase 2 settings.
+   */
+  public static serializePresetSnapshot(
+    input: Omit<QuotationPreset, 'id'> & { id?: string }
+  ): Omit<QuotationPreset, 'id'> & { id?: string } {
+    const wsId = input.workspace_id || input.workspaceId || 'ws_default';
+    const rawCols = input.visible_columns || {
+      brand: true,
+      model: true,
+      origin: true,
+      availability: true,
+      unit_price: true
+    };
+    const resolvedUnitPrice =
+      rawCols.showUnitPrice !== undefined
+        ? rawCols.showUnitPrice
+        : rawCols.unit_price ?? true;
+    const resolvedUom = rawCols.showUom !== undefined ? rawCols.showUom : true;
+    const resolvedLineTotal = rawCols.showLineTotal !== undefined ? rawCols.showLineTotal : true;
+    const resolvedAmountInWords =
+      rawCols.showAmountInWords !== undefined
+        ? rawCols.showAmountInWords
+        : input.amount_in_words_enabled ?? true;
+
+    const normalizedColumns = {
+      ...rawCols,
+      brand: rawCols.brand ?? true,
+      model: rawCols.model ?? true,
+      origin: rawCols.origin ?? true,
+      availability: rawCols.availability ?? true,
+      unit_price: resolvedUnitPrice,
+      showUnitPrice: resolvedUnitPrice,
+      showUom: resolvedUom,
+      showLineTotal: resolvedLineTotal,
+      showItemAttributes: rawCols.showItemAttributes ?? true,
+      attributeDisplayFormat: rawCols.attributeDisplayFormat ?? 'pills',
+      hiddenAttributeKeys: Array.isArray(rawCols.hiddenAttributeKeys)
+        ? [...rawCols.hiddenAttributeKeys]
+        : [],
+      showAmountInWords: resolvedAmountInWords
+    };
+
+    const normalizedBlocks = Array.isArray(input.layout_blocks)
+      ? input.layout_blocks.map((block, index) => ({
+          ...block,
+          order: typeof block.order === 'number' ? block.order : index,
+          enabled: block.enabled ?? block.is_visible ?? true,
+          is_visible: block.is_visible ?? block.enabled ?? true,
+          ...(block.type === 'spacer' || block.id?.startsWith('spacer_')
+            ? {
+                type: 'spacer' as const,
+                spacer_height_mm:
+                  typeof block.spacer_height_mm === 'number' ? block.spacer_height_mm : 20,
+                spacer_fill_remaining: Boolean(block.spacer_fill_remaining)
+              }
+            : {}),
+          ...(block.type === 'page_break' || block.id?.startsWith('break_')
+            ? {
+                type: 'page_break' as const,
+                show_continuation_header: block.show_continuation_header !== false
+              }
+            : {})
+        }))
+      : undefined;
+
+    const resolvedBankId =
+      input.remittanceBankId ||
+      input.remittance_bank_id ||
+      input.footer_config?.remittanceBankId;
+
+    const normalizedFooterConfig = input.footer_config
+      ? {
+          ...input.footer_config,
+          footerLayoutMode:
+            input.footer_config.footerLayoutMode || input.footerLayoutMode || 'split',
+          showBankRemittance:
+            input.footer_config.showBankRemittance ?? input.showBankRemittance ?? true,
+          showCustomerAcceptance:
+            input.footer_config.showCustomerAcceptance ?? input.showCustomerAcceptance ?? true,
+          showSignatories:
+            input.footer_config.showSignatories ?? input.showSignatories ?? true,
+          showPageNumbers: input.footer_config.showPageNumbers ?? true,
+          showDisclaimer: input.footer_config.showDisclaimer ?? true,
+          customDisclaimer: input.footer_config.customDisclaimer,
+          remittanceBankId: resolvedBankId
+        }
+      : {
+          footerLayoutMode: input.footerLayoutMode || 'split',
+          showBankRemittance: input.showBankRemittance ?? true,
+          showCustomerAcceptance: input.showCustomerAcceptance ?? true,
+          showSignatories: input.showSignatories ?? true,
+          showPageNumbers: true,
+          showDisclaimer: true,
+          remittanceBankId: resolvedBankId
+        };
+
+    const normalizedFlyerAttachments = Array.isArray(input.flyer_attachments)
+      ? input.flyer_attachments
+          .filter((att) => att && Boolean(att.url))
+          .map((att, idx) => {
+            const rawType = (att.type || 'image').toLowerCase();
+            const isNonImageDoc =
+              rawType === 'pdf' ||
+              rawType === 'document' ||
+              rawType.includes('pdf') ||
+              rawType.includes('msword') ||
+              rawType.includes('officedocument');
+            const renderAsAnnex =
+              typeof att.render_as_annex_page === 'boolean'
+                ? att.render_as_annex_page
+                : !isNonImageDoc;
+            return {
+              ...att,
+              id: att.id || `annex_${idx + 1}`,
+              name: att.name || `Technical Annex ${idx + 1}`,
+              url: att.url,
+              type: att.type || 'image',
+              render_as_annex_page: renderAsAnnex
+            };
+          })
+      : [];
+
+    const normalizedShowSubmittalsIndex =
+      typeof input.show_submittals_index === 'boolean'
+        ? input.show_submittals_index
+        : true;
+
+    return {
+      ...input,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      is_default: Boolean(input.is_default),
+      visible_columns: normalizedColumns,
+      layout_blocks: normalizedBlocks,
+      flyer_attachments: normalizedFlyerAttachments,
+      show_submittals_index: normalizedShowSubmittalsIndex,
+      table_density: input.table_density || 'comfortable',
+      fontSizeScale: input.fontSizeScale || input.font_size_scale || 'standard',
+      font_size_scale: input.fontSizeScale || input.font_size_scale || 'standard',
+      block_style: input.block_style || 'framed',
+      globalCardRadius: input.globalCardRadius || 'rounded',
+      cardsOrder: input.cardsOrder || 'recipient_first',
+      subjectPlacement: input.subjectPlacement || 'below_cards',
+      remittanceBankId: resolvedBankId,
+      remittance_bank_id: resolvedBankId,
+      amount_in_words_enabled: resolvedAmountInWords,
+      showBankRemittance: normalizedFooterConfig.showBankRemittance,
+      showCustomerAcceptance: normalizedFooterConfig.showCustomerAcceptance,
+      showSignatories: normalizedFooterConfig.showSignatories,
+      footerLayoutMode: normalizedFooterConfig.footerLayoutMode,
+      footer_config: normalizedFooterConfig
+    };
+  }
+
+  /**
+   * Hydrates normalized studio state from a saved QuotationPreset snapshot.
+   */
+  public static hydrateFromPresetSnapshot(preset: QuotationPreset) {
+    const serialized = this.serializePresetSnapshot(preset);
+    return {
+      presetId: preset.id || '',
+      isDefault: Boolean(preset.is_default),
+      visibleColumns: { ...serialized.visible_columns },
+      layoutBlocks: serialized.layout_blocks ? serialized.layout_blocks.map((b) => ({ ...b })) : [],
+      flyerAttachments: serialized.flyer_attachments
+        ? serialized.flyer_attachments.map((att) => ({ ...att }))
+        : [],
+      showSubmittalsIndex: serialized.show_submittals_index !== false,
+      tableDensity: serialized.table_density || 'comfortable',
+      fontSizeScale: serialized.fontSizeScale || 'standard',
+      blockStyle: serialized.block_style || 'framed',
+      globalCardRadius: serialized.globalCardRadius || 'rounded',
+      cardsOrder: serialized.cardsOrder || 'recipient_first',
+      subjectPlacement: serialized.subjectPlacement || 'below_cards',
+      remittanceBankId: serialized.remittanceBankId || '',
+      footerConfig: { ...serialized.footer_config },
+      amountInWordsEnabled:
+        serialized.visible_columns.showAmountInWords ??
+        serialized.amount_in_words_enabled ??
+        true,
+      defaultTaxMode: serialized.default_tax_mode || 'taxes_extra',
+      defaultPriceBasis: serialized.default_price_basis || 'Ex-Works',
+      defaultPaymentTerms: serialized.default_payment_terms || '100% Advance',
+      defaultValidityDays: serialized.default_validity_days ?? 30
+    };
+  }
+
+  /**
+   * Pure helper: replaces an existing preset configuration in a preset array without duplicating IDs.
+   */
+  public static applyPresetUpdateInList(
+    presets: QuotationPreset[],
+    updatedPreset: QuotationPreset
+  ): QuotationPreset[] {
+    const exists = presets.some((p) => p.id === updatedPreset.id);
+    if (!exists) {
+      return [...presets, updatedPreset];
+    }
+    return presets.map((p) => (p.id === updatedPreset.id ? { ...p, ...updatedPreset } : p));
+  }
+
+  /**
+   * Pure helper: marks `is_default: true` exclusively on `targetPresetId` while clearing `is_default` on sibling presets.
+   */
+  public static applyDefaultPresetInList(
+    presets: QuotationPreset[],
+    targetPresetId: string
+  ): QuotationPreset[] {
+    return presets.map((p) => ({
+      ...p,
+      is_default: p.id === targetPresetId
+    }));
+  }
+
+  /**
    * Saves or persists a reusable quotation preset.
    */
   public static async savePreset(
     preset: Omit<QuotationPreset, 'id'> & { id?: string }
   ): Promise<QuotationPreset> {
-    const wsId = preset.workspace_id || preset.workspaceId || 'ws_default';
+    const normalized = this.serializePresetSnapshot(preset);
+    const wsId = normalized.workspace_id || normalized.workspaceId || 'ws_default';
     const presetId = preset.id || `preset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = new Date().toISOString();
 
     const newPreset: QuotationPreset = {
-      ...preset,
+      ...normalized,
       id: presetId,
       workspace_id: wsId,
       workspaceId: wsId,
@@ -661,6 +878,119 @@ export class QuotationRepository {
     } catch (_) {}
 
     return newPreset;
+  }
+
+  /**
+   * Overwrites an existing quotation preset in-place without duplicating preset IDs.
+   */
+  public static async updatePreset(
+    presetId: string,
+    presetUpdates: Partial<QuotationPreset>
+  ): Promise<QuotationPreset> {
+    const now = new Date().toISOString();
+    let existingPreset: QuotationPreset | undefined;
+
+    try {
+      const existingList = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+      existingPreset = existingList.find((p) => p.id === presetId);
+    } catch (_) {}
+
+    const mergedInput = {
+      ...(existingPreset || {}),
+      ...presetUpdates,
+      id: presetId,
+      workspace_id:
+        presetUpdates.workspace_id ||
+        presetUpdates.workspaceId ||
+        existingPreset?.workspace_id ||
+        'ws_default',
+      preset_name: presetUpdates.preset_name || existingPreset?.preset_name || 'Updated Preset',
+      default_tax_mode:
+        presetUpdates.default_tax_mode || existingPreset?.default_tax_mode || 'taxes_extra',
+      default_validity_days:
+        presetUpdates.default_validity_days ?? existingPreset?.default_validity_days ?? 30,
+      signatory_mode: presetUpdates.signatory_mode || existingPreset?.signatory_mode || 'single',
+      visible_columns:
+        presetUpdates.visible_columns ||
+        existingPreset?.visible_columns || {
+          brand: true,
+          model: true,
+          origin: true,
+          availability: true,
+          unit_price: true
+        },
+      is_default: presetUpdates.is_default ?? existingPreset?.is_default ?? false,
+      createdAt: existingPreset?.createdAt || now,
+      updatedAt: now
+    } as QuotationPreset;
+
+    const normalized: QuotationPreset = {
+      ...this.serializePresetSnapshot(mergedInput),
+      id: presetId,
+      createdAt: mergedInput.createdAt,
+      updatedAt: now
+    };
+
+    try {
+      await safeSetDoc('quotation_presets', presetId, normalized);
+    } catch (_) {}
+
+    try {
+      const existing = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+      const updated = this.applyPresetUpdateInList(existing, normalized);
+      await saveToLocalStore(this.PRESETS_STORE, updated);
+    } catch (_) {}
+
+    return normalized;
+  }
+
+  /**
+   * Marks `presetId` as `is_default: true` and clears `is_default` on all sibling presets in the workspace.
+   */
+  public static async setDefaultPreset(
+    workspaceId: string,
+    presetId: string
+  ): Promise<QuotationPreset[]> {
+    const wsId = workspaceId || 'ws_default';
+    const now = new Date().toISOString();
+    const currentPresets = await this.getPresets(wsId);
+    const updatedWorkspacePresets = this.applyDefaultPresetInList(currentPresets, presetId).map(
+      (p) => ({
+        ...p,
+        updatedAt: now
+      })
+    );
+
+    // Sync to Firestore
+    for (const preset of updatedWorkspacePresets) {
+      if (preset.id) {
+        try {
+          await safeUpdateDoc('quotation_presets', preset.id, {
+            is_default: Boolean(preset.is_default),
+            updatedAt: now
+          });
+        } catch (_) {}
+      }
+    }
+
+    // Sync to Local Store
+    try {
+      const allLocal = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+      const updatedAllLocal = allLocal.map((p) => {
+        const itemWs = p.workspace_id || p.workspaceId;
+        if (itemWs === wsId && !p.is_deleted) {
+          return {
+            ...p,
+            is_default: p.id === presetId,
+            updatedAt: now
+          };
+        }
+        return p;
+      });
+      await saveToLocalStore(this.PRESETS_STORE, updatedAllLocal);
+    } catch (_) {}
+
+    return updatedWorkspacePresets;
   }
 
   /**
@@ -708,6 +1038,7 @@ export class QuotationRepository {
     try {
       await safeUpdateDoc('quotation_presets', presetId, {
         is_deleted: true,
+        is_default: false,
         deleted_at: now
       });
     } catch (_) {}
@@ -715,7 +1046,7 @@ export class QuotationRepository {
     try {
       const existing = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
       const updated = existing.map((p) =>
-        p.id === presetId ? { ...p, is_deleted: true, deleted_at: now } : p
+        p.id === presetId ? { ...p, is_deleted: true, is_default: false, deleted_at: now } : p
       );
       await saveToLocalStore(this.PRESETS_STORE, updated);
     } catch (_) {}

@@ -449,17 +449,20 @@ export interface Project {
 export interface Attachment {
   id?: string;
   name: string;
-  size: number;
-  type: string;
+  size?: number;
+  type?: string;
   url: string;
   fileUrl?: string;
   downloadURL?: string;
   storageKey?: string;
-  uploadedAt: string;
+  uploadedAt?: string;
   isLocal?: boolean;
   uploadedByUserName?: string;
   storageProvider?: 'supabase' | 'local';
+  render_as_annex_page?: boolean;
 }
+
+export type QuotationAnnexAttachment = Attachment;
 
 export type EnquirySource = string;
 
@@ -1196,6 +1199,7 @@ export interface QuotationBlockConfig {
   spacer_height_mm?: number; // default: 20, range: 5 to 100
   spacer_fill_remaining?: boolean; // default: false
   show_continuation_header?: boolean; // for page_break blocks, default: true
+  order?: number;
 }
 
 export interface QuotationLayoutSettings {
@@ -1216,6 +1220,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   default_validity_days: number; // e.g., 30
   signatory_mode: QuotationSignatoryMode;
   flyer_attachments?: Attachment[];
+  show_submittals_index?: boolean;
   notes_template?: string;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
@@ -1252,6 +1257,9 @@ export interface QuotationPreset extends SoftDeleteFields {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
+  is_default?: boolean;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1349,6 +1357,8 @@ export interface Quotation extends SoftDeleteFields {
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
   layout_blocks?: QuotationBlockConfig[];
+  flyer_attachments?: Attachment[];
+  show_submittals_index?: boolean;
   pdf_storage_path?: string;
   pdf_download_url?: string;
   created_at: string;

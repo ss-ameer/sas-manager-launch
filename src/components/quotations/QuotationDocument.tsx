@@ -20,7 +20,8 @@ import {
   QuotationRecipientConfig,
   QuotationFooterConfig,
   QuotationPageMode,
-  QuotationLineItem
+  QuotationLineItem,
+  Attachment
 } from '../../types';
 import { amountToWords, amountToWordsAED, formatAmountInWords } from '../../utils/numberToWords';
 import {
@@ -234,6 +235,97 @@ export function partitionBlocksIntoSheets(
     totalSheets,
     pageLabel: `Page ${s.sheetNumber} of ${totalSheets}`
   }));
+}
+
+export interface QuotationAnnexSheetDescriptor {
+  annexNumber: number;
+  sheetNumber: number;
+  totalDocumentPages: number;
+  headerTitle: string;
+  pageLabel: string;
+  attachment: Attachment;
+}
+
+export interface QuotationSubmittalIndexEntry {
+  indexNumber: number;
+  id: string;
+  name: string;
+  url: string;
+  renderAsAnnexPage: boolean;
+  annexPageNumber?: number;
+  badgeLabel: string;
+}
+
+export function resolveDocumentPaginationWithAnnexes(
+  blocks: QuotationBlockConfig[],
+  lineItems?: QuotationLineItem[],
+  flyerAttachments?: Attachment[],
+  showSubmittalsIndex: boolean = true
+): {
+  mainSheets: QuotationSheetPartition[];
+  annexSheetAttachments: Attachment[];
+  annexSheets: QuotationAnnexSheetDescriptor[];
+  totalDocumentPages: number;
+  showSubmittalsIndex: boolean;
+  submittalsIndexEntries: QuotationSubmittalIndexEntry[];
+} {
+  const partitionedMainSheets = partitionBlocksIntoSheets(blocks, lineItems);
+  const allAttachments = (flyerAttachments || []).filter((att) => att && Boolean(att.url));
+  const annexSheetAttachments = allAttachments.filter(
+    (att) => att.render_as_annex_page !== false && Boolean(att.url)
+  );
+  const totalDocumentPages = partitionedMainSheets.length + annexSheetAttachments.length;
+
+  const mainSheets: QuotationSheetPartition[] = partitionedMainSheets.map((sheet) => ({
+    ...sheet,
+    totalSheets: totalDocumentPages,
+    pageLabel: `Page ${sheet.sheetNumber} of ${totalDocumentPages}`
+  }));
+
+  const annexSheets: QuotationAnnexSheetDescriptor[] = annexSheetAttachments.map(
+    (att, annexIdx) => {
+      const sheetNumber = mainSheets.length + annexIdx + 1;
+      const annexNumber = annexIdx + 1;
+      return {
+        annexNumber,
+        sheetNumber,
+        totalDocumentPages,
+        headerTitle: `TECHNICAL ANNEX ${annexNumber}: ${att.name}`,
+        pageLabel: `Page ${sheetNumber} of ${totalDocumentPages}`,
+        attachment: att
+      };
+    }
+  );
+
+  let runningAnnexCounter = 0;
+  const submittalsIndexEntries: QuotationSubmittalIndexEntry[] = allAttachments.map(
+    (att, idx) => {
+      const isAnnex = att.render_as_annex_page !== false && Boolean(att.url);
+      let annexPageNumber: number | undefined = undefined;
+      if (isAnnex) {
+        runningAnnexCounter++;
+        annexPageNumber = mainSheets.length + runningAnnexCounter;
+      }
+      return {
+        indexNumber: idx + 1,
+        id: att.id || `submittal_${idx + 1}`,
+        name: att.name || `Technical Submittal ${idx + 1}`,
+        url: att.url,
+        renderAsAnnexPage: isAnnex,
+        annexPageNumber,
+        badgeLabel: isAnnex ? `Annex Page ${annexPageNumber}` : 'Enclosed Document'
+      };
+    }
+  );
+
+  return {
+    mainSheets,
+    annexSheetAttachments,
+    annexSheets,
+    totalDocumentPages,
+    showSubmittalsIndex: allAttachments.length > 0 && showSubmittalsIndex !== false,
+    submittalsIndexEntries
+  };
 }
 
 export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns): {
@@ -971,8 +1063,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     </footer>
   );
 
-  // Partition active layoutBlocks by page_break blocks into discrete A4 sheets
-  const sheetPartitions = React.useMemo(() => {
+  // Partition active layoutBlocks + lineItems + flyer_attachments into discrete A4 main & annex sheets
+  const paginationWithAnnexes = React.useMemo(() => {
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
       if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
@@ -984,10 +1076,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       return true;
     });
 
-    return partitionBlocksIntoSheets(activeBlocks, rawLineItems);
+    return resolveDocumentPaginationWithAnnexes(
+      activeBlocks,
+      rawLineItems,
+      quotation.flyer_attachments,
+      quotation.show_submittals_index !== false
+    );
   }, [
     resolvedBlocks,
     rawLineItems,
+    quotation.flyer_attachments,
+    quotation.show_submittals_index,
     layoutBlocks,
     quotation.layout_blocks,
     (quotation as any).presentation_preset?.layout_blocks,
@@ -998,8 +1097,70 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     customerAcceptanceEnabled
   ]);
 
-  const totalSheets = sheetPartitions.length;
-  const totalPages = totalSheets;
+  const sheetPartitions = paginationWithAnnexes.mainSheets;
+  const annexSheetAttachments = paginationWithAnnexes.annexSheetAttachments;
+  const annexSheets = paginationWithAnnexes.annexSheets;
+  const totalDocumentPages = paginationWithAnnexes.totalDocumentPages;
+  const totalSheets = totalDocumentPages;
+  const totalPages = totalDocumentPages;
+
+  // Render compact executive "Attached Technical Submittals & Enclosures" index strip
+  const renderSubmittalsIndex = () => {
+    if (!paginationWithAnnexes.showSubmittalsIndex || paginationWithAnnexes.submittalsIndexEntries.length === 0) {
+      return null;
+    }
+    const radiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+
+    return (
+      <section
+        className={`quotation-submittals-index my-2.5 p-2.5 border border-slate-200 bg-slate-50/60 print:bg-transparent print:border-slate-300 break-inside-avoid ${radiusClass}`}
+        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-2">
+          <span
+            className="text-[9.5px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+            style={{ color: accentColor }}
+          >
+            <FileText className="w-3 h-3 shrink-0" />
+            <span>Attached Technical Submittals &amp; Enclosures</span>
+          </span>
+          <span className="text-[8.5px] font-mono text-slate-500">
+            {paginationWithAnnexes.submittalsIndexEntries.length}{' '}
+            {paginationWithAnnexes.submittalsIndexEntries.length === 1 ? 'Document' : 'Documents'}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          {paginationWithAnnexes.submittalsIndexEntries.map((entry) => (
+            <div
+              key={entry.id}
+              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white border border-slate-200/80 print:border-slate-300 text-[9.5px]"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-4 h-4 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[8.5px] flex items-center justify-center shrink-0">
+                  {entry.indexNumber}
+                </span>
+                <span className="font-medium text-slate-800 truncate" title={entry.name}>
+                  {entry.name}
+                </span>
+              </div>
+              <span
+                className={`px-1.5 py-0.5 rounded font-mono text-[8px] font-semibold shrink-0 border ${
+                  entry.renderAsAnnexPage
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 print:bg-transparent print:text-slate-800 print:border-slate-400'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 print:bg-transparent print:text-slate-700 print:border-slate-300'
+                }`}
+              >
+                {entry.badgeLabel}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  };
 
   // ========================================================
   // MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
@@ -2437,7 +2598,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
          ======================================================== */}
       {sheetPartitions.map((sheet, sheetIdx) => {
         const isFirst = sheetIdx === 0;
-        const isLast = sheetIdx === sheetPartitions.length - 1;
+        const isLastMainSheet = sheetIdx === sheetPartitions.length - 1;
+        const isVeryLastDocumentSheet = isLastMainSheet && annexSheets.length === 0;
         const isContinuation = !isFirst;
         const isBreakSelected = Boolean(sheet.pageBreakBlock && activeSelectedSection === sheet.pageBreakBlock.id);
 
@@ -2446,7 +2608,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             key={sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`}
             ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
             className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
-              isLast ? 'print:break-after-avoid' : 'print:break-after-page'
+              isVeryLastDocumentSheet ? 'print:break-after-avoid' : 'print:break-after-page'
             } print:min-h-[297mm]`}
             style={{ boxSizing: 'border-box' }}
           >
@@ -2478,8 +2640,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               >
                 <span>
                   {sheet.isTableContinuationSheet
-                    ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalSheets}`
-                    : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalSheets}`}
+                    ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`
+                    : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`}
                 </span>
                 <span className="text-[9px] underline">
                   {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
@@ -2504,7 +2666,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 <>
                   {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
                     <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
-                      {renderCompactRunningHeader(sheet.sheetNumber, totalSheets)}
+                      {renderCompactRunningHeader(sheet.sheetNumber, totalDocumentPages)}
                     </div>
                   )}
                   {sheet.tableChunk &&
@@ -2519,13 +2681,72 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               )}
 
               {renderBlocksGrid(sheet.blocks)}
+              {isLastMainSheet && renderSubmittalsIndex()}
             </div>
 
             {/* Sheet Micro-Footer: Locked to bottom of Sheet */}
-            {renderFooter(sheet.sheetNumber, totalSheets)}
+            {renderFooter(sheetIdx + 1, totalDocumentPages)}
           </article>
         );
       })}
-  </div>
+
+      {/* ========================================================
+          FULL-PAGE A4 TECHNICAL ANNEX SHEETS
+         ======================================================== */}
+      {annexSheetAttachments.map((att, annexIdx) => {
+        const annexPageNumber = sheetPartitions.length + annexIdx + 1;
+        const isLastAnnexSheet = annexIdx === annexSheetAttachments.length - 1;
+        const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
+
+        return (
+          <article
+            key={att.id || `annex_sheet_${annexIdx + 1}`}
+            className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexPageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+              isLastAnnexSheet ? 'print:break-after-avoid' : 'print:break-after-page'
+            } print:min-h-[297mm]`}
+            style={{ boxSizing: 'border-box' }}
+          >
+            {/* Top Accent Stripe */}
+            <div
+              className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+              style={{ backgroundColor: accentColor }}
+            />
+
+            {/* Continuation Running Header for Technical Annex */}
+            <div className="pt-[4mm] w-full">
+              <div
+                className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
+                style={{ height: '26px' }}
+              >
+                <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate max-w-[30%]">
+                  {senderEntityName || 'Company'}
+                </div>
+                <div
+                  className="text-[9px] print:text-[8px] font-bold uppercase tracking-wide truncate max-w-[45%] text-center px-2"
+                  style={{ color: accentColor }}
+                >
+                  TECHNICAL ANNEX {annexIdx + 1}: {att.name}
+                </div>
+                <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
+                  {quoteRef} • Page {annexPageNumber} of {totalDocumentPages}
+                </div>
+              </div>
+            </div>
+
+            {/* Bounded Flex-1 Image Viewport */}
+            <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
+              <img
+                src={att.url}
+                alt={att.name}
+                className="max-h-[235mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
+              />
+            </div>
+
+            {/* Locked Bottom Micro-Footer */}
+            {renderFooter(annexPageNumber, totalDocumentPages)}
+          </article>
+        );
+      })}
+    </div>
   );
 };
