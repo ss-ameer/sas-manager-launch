@@ -357,7 +357,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   };
 
   const handleAddPageBreak = () => {
-    const newId = 'break_' + Date.now();
+    const newId = `break_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const newBlock: QuotationBlockConfig = {
       id: newId,
       type: 'page_break',
@@ -373,7 +373,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   };
 
   const handleAddSpacer = () => {
-    const newId = 'spacer_' + Date.now();
+    const newId = `spacer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const newBlock: QuotationBlockConfig = {
       id: newId,
       type: 'spacer',
@@ -404,7 +404,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   const handleSetGlobalBlockStyle = (style: 'framed' | 'minimal') => {
     setBlockStyle(style);
-    setLayoutBlocks((prev) => prev.map((b) => ({ ...b, style })));
+    setLayoutBlocks((prev) =>
+      prev.map((b) => {
+        const bType =
+          b.type ||
+          (b.id?.startsWith('break_')
+            ? 'page_break'
+            : b.id?.startsWith('spacer_')
+            ? 'spacer'
+            : b.id);
+        if (bType === 'page_break' || bType === 'spacer') return b;
+        return { ...b, style };
+      })
+    );
   };
 
   const handleSetFontSizeScale = (scale: QuotationFontSizeScale) => {
@@ -850,6 +862,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       if (editingQuotation.pageMode) {
         setPageMode(editingQuotation.pageMode);
       }
+      const savedBlocks =
+        editingQuotation.layout_blocks ||
+        (editingQuotation as any)?.presentation_preset?.layout_blocks;
+      if (savedBlocks && Array.isArray(savedBlocks) && savedBlocks.length > 0) {
+        setLayoutBlocks(
+          savedBlocks.map((b: QuotationBlockConfig) => ({
+            ...b,
+            enabled: b.enabled ?? b.is_visible ?? true,
+            is_visible: b.is_visible ?? b.enabled ?? true,
+            fontScale: b.fontScale || 'standard',
+            padding: b.padding || 'standard'
+          }))
+        );
+      }
     }
   }, [editingQuotation]);
 
@@ -881,7 +907,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       .then((loadedPresets) => {
         if (!isMounted) return;
         setPresets(loadedPresets);
-        if (loadedPresets.length > 0) {
+        if (loadedPresets.length > 0 && !editingQuotation) {
           applyPreset(loadedPresets[0]);
         }
       })
@@ -891,7 +917,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, editingQuotation]);
 
   // Hydrated workspace document profile state
   const [workspaceProfile, setWorkspaceProfile] = useState<WorkspaceDocumentProfile | null>(profile || null);
@@ -1009,6 +1035,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       setLayoutBlocks(
         preset.layout_blocks.map((b) => ({
           ...b,
+          enabled: b.enabled ?? b.is_visible ?? true,
+          is_visible: b.is_visible ?? b.enabled ?? true,
           fontScale: b.fontScale || 'standard',
           padding: b.padding || 'standard'
         }))

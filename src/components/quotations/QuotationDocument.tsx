@@ -1,5 +1,4 @@
 import React from 'react';
-import './QuotationDocument.module.css';
 import {
   Quotation,
   WorkspaceDocumentProfile,
@@ -105,6 +104,76 @@ export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'signatory', enabled: true, placement: 'right', style: 'framed', fontScale: 'standard', padding: 'standard' },
   { id: 'acceptance', enabled: true, placement: 'full', style: 'framed', fontScale: 'standard', padding: 'standard' }
 ];
+
+export interface QuotationSheetPartition {
+  sheetNumber: number;
+  totalSheets: number;
+  pageLabel: string;
+  blocks: QuotationBlockConfig[];
+  pageBreakBlock?: QuotationBlockConfig;
+  showContinuationHeader: boolean;
+}
+
+export function partitionBlocksIntoSheets(blocks: QuotationBlockConfig[]): QuotationSheetPartition[] {
+  const activeBlocks = (blocks || []).filter(
+    (b) => b.enabled !== false && b.is_visible !== false
+  );
+
+  const rawSheets: Array<{
+    sheetNumber: number;
+    blocks: QuotationBlockConfig[];
+    pageBreakBlock?: QuotationBlockConfig;
+    showContinuationHeader: boolean;
+  }> = [
+    {
+      sheetNumber: 1,
+      blocks: [],
+      showContinuationHeader: false
+    }
+  ];
+
+  activeBlocks.forEach((b) => {
+    const bType =
+      b.type ||
+      (b.id?.startsWith('break_')
+        ? 'page_break'
+        : b.id?.startsWith('spacer_')
+        ? 'spacer'
+        : b.id);
+
+    if (bType === 'page_break') {
+      rawSheets.push({
+        sheetNumber: rawSheets.length + 1,
+        blocks: [],
+        pageBreakBlock: b,
+        showContinuationHeader: b.show_continuation_header !== false
+      });
+    } else {
+      rawSheets[rawSheets.length - 1].blocks.push(b);
+    }
+  });
+
+  const totalSheets = rawSheets.length;
+  return rawSheets.map((s) => ({
+    ...s,
+    totalSheets,
+    pageLabel: `Page ${s.sheetNumber} of ${totalSheets}`
+  }));
+}
+
+export function resolveSpacerPresentation(block: QuotationBlockConfig): {
+  heightStyle: string | undefined;
+  className: string;
+  badgeLabel: string;
+} {
+  const isFill = Boolean(block.spacer_fill_remaining);
+  const mm = block.spacer_height_mm ?? 20;
+  return {
+    heightStyle: isFill ? undefined : `${mm}mm`,
+    className: isFill ? 'flex-1 w-full min-h-[10mm]' : 'w-full shrink-0',
+    badgeLabel: isFill ? '↕ Spacer: Fill' : `↕ Spacer: ${mm}mm`
+  };
+}
 
 export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   alignment: 'split',
@@ -715,7 +784,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // Reusable micro-footer watermark helper
   const renderFooter = (pageNumber: number, totalPages: number) => (
     <footer
-      className={`document-print-footer mt-2 pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-0 print:border-t-0 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+      className={`document-print-footer mt-auto pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
         isInteractive ? 'cursor-pointer' : ''
       } ${
         isFooterSelected
@@ -732,7 +801,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
     >
       {isInteractive && (
-        <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+        <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
           isFooterSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
         }`}>
           Footer &amp; Legal
@@ -788,41 +857,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       return true;
     });
 
-    const sheets: Array<{
-      sheetNumber: number;
-      blocks: QuotationBlockConfig[];
-      pageBreakBlock?: QuotationBlockConfig;
-      showContinuationHeader: boolean;
-    }> = [
-      {
-        sheetNumber: 1,
-        blocks: [],
-        showContinuationHeader: false
-      }
-    ];
-
-    activeBlocks.forEach((b) => {
-      const bType =
-        b.type ||
-        (b.id?.startsWith('break_')
-          ? 'page_break'
-          : b.id?.startsWith('spacer_')
-          ? 'spacer'
-          : b.id);
-
-      if (bType === 'page_break') {
-        sheets.push({
-          sheetNumber: sheets.length + 1,
-          blocks: [],
-          pageBreakBlock: b,
-          showContinuationHeader: b.show_continuation_header !== false
-        });
-      } else {
-        sheets[sheets.length - 1].blocks.push(b);
-      }
-    });
-
-    return sheets;
+    return partitionBlocksIntoSheets(activeBlocks);
   }, [
     resolvedBlocks,
     layoutBlocks,
@@ -1219,31 +1254,34 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             const b = seg.block;
             const isSelected = activeSelectedSection === b.id;
             const isInteractive = Boolean(onSelectSection || onSelectBlock);
+            const spacerMeta = resolveSpacerPresentation(b);
             return (
               <div
                 key={b.id}
                 onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
                 style={{
-                  height: b.spacer_fill_remaining ? undefined : `${b.spacer_height_mm || 20}mm`
+                  height: spacerMeta.heightStyle
                 }}
-                className={`${b.spacer_fill_remaining ? 'flex-1 w-full min-h-[10mm]' : 'w-full shrink-0'} ${
+                className={`quotation-spacer-block ${spacerMeta.className} ${
                   isInteractive
-                    ? 'cursor-pointer rounded-lg border border-dashed border-transparent hover:border-slate-300 hover:bg-slate-50/60 print:border-none print:bg-transparent transition-all relative group'
+                    ? 'cursor-pointer rounded-lg border border-dashed border-slate-200/80 hover:border-blue-400 hover:bg-blue-50/30 print:border-none print:bg-transparent transition-all relative group'
                     : ''
                 } ${
                   isSelected
-                    ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/20 print:ring-0 print:border-none print:bg-transparent'
+                    ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50/30 print:ring-0 print:border-none print:bg-transparent'
                     : ''
                 }`}
               >
                 {isInteractive && (
                   <div
-                    className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity print:hidden ${
-                      isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    className={`quotation-canvas-guide absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity print:hidden ${
+                      isSelected ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                     }`}
                   >
-                    <span className="px-2 py-0.5 rounded bg-slate-800/75 text-white text-[9px] font-mono">
-                      Spacer ({b.spacer_fill_remaining ? 'Fill Remaining' : `${b.spacer_height_mm || 20}mm`})
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono shadow-2xs ${
+                      isSelected ? 'bg-blue-600 text-white font-semibold' : 'bg-slate-800/75 text-white'
+                    }`}>
+                      {spacerMeta.badgeLabel}
                     </span>
                   </div>
                 )}
@@ -2108,6 +2146,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-page-sheet {
             width: 210mm !important;
             min-height: 297mm !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
             margin: 0 !important;
             padding: 14mm !important;
             box-shadow: none !important;
@@ -2120,6 +2161,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .quotation-page-sheet:last-child {
             page-break-after: auto !important;
             break-after: auto !important;
+          }
+          .quotation-canvas-guide {
+            display: none !important;
+          }
+          .quotation-spacer-block {
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
           }
           .break-inside-avoid {
             break-inside: avoid !important;
@@ -2244,7 +2293,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
             className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
               isLast ? 'print:break-after-avoid' : 'print:break-after-page'
-            } print:min-h-screen`}
+            } print:min-h-[297mm]`}
             style={{ boxSizing: 'border-box' }}
           >
             {/* Top Accent Stripe */}
@@ -2261,7 +2310,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     ? onSelectSection(sheet.pageBreakBlock!.id)
                     : onSelectBlock?.(sheet.pageBreakBlock!.id)
                 }
-                className={`mb-2 px-2.5 py-1 rounded-md border border-dashed flex items-center justify-between text-[10px] font-mono cursor-pointer transition print:hidden ${
+                className={`quotation-canvas-guide mb-2 px-2.5 py-1 rounded-md border border-dashed flex items-center justify-between text-[10px] font-mono cursor-pointer transition print:hidden ${
                   isBreakSelected
                     ? 'bg-amber-100/90 border-amber-400 text-amber-900 ring-2 ring-amber-400/50'
                     : 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-300 text-amber-800'

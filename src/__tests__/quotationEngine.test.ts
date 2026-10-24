@@ -12,8 +12,14 @@ import {
   QuotationFooterConfig,
   QuotationHeaderConfig,
   BankAccountProfile,
-  Quotation
+  Quotation,
+  QuotationBlockConfig
 } from '../types';
+import {
+  partitionBlocksIntoSheets,
+  resolveSpacerPresentation,
+  DEFAULT_QUOTATION_BLOCKS
+} from '../components/quotations/QuotationDocument';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -557,6 +563,171 @@ Payment Terms: Net 30 Days`;
 
   it('should spawn Page 2 if measured height for <= 3 items exceeds 260mm threshold', () => {
     expect(evaluateIsMultiPage(2, false, 1050)).toBe(true);
+  });
+});
+
+describe('First-Class Page Breaks & Spacers Engine', () => {
+  it('should render 1 sheet (Page 1 of 1) when 0 page_break blocks exist', () => {
+    const sheets = partitionBlocksIntoSheets(DEFAULT_QUOTATION_BLOCKS);
+    expect(sheets.length).toBe(1);
+    expect(sheets[0].sheetNumber).toBe(1);
+    expect(sheets[0].totalSheets).toBe(1);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 1');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual([
+      'terms',
+      'totals',
+      'remittance',
+      'signatory',
+      'acceptance'
+    ]);
+  });
+
+  it('should render 2 sheets (Page 1 of 2, Page 2 of 2) with accurate block partitioning when 1 page_break block is inserted', () => {
+    const blocksWithBreak: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true },
+      { id: 'totals', type: 'totals', enabled: true },
+      {
+        id: 'break_1001',
+        type: 'page_break',
+        title: 'Page Break',
+        is_visible: true,
+        enabled: true,
+        show_continuation_header: true
+      },
+      { id: 'remittance', type: 'remittance', enabled: true },
+      { id: 'signatory', type: 'signatory', enabled: true },
+      { id: 'acceptance', type: 'acceptance', enabled: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(blocksWithBreak);
+    expect(sheets.length).toBe(2);
+
+    expect(sheets[0].sheetNumber).toBe(1);
+    expect(sheets[0].totalSheets).toBe(2);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 2');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'totals']);
+
+    expect(sheets[1].sheetNumber).toBe(2);
+    expect(sheets[1].totalSheets).toBe(2);
+    expect(sheets[1].pageLabel).toBe('Page 2 of 2');
+    expect(sheets[1].showContinuationHeader).toBe(true);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual([
+      'remittance',
+      'signatory',
+      'acceptance'
+    ]);
+  });
+
+  it('should render N+1 sheets (Page 1 of 3, Page 2 of 3, Page 3 of 3) when multiple page_break blocks exist', () => {
+    const multiBreakBlocks: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true },
+      { id: 'totals', type: 'totals', enabled: true },
+      {
+        id: 'break_1',
+        type: 'page_break',
+        title: 'Page Break 1',
+        is_visible: true,
+        enabled: true,
+        show_continuation_header: true
+      },
+      { id: 'remittance', type: 'remittance', enabled: true },
+      {
+        id: 'break_2',
+        type: 'page_break',
+        title: 'Page Break 2',
+        is_visible: true,
+        enabled: true,
+        show_continuation_header: false
+      },
+      { id: 'signatory', type: 'signatory', enabled: true },
+      { id: 'acceptance', type: 'acceptance', enabled: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(multiBreakBlocks);
+    expect(sheets.length).toBe(3);
+
+    expect(sheets[0].pageLabel).toBe('Page 1 of 3');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'totals']);
+
+    expect(sheets[1].pageLabel).toBe('Page 2 of 3');
+    expect(sheets[1].showContinuationHeader).toBe(true);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual(['remittance']);
+
+    expect(sheets[2].pageLabel).toBe('Page 3 of 3');
+    expect(sheets[2].showContinuationHeader).toBe(false);
+    expect(sheets[2].blocks.map((b) => b.id)).toEqual(['signatory', 'acceptance']);
+  });
+
+  it('should ignore hidden/disabled page_break blocks when partitioning sheets', () => {
+    const blocksWithDisabledBreak: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true },
+      {
+        id: 'break_disabled',
+        type: 'page_break',
+        is_visible: false,
+        enabled: false
+      },
+      { id: 'totals', type: 'totals', enabled: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(blocksWithDisabledBreak);
+    expect(sheets.length).toBe(1);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 1');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'totals']);
+  });
+
+  it('should respect spacer_height_mm and spacer_fill_remaining on spacer blocks', () => {
+    const spacer10: QuotationBlockConfig = {
+      id: 'spacer_10',
+      type: 'spacer',
+      spacer_height_mm: 10,
+      spacer_fill_remaining: false,
+      is_visible: true,
+      enabled: true
+    };
+    const spacer40: QuotationBlockConfig = {
+      id: 'spacer_40',
+      type: 'spacer',
+      spacer_height_mm: 40,
+      spacer_fill_remaining: false,
+      is_visible: true,
+      enabled: true
+    };
+    const spacerFill: QuotationBlockConfig = {
+      id: 'spacer_fill',
+      type: 'spacer',
+      spacer_height_mm: 20,
+      spacer_fill_remaining: true,
+      is_visible: true,
+      enabled: true
+    };
+
+    const p10 = resolveSpacerPresentation(spacer10);
+    expect(p10.heightStyle).toBe('10mm');
+    expect(p10.className).toBe('w-full shrink-0');
+    expect(p10.badgeLabel).toBe('↕ Spacer: 10mm');
+
+    const p40 = resolveSpacerPresentation(spacer40);
+    expect(p40.heightStyle).toBe('40mm');
+    expect(p40.className).toBe('w-full shrink-0');
+    expect(p40.badgeLabel).toBe('↕ Spacer: 40mm');
+
+    const pFill = resolveSpacerPresentation(spacerFill);
+    expect(pFill.heightStyle).toBe(undefined);
+    expect(pFill.className).toBe('flex-1 w-full min-h-[10mm]');
+    expect(pFill.badgeLabel).toBe('↕ Spacer: Fill');
+
+    // Verify spacer blocks stay in exact sequence inside partitioned sheets
+    const sheets = partitionBlocksIntoSheets([
+      { id: 'terms', enabled: true },
+      spacer40,
+      { id: 'break_a', type: 'page_break', enabled: true },
+      spacerFill,
+      { id: 'signatory', enabled: true }
+    ]);
+    expect(sheets.length).toBe(2);
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'spacer_40']);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual(['spacer_fill', 'signatory']);
   });
 });
 
