@@ -13,13 +13,17 @@ import {
   QuotationHeaderConfig,
   BankAccountProfile,
   Quotation,
-  QuotationBlockConfig
+  QuotationBlockConfig,
+  QuotationLineItem
 } from '../types';
 import {
   partitionBlocksIntoSheets,
+  splitLineItemsIntoChunks,
+  resolveTableColumnLayout,
   resolveSpacerPresentation,
   DEFAULT_QUOTATION_BLOCKS
 } from '../components/quotations/QuotationDocument';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -728,6 +732,162 @@ describe('First-Class Page Breaks & Spacers Engine', () => {
     expect(sheets.length).toBe(2);
     expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'spacer_40']);
     expect(sheets[1].blocks.map((b) => b.id)).toEqual(['spacer_fill', 'signatory']);
+  });
+});
+
+// ==========================================
+// 10. LINE-ITEM ROW PAGE BREAKS & DYNAMIC COLUMN VISIBILITY TESTS
+// ==========================================
+
+describe('10. Line-Item Row Page Breaks ("Split Table Here") & Dynamic Column Width Balancing', () => {
+  const createFiveLineItems = (): QuotationLineItem[] => [
+    {
+      id: 'item_1',
+      item_name: 'FRP Pressure Vessel 36x72',
+      description: ' structural composite vessel',
+      quantity: 2,
+      unit: 'nos',
+      unit_price: 4500,
+      total_price: 9000
+    },
+    {
+      id: 'item_2',
+      item_name: 'Automatic Multiport Valve',
+      description: '2 inch top mount',
+      quantity: 2,
+      unit: 'nos',
+      unit_price: 1200,
+      total_price: 2400
+    },
+    {
+      id: 'item_3',
+      item_name: 'Graded Silica Sand Media',
+      description: 'High purity filtration media',
+      quantity: 1000,
+      unit: 'kg',
+      unit_price: 3.5,
+      total_price: 3500
+    },
+    {
+      id: 'item_4',
+      item_name: 'Activated Carbon Media',
+      description: 'Coconut shell 1000 IV',
+      quantity: 500,
+      unit: 'kg',
+      unit_price: 12,
+      total_price: 6000
+    },
+    {
+      id: 'item_5',
+      item_name: 'Electromagnetic Dosing Pump',
+      description: '15 LPH @ 10 Bar',
+      quantity: 3,
+      unit: 'set',
+      unit_price: 1800,
+      total_price: 5400
+    }
+  ];
+
+  it('10a. Line item page_break_after: true on item #2 of a 5-item quote splits the table into 2 sheets with continuous item numbering (1-2 on Sheet 1, 3-5 on Sheet 2)', () => {
+    const items = createFiveLineItems();
+    items[1].page_break_after = true; // Split after item #2
+
+    const chunks = splitLineItemsIntoChunks(items);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0].startIndex).toBe(0);
+    expect(chunks[0].items.map((i) => i.id)).toEqual(['item_1', 'item_2']);
+    expect(chunks[1].startIndex).toBe(2);
+    expect(chunks[1].items.map((i) => i.id)).toEqual(['item_3', 'item_4', 'item_5']);
+
+    // Verify continuous 1-based item numbering: 1-2 on Sheet 1, 3-5 on Sheet 2
+    const sheet1Numbers = chunks[0].items.map((_, idx) => chunks[0].startIndex + idx + 1);
+    const sheet2Numbers = chunks[1].items.map((_, idx) => chunks[1].startIndex + idx + 1);
+    expect(sheet1Numbers).toEqual([1, 2]);
+    expect(sheet2Numbers).toEqual([3, 4, 5]);
+
+    const sheets = partitionBlocksIntoSheets(DEFAULT_QUOTATION_BLOCKS, items);
+    expect(sheets.length).toBe(2);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 2');
+    expect(sheets[1].pageLabel).toBe('Page 2 of 2');
+    expect(sheets[0].tableChunk?.items.length).toBe(2);
+    expect(sheets[1].tableChunk?.items.length).toBe(3);
+    expect(sheets[1].isTableContinuationSheet).toBe(true);
+    expect(sheets[1].showContinuationHeader).toBe(true);
+    // Closing blocks land on the final table chunk sheet (Sheet 2)
+    expect(sheets[0].blocks.length).toBe(0);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual([
+      'terms',
+      'totals',
+      'remittance',
+      'signatory',
+      'acceptance'
+    ]);
+  });
+
+  it('10b. Combining a line-item page_break_after AND a closing block page_break produces 3 sheets (Page 1 of 3, Page 2 of 3, Page 3 of 3)', () => {
+    const items = createFiveLineItems();
+    items[1].page_break_after = true; // Table split after item #2
+
+    const blocksWithBreak: QuotationBlockConfig[] = [
+      { id: 'terms', enabled: true },
+      { id: 'totals', enabled: true },
+      { id: 'break_closing', type: 'page_break', title: 'Page Break', enabled: true, show_continuation_header: true },
+      { id: 'remittance', enabled: true },
+      { id: 'signatory', enabled: true },
+      { id: 'acceptance', enabled: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(blocksWithBreak, items);
+    expect(sheets.length).toBe(3);
+    expect(sheets.map((s) => s.pageLabel)).toEqual([
+      'Page 1 of 3',
+      'Page 2 of 3',
+      'Page 3 of 3'
+    ]);
+
+    // Sheet 1: Items 1-2, no closing blocks yet
+    expect(sheets[0].tableChunk?.items.map((i) => i.id)).toEqual(['item_1', 'item_2']);
+    expect(sheets[0].blocks).toEqual([]);
+
+    // Sheet 2: Items 3-5 + pre-break closing blocks (terms, totals)
+    expect(sheets[1].tableChunk?.items.map((i) => i.id)).toEqual(['item_3', 'item_4', 'item_5']);
+    expect(sheets[1].tableChunk?.startIndex).toBe(2);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual(['terms', 'totals']);
+
+    // Sheet 3: No table chunk + post-break closing blocks (remittance, signatory, acceptance)
+    expect(sheets[2].tableChunk).toBe(undefined);
+    expect(sheets[2].blocks.map((b) => b.id)).toEqual(['remittance', 'signatory', 'acceptance']);
+  });
+
+  it('10c. Hiding unit_price column redistributes width to Description while preserving Grand Total calculations', () => {
+    const items = createFiveLineItems();
+    const defaultLayout = resolveTableColumnLayout({
+      unit_price: true,
+      showUnitPrice: true,
+      showUom: true,
+      showLineTotal: true
+    });
+    expect(defaultLayout.showUnitPrice).toBe(true);
+    expect(defaultLayout.widths.description).toBe('52%');
+    expect(defaultLayout.widths.unitPrice).toBe('12%');
+    expect(defaultLayout.activeColumnCount).toBe(6);
+
+    const hiddenUnitPriceLayout = resolveTableColumnLayout({
+      unit_price: false,
+      showUnitPrice: false,
+      showUom: true,
+      showLineTotal: true
+    });
+    expect(hiddenUnitPriceLayout.showUnitPrice).toBe(false);
+    expect(hiddenUnitPriceLayout.widths.unitPrice).toBe('0%');
+    expect(hiddenUnitPriceLayout.widths.description).toBe('64%');
+    expect(hiddenUnitPriceLayout.activeColumnCount).toBe(5);
+
+    // Grand total calculation remains 100% intact when Unit Price column is hidden
+    const financials = QuotationRepository.calculateTotals(items, 0, 'taxes_extra', 5);
+    expect(financials.subtotal).toBe(26300);
+    expect(financials.tax_amount).toBe(1315);
+    expect(financials.grand_total).toBe(27615);
   });
 });
 

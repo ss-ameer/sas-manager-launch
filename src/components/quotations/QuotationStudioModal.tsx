@@ -174,6 +174,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     origin: true,
     availability: true,
     unit_price: true,
+    showUnitPrice: true,
+    showUom: true,
+    showLineTotal: true,
     showItemAttributes: true,
     attributeDisplayFormat: 'pills',
     hiddenAttributeKeys: [],
@@ -565,6 +568,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return initialMap;
   });
 
+  // Per-item row page break mapping: itemId -> boolean
+  const [itemPageBreaks, setItemPageBreaks] = useState<Record<string, boolean>>(() => {
+    const initialMap: Record<string, boolean> = {};
+    const sourceItems = editingQuotation?.line_items || enquiry?.line_items || [];
+    sourceItems.forEach((item: any, idx: number) => {
+      const key = item.id || `item_${idx}`;
+      if (typeof item.page_break_after === 'boolean') {
+        initialMap[key] = item.page_break_after;
+      }
+    });
+    return initialMap;
+  });
+
   // Helper to check if a value is strictly an uppercase initial abbreviation (2-3 chars, e.g. "SS", "PV", "ANR")
   // Legitimate 3-letter names (e.g. "Ali", "Dan", "Tom", "Roy", "Guy", "Amy", "Joy") contain lowercase letters,
   // so /^[A-Z]{2,3}$/.test(...) evaluates to false, ensuring valid 3-letter legal names are NEVER discarded.
@@ -794,13 +810,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
       if (editingQuotation.line_items) {
         const initialMap: Record<string, string[]> = {};
+        const initialBreaks: Record<string, boolean> = {};
         editingQuotation.line_items.forEach((item, idx) => {
           const key = item.id || `item_${idx}`;
           if (item.visible_attributes) {
             initialMap[key] = item.visible_attributes;
           }
+          if (typeof item.page_break_after === 'boolean') {
+            initialBreaks[key] = item.page_break_after;
+          }
         });
         setItemVisibleAttributes(initialMap);
+        setItemPageBreaks(initialBreaks);
       }
       if (editingQuotation.applied_bank_account?.id) {
         setSelectedBankId(editingQuotation.applied_bank_account.id);
@@ -964,6 +985,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const applyPreset = (preset: QuotationPreset) => {
     setSelectedPresetId(preset.id || '');
     if (preset.visible_columns) {
+      const resolvedUnitPrice =
+        preset.visible_columns.showUnitPrice !== undefined
+          ? preset.visible_columns.showUnitPrice
+          : preset.visible_columns.unit_price ?? true;
       setVisibleColumns((prev) => ({
         ...prev,
         ...preset.visible_columns,
@@ -971,7 +996,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         model: preset.visible_columns.model ?? true,
         origin: preset.visible_columns.origin ?? true,
         availability: preset.visible_columns.availability ?? true,
-        unit_price: preset.visible_columns.unit_price ?? true,
+        unit_price: resolvedUnitPrice,
+        showUnitPrice: resolvedUnitPrice,
+        showUom: preset.visible_columns.showUom ?? prev.showUom ?? true,
+        showLineTotal: preset.visible_columns.showLineTotal ?? prev.showLineTotal ?? true,
         showItemAttributes: preset.visible_columns.showItemAttributes ?? prev.showItemAttributes ?? true,
         attributeDisplayFormat: preset.visible_columns.attributeDisplayFormat ?? prev.attributeDisplayFormat ?? 'pills',
         hiddenAttributeKeys: preset.visible_columns.hiddenAttributeKeys ?? prev.hiddenAttributeKeys ?? []
@@ -1176,7 +1204,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             country_of_origin: originAttr || undefined,
             availability: li.lead_time_note || 'Ex-Stock / Standard',
             is_optional: false,
-            attributes: itemAttrs
+            attributes: itemAttrs,
+            page_break_after: li.page_break_after,
+            row_spacer_after_mm: li.row_spacer_after_mm
           };
         });
       }
@@ -1185,12 +1215,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return baseItems.map((item, idx) => {
       const itemKey = item.id || `item_${idx}`;
       const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
+      const customPageBreak =
+        itemPageBreaks[itemKey] !== undefined
+          ? itemPageBreaks[itemKey]
+          : Boolean(item.page_break_after);
       return {
         ...item,
-        visible_attributes: customVisible
+        visible_attributes: customVisible,
+        page_break_after: customPageBreak
       };
     });
-  }, [editingQuotation, enquiry?.line_items, itemVisibleAttributes]);
+  }, [editingQuotation, enquiry?.line_items, itemVisibleAttributes, itemPageBreaks]);
 
   // Dynamically extract all unique attribute keys present across active line items
   const availableAttributeKeys = useMemo(() => {
@@ -1305,6 +1340,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       ...prev,
       [itemKey]: []
     }));
+  };
+
+  const toggleItemPageBreak = (itemKey: string, currentVal?: boolean) => {
+    setItemPageBreaks((prev) => {
+      const active = prev[itemKey] !== undefined ? prev[itemKey] : Boolean(currentVal);
+      return {
+        ...prev,
+        [itemKey]: !active
+      };
+    });
   };
 
   // Calculate live financial figures
@@ -2604,13 +2649,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     <Sliders className="w-3.5 h-3.5 text-slate-500" />
                     Visible Table Columns
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">5 Custom Columns</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Dynamic Widths</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <label className="flex items-center space-x-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={visibleColumns.brand}
+                      checked={visibleColumns.brand !== false}
                       onChange={(e) =>
                         setVisibleColumns((prev) => ({ ...prev, brand: e.target.checked }))
                       }
@@ -2621,7 +2666,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   <label className="flex items-center space-x-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={visibleColumns.model}
+                      checked={visibleColumns.model !== false}
                       onChange={(e) =>
                         setVisibleColumns((prev) => ({ ...prev, model: e.target.checked }))
                       }
@@ -2632,7 +2677,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   <label className="flex items-center space-x-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={visibleColumns.origin}
+                      checked={visibleColumns.origin !== false}
                       onChange={(e) =>
                         setVisibleColumns((prev) => ({ ...prev, origin: e.target.checked }))
                       }
@@ -2643,7 +2688,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   <label className="flex items-center space-x-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={visibleColumns.availability}
+                      checked={visibleColumns.availability !== false}
                       onChange={(e) =>
                         setVisibleColumns((prev) => ({ ...prev, availability: e.target.checked }))
                       }
@@ -2651,18 +2696,113 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     />
                     <span className="text-slate-700">Delivery Time</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2 pt-1 border-t border-slate-200/70">
                     <input
                       type="checkbox"
-                      checked={visibleColumns.unit_price}
+                      checked={visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false}
                       onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, unit_price: e.target.checked }))
+                        setVisibleColumns((prev) => ({
+                          ...prev,
+                          unit_price: e.target.checked,
+                          showUnitPrice: e.target.checked
+                        }))
                       }
                       className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="text-slate-700">Unit Price Column</span>
+                    <span className="text-slate-700 font-medium">Show Unit Price Column</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.showUom !== false}
+                      onChange={(e) =>
+                        setVisibleColumns((prev) => ({ ...prev, showUom: e.target.checked }))
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-slate-700 font-medium">Show UOM / Unit Column</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.showItemAttributes !== false}
+                      onChange={(e) =>
+                        setVisibleColumns((prev) => ({ ...prev, showItemAttributes: e.target.checked }))
+                      }
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-slate-700 font-medium">Show Technical Attribute Pills</span>
                   </label>
                 </div>
+
+                {/* Line-Item Row Page Breaks ("Split Table Here") */}
+                {quotationLineItems.length > 1 && (
+                  <div className="pt-3 border-t border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                        <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                        Line-Item Row Page Breaks
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {quotationLineItems.slice(0, -1).filter((it) => it.page_break_after).length} Split(s)
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                      {quotationLineItems.map((item, idx) => {
+                        const itemKey = item.id || `item_${idx}`;
+                        const isLastItem = idx === quotationLineItems.length - 1;
+                        const hasBreakAfter = Boolean(item.page_break_after) && !isLastItem;
+
+                        return (
+                          <div
+                            key={itemKey}
+                            className={`p-2 rounded-lg border text-xs transition ${
+                              hasBreakAfter
+                                ? 'bg-amber-50/70 border-amber-300'
+                                : 'bg-white border-slate-200/90'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex items-center gap-1.5 flex-1">
+                                <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
+                                  {item.item_name}
+                                </span>
+                              </div>
+                              {!isLastItem ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
+                                  className={`px-2 py-1 rounded-md text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                    hasBreakAfter
+                                      ? 'bg-amber-600 text-white shadow-2xs'
+                                      : 'bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                  }`}
+                                  title="Split table onto a new A4 sheet immediately after this item"
+                                >
+                                  <Scissors className="w-3 h-3" />
+                                  <span>✂ Page Break After Item</span>
+                                </button>
+                              ) : (
+                                <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
+                                  Final Row
+                                </span>
+                              )}
+                            </div>
+                            {hasBreakAfter && (
+                              <div className="mt-1.5 px-2 py-0.5 rounded bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
+                                <span>📄 Splits to Next Page After Item #{idx + 1}</span>
+                                <span className="text-[9px] text-amber-700">New Sheet</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Financial & Tax Adjustments */}
@@ -4943,31 +5083,61 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             key: 'brand' as const,
                             label: 'Brand / Make',
                             desc: 'Show equipment brand / manufacturer',
-                            checked: Boolean(visibleColumns.brand)
+                            checked: visibleColumns.brand !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, brand: checked }))
                           },
                           {
                             key: 'model' as const,
                             label: 'Model / Part #',
                             desc: 'Catalog item or part designation',
-                            checked: Boolean(visibleColumns.model)
+                            checked: visibleColumns.model !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, model: checked }))
                           },
                           {
                             key: 'origin' as const,
                             label: 'Origin / Country',
                             desc: 'Manufacturing country of origin',
-                            checked: Boolean(visibleColumns.origin)
+                            checked: visibleColumns.origin !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, origin: checked }))
                           },
                           {
                             key: 'availability' as const,
                             label: 'Delivery / Availability',
                             desc: 'Dispatch lead time & stock timeline',
-                            checked: Boolean(visibleColumns.availability)
+                            checked: visibleColumns.availability !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, availability: checked }))
                           },
                           {
                             key: 'unit_price' as const,
-                            label: 'Unit Price',
-                            desc: 'Show individual rates before total',
-                            checked: Boolean(visibleColumns.unit_price)
+                            label: 'Show Unit Price Column',
+                            desc: 'Show individual rates (auto-expands Description when hidden)',
+                            checked: visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({
+                                ...prev,
+                                unit_price: checked,
+                                showUnitPrice: checked
+                              }))
+                          },
+                          {
+                            key: 'showUom' as const,
+                            label: 'Show UOM / Unit Column',
+                            desc: 'Show unit of measure column (pcs, set, lot)',
+                            checked: visibleColumns.showUom !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, showUom: checked }))
+                          },
+                          {
+                            key: 'showItemAttributes' as const,
+                            label: 'Show Technical Attribute Pills',
+                            desc: 'Render technical specification pills inside item rows',
+                            checked: visibleColumns.showItemAttributes !== false,
+                            onChange: (checked: boolean) =>
+                              setVisibleColumns((prev) => ({ ...prev, showItemAttributes: checked }))
                           }
                         ].map((col) => (
                           <div
@@ -4990,18 +5160,83 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               <input
                                 type="checkbox"
                                 checked={col.checked}
-                                onChange={(e) =>
-                                  setVisibleColumns((prev) => ({
-                                    ...prev,
-                                    [col.key]: e.target.checked
-                                  }))
-                                }
+                                onChange={(e) => col.onChange(e.target.checked)}
                                 className="sr-only peer"
                               />
                               <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
                           </div>
                         ))}
+                      </div>
+                    </div>
+
+                    {/* Line-Item Row Page Breaks ("Split Table Here") Inspector Section */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                          Line-Item Row Page Breaks
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {quotationLineItems.slice(0, -1).filter((it) => it.page_break_after).length} Active
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-500 leading-normal">
+                        Split long quotation tables cleanly onto a new A4 sheet after any line item row with repeated column headers and continuous item numbering.
+                      </p>
+
+                      <div className="space-y-2 pt-1 max-h-60 overflow-y-auto pr-1">
+                        {quotationLineItems.map((item, idx) => {
+                          const itemKey = item.id || `item_${idx}`;
+                          const isLastItem = idx === quotationLineItems.length - 1;
+                          const hasBreakAfter = Boolean(item.page_break_after) && !isLastItem;
+
+                          return (
+                            <div
+                              key={itemKey}
+                              className={`p-2.5 rounded-xl border transition space-y-1.5 ${
+                                hasBreakAfter
+                                  ? 'bg-amber-50/80 border-amber-300 shadow-2xs'
+                                  : 'bg-slate-50/70 border-slate-200/90'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex items-center gap-1.5 flex-1">
+                                  <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
+                                    {item.item_name}
+                                  </span>
+                                </div>
+                                {!isLastItem ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                      hasBreakAfter
+                                        ? 'bg-amber-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                    }`}
+                                  >
+                                    <Scissors className="w-3 h-3" />
+                                    <span>✂ Page Break After Item</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
+                                    Last Item
+                                  </span>
+                                )}
+                              </div>
+                              {hasBreakAfter && (
+                                <div className="px-2 py-1 rounded-md bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
+                                  <span>📄 Splits to Next Page After Item #{idx + 1}</span>
+                                  <span className="text-[9px] text-amber-700">Sheet Break</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 

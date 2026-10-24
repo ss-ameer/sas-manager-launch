@@ -105,6 +105,13 @@ export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'acceptance', enabled: true, placement: 'full', style: 'framed', fontScale: 'standard', padding: 'standard' }
 ];
 
+export interface QuotationTableChunk {
+  items: QuotationLineItem[];
+  startIndex: number;
+  isContinuation: boolean;
+  splitFromItemNumber?: number;
+}
+
 export interface QuotationSheetPartition {
   sheetNumber: number;
   totalSheets: number;
@@ -112,26 +119,93 @@ export interface QuotationSheetPartition {
   blocks: QuotationBlockConfig[];
   pageBreakBlock?: QuotationBlockConfig;
   showContinuationHeader: boolean;
+  tableChunk?: QuotationTableChunk;
+  isTableContinuationSheet?: boolean;
 }
 
-export function partitionBlocksIntoSheets(blocks: QuotationBlockConfig[]): QuotationSheetPartition[] {
+export function splitLineItemsIntoChunks(lineItems: QuotationLineItem[] = []): QuotationTableChunk[] {
+  if (!Array.isArray(lineItems) || lineItems.length === 0) {
+    return [
+      {
+        items: [],
+        startIndex: 0,
+        isContinuation: false
+      }
+    ];
+  }
+
+  const chunks: QuotationTableChunk[] = [];
+  let currentItems: QuotationLineItem[] = [];
+  let currentStartIndex = 0;
+  let splitFromItemNumber: number | undefined = undefined;
+
+  lineItems.forEach((item, idx) => {
+    currentItems.push(item);
+    const isLastItem = idx === lineItems.length - 1;
+    if (item.page_break_after === true && !isLastItem) {
+      chunks.push({
+        items: currentItems,
+        startIndex: currentStartIndex,
+        isContinuation: chunks.length > 0,
+        splitFromItemNumber
+      });
+      currentItems = [];
+      currentStartIndex = idx + 1;
+      splitFromItemNumber = idx + 1;
+    }
+  });
+
+  if (currentItems.length > 0 || chunks.length === 0) {
+    chunks.push({
+      items: currentItems,
+      startIndex: currentStartIndex,
+      isContinuation: chunks.length > 0,
+      splitFromItemNumber
+    });
+  }
+
+  return chunks;
+}
+
+export function partitionBlocksIntoSheets(
+  blocks: QuotationBlockConfig[],
+  lineItems?: QuotationLineItem[]
+): QuotationSheetPartition[] {
   const activeBlocks = (blocks || []).filter(
     (b) => b.enabled !== false && b.is_visible !== false
   );
+
+  const tableChunks = splitLineItemsIntoChunks(lineItems || []);
 
   const rawSheets: Array<{
     sheetNumber: number;
     blocks: QuotationBlockConfig[];
     pageBreakBlock?: QuotationBlockConfig;
     showContinuationHeader: boolean;
+    tableChunk?: QuotationTableChunk;
+    isTableContinuationSheet?: boolean;
   }> = [
     {
       sheetNumber: 1,
       blocks: [],
-      showContinuationHeader: false
+      showContinuationHeader: false,
+      tableChunk: tableChunks[0],
+      isTableContinuationSheet: false
     }
   ];
 
+  // Each subsequent table chunk spawns a fresh continuation sheet
+  for (let i = 1; i < tableChunks.length; i++) {
+    rawSheets.push({
+      sheetNumber: rawSheets.length + 1,
+      blocks: [],
+      showContinuationHeader: true,
+      tableChunk: tableChunks[i],
+      isTableContinuationSheet: true
+    });
+  }
+
+  // Process closing layoutBlocks after the final table chunk
   activeBlocks.forEach((b) => {
     const bType =
       b.type ||
@@ -146,7 +220,8 @@ export function partitionBlocksIntoSheets(blocks: QuotationBlockConfig[]): Quota
         sheetNumber: rawSheets.length + 1,
         blocks: [],
         pageBreakBlock: b,
-        showContinuationHeader: b.show_continuation_header !== false
+        showContinuationHeader: b.show_continuation_header !== false,
+        isTableContinuationSheet: false
       });
     } else {
       rawSheets[rawSheets.length - 1].blocks.push(b);
@@ -159,6 +234,55 @@ export function partitionBlocksIntoSheets(blocks: QuotationBlockConfig[]): Quota
     totalSheets,
     pageLabel: `Page ${s.sheetNumber} of ${totalSheets}`
   }));
+}
+
+export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns): {
+  showUnitPrice: boolean;
+  showUom: boolean;
+  showLineTotal: boolean;
+  showItemAttributes: boolean;
+  widths: {
+    sl: string;
+    description: string;
+    qty: string;
+    uom: string;
+    unitPrice: string;
+    lineTotal: string;
+  };
+  activeColumnCount: number;
+} {
+  const cfg = columnConfig || {};
+  const showUnitPrice =
+    cfg.showUnitPrice !== undefined ? cfg.showUnitPrice !== false : cfg.unit_price !== false;
+  const showUom = cfg.showUom !== false;
+  const showLineTotal = cfg.showLineTotal !== false;
+  const showItemAttributes = cfg.showItemAttributes !== false;
+
+  const slWidth = 5;
+  const qtyWidth = 7;
+  const uomWidth = showUom ? 10 : 0;
+  const unitPriceWidth = showUnitPrice ? 12 : 0;
+  const lineTotalWidth = showLineTotal ? 14 : 0;
+  const descriptionWidth = 100 - (slWidth + qtyWidth + uomWidth + unitPriceWidth + lineTotalWidth);
+
+  const activeColumnCount =
+    2 + (showUom ? 1 : 0) + 1 + (showUnitPrice ? 1 : 0) + (showLineTotal ? 1 : 0);
+
+  return {
+    showUnitPrice,
+    showUom,
+    showLineTotal,
+    showItemAttributes,
+    widths: {
+      sl: `${slWidth}%`,
+      description: `${descriptionWidth}%`,
+      qty: `${qtyWidth}%`,
+      uom: `${uomWidth}%`,
+      unitPrice: `${unitPriceWidth}%`,
+      lineTotal: `${lineTotalWidth}%`
+    },
+    activeColumnCount
+  };
 }
 
 export function resolveSpacerPresentation(block: QuotationBlockConfig): {
@@ -542,13 +666,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   };
 
   // Determine active columns & technical attributes config
-  const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || {};
+  const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || quotation.visible_columns || {};
   const showBrand = columnConfig.brand ?? true;
   const showModel = columnConfig.model ?? true;
   const showOrigin = columnConfig.origin ?? true;
   const showAvailability = columnConfig.availability ?? true;
-  const showUnitPrice = columnConfig.unit_price ?? true;
-  const showItemAttributes = columnConfig.showItemAttributes !== false;
+  const tableColLayout = React.useMemo(() => resolveTableColumnLayout(columnConfig), [columnConfig]);
+  const showUnitPrice = tableColLayout.showUnitPrice;
+  const showUom = tableColLayout.showUom;
+  const showLineTotal = tableColLayout.showLineTotal;
+  const showItemAttributes = tableColLayout.showItemAttributes;
   const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'pills';
   const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
 
@@ -857,9 +984,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       return true;
     });
 
-    return partitionBlocksIntoSheets(activeBlocks);
+    return partitionBlocksIntoSheets(activeBlocks, rawLineItems);
   }, [
     resolvedBlocks,
+    rawLineItems,
     layoutBlocks,
     quotation.layout_blocks,
     (quotation as any).presentation_preset?.layout_blocks,
@@ -1894,7 +2022,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
             style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
           >
-            <colgroup><col style={{ width: '5%' }} /><col style={{ width: '52%' }} /><col style={{ width: '7%' }} /><col style={{ width: '10%' }} /><col style={{ width: '12%' }} /><col style={{ width: '14%' }} /></colgroup>
+            <colgroup>
+              <col style={{ width: tableColLayout.widths.sl }} />
+              <col style={{ width: tableColLayout.widths.description }} />
+              <col style={{ width: tableColLayout.widths.qty }} />
+              {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
+              {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
+              {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
+            </colgroup>
             <thead style={{ display: 'table-header-group' }}>
               <tr
                 className="font-semibold text-slate-700 bg-slate-100 border-b border-slate-200"
@@ -1906,7 +2041,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 }}
               >
                 <th
-                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
+                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center whitespace-nowrap`}
                 >
                   #
                 </th>
@@ -1916,196 +2051,215 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   Description &amp; Technical Specifications
                 </th>
                 <th
-                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center font-mono`}
+                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center font-mono whitespace-nowrap`}
                 >
                   Qty
                 </th>
-                <th
-                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center`}
-                >
-                  UOM
-                </th>
-                <th
-                  className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right`}
-                >
-                  Unit Price
-                </th>
-                <th
-                  className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right`}
-                >
-                  Total ({currency})
-                </th>
+                {showUom && (
+                  <th
+                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-center whitespace-nowrap`}
+                  >
+                    UOM
+                  </th>
+                )}
+                {showUnitPrice && (
+                  <th
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right whitespace-nowrap`}
+                  >
+                    Unit Price
+                  </th>
+                )}
+                {showLineTotal && (
+                  <th
+                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right whitespace-nowrap`}
+                  >
+                    Total ({currency})
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
               {pageItems.length > 0 ? (
                 pageItems.map((item, idx) => {
                   const itemNumber = startIndex + idx + 1;
+                  const rowSpacerMm = item.row_spacer_after_mm && item.row_spacer_after_mm > 0 ? item.row_spacer_after_mm : 0;
                   return (
-                    <tr
-                      key={item.id || itemNumber}
-                      className={`break-inside-avoid transition-colors ${
-                        item.is_optional
-                          ? 'bg-amber-50/50 hover:bg-amber-50'
-                          : 'hover:bg-slate-50/60'
-                      }`}
-                      style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                    >
-                      <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
-                        {itemNumber}
-                      </td>
-                      <td className={`${tdPad} px-2.5 align-top break-words`}>
-                        <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
-                          <span>{item.item_name || 'Standard Line Item'}</span>
-                          {item.is_optional && (
-                            <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
-                              Optional
-                            </span>
-                          )}
-                        </div>
-                        {item.description && (
-                          <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
-                            {item.description}
+                    <React.Fragment key={item.id || itemNumber}>
+                      <tr
+                        className={`break-inside-avoid transition-colors ${
+                          item.is_optional
+                            ? 'bg-amber-50/50 hover:bg-amber-50'
+                            : 'hover:bg-slate-50/60'
+                        }`}
+                        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                      >
+                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
+                          {itemNumber}
+                        </td>
+                        <td className={`${tdPad} px-2.5 align-top break-words`}>
+                          <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
+                            <span>{item.item_name || 'Standard Line Item'}</span>
+                            {item.is_optional && (
+                              <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
+                                Optional
+                              </span>
+                            )}
                           </div>
-                        )}
-                        {/* Technical Specifications & Attributes Block */}
-                        {(() => {
-                          if (!showItemAttributes) return null;
-                          const allAttrs: Array<{ key: string; value: string }> = [];
+                          {item.description && (
+                            <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
+                              {item.description}
+                            </div>
+                          )}
+                          {/* Technical Specifications & Attributes Block */}
+                          {(() => {
+                            if (!showItemAttributes) return null;
+                            const allAttrs: Array<{ key: string; value: string }> = [];
 
-                          if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-                            allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
-                          }
-                          if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-                            allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
-                          }
-                          if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-                            allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
-                          }
-                          if (showAvailability && item.availability && item.availability.trim()) {
-                            allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
-                          }
+                            if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+                              allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
+                            }
+                            if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+                              allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
+                            }
+                            if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+                              allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
+                            }
+                            if (showAvailability && item.availability && item.availability.trim()) {
+                              allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
+                            }
 
-                          const rawAttrs: Array<{ key: string; value: string }> = [];
-                          const itemAny = item as any;
+                            const rawAttrs: Array<{ key: string; value: string }> = [];
+                            const itemAny = item as any;
 
-                          if (Array.isArray(item.attributes)) {
-                            item.attributes.forEach((attr) => {
-                              if (attr && (attr.key || (attr as any).name) && attr.value) {
-                                rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
+                            if (Array.isArray(item.attributes)) {
+                              item.attributes.forEach((attr) => {
+                                if (attr && (attr.key || (attr as any).name) && attr.value) {
+                                  rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
+                                }
+                              });
+                            } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+                              Object.entries(itemAny.attributes).forEach(([k, v]) => {
+                                if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                  rawAttrs.push({ key: k.trim(), value: String(v).trim() });
+                                }
+                              });
+                            }
+
+                            if (Array.isArray(itemAny.specs)) {
+                              itemAny.specs.forEach((s: any) => {
+                                if (s && s.key && s.value) {
+                                  rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                }
+                              });
+                            }
+
+                            if (Array.isArray(itemAny.specifications)) {
+                              itemAny.specifications.forEach((s: any) => {
+                                if (s && s.key && s.value) {
+                                  rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                }
+                              });
+                            }
+
+                            rawAttrs.forEach((attr) => {
+                              const kLower = attr.key.toLowerCase();
+                              if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                                allAttrs.push(attr);
                               }
                             });
-                          } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
-                            Object.entries(itemAny.attributes).forEach(([k, v]) => {
-                              if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                rawAttrs.push({ key: k.trim(), value: String(v).trim() });
+
+                            const itemVisibleKeys = Array.isArray(item.visible_attributes)
+                              ? item.visible_attributes.map((k) => k.toLowerCase())
+                              : undefined;
+                            const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+                              ? item.hidden_attributes.map((k) => k.toLowerCase())
+                              : undefined;
+
+                            const visibleAttrs = allAttrs.filter((attr) => {
+                              const kLower = attr.key.toLowerCase();
+                              if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                                return false;
                               }
-                            });
-                          }
-
-                          if (Array.isArray(itemAny.specs)) {
-                            itemAny.specs.forEach((s: any) => {
-                              if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                              if (itemVisibleKeys !== undefined) {
+                                return itemVisibleKeys.includes(kLower);
                               }
-                            });
-                          }
-
-                          if (Array.isArray(itemAny.specifications)) {
-                            itemAny.specifications.forEach((s: any) => {
-                              if (s && s.key && s.value) {
-                                rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                              if (itemHiddenKeys !== undefined) {
+                                return !itemHiddenKeys.includes(kLower);
                               }
+                              return true;
                             });
-                          }
 
-                          rawAttrs.forEach((attr) => {
-                            const kLower = attr.key.toLowerCase();
-                            if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
-                              allAttrs.push(attr);
+                            if (visibleAttrs.length === 0) return null;
+
+                            if (attributeDisplayFormat === 'inline_text') {
+                              return (
+                                <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
+                                  <span className="font-semibold text-slate-700">Specs: </span>
+                                  {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                                </div>
+                              );
                             }
-                          });
 
-                          const itemVisibleKeys = Array.isArray(item.visible_attributes)
-                            ? item.visible_attributes.map((k) => k.toLowerCase())
-                            : undefined;
-                          const itemHiddenKeys = Array.isArray(item.hidden_attributes)
-                            ? item.hidden_attributes.map((k) => k.toLowerCase())
-                            : undefined;
-
-                          const visibleAttrs = allAttrs.filter((attr) => {
-                            const kLower = attr.key.toLowerCase();
-                            if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
-                              return false;
-                            }
-                            if (itemVisibleKeys !== undefined) {
-                              return itemVisibleKeys.includes(kLower);
-                            }
-                            if (itemHiddenKeys !== undefined) {
-                              return !itemHiddenKeys.includes(kLower);
-                            }
-                            return true;
-                          });
-
-                          if (visibleAttrs.length === 0) return null;
-
-                          if (attributeDisplayFormat === 'inline_text') {
                             return (
-                              <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
-                                <span className="font-semibold text-slate-700">Specs: </span>
-                                {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                              <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
+                                {visibleAttrs.map((attr, aIdx) => (
+                                  <span
+                                    key={aIdx}
+                                    className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
+                                  >
+                                    <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                    <span>{attr.value}</span>
+                                  </span>
+                                ))}
                               </div>
                             );
-                          }
-
-                          return (
-                            <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
-                              {visibleAttrs.map((attr, aIdx) => (
-                                <span
-                                  key={aIdx}
-                                  className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
-                                >
-                                  <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                  <span>{attr.value}</span>
-                                </span>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                        {item.quantity}
-                      </td>
-                      <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
-                        <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
-                          {item.unit || 'pcs'}
-                        </span>
-                      </td>
-                      <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
-                        {Number(item.unit_price || 0).toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                      <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
-                        {item.is_optional ? (
-                          <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
-                            [Excluded]
-                          </span>
-                        ) : (
-                          Number(item.total_price || 0).toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })
+                          })()}
+                        </td>
+                        <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                          {item.quantity}
+                        </td>
+                        {showUom && (
+                          <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
+                            <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
+                              {item.unit || 'pcs'}
+                            </span>
+                          </td>
                         )}
-                      </td>
-                    </tr>
+                        {showUnitPrice && (
+                          <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                            {Number(item.unit_price || 0).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}
+                          </td>
+                        )}
+                        {showLineTotal && (
+                          <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                            {item.is_optional ? (
+                              <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
+                                [Excluded]
+                              </span>
+                            ) : (
+                              Number(item.total_price || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                      {rowSpacerMm > 0 && (
+                        <tr className="quotation-row-spacer border-none" style={{ height: `${rowSpacerMm}mm` }}>
+                          <td colSpan={tableColLayout.activeColumnCount} className="p-0 border-none" />
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               ) : showEmptyPlaceholder ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={tableColLayout.activeColumnCount}
                     className="py-8 text-center text-slate-400 italic"
                   >
                     No line items specified for this offer.
@@ -2303,21 +2457,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             />
 
             {/* Interactive Page Break Badge on Continuation Sheets (Screen Only) */}
-            {isContinuation && isInteractive && sheet.pageBreakBlock && (
+            {isContinuation && isInteractive && (sheet.pageBreakBlock || sheet.isTableContinuationSheet) && (
               <div
-                onClick={() =>
-                  onSelectSection
-                    ? onSelectSection(sheet.pageBreakBlock!.id)
-                    : onSelectBlock?.(sheet.pageBreakBlock!.id)
-                }
+                onClick={() => {
+                  if (sheet.pageBreakBlock) {
+                    onSelectSection
+                      ? onSelectSection(sheet.pageBreakBlock.id)
+                      : onSelectBlock?.(sheet.pageBreakBlock.id);
+                  } else {
+                    onSelectSection
+                      ? onSelectSection('items_table')
+                      : onSelectBlock?.('items_table');
+                  }
+                }}
                 className={`quotation-canvas-guide mb-2 px-2.5 py-1 rounded-md border border-dashed flex items-center justify-between text-[10px] font-mono cursor-pointer transition print:hidden ${
-                  isBreakSelected
+                  isBreakSelected || (sheet.isTableContinuationSheet && isTableSelected)
                     ? 'bg-amber-100/90 border-amber-400 text-amber-900 ring-2 ring-amber-400/50'
                     : 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-300 text-amber-800'
                 }`}
               >
-                <span>✂ Page Break • Sheet {sheet.sheetNumber} of {totalSheets}</span>
-                <span className="text-[9px] underline">Inspect Page Break</span>
+                <span>
+                  {sheet.isTableContinuationSheet
+                    ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalSheets}`
+                    : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalSheets}`}
+                </span>
+                <span className="text-[9px] underline">
+                  {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
+                </span>
               </div>
             )}
 
@@ -2326,15 +2492,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {isFirst ? (
                 <>
                   {renderTopSection()}
-                  {renderItemsTable(rawLineItems, 0, rawLineItems.length === 0, false)}
+                  {sheet.tableChunk &&
+                    renderItemsTable(
+                      sheet.tableChunk.items,
+                      sheet.tableChunk.startIndex,
+                      rawLineItems.length === 0,
+                      false
+                    )}
                 </>
               ) : (
-                sheet.showContinuationHeader &&
-                repeatHeaderOnSubsequentPages && (
-                  <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
-                    {renderCompactRunningHeader(sheet.sheetNumber, totalSheets)}
-                  </div>
-                )
+                <>
+                  {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
+                    <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
+                      {renderCompactRunningHeader(sheet.sheetNumber, totalSheets)}
+                    </div>
+                  )}
+                  {sheet.tableChunk &&
+                    sheet.tableChunk.items.length > 0 &&
+                    renderItemsTable(
+                      sheet.tableChunk.items,
+                      sheet.tableChunk.startIndex,
+                      false,
+                      true
+                    )}
+                </>
               )}
 
               {renderBlocksGrid(sheet.blocks)}

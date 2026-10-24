@@ -362,6 +362,8 @@ export interface LineItem {
   lead_time_note?: string;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
+  page_break_after?: boolean;
+  row_spacer_after_mm?: number;
 }
 
 export type StockMovementType = 'STOCK_IN' | 'STOCK_RESERVE' | 'STOCK_RELEASE' | 'STOCK_OUT' | 'ADJUSTMENT';
@@ -991,6 +993,8 @@ export interface QuotationLineItem {
   attributes?: QuotationItemAttribute[];
   visible_attributes?: string[];
   hidden_attributes?: string[];
+  page_break_after?: boolean;
+  row_spacer_after_mm?: number;
 }
 
 export type QuotationItem = QuotationLineItem;
@@ -1097,6 +1101,9 @@ export interface QuotationPresetColumns {
   origin?: boolean;
   availability?: boolean;
   unit_price?: boolean;
+  showUnitPrice?: boolean;
+  showUom?: boolean;
+  showLineTotal?: boolean;
   showItemAttributes?: boolean;
   attributeDisplayFormat?: 'pills' | 'inline_text';
   hiddenAttributeKeys?: string[];
