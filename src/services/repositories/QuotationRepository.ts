@@ -257,7 +257,12 @@ export class QuotationRepository {
       : undefined;
 
     const clonedHeaderConfig = source.header_config
-      ? { ...source.header_config }
+      ? {
+          ...source.header_config,
+          logoUrl: source.header_config.logoUrl ?? source.company_logo_url
+        }
+      : source.company_logo_url
+      ? { logoUrl: source.company_logo_url }
       : undefined;
 
     const clonedRecipientConfig = source.recipient_config
@@ -314,6 +319,7 @@ export class QuotationRepository {
       table_density: source.table_density,
       table_font_scale: source.table_font_scale,
       block_style: source.block_style,
+      company_logo_url: source.company_logo_url || source.header_config?.logoUrl,
       company_seal_url: source.company_seal_url,
       signature_image_url: source.signature_image_url,
       created_at: now,
@@ -623,6 +629,12 @@ export class QuotationRepository {
         validityDays: fromPreset.defaultValidityDays,
         freightAmount: 0,
         taxRatePercent: 5,
+        companyLogoUrl:
+          fromPreset.companyLogoUrl ||
+          fromPreset.headerConfig?.logoUrl ||
+          profile?.logo_url ||
+          '',
+        headerConfig: { ...fromPreset.headerConfig },
         companySealUrl: fromPreset.companySealUrl || profile?.stamp_seal_url || '',
         signatureImageUrl: fromPreset.signatureImageUrl || ''
       };
@@ -720,6 +732,32 @@ export class QuotationRepository {
       validityDays: 30,
       freightAmount: Number(quotation?.freight_amount) || 0,
       taxRatePercent: quotation?.tax_rate_percent ?? 5,
+      companyLogoUrl:
+        quotation?.header_config?.logoUrl ||
+        quotation?.company_logo_url ||
+        profile?.logo_url ||
+        '',
+      headerConfig: {
+        alignment: 'split' as const,
+        headerLayoutMode: 'split_left' as const,
+        logoDisplayMode: 'logo_and_name' as const,
+        showLogo: true,
+        showPhone: true,
+        showEmail: true,
+        showWebsite: true,
+        showTrn: true,
+        showCompanyName: true,
+        logoSpacing: 'normal' as const,
+        logoHeightPx: 48,
+        logoMaxWidthPx: 260,
+        repeatHeaderOnSubsequentPages: true,
+        showLogoOnContinuationPages: true,
+        ...(profile?.header_config || {}),
+        ...(quotation?.header_config || {}),
+        ...(quotation?.header_config?.logoUrl || quotation?.company_logo_url
+          ? { logoUrl: quotation?.header_config?.logoUrl || quotation?.company_logo_url }
+          : {})
+      },
       companySealUrl:
         quotation?.company_seal_url ||
         (quotation as any)?.companySettings?.company_seal_url ||
@@ -1256,6 +1294,54 @@ export class QuotationRepository {
         ? input.show_submittals_index
         : true;
 
+    const resolvedLogoUrl = input.header_config?.logoUrl ?? input.company_logo_url;
+    const rawHeaderCfg = input.header_config || {};
+    const resolvedDisplayMode =
+      rawHeaderCfg.logoDisplayMode ||
+      (rawHeaderCfg.showLogo === false ? 'no_logo' : 'logo_and_name');
+    const resolvedLayoutMode =
+      rawHeaderCfg.headerLayoutMode ||
+      (resolvedDisplayMode === 'full_banner' || input.header_layout === 'centered_banner'
+        ? rawHeaderCfg.headerLayoutMode || (resolvedDisplayMode === 'full_banner' ? 'banner' : 'centered')
+        : rawHeaderCfg.alignment === 'centered'
+        ? 'centered'
+        : input.logo_position === 'right'
+        ? 'split_right'
+        : 'split_left');
+
+    const normalizedHeaderConfig = {
+      alignment:
+        rawHeaderCfg.alignment ||
+        (resolvedLayoutMode === 'centered' || resolvedLayoutMode === 'banner' ? 'centered' : 'split'),
+      showPhone: rawHeaderCfg.showPhone ?? true,
+      showEmail: rawHeaderCfg.showEmail ?? true,
+      showWebsite: rawHeaderCfg.showWebsite ?? true,
+      showTrn: rawHeaderCfg.showTrn ?? true,
+      showCompanyName:
+        resolvedDisplayMode === 'logo_only'
+          ? false
+          : rawHeaderCfg.showCompanyName ?? true,
+      showLogo:
+        resolvedDisplayMode === 'no_logo'
+          ? false
+          : rawHeaderCfg.showLogo ?? true,
+      logoDisplayMode: resolvedDisplayMode,
+      headerLayoutMode: resolvedLayoutMode,
+      logoSpacing: rawHeaderCfg.logoSpacing || 'normal',
+      logoHeightPx:
+        typeof rawHeaderCfg.logoHeightPx === 'number' ? rawHeaderCfg.logoHeightPx : 48,
+      logoMaxWidthPx:
+        typeof rawHeaderCfg.logoMaxWidthPx === 'number'
+          ? rawHeaderCfg.logoMaxWidthPx
+          : resolvedDisplayMode === 'full_banner' || resolvedLayoutMode === 'banner'
+          ? 700
+          : 260,
+      repeatHeaderOnSubsequentPages: rawHeaderCfg.repeatHeaderOnSubsequentPages ?? true,
+      showLogoOnContinuationPages: rawHeaderCfg.showLogoOnContinuationPages ?? true,
+      ...rawHeaderCfg,
+      ...(resolvedLogoUrl !== undefined ? { logoUrl: resolvedLogoUrl } : {})
+    };
+
     return {
       ...input,
       workspace_id: wsId,
@@ -1279,8 +1365,10 @@ export class QuotationRepository {
       showCustomerAcceptance: normalizedFooterConfig.showCustomerAcceptance,
       showSignatories: normalizedFooterConfig.showSignatories,
       footerLayoutMode: normalizedFooterConfig.footerLayoutMode,
+      company_logo_url: resolvedLogoUrl,
       company_seal_url: input.company_seal_url,
       signature_image_url: input.signature_image_url,
+      header_config: normalizedHeaderConfig,
       footer_config: normalizedFooterConfig
     };
   }
@@ -1306,6 +1394,7 @@ export class QuotationRepository {
       cardsOrder: serialized.cardsOrder || 'recipient_first',
       subjectPlacement: serialized.subjectPlacement || 'below_cards',
       remittanceBankId: serialized.remittanceBankId || '',
+      headerConfig: { ...serialized.header_config },
       footerConfig: { ...serialized.footer_config },
       amountInWordsEnabled:
         serialized.visible_columns.showAmountInWords ??
@@ -1315,6 +1404,7 @@ export class QuotationRepository {
       defaultPriceBasis: serialized.default_price_basis || 'Ex-Works',
       defaultPaymentTerms: serialized.default_payment_terms || '100% Advance',
       defaultValidityDays: serialized.default_validity_days ?? 30,
+      companyLogoUrl: serialized.company_logo_url || serialized.header_config?.logoUrl || '',
       companySealUrl: serialized.company_seal_url || '',
       signatureImageUrl: serialized.signature_image_url || ''
     };

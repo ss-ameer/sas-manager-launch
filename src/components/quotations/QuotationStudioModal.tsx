@@ -56,6 +56,7 @@ import {
   Send,
   Save,
   Building,
+  Image as ImageIcon,
   User,
   Percent,
   Truck,
@@ -266,6 +267,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [signatureStyle, setSignatureStyle] = useState<QuotationSignatureStyle>(
     editingQuotation?.signature_style || profile?.signature_style || 'script'
   );
+  const [companyLogoUrl, setCompanyLogoUrl] = useState<string>(
+    () =>
+      editingQuotation?.header_config?.logoUrl ||
+      editingQuotation?.company_logo_url ||
+      profile?.logo_url ||
+      ''
+  );
   const [companySealUrl, setCompanySealUrl] = useState<string>(
     () =>
       editingQuotation?.company_seal_url ||
@@ -279,8 +287,30 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       editingQuotation?.signatories?.[0]?.signature_url ||
       ''
   );
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
   const sealFileInputRef = useRef<HTMLInputElement | null>(null);
   const signatureFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleUploadCompanyLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (dataUri) {
+        setCompanyLogoUrl(dataUri);
+        setHeaderConfig((prev) => ({
+          ...prev,
+          logoUrl: dataUri,
+          showLogo: true,
+          logoDisplayMode:
+            prev.logoDisplayMode === 'no_logo' ? 'logo_and_name' : prev.logoDisplayMode || 'logo_and_name'
+        }));
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const handleUploadCompanySeal = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -850,6 +880,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       setSelectedBankId(hydrated.selectedBankId);
       setFlyerAttachments(hydrated.flyerAttachments);
       setShowSubmittalsIndex(hydrated.showSubmittalsIndex);
+      setCompanyLogoUrl(hydrated.companyLogoUrl || '');
+      if (hydrated.headerConfig) {
+        setHeaderConfig({
+          ...DEFAULT_HEADER_CONFIG,
+          ...hydrated.headerConfig
+        });
+      }
       setCompanySealUrl(hydrated.companySealUrl || '');
       setSignatureImageUrl(hydrated.signatureImageUrl || '');
 
@@ -932,7 +969,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         setHeaderConfig({
           ...DEFAULT_HEADER_CONFIG,
           ...(profile?.header_config || {}),
-          ...(targetQuote.header_config || {})
+          ...(targetQuote.header_config || {}),
+          ...(targetQuote.header_config?.logoUrl || targetQuote.company_logo_url
+            ? { logoUrl: targetQuote.header_config?.logoUrl || targetQuote.company_logo_url }
+            : {})
         });
         setRecipientConfig({
           ...DEFAULT_RECIPIENT_CONFIG,
@@ -1313,6 +1353,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
     if (preset.signatory_type) setSignatoryType(preset.signatory_type);
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
+    if (preset.company_logo_url !== undefined || preset.header_config?.logoUrl !== undefined) {
+      setCompanyLogoUrl(preset.header_config?.logoUrl ?? preset.company_logo_url ?? '');
+    }
     if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
     if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
     if (preset.logo_position) setLogoPosition(preset.logo_position);
@@ -1358,8 +1401,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         subjectPlacement: preset.subjectPlacement
       }));
     }
-    if (preset.header_config) {
-      setHeaderConfig((prev) => ({ ...prev, ...preset.header_config }));
+    if (preset.header_config || hydrated.headerConfig) {
+      setHeaderConfig((prev) => ({
+        ...prev,
+        ...(hydrated.headerConfig || {}),
+        ...(preset.header_config || {}),
+        ...(preset.header_config?.logoUrl || preset.company_logo_url
+          ? { logoUrl: preset.header_config?.logoUrl || preset.company_logo_url }
+          : {})
+      }));
     }
     if (preset.footer_config) {
       setFooterConfig((prev) => ({
@@ -1981,6 +2031,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_name: secondarySignatoryName,
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
+      company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
       company_seal_url: companySealUrl || undefined,
       signature_image_url: signatureImageUrl || undefined,
       block_style: blockStyle,
@@ -1991,7 +2042,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       layout_blocks: layoutBlocks,
       flyer_attachments: flyerAttachments,
       show_submittals_index: showSubmittalsIndex,
-      header_config: headerConfig,
+      header_config: {
+        ...headerConfig,
+        ...(companyLogoUrl !== undefined && companyLogoUrl !== ''
+          ? { logoUrl: companyLogoUrl }
+          : {})
+      },
       recipient_config: recipientConfig,
       footer_config: {
         ...footerConfig,
@@ -2035,6 +2091,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryName,
     secondarySignatoryTitle,
     signatureStyle,
+    companyLogoUrl,
     companySealUrl,
     signatureImageUrl,
     blockStyle,
@@ -2162,6 +2219,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_name: secondarySignatoryName,
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
+        company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
+        company_seal_url: companySealUrl || undefined,
+        signature_image_url: signatureImageUrl || undefined,
         block_style: blockStyle,
         globalCardRadius: globalCardRadius,
         cardsOrder: cardsOrder,
@@ -2170,7 +2230,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         layout_blocks: layoutBlocks,
         flyer_attachments: flyerAttachments,
         show_submittals_index: showSubmittalsIndex,
-        header_config: headerConfig,
+        header_config: {
+          ...headerConfig,
+          ...(companyLogoUrl !== undefined && companyLogoUrl !== ''
+            ? { logoUrl: companyLogoUrl }
+            : {})
+        },
         recipient_config: recipientConfig,
         footer_config: {
           ...footerConfig,
@@ -2270,6 +2335,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_name: secondarySignatoryName,
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
+      company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
       company_seal_url: companySealUrl || undefined,
       signature_image_url: signatureImageUrl || undefined,
       logo_position: logoPosition,
@@ -2281,7 +2347,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       layout_blocks: layoutBlocks,
       flyer_attachments: flyerAttachments,
       show_submittals_index: showSubmittalsIndex,
-      header_config: headerConfig,
+      header_config: {
+        ...headerConfig,
+        ...(companyLogoUrl !== undefined && companyLogoUrl !== ''
+          ? { logoUrl: companyLogoUrl }
+          : {})
+      },
       recipient_config: {
         ...recipientConfig,
         globalCardRadius,
@@ -4149,240 +4220,613 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
-                    {/* 1. Header Alignment */}
-                    <div className="space-y-2">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                        Header Alignment &amp; Format
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Choose between classic split (Logo Left / Address Right) or a centered brand banner.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {[
-                          { id: 'split' as const, label: 'Split (Classic)', desc: 'Logo Left, Address Right' },
-                          { id: 'centered' as const, label: 'Centered (Banner)', desc: 'Stacked corporate banner' }
-                        ].map((item) => {
-                          const isSelected = (headerConfig.alignment || 'split') === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setHeaderConfig((prev) => ({ ...prev, alignment: item.id }))}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {(() => {
+                      const activePreviewLogoUrl =
+                        companyLogoUrl ||
+                        headerConfig.logoUrl ||
+                        activeProfile?.logo_url ||
+                        '';
+                      const activeLogoDisplayMode =
+                        headerConfig.logoDisplayMode ||
+                        (headerConfig.showLogo === false ? 'no_logo' : 'logo_and_name');
+                      const activeHeaderLayoutMode =
+                        headerConfig.headerLayoutMode ||
+                        (activeLogoDisplayMode === 'full_banner'
+                          ? 'banner'
+                          : headerConfig.alignment === 'centered' || headerLayout === 'centered_banner'
+                          ? 'centered'
+                          : logoPosition === 'right'
+                          ? 'split_right'
+                          : 'split_left');
+                      const currentLogoHeightPx = headerConfig.logoHeightPx || 48;
 
-                    {/* 2. Logo Height */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                        Brand Logo Size
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Adjust the visual height of your corporate logo on the quotation sheet.
-                      </p>
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
-                        {[
-                          { px: 36, label: 'Compact', desc: '36px' },
-                          { px: 44, label: 'Standard', desc: '44px' },
-                          { px: 52, label: 'Prominent', desc: '52px' },
-                          { px: 60, label: 'Large', desc: '60px' }
-                        ].map((item) => {
-                          const isSelected = (headerConfig.logoHeightPx || 44) === item.px;
-                          return (
-                            <button
-                              key={item.px}
-                              type="button"
-                              onClick={() => setHeaderConfig((prev) => ({ ...prev, logoHeightPx: item.px }))}
-                              className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                      return (
+                        <>
+                          {/* 1. Corporate Logo Uploader & Preview Card */}
+                          <div className="space-y-2">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                              Corporate Logo &amp; Letterhead Graphic
+                            </label>
+                            <p className="text-[10.5px] text-slate-500 leading-normal">
+                              Upload a transparent PNG, SVG, or full-width letterhead banner for this quotation and saved presets.
+                            </p>
 
-                    {/* 2b. Logo Spacing */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                        Logo Margin &amp; Spacing
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Control the bottom breathing room / margin of the header logo.
-                      </p>
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
-                        {[
-                          { id: 'none' as const, label: 'None', desc: '0px' },
-                          { id: 'tight' as const, label: 'Tight', desc: '8px' },
-                          { id: 'normal' as const, label: 'Normal', desc: '16px' },
-                          { id: 'spacious' as const, label: 'Spacious', desc: '24px' }
-                        ].map((item) => {
-                          const isSelected = (headerConfig.logoSpacing || 'normal') === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setHeaderConfig((prev) => ({ ...prev, logoSpacing: item.id }))}
-                              className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            <input
+                              ref={logoFileInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handleUploadCompanyLogo}
+                              className="hidden"
+                            />
 
-                    {/* 3. Visibility Toggles */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Columns className="w-3.5 h-3.5 text-blue-600" />
-                        Contact &amp; Legal Visibility
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle which communication, corporate name and tax details appear in the header.
-                      </p>
-                      <div className="space-y-1.5 pt-1">
-                        {[
-                          {
-                            key: 'showCompanyName' as const,
-                            label: 'Company Legal Entity Name',
-                            desc: 'Render corporate name text alongside brand logo',
-                            checked: headerConfig.showCompanyName !== false
-                          },
-                          {
-                            key: 'showPhone' as const,
-                            label: 'Phone Number',
-                            desc: 'Official contact phone number',
-                            checked: headerConfig.showPhone !== false
-                          },
-                          {
-                            key: 'showEmail' as const,
-                            label: 'Email Address',
-                            desc: 'Primary corporate quotation inbox',
-                            checked: headerConfig.showEmail !== false
-                          },
-                          {
-                            key: 'showWebsite' as const,
-                            label: 'Website URL',
-                            desc: 'Corporate domain / online portal',
-                            checked: headerConfig.showWebsite !== false
-                          },
-                          {
-                            key: 'showTrn' as const,
-                            label: 'TRN / Tax Registration',
-                            desc: 'Official VAT / Tax identification number',
-                            checked: headerConfig.showTrn !== false
-                          }
-                        ].map((item) => (
-                          <div
-                            key={item.key}
-                            className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                              item.checked
-                                ? 'bg-white border-slate-200 shadow-2xs'
-                                : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                            }`}
-                          >
-                            <div className="min-w-0 pr-1">
-                              <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                                {item.label}
-                              </span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                                {item.desc}
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => logoFileInputRef.current?.click()}
+                                className="flex-1 py-2 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                              >
+                                <Upload className="w-3.5 h-3.5 shrink-0" />
+                                <span>📤 Upload Corporate Logo (PNG / JPG / SVG)</span>
+                              </button>
+                            </div>
+
+                            {activePreviewLogoUrl ? (
+                              <div className="space-y-1.5 pt-1">
+                                <div className="h-16 flex items-center justify-center p-2 border border-slate-200 rounded-lg bg-slate-50/70 relative overflow-hidden">
+                                  <img
+                                    src={activePreviewLogoUrl}
+                                    alt="Corporate Logo Preview"
+                                    className="max-h-12 max-w-full w-auto object-contain"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    Active corporate logo loaded
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCompanyLogoUrl('');
+                                      setHeaderConfig((prev) => ({
+                                        ...prev,
+                                        logoUrl: ''
+                                      }));
+                                    }}
+                                    className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>🗑️ Remove Custom Logo</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="border rounded-xl p-2.5 bg-slate-50/80 border-slate-200 flex items-center justify-between gap-2">
+                                <div className="min-w-0 pr-1">
+                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                    Show Default Placeholder Icon
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                                    Render vector emblem when no custom logo is uploaded
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={headerConfig.showLogo !== false}
+                                    onChange={(e) => {
+                                      const enabled = e.target.checked;
+                                      setHeaderConfig((prev) => ({
+                                        ...prev,
+                                        showLogo: enabled,
+                                        logoDisplayMode: enabled
+                                          ? prev.logoDisplayMode === 'no_logo'
+                                            ? 'logo_and_name'
+                                            : prev.logoDisplayMode || 'logo_and_name'
+                                          : 'no_logo'
+                                      }));
+                                    }}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+                            )}
+
+                            <div className="pt-1">
+                              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                Or Paste Direct Logo Image URL
+                              </label>
+                              <input
+                                type="text"
+                                value={companyLogoUrl}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setCompanyLogoUrl(val);
+                                  setHeaderConfig((prev) => ({
+                                    ...prev,
+                                    logoUrl: val,
+                                    ...(val.trim()
+                                      ? {
+                                          showLogo: true,
+                                          logoDisplayMode:
+                                            prev.logoDisplayMode === 'no_logo'
+                                              ? 'logo_and_name'
+                                              : prev.logoDisplayMode || 'logo_and_name'
+                                        }
+                                      : {})
+                                  }));
+                                }}
+                                placeholder="https://example.com/company-logo.png"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              />
+                            </div>
+                          </div>
+
+                          {/* 2. 4-Way Logo & Identity Display Mode */}
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                              Logo &amp; Identity Display Mode
+                            </label>
+                            <p className="text-[10.5px] text-slate-500 leading-normal">
+                              Choose how your logo lockup and legal entity name combine in the letterhead.
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5 pt-1">
+                              {[
+                                {
+                                  id: 'logo_and_name' as const,
+                                  label: 'Logo + Company Name',
+                                  desc: 'Emblem + bold entity heading'
+                                },
+                                {
+                                  id: 'logo_only' as const,
+                                  label: 'Wide Logo Lockup Only',
+                                  desc: 'Hides duplicate text heading'
+                                },
+                                {
+                                  id: 'full_banner' as const,
+                                  label: 'Full Letterhead Banner',
+                                  desc: '100% width banner + TRN strip'
+                                },
+                                {
+                                  id: 'no_logo' as const,
+                                  label: 'No Logo (Text Only)',
+                                  desc: 'Clean typographic header'
+                                }
+                              ].map((mode) => {
+                                const isSelected = activeLogoDisplayMode === mode.id;
+                                return (
+                                  <button
+                                    key={mode.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (mode.id === 'logo_and_name') {
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          logoDisplayMode: 'logo_and_name',
+                                          showLogo: true,
+                                          showCompanyName: true,
+                                          logoMaxWidthPx: 260,
+                                          headerLayoutMode:
+                                            prev.headerLayoutMode === 'banner'
+                                              ? 'split_left'
+                                              : prev.headerLayoutMode || 'split_left',
+                                          alignment:
+                                            prev.headerLayoutMode === 'centered' ? 'centered' : 'split'
+                                        }));
+                                      } else if (mode.id === 'logo_only') {
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          logoDisplayMode: 'logo_only',
+                                          showLogo: true,
+                                          showCompanyName: false,
+                                          logoMaxWidthPx: 300,
+                                          headerLayoutMode:
+                                            prev.headerLayoutMode === 'banner'
+                                              ? 'split_left'
+                                              : prev.headerLayoutMode || 'split_left'
+                                        }));
+                                      } else if (mode.id === 'full_banner') {
+                                        setHeaderLayout('centered_banner');
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          logoDisplayMode: 'full_banner',
+                                          headerLayoutMode: 'banner',
+                                          alignment: 'centered',
+                                          showLogo: true,
+                                          logoMaxWidthPx: 700
+                                        }));
+                                      } else {
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          logoDisplayMode: 'no_logo',
+                                          showLogo: false,
+                                          showCompanyName: true
+                                        }));
+                                      }
+                                    }}
+                                    className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <span className="text-[11px] font-semibold leading-tight">{mode.label}</span>
+                                    <span className="text-[9.5px] text-slate-400 mt-0.5 leading-tight">{mode.desc}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 3. Unified Header Layout & Alignment (2x2 Grid) */}
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                              Unified Header Layout &amp; Alignment
+                            </label>
+                            <p className="text-[10.5px] text-slate-500 leading-normal">
+                              Position your brand identity and corporate contact details across the top of Page 1.
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5 pt-1">
+                              {[
+                                {
+                                  id: 'split_left' as const,
+                                  label: 'Split Classic',
+                                  desc: 'Logo Left • Contact Right'
+                                },
+                                {
+                                  id: 'split_right' as const,
+                                  label: 'Split Reversed',
+                                  desc: 'Contact Left • Logo Right'
+                                },
+                                {
+                                  id: 'centered' as const,
+                                  label: 'Centered Executive',
+                                  desc: 'Stacked Center Alignment'
+                                },
+                                {
+                                  id: 'banner' as const,
+                                  label: 'Full Banner',
+                                  desc: 'Top Span Letterhead'
+                                }
+                              ].map((layout) => {
+                                const isSelected = activeHeaderLayoutMode === layout.id;
+                                return (
+                                  <button
+                                    key={layout.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (layout.id === 'split_left') {
+                                        setLogoPosition('left');
+                                        setHeaderLayout('split');
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          headerLayoutMode: 'split_left',
+                                          alignment: 'split',
+                                          logoDisplayMode:
+                                            prev.logoDisplayMode === 'full_banner'
+                                              ? 'logo_and_name'
+                                              : prev.logoDisplayMode,
+                                          logoMaxWidthPx: 260
+                                        }));
+                                      } else if (layout.id === 'split_right') {
+                                        setLogoPosition('right');
+                                        setHeaderLayout('split');
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          headerLayoutMode: 'split_right',
+                                          alignment: 'split',
+                                          logoDisplayMode:
+                                            prev.logoDisplayMode === 'full_banner'
+                                              ? 'logo_and_name'
+                                              : prev.logoDisplayMode,
+                                          logoMaxWidthPx: 260
+                                        }));
+                                      } else if (layout.id === 'centered') {
+                                        setLogoPosition('center');
+                                        setHeaderLayout('centered_banner');
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          headerLayoutMode: 'centered',
+                                          alignment: 'centered',
+                                          logoDisplayMode:
+                                            prev.logoDisplayMode === 'full_banner'
+                                              ? 'logo_and_name'
+                                              : prev.logoDisplayMode,
+                                          logoMaxWidthPx: 260
+                                        }));
+                                      } else {
+                                        setLogoPosition('center');
+                                        setHeaderLayout('centered_banner');
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          headerLayoutMode: 'banner',
+                                          alignment: 'centered',
+                                          logoDisplayMode: 'full_banner',
+                                          showLogo: true,
+                                          logoMaxWidthPx: 700
+                                        }));
+                                      }
+                                    }}
+                                    className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <span className="text-[11px] font-semibold leading-tight">{layout.label}</span>
+                                    <span className="text-[9.5px] text-slate-400 mt-0.5 leading-tight">{layout.desc}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 4. Logo Dimensions & Breathing Room */}
+                          <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                            <div className="flex items-center justify-between">
+                              <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                                <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                                Logo Dimensions &amp; Scale
+                              </label>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono font-bold text-[10px] border border-blue-200/60">
+                                {currentLogoHeightPx}px
                               </span>
                             </div>
-                            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {[
+                                { px: 36, label: 'Compact', desc: '36px' },
+                                { px: 48, label: 'Standard', desc: '48px' },
+                                { px: 64, label: 'Prominent', desc: '64px' },
+                                { px: 84, label: 'Large', desc: '84px' }
+                              ].map((item) => {
+                                const isSelected = currentLogoHeightPx === item.px;
+                                return (
+                                  <button
+                                    key={item.px}
+                                    type="button"
+                                    onClick={() =>
+                                      setHeaderConfig((prev) => ({ ...prev, logoHeightPx: item.px }))
+                                    }
+                                    className={`py-1.5 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <span className="text-[11px] font-semibold">{item.label}</span>
+                                    <span className="text-[9px] font-mono text-slate-400">{item.desc}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Smooth Slider (28px - 110px) */}
+                            <div className="pt-1">
                               <input
-                                type="checkbox"
-                                checked={item.checked}
+                                type="range"
+                                min={28}
+                                max={110}
+                                step={2}
+                                value={currentLogoHeightPx}
                                 onChange={(e) =>
                                   setHeaderConfig((prev) => ({
                                     ...prev,
-                                    [item.key]: e.target.checked
+                                    logoHeightPx: Number(e.target.value) || 48
                                   }))
                                 }
-                                className="sr-only peer"
+                                className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
                               />
-                              <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
+                              <div className="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
+                                <span>28px (Min)</span>
+                                <span>64px</span>
+                                <span>110px (Max Banner)</span>
+                              </div>
+                            </div>
+
+                            {/* Logo Breathing Room */}
+                            <div className="pt-1.5">
+                              <label className="block text-[10.5px] font-semibold text-slate-700 mb-1.5">
+                                Logo Breathing Room
+                              </label>
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {[
+                                  { id: 'none' as const, label: 'None', desc: '0px' },
+                                  { id: 'tight' as const, label: 'Compact', desc: '8px' },
+                                  { id: 'normal' as const, label: 'Normal', desc: '16px' },
+                                  { id: 'spacious' as const, label: 'Spacious', desc: '24px' }
+                                ].map((item) => {
+                                  const isSelected = (headerConfig.logoSpacing || 'normal') === item.id;
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setHeaderConfig((prev) => ({ ...prev, logoSpacing: item.id }))
+                                      }
+                                      className={`py-1.5 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                        isSelected
+                                          ? 'border-blue-600 bg-blue-50/80 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                          : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                      }`}
+                                    >
+                                      <span className="text-[11px] font-semibold">{item.label}</span>
+                                      <span className="text-[9px] font-mono text-slate-400">{item.desc}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
 
-                    {/* 4. Multi-Page Running Header Toggle */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 text-blue-600" />
-                        Multi-Page Running Header
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Show a slim corporate header at the top of subsequent sheets when quotation content spills onto Page 2+.
-                      </p>
-                      <div
-                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                          headerConfig.repeatHeaderOnSubsequentPages !== false
-                            ? 'bg-white border-slate-200 shadow-2xs'
-                            : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                        }`}
-                      >
-                        <div className="min-w-0 pr-1">
-                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                            Repeat Compact Header on Page 2+
-                          </span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                            Company name, quote ref & date on continuation sheets
-                          </span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={headerConfig.repeatHeaderOnSubsequentPages !== false}
-                            onChange={(e) =>
-                              setHeaderConfig((prev) => ({
-                                ...prev,
-                                repeatHeaderOnSubsequentPages: e.target.checked
-                              }))
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-                    </div>
+                          {/* 5. Contact & Legal Visibility Toggles */}
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <Columns className="w-3.5 h-3.5 text-blue-600" />
+                              Contact &amp; Legal Visibility
+                            </label>
+                            <div className="space-y-1.5 pt-0.5">
+                              {[
+                                {
+                                  key: 'showCompanyName' as const,
+                                  label: 'Company Legal Entity Name',
+                                  desc: 'Render corporate name text alongside brand logo',
+                                  checked:
+                                    activeLogoDisplayMode !== 'logo_only' &&
+                                    headerConfig.showCompanyName !== false
+                                },
+                                {
+                                  key: 'showTrn' as const,
+                                  label: 'TRN / Tax Registration',
+                                  desc: 'Official VAT / Tax identification number',
+                                  checked: headerConfig.showTrn !== false
+                                },
+                                {
+                                  key: 'showPhone' as const,
+                                  label: 'Phone Number',
+                                  desc: 'Official contact phone number',
+                                  checked: headerConfig.showPhone !== false
+                                },
+                                {
+                                  key: 'showEmail' as const,
+                                  label: 'Email Address',
+                                  desc: 'Primary corporate quotation inbox',
+                                  checked: headerConfig.showEmail !== false
+                                },
+                                {
+                                  key: 'showWebsite' as const,
+                                  label: 'Website URL',
+                                  desc: 'Corporate domain / online portal',
+                                  checked: headerConfig.showWebsite !== false
+                                }
+                              ].map((item) => (
+                                <div
+                                  key={item.key}
+                                  className={`border rounded-xl p-2 transition-all flex items-center justify-between gap-2 ${
+                                    item.checked
+                                      ? 'bg-white border-slate-200 shadow-2xs'
+                                      : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                                  }`}
+                                >
+                                  <div className="min-w-0 pr-1">
+                                    <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                      {item.label}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                      {item.desc}
+                                    </span>
+                                  </div>
+                                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                    <input
+                                      type="checkbox"
+                                      checked={item.checked}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          [item.key]: checked,
+                                          ...(item.key === 'showCompanyName' && checked && prev.logoDisplayMode === 'logo_only'
+                                            ? { logoDisplayMode: 'logo_and_name' }
+                                            : {})
+                                        }));
+                                      }}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
 
-                    {/* Informational Guardrail Card */}
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
-                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Document Instance Snapshot
-                      </div>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Header branding is isolated to this quotation record and persists on save without mutating presets.
-                      </p>
-                    </div>
+                          {/* 6. Page 2+ Continuation Header Controls */}
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-blue-600" />
+                              Page 2+ Continuation &amp; Annex Headers
+                            </label>
+                            <div className="space-y-1.5">
+                              <div
+                                className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                                  headerConfig.repeatHeaderOnSubsequentPages !== false
+                                    ? 'bg-white border-slate-200 shadow-2xs'
+                                    : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                                }`}
+                              >
+                                <div className="min-w-0 pr-1">
+                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                    Repeat Compact Header on Page 2+
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                    Company name, quote ref &amp; date on continuation sheets
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={headerConfig.repeatHeaderOnSubsequentPages !== false}
+                                    onChange={(e) =>
+                                      setHeaderConfig((prev) => ({
+                                        ...prev,
+                                        repeatHeaderOnSubsequentPages: e.target.checked
+                                      }))
+                                    }
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+
+                              <div
+                                className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                                  headerConfig.showLogoOnContinuationPages !== false
+                                    ? 'bg-white border-slate-200 shadow-2xs'
+                                    : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                                }`}
+                              >
+                                <div className="min-w-0 pr-1">
+                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                    Include Mini Logo on Page 2+ &amp; Annex Headers
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                    Render compact h-5 logo mark beside company name
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={headerConfig.showLogoOnContinuationPages !== false}
+                                    onChange={(e) =>
+                                      setHeaderConfig((prev) => ({
+                                        ...prev,
+                                        showLogoOnContinuationPages: e.target.checked
+                                      }))
+                                    }
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Informational Guardrail Card */}
+                          <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                            <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                              Document Instance &amp; Preset Snapshot
+                            </div>
+                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                              Custom uploaded logos, display modes, and dimensions persist automatically on this quotation, across R1→R2 revisions, and in saved Studio Presets.
+                            </p>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </aside>
               )}

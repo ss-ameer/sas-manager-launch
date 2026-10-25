@@ -1149,10 +1149,16 @@ export interface QuotationHeaderConfig {
   showEmail?: boolean;
   showWebsite?: boolean;
   showTrn?: boolean;
-  logoHeightPx?: number; // e.g. 32 to 64px
+  logoUrl?: string; // Custom uploaded data-URI or image URL override for this quotation/preset
+  showLogo?: boolean; // default: true; when false, hides logo mark/placeholder completely
+  logoDisplayMode?: 'logo_and_name' | 'logo_only' | 'full_banner' | 'no_logo'; // default: 'logo_and_name'
+  headerLayoutMode?: 'split_left' | 'split_right' | 'centered' | 'banner'; // Unified header layout & alignment
+  logoHeightPx?: number; // range 28 to 110, default 48
+  logoMaxWidthPx?: number; // default 260, or 700 in 'full_banner' mode
   showCompanyName?: boolean; // default: true
   logoSpacing?: 'none' | 'tight' | 'normal' | 'spacious'; // default: 'normal'
   repeatHeaderOnSubsequentPages?: boolean; // default: true (Repeats compact corporate running header on Page 2+)
+  showLogoOnContinuationPages?: boolean; // default: true (Renders compact mini-logo in Page 2+ and Annex headers when logo is present)
 }
 
 export interface QuotationFooterConfig {
@@ -1256,6 +1262,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   secondary_signatory_name?: string;
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
+  company_logo_url?: string;
   company_seal_url?: string;
   signature_image_url?: string;
   logo_position?: QuotationLogoPosition;
@@ -1328,6 +1335,7 @@ export interface Quotation extends SoftDeleteFields {
   secondary_signatory_name?: string;
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
+  company_logo_url?: string;
   company_seal_url?: string;
   signature_image_url?: string;
   logo_position?: QuotationLogoPosition;

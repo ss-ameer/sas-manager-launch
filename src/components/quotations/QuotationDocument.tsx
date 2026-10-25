@@ -742,15 +742,143 @@ export function resolveModularLayoutBlocks(
 
 export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   alignment: 'split',
+  headerLayoutMode: 'split_left',
+  logoDisplayMode: 'logo_and_name',
+  showLogo: true,
   showPhone: true,
   showEmail: true,
   showWebsite: true,
   showTrn: true,
   showCompanyName: true,
   logoSpacing: 'normal',
-  logoHeightPx: 44,
-  repeatHeaderOnSubsequentPages: true
+  logoHeightPx: 48,
+  logoMaxWidthPx: 260,
+  repeatHeaderOnSubsequentPages: true,
+  showLogoOnContinuationPages: true
 };
+
+export interface ResolvedHeaderBrandingConfig {
+  activeLogoUrl: string;
+  logoDisplayMode: 'logo_and_name' | 'logo_only' | 'full_banner' | 'no_logo';
+  headerLayoutMode: 'split_left' | 'split_right' | 'centered' | 'banner';
+  showLogo: boolean;
+  showCompanyName: boolean;
+  logoHeightPx: number;
+  logoMaxWidthPx: number;
+  bannerMaxHeightPx: number;
+  logoSpacing: 'none' | 'tight' | 'normal' | 'spacious';
+  repeatHeaderOnSubsequentPages: boolean;
+  showLogoOnContinuationPages: boolean;
+  includeMiniLogoOnContinuation: boolean;
+}
+
+/**
+ * Pure deterministic resolver for the Corporate Logo & Letterhead Engine.
+ * Resolves logo source priority (headerConfig.logoUrl -> quotation.company_logo_url -> profile.logo_url -> ''),
+ * 4-way display mode, 4-way layout mode, aspect-ratio dimensions, and Page 2+ mini-logo eligibility.
+ */
+export function resolveHeaderBrandingConfig(
+  headerConfig?: QuotationHeaderConfig | null,
+  quotation?: Partial<Quotation> | null,
+  profile?: Partial<WorkspaceDocumentProfile> | null
+): ResolvedHeaderBrandingConfig {
+  const merged: QuotationHeaderConfig = {
+    ...DEFAULT_HEADER_CONFIG,
+    ...(profile?.header_config || {}),
+    ...(quotation?.header_config || {}),
+    ...(headerConfig || {})
+  };
+
+  // Explicit logoUrl override in headerConfig or quotation takes priority over workspace profile logo_url.
+  // Note: if headerConfig.logoUrl is explicitly set to '' (empty string) and quotation.company_logo_url is '',
+  // we fall back to profile?.logo_url only if neither headerConfig nor quotation explicitly cleared it,
+  // OR if headerConfig.logoUrl || quotation.company_logo_url || profile.logo_url is non-empty.
+  const hasExplicitEmptyOverride =
+    (headerConfig && headerConfig.logoUrl === '') ||
+    (quotation && quotation.company_logo_url === '' && headerConfig?.logoUrl === '');
+
+  const activeLogoUrl = hasExplicitEmptyOverride
+    ? ''
+    : (
+        merged.logoUrl ||
+        quotation?.header_config?.logoUrl ||
+        quotation?.company_logo_url ||
+        profile?.logo_url ||
+        (profile as any)?.company_logo_url ||
+        ''
+      ).trim();
+
+  let logoDisplayMode: 'logo_and_name' | 'logo_only' | 'full_banner' | 'no_logo' =
+    merged.logoDisplayMode || 'logo_and_name';
+
+  if (merged.showLogo === false || logoDisplayMode === 'no_logo') {
+    logoDisplayMode = 'no_logo';
+  }
+
+  let headerLayoutMode: 'split_left' | 'split_right' | 'centered' | 'banner' =
+    merged.headerLayoutMode ||
+    (logoDisplayMode === 'full_banner'
+      ? 'banner'
+      : merged.alignment === 'centered' ||
+        quotation?.header_layout === 'centered_banner' ||
+        profile?.header_layout === 'centered_banner'
+      ? 'centered'
+      : (quotation?.logo_position || profile?.logo_position) === 'right'
+      ? 'split_right'
+      : 'split_left');
+
+  if (logoDisplayMode === 'full_banner') {
+    headerLayoutMode = 'banner';
+  }
+
+  const showLogo = merged.showLogo !== false && logoDisplayMode !== 'no_logo';
+  const showCompanyName =
+    logoDisplayMode !== 'logo_only' && merged.showCompanyName !== false;
+
+  const rawHeight = typeof merged.logoHeightPx === 'number' ? merged.logoHeightPx : 48;
+  const logoHeightPx = Math.min(110, Math.max(28, rawHeight));
+
+  const isBanner = logoDisplayMode === 'full_banner' || headerLayoutMode === 'banner';
+  const explicitMaxWidth =
+    headerConfig?.logoMaxWidthPx ??
+    quotation?.header_config?.logoMaxWidthPx ??
+    profile?.header_config?.logoMaxWidthPx;
+  const logoMaxWidthPx =
+    typeof explicitMaxWidth === 'number' && explicitMaxWidth > 0
+      ? isBanner && explicitMaxWidth === 260
+        ? 700
+        : explicitMaxWidth
+      : isBanner
+      ? 700
+      : 260;
+
+  const bannerMaxHeightPx = Math.max(logoHeightPx, 80);
+  const logoSpacing = merged.logoSpacing || 'normal';
+
+  const repeatHeaderOnSubsequentPages =
+    merged.repeatHeaderOnSubsequentPages !== false &&
+    quotation?.repeatHeaderOnSubsequentPages !== false &&
+    profile?.repeatHeaderOnSubsequentPages !== false;
+
+  const showLogoOnContinuationPages = merged.showLogoOnContinuationPages !== false;
+  const includeMiniLogoOnContinuation =
+    Boolean(activeLogoUrl) && showLogo && showLogoOnContinuationPages;
+
+  return {
+    activeLogoUrl,
+    logoDisplayMode,
+    headerLayoutMode,
+    showLogo,
+    showCompanyName,
+    logoHeightPx,
+    logoMaxWidthPx,
+    bannerMaxHeightPx,
+    logoSpacing,
+    repeatHeaderOnSubsequentPages,
+    showLogoOnContinuationPages,
+    includeMiniLogoOnContinuation
+  };
+}
 
 export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
   showPageNumbers: true,
@@ -1019,10 +1147,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ...(propHeaderConfig || {})
   };
 
-  const repeatHeaderOnSubsequentPages =
-    resolvedHeaderConfig.repeatHeaderOnSubsequentPages !== false &&
-    quotation.repeatHeaderOnSubsequentPages !== false &&
-    profile?.repeatHeaderOnSubsequentPages !== false;
+  const headerBranding = React.useMemo(
+    () => resolveHeaderBrandingConfig(resolvedHeaderConfig, quotation, profile),
+    [resolvedHeaderConfig, quotation, profile]
+  );
+
+  React.useEffect(() => {
+    setLogoLoadFailed(false);
+  }, [headerBranding.activeLogoUrl]);
+
+  const repeatHeaderOnSubsequentPages = headerBranding.repeatHeaderOnSubsequentPages;
 
   const resolvedRecipientConfig: QuotationRecipientConfig = {
     ...DEFAULT_RECIPIENT_CONFIG,
@@ -1317,13 +1451,23 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         className={`compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-3 w-full bg-white ${extraClass}`}
         style={{ height: '26px' }}
       >
-        {/* Left: Company Legal/Short Name */}
-        <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate max-w-[30%]">
-          {senderEntityName || 'Company'}
+        {/* Left: Mini Logo + Company Legal/Short Name */}
+        <div className="flex items-center min-w-0 max-w-[36%]">
+          {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
+            <img
+              src={headerBranding.activeLogoUrl}
+              alt=""
+              className="h-5 w-auto max-w-[110px] object-contain mr-2 shrink-0"
+              onError={() => setLogoLoadFailed(true)}
+            />
+          )}
+          <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate">
+            {senderEntityName || 'Company'}
+          </div>
         </div>
 
         {/* Middle: Project Subject & Quotation Ref No */}
-        <div className="text-[8.5px] print:text-[7.5px] text-slate-600 font-medium truncate max-w-[280px] text-center px-2">
+        <div className="text-[8.5px] print:text-[7.5px] text-slate-600 font-medium truncate max-w-[260px] text-center px-2">
           {subjectText ? `${subjectText} • ` : ''}{quoteRef}
         </div>
 
@@ -2117,21 +2261,41 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   };
 
   const renderTopSection = () => {
-    const effectiveHeaderAlign = resolvedHeaderConfig.alignment || (headerLayout === 'centered_banner' ? 'centered' : 'split');
-    const logoHeight = resolvedHeaderConfig.logoHeightPx || 44;
+    const {
+      activeLogoUrl,
+      logoDisplayMode,
+      headerLayoutMode,
+      showLogo,
+      showCompanyName,
+      logoHeightPx: logoHeight,
+      logoMaxWidthPx,
+      bannerMaxHeightPx,
+      logoSpacing
+    } = headerBranding;
+    const isBannerHeader =
+      headerLayoutMode === 'banner' || logoDisplayMode === 'full_banner';
+    const isCenteredHeader = headerLayoutMode === 'centered';
+    const isSplitRight = headerLayoutMode === 'split_right';
     const showPhone = resolvedHeaderConfig.showPhone !== false && Boolean(senderPhone);
     const showEmail = resolvedHeaderConfig.showEmail !== false && Boolean(senderEmail);
     const showWebsite = resolvedHeaderConfig.showWebsite !== false && Boolean(senderWebsite);
     const showTrn = resolvedHeaderConfig.showTrn !== false && Boolean(senderTrn);
-    const showCompanyName = resolvedHeaderConfig.showCompanyName !== false;
     const logoSpacingClass =
-      resolvedHeaderConfig.logoSpacing === 'none'
+      logoSpacing === 'none'
         ? 'mb-0 pb-0'
-        : resolvedHeaderConfig.logoSpacing === 'tight'
+        : logoSpacing === 'tight'
         ? 'mb-1 pb-0'
-        : resolvedHeaderConfig.logoSpacing === 'spacious'
+        : logoSpacing === 'spacious'
         ? 'mb-3 pb-1'
         : 'mb-1.5 pb-0';
+    const logoGapClass =
+      logoSpacing === 'none'
+        ? 'gap-1.5'
+        : logoSpacing === 'tight'
+        ? 'gap-2.5'
+        : logoSpacing === 'spacious'
+        ? 'gap-5'
+        : 'gap-3.5';
 
     const resolvedGlobalRadius =
       propGlobalCardRadius ||
@@ -2464,27 +2628,126 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           )}
 
-          {effectiveHeaderAlign === 'centered' ? (
-            /* Centered Stack Banner */
-            <div className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`} style={{ width: '100%', maxWidth: '100%' }}>
-              <div className="pb-1">
-                {profile?.logo_url && !logoLoadFailed ? (
-                  <img
-                    src={profile.logo_url}
-                    alt={senderEntityName}
-                    style={{ height: `${logoHeight}px` }}
-                    className="max-w-[240px] object-contain"
-                    onError={() => setLogoLoadFailed(true)}
-                  />
-                ) : (
-                  <div
-                    className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                    style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
-                  >
-                    <Building2 className="w-6 h-6" />
+          {isBannerHeader ? (
+            /* Full Letterhead Banner Mode (Top Span) */
+            <div
+              className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {showLogo && (
+                <div className="w-full pb-1 flex justify-center">
+                  {activeLogoUrl && !logoLoadFailed ? (
+                    <img
+                      src={activeLogoUrl}
+                      alt={senderEntityName}
+                      style={{
+                        maxHeight: `${bannerMaxHeightPx}px`,
+                        maxWidth: `${logoMaxWidthPx || 700}px`
+                      }}
+                      className="w-full h-auto object-contain mx-auto"
+                      onError={() => setLogoLoadFailed(true)}
+                    />
+                  ) : (
+                    <div
+                      className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
+                      style={{
+                        backgroundColor: accentColor,
+                        width: `${Math.max(40, logoHeight)}px`,
+                        height: `${Math.max(40, logoHeight)}px`
+                      }}
+                    >
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                  )}
+                </div>
+              )}
+              {showCompanyName && (
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 leading-tight">
+                  {senderEntityName}
+                </h1>
+              )}
+              {(() => {
+                const segments: React.ReactNode[] = [];
+                if (senderAddress) {
+                  segments.push(
+                    <span key="addr" className="inline-flex items-center gap-1">
+                      <span>{senderAddress}</span>
+                    </span>
+                  );
+                }
+                if (showPhone) {
+                  segments.push(
+                    <span key="phone" className="inline-flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderPhone}</span>
+                    </span>
+                  );
+                }
+                if (showEmail) {
+                  segments.push(
+                    <span key="email" className="inline-flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderEmail}</span>
+                    </span>
+                  );
+                }
+                if (showTrn) {
+                  segments.push(
+                    <span key="trn" className="inline-flex items-center gap-1">
+                      <span className="text-slate-400 font-medium">TRN:</span>
+                      <span className="font-mono font-semibold text-slate-700">{senderTrn}</span>
+                    </span>
+                  );
+                }
+                if (showWebsite) {
+                  segments.push(
+                    <span key="web" className="inline-flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{senderWebsite}</span>
+                    </span>
+                  );
+                }
+                if (segments.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-0.5 leading-relaxed">
+                    {segments.map((segment, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-2 whitespace-nowrap">
+                        <span>{segment}</span>
+                        {idx < segments.length - 1 && (
+                          <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">•</span>
+                        )}
+                      </span>
+                    ))}
                   </div>
-                )}
-              </div>
+                );
+              })()}
+            </div>
+          ) : isCenteredHeader ? (
+            /* Centered Executive Stack */
+            <div className={`flex flex-col items-center text-center space-y-1.5 w-full ${logoSpacingClass}`} style={{ width: '100%', maxWidth: '100%' }}>
+              {showLogo && (
+                <div className="pb-1">
+                  {activeLogoUrl && !logoLoadFailed ? (
+                    <img
+                      src={activeLogoUrl}
+                      alt={senderEntityName}
+                      style={{
+                        height: `${logoHeight}px`,
+                        maxWidth: `${logoMaxWidthPx || 260}px`
+                      }}
+                      className="w-auto object-contain shrink-0"
+                      onError={() => setLogoLoadFailed(true)}
+                    />
+                  ) : (
+                    <div
+                      className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
+                      style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
+                    >
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                  )}
+                </div>
+              )}
               {showCompanyName && (
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
                   {senderEntityName}
@@ -2548,25 +2811,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               })()}
             </div>
           ) : (
-            /* Split Layout: Logo Left / Contacts Right (or vice-versa) */
-            <div className={`flex flex-row justify-between items-start gap-4 w-full ${logoSpacingClass} ${logoPosition === 'right' ? 'flex-row-reverse' : ''}`} style={{ width: '100%', maxWidth: '100%' }}>
-              <div className={`${logoPosition === 'right' ? 'w-[45%] text-right flex-col items-end' : 'w-[52%] text-left'} flex-shrink-0 flex items-start gap-3.5`}>
-                {profile?.logo_url && !logoLoadFailed ? (
-                  <img
-                    src={profile.logo_url}
-                    alt={senderEntityName}
-                    style={{ height: `${logoHeight}px` }}
-                    className="max-w-[180px] object-contain shrink-0"
-                    onError={() => setLogoLoadFailed(true)}
-                  />
-                ) : (
-                  <div
-                    className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
-                    style={{ backgroundColor: accentColor, width: `${Math.max(40, logoHeight)}px`, height: `${Math.max(40, logoHeight)}px` }}
-                  >
-                    <Building2 className="w-6 h-6" />
-                  </div>
-                )}
+            /* Split Classic (Logo Left / Contacts Right) or Split Reversed (Contacts Left / Logo Right) */
+            <div
+              className={`flex flex-row justify-between items-start gap-4 w-full ${logoSpacingClass} ${
+                isSplitRight ? 'flex-row-reverse' : ''
+              }`}
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              <div
+                className={`${
+                  isSplitRight
+                    ? 'w-[54%] text-right flex-row-reverse justify-start'
+                    : 'w-[56%] text-left flex-row'
+                } flex-shrink-0 flex items-start ${logoGapClass}`}
+              >
+                {showLogo &&
+                  (activeLogoUrl && !logoLoadFailed ? (
+                    <img
+                      src={activeLogoUrl}
+                      alt={senderEntityName}
+                      style={{
+                        height: `${logoHeight}px`,
+                        maxWidth: `${logoMaxWidthPx || 260}px`
+                      }}
+                      className="w-auto object-contain shrink-0"
+                      onError={() => setLogoLoadFailed(true)}
+                    />
+                  ) : (
+                    <div
+                      className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                      style={{
+                        backgroundColor: accentColor,
+                        width: `${Math.max(40, logoHeight)}px`,
+                        height: `${Math.max(40, logoHeight)}px`
+                      }}
+                    >
+                      <Building2 className="w-6 h-6" />
+                    </div>
+                  ))}
                 <div className="min-w-0">
                   {showCompanyName && (
                     <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
@@ -2574,20 +2856,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     </h1>
                   )}
                   {showTrn && (
-                    <p className="text-xs font-semibold text-slate-600 mt-0.5">
+                    <p className={`text-xs font-semibold text-slate-600 ${showCompanyName ? 'mt-0.5' : 'mt-0'}`}>
                       TRN / VAT Reg: <span className="text-slate-900 font-mono">{senderTrn}</span>
                     </p>
                   )}
                 </div>
               </div>
 
-              <div className={`${logoPosition === 'right' ? 'w-[52%] text-left items-start' : 'w-[45%] text-right items-end'} flex-shrink-0 flex flex-col space-y-1`}>
+              <div
+                className={`${
+                  isSplitRight ? 'w-[44%] text-left items-start' : 'w-[42%] text-right items-end'
+                } flex-shrink-0 flex flex-col space-y-1`}
+              >
                 {senderAddress && (
                   <p className="text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black leading-snug break-words max-w-full">
                     <span>{senderAddress}</span>
                   </p>
                 )}
-                <div className={`flex flex-col gap-0.5 text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black ${logoPosition === 'right' ? 'items-start' : 'items-end'}`}>
+                <div
+                  className={`flex flex-col gap-0.5 text-[9.5px] print:text-[8.5px] text-slate-600 print:text-black ${
+                    isSplitRight ? 'items-start' : 'items-end'
+                  }`}
+                >
                   {showPhone && senderPhone && (
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <Phone className="w-3 h-3 text-slate-400 shrink-0" />
@@ -3313,11 +3603,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
                 style={{ height: '26px' }}
               >
-                <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate max-w-[30%]">
-                  {senderEntityName || 'Company'}
+                <div className="flex items-center min-w-0 max-w-[34%]">
+                  {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
+                    <img
+                      src={headerBranding.activeLogoUrl}
+                      alt=""
+                      className="h-5 w-auto max-w-[110px] object-contain mr-2 shrink-0"
+                      onError={() => setLogoLoadFailed(true)}
+                    />
+                  )}
+                  <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate">
+                    {senderEntityName || 'Company'}
+                  </div>
                 </div>
                 <div
-                  className="text-[9px] print:text-[8px] font-bold uppercase tracking-wide truncate max-w-[45%] text-center px-2"
+                  className="text-[9px] print:text-[8px] font-bold uppercase tracking-wide truncate max-w-[42%] text-center px-2"
                   style={{ color: accentColor }}
                 >
                   {annexHeaderTitle}

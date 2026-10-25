@@ -29,8 +29,10 @@ import {
   resolveAnnexHeaderTitle,
   isSheetOverflowingA4,
   extractLineItemAttributesAndCleanDescription,
+  resolveHeaderBrandingConfig,
   amountInWordsAED,
   DEFAULT_QUOTATION_BLOCKS,
+  DEFAULT_HEADER_CONFIG,
   DEFAULT_RECIPIENT_CONFIG
 } from '../components/quotations/QuotationDocument';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -2188,6 +2190,214 @@ describe('Suite 17: Top Cards 3-Way Placement, Minimal Rhythm, Specs Deduplicati
 
     // Sheet that overflows 297mm (e.g. 1180px > 1123 + 6) MUST trigger the red warning:
     expect(isSheetOverflowingA4(1180, 794, 6)).toBe(true);
+  });
+});
+
+// ============================================================================
+// SUITE 18: COMPLETE CORPORATE LOGO & LETTERHEAD ENGINE
+// ============================================================================
+
+describe('Suite 18: Complete Corporate Logo & Letterhead Engine', () => {
+  it('18a. Custom uploaded logo priority (headerConfig.logoUrl -> quotation.company_logo_url -> profile.logo_url -> placeholder fallback)', () => {
+    const profileWithLogo = {
+      id: 'prof_18',
+      profile_name: 'Default Profile',
+      legal_entity_name: 'Al Safa Water Systems LLC',
+      address_line_1: 'Dubai Industrial City',
+      logo_url: 'https://example.com/profile-default-logo.png',
+      bank_accounts: []
+    };
+
+    // 1. When neither headerConfig.logoUrl nor quotation.company_logo_url is set, falls back to profile.logo_url
+    const fallbackToProfile = resolveHeaderBrandingConfig(
+      {},
+      { company_logo_url: undefined },
+      profileWithLogo
+    );
+    expect(fallbackToProfile.activeLogoUrl).toBe('https://example.com/profile-default-logo.png');
+    expect(fallbackToProfile.showLogo).toBe(true);
+
+    // 2. When quotation.company_logo_url is set, it overrides profile.logo_url
+    const quoteLogoOverride = resolveHeaderBrandingConfig(
+      {},
+      { company_logo_url: 'data:image/png;base64,QUOTE_CUSTOM_LOGO' },
+      profileWithLogo
+    );
+    expect(quoteLogoOverride.activeLogoUrl).toBe('data:image/png;base64,QUOTE_CUSTOM_LOGO');
+
+    // 3. When headerConfig.logoUrl is set, it takes top priority over both quotation.company_logo_url and profile.logo_url
+    const headerConfigLogoOverride = resolveHeaderBrandingConfig(
+      { logoUrl: 'data:image/svg+xml;base64,HEADER_STUDIO_LOGO' },
+      { company_logo_url: 'data:image/png;base64,QUOTE_CUSTOM_LOGO' },
+      profileWithLogo
+    );
+    expect(headerConfigLogoOverride.activeLogoUrl).toBe('data:image/svg+xml;base64,HEADER_STUDIO_LOGO');
+
+    // 4. When no custom logo exists on headerConfig, quotation, or profile, activeLogoUrl is empty and placeholder emblem is enabled by default
+    const placeholderFallback = resolveHeaderBrandingConfig({}, {}, { logo_url: '' });
+    expect(placeholderFallback.activeLogoUrl).toBe('');
+    expect(placeholderFallback.showLogo).toBe(true);
+    expect(placeholderFallback.includeMiniLogoOnContinuation).toBe(false);
+  });
+
+  it('18b. Logo display modes (logo_and_name, logo_only, full_banner, no_logo), unified headerLayoutMode (split_left, split_right, centered, banner), and Page 2+ mini-logo eligibility', () => {
+    const customLogoUri = 'data:image/png;base64,CORP_WIDE_LOCKUP';
+
+    // 1. Default 'logo_and_name' + 'split_left'
+    const modeLogoAndName = resolveHeaderBrandingConfig({
+      logoUrl: customLogoUri,
+      logoDisplayMode: 'logo_and_name',
+      headerLayoutMode: 'split_left',
+      logoHeightPx: 48
+    });
+    expect(modeLogoAndName.logoDisplayMode).toBe('logo_and_name');
+    expect(modeLogoAndName.headerLayoutMode).toBe('split_left');
+    expect(modeLogoAndName.showLogo).toBe(true);
+    expect(modeLogoAndName.showCompanyName).toBe(true);
+    expect(modeLogoAndName.logoHeightPx).toBe(48);
+    expect(modeLogoAndName.logoMaxWidthPx).toBe(260);
+    expect(modeLogoAndName.includeMiniLogoOnContinuation).toBe(true);
+
+    // 2. 'logo_only' (Wide Logo Lockup Only) suppresses duplicate Company Name heading while keeping logo visible
+    const modeLogoOnly = resolveHeaderBrandingConfig({
+      logoUrl: customLogoUri,
+      logoDisplayMode: 'logo_only',
+      headerLayoutMode: 'split_right',
+      logoHeightPx: 64
+    });
+    expect(modeLogoOnly.logoDisplayMode).toBe('logo_only');
+    expect(modeLogoOnly.headerLayoutMode).toBe('split_right');
+    expect(modeLogoOnly.showLogo).toBe(true);
+    expect(modeLogoOnly.showCompanyName).toBe(false);
+    expect(modeLogoOnly.logoHeightPx).toBe(64);
+    expect(modeLogoOnly.logoMaxWidthPx).toBe(260);
+
+    // 3. 'full_banner' forces headerLayoutMode = 'banner' and expands max-width to 700px
+    const modeFullBanner = resolveHeaderBrandingConfig({
+      logoUrl: customLogoUri,
+      logoDisplayMode: 'full_banner',
+      logoHeightPx: 92
+    });
+    expect(modeFullBanner.logoDisplayMode).toBe('full_banner');
+    expect(modeFullBanner.headerLayoutMode).toBe('banner');
+    expect(modeFullBanner.showLogo).toBe(true);
+    expect(modeFullBanner.logoMaxWidthPx).toBe(700);
+    expect(modeFullBanner.bannerMaxHeightPx).toBe(92);
+
+    // 4. 'no_logo' hides logo and suppresses Page 2+ mini-logo
+    const modeNoLogo = resolveHeaderBrandingConfig({
+      logoUrl: customLogoUri,
+      logoDisplayMode: 'no_logo'
+    });
+    expect(modeNoLogo.logoDisplayMode).toBe('no_logo');
+    expect(modeNoLogo.showLogo).toBe(false);
+    expect(modeNoLogo.showCompanyName).toBe(true);
+    expect(modeNoLogo.includeMiniLogoOnContinuation).toBe(false);
+
+    // 5. Disabling showLogoOnContinuationPages suppresses mini-logo on Page 2+ & Annex headers while keeping Page 1 logo active
+    const noContinuationLogo = resolveHeaderBrandingConfig({
+      logoUrl: customLogoUri,
+      logoDisplayMode: 'logo_and_name',
+      showLogoOnContinuationPages: false
+    });
+    expect(noContinuationLogo.showLogo).toBe(true);
+    expect(noContinuationLogo.showLogoOnContinuationPages).toBe(false);
+    expect(noContinuationLogo.includeMiniLogoOnContinuation).toBe(false);
+  });
+
+  it('18c. Preset serialization/hydration and Revision cloning (R1 -> R2) preserve company_logo_url and all header_config logo properties', () => {
+    const sampleLogoDataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA_CUSTOM_CORP_LOGO';
+
+    // 1. Preset snapshot serialization & hydration
+    const presetSnapshot = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_18',
+      workspaceId: 'ws_18',
+      preset_name: 'Executive Wide Lockup Preset',
+      visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true },
+      default_tax_mode: 'taxes_extra',
+      default_price_basis: 'DDP Dubai',
+      default_payment_terms: '30 Days Net',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      company_logo_url: sampleLogoDataUri,
+      header_config: {
+        logoUrl: sampleLogoDataUri,
+        showLogo: true,
+        logoDisplayMode: 'logo_only',
+        headerLayoutMode: 'split_right',
+        logoHeightPx: 72,
+        logoMaxWidthPx: 300,
+        logoSpacing: 'spacious',
+        repeatHeaderOnSubsequentPages: true,
+        showLogoOnContinuationPages: true
+      }
+    });
+
+    expect(presetSnapshot.company_logo_url).toBe(sampleLogoDataUri);
+    expect(presetSnapshot.header_config?.logoUrl).toBe(sampleLogoDataUri);
+    expect(presetSnapshot.header_config?.logoDisplayMode).toBe('logo_only');
+    expect(presetSnapshot.header_config?.headerLayoutMode).toBe('split_right');
+    expect(presetSnapshot.header_config?.logoHeightPx).toBe(72);
+    expect(presetSnapshot.header_config?.logoMaxWidthPx).toBe(300);
+    expect(presetSnapshot.header_config?.showCompanyName).toBe(false);
+
+    const hydratedFromPreset = QuotationRepository.hydrateFromPresetSnapshot(presetSnapshot);
+    expect(hydratedFromPreset.companyLogoUrl).toBe(sampleLogoDataUri);
+    expect(hydratedFromPreset.headerConfig.logoUrl).toBe(sampleLogoDataUri);
+    expect(hydratedFromPreset.headerConfig.logoDisplayMode).toBe('logo_only');
+    expect(hydratedFromPreset.headerConfig.headerLayoutMode).toBe('split_right');
+    expect(hydratedFromPreset.headerConfig.logoHeightPx).toBe(72);
+    expect(hydratedFromPreset.headerConfig.showLogoOnContinuationPages).toBe(true);
+
+    // 2. Revision cloning (R1 -> R2) and Studio hydration preserve company_logo_url and header_config
+    const r1Quotation: Quotation = {
+      id: 'q_logo_r1',
+      workspace_id: 'ws_18',
+      workspaceId: 'ws_18',
+      enquiry_id: 'enq_18',
+      quote_number: 'QT-2026-0118',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0118-R1',
+      status: 'Sent',
+      client_snapshot: { entity_name: 'Abu Dhabi Sewerage Services' },
+      sender_snapshot: { entity_name: 'AquaTech Engineering LLC' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 12000,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 600,
+      grand_total: 12600,
+      company_logo_url: sampleLogoDataUri,
+      header_config: {
+        logoUrl: sampleLogoDataUri,
+        showLogo: true,
+        logoDisplayMode: 'full_banner',
+        headerLayoutMode: 'banner',
+        logoHeightPx: 88,
+        logoMaxWidthPx: 700,
+        repeatHeaderOnSubsequentPages: true,
+        showLogoOnContinuationPages: false
+      },
+      created_at: '2026-10-25T00:00:00.000Z'
+    };
+
+    const r2Quotation = QuotationRepository.cloneQuotationAsNextRevision(r1Quotation);
+    expect(r2Quotation.revision_number).toBe(2);
+    expect(r2Quotation.company_logo_url).toBe(sampleLogoDataUri);
+    expect(r2Quotation.header_config?.logoUrl).toBe(sampleLogoDataUri);
+    expect(r2Quotation.header_config?.logoDisplayMode).toBe('full_banner');
+    expect(r2Quotation.header_config?.headerLayoutMode).toBe('banner');
+    expect(r2Quotation.header_config?.logoHeightPx).toBe(88);
+    expect(r2Quotation.header_config?.showLogoOnContinuationPages).toBe(false);
+
+    const hydratedStudio = QuotationRepository.hydrateStudioStateFromQuotation(r2Quotation);
+    expect(hydratedStudio.companyLogoUrl).toBe(sampleLogoDataUri);
+    expect(hydratedStudio.headerConfig.logoUrl).toBe(sampleLogoDataUri);
+    expect(hydratedStudio.headerConfig.logoDisplayMode).toBe('full_banner');
+    expect(hydratedStudio.headerConfig.headerLayoutMode).toBe('banner');
+    expect(hydratedStudio.headerConfig.logoHeightPx).toBe(88);
+    expect(hydratedStudio.headerConfig.showLogoOnContinuationPages).toBe(false);
   });
 });
 
