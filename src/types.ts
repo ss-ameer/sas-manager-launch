@@ -1177,9 +1177,11 @@ export interface QuotationRecipientConfig {
   showValidity?: boolean;
   showEnquiryRef?: boolean;
   showSubject?: boolean;
+  recipientPlacement?: 'left' | 'full' | 'right';
   recipientCardStyle?: 'framed' | 'minimal';
   recipientCardWidth?: '50' | '100';
   recipientCardRadius?: 'rounded' | 'sharp';
+  offerPlacement?: 'left' | 'full' | 'right';
   offerCardStyle?: 'framed' | 'minimal';
   offerCardWidth?: '50' | '100';
   offerCardRadius?: 'rounded' | 'sharp';

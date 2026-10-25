@@ -27,8 +27,11 @@ import {
   toggleBlockVisibilityInList,
   resolveTopCardsLayout,
   resolveAnnexHeaderTitle,
+  isSheetOverflowingA4,
+  extractLineItemAttributesAndCleanDescription,
   amountInWordsAED,
-  DEFAULT_QUOTATION_BLOCKS
+  DEFAULT_QUOTATION_BLOCKS,
+  DEFAULT_RECIPIENT_CONFIG
 } from '../components/quotations/QuotationDocument';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 
@@ -1939,7 +1942,8 @@ describe('Suite 16: Top Cards Unification, Company Seal / Signature Persistence 
     expect(minimalSharpLayout.offerStyle).toBe('minimal');
     expect(minimalSharpLayout.recipientRadius).toBe('sharp');
     expect(minimalSharpLayout.offerRadius).toBe('sharp');
-    expect(minimalSharpLayout.recipientCardClassName.includes('border-transparent bg-transparent')).toBe(true);
+    expect(minimalSharpLayout.recipientCardClassName.includes('border-t border-slate-200/90')).toBe(true);
+    expect(minimalSharpLayout.recipientCardClassName.includes('bg-transparent')).toBe(true);
     expect(minimalSharpLayout.recipientCardClassName.includes('rounded-none')).toBe(true);
     expect(minimalSharpLayout.cardsOrder).toBe('offer_first');
   });
@@ -2079,6 +2083,111 @@ describe('Suite 16: Top Cards Unification, Company Seal / Signature Persistence 
     expect(pagination.annexSheets[2].headerTitle).toBe(
       'TECHNICAL ANNEX 3: Grundfos CR32 Dimensional Drawing'
     );
+  });
+});
+
+// ============================================================================
+// SUITE 17: TOP CARDS 3-WAY PLACEMENT TRACK, MINIMAL VERTICAL RHYTHM,
+//           DEDUPLICATED SPECS EXTRACTION & DYNAMIC 297MM OVERFLOW DETECTION
+// ============================================================================
+
+describe('Suite 17: Top Cards 3-Way Placement, Minimal Rhythm, Specs Deduplication & Dynamic A4 Overflow', () => {
+  it('17a. Top cards (Submitted To and Commercial Offer) 3-way placement (left, full, right), compact 100% stacked mode, and guaranteed global framed / minimal synchronization', () => {
+    // 1. Default side-by-side 50/50 row-pairing (Submitted To left, Commercial Offer right on Row 1)
+    const sideBySide = resolveTopCardsLayout(
+      DEFAULT_RECIPIENT_CONFIG,
+      'framed',
+      'rounded',
+      'recipient_first'
+    );
+    expect(sideBySide.recipientPlacement).toBe('left');
+    expect(sideBySide.offerPlacement).toBe('right');
+    expect(sideBySide.recipientGridPosition.gridRowStart).toBe(1);
+    expect(sideBySide.recipientGridPosition.gridColumnStart).toBe(1);
+    expect(sideBySide.offerGridPosition.gridRowStart).toBe(1);
+    expect(sideBySide.offerGridPosition.gridColumnStart).toBe(2);
+    expect(sideBySide.recipientCardClassName.includes('p-3')).toBe(true);
+
+    // 2. Asymmetric placement: Submitted To = 'full' (Row 1 col-span-2 with compact py-2 px-3), Commercial Offer = 'right' (Row 2 col-start-2)
+    const asymmetric = resolveTopCardsLayout(
+      { recipientPlacement: 'full', offerPlacement: 'right' },
+      'framed',
+      'rounded',
+      'recipient_first'
+    );
+    expect(asymmetric.recipientPlacement).toBe('full');
+    expect(asymmetric.recipientWidth).toBe('100');
+    expect(asymmetric.recipientGridPosition.gridRowStart).toBe(1);
+    expect(asymmetric.recipientGridPosition.placementClass).toBe('col-span-2 col-start-1 w-full');
+    expect(asymmetric.recipientCardClassName.includes('py-2 px-3')).toBe(true);
+
+    expect(asymmetric.offerPlacement).toBe('right');
+    expect(asymmetric.offerWidth).toBe('50');
+    expect(asymmetric.offerGridPosition.gridRowStart).toBe(2);
+    expect(asymmetric.offerGridPosition.gridColumnStart).toBe(2);
+    expect(asymmetric.offerGridPosition.placementClass).toBe('col-span-1 col-start-2');
+
+    // 3. Guaranteed global Minimal synchronization even when DEFAULT_RECIPIENT_CONFIG is spread
+    const minimalGlobal = resolveTopCardsLayout(
+      { ...DEFAULT_RECIPIENT_CONFIG },
+      'minimal',
+      'sharp',
+      'recipient_first'
+    );
+    expect(minimalGlobal.recipientStyle).toBe('minimal');
+    expect(minimalGlobal.offerStyle).toBe('minimal');
+    expect(minimalGlobal.recipientCardClassName.includes('border-t border-slate-200/90')).toBe(true);
+    expect(minimalGlobal.recipientCardClassName.includes('pt-2 pb-1 px-1')).toBe(true);
+    expect(minimalGlobal.offerCardClassName.includes('border-t border-slate-200/90')).toBe(true);
+    expect(minimalGlobal.offerCardClassName.includes('pt-2 pb-1 px-1')).toBe(true);
+  });
+
+  it('17b. Minimal block style compact vertical rhythm and clean technical specification extraction without duplicate Specs lines', () => {
+    const itemWithEmbeddedSpecs: QuotationLineItem = {
+      id: 'item_frp',
+      item_name: 'FRP Vessel',
+      description:
+        'Heavy-duty composite pressure vessel.\nSpecs: Diameter: 100cm • Media Type: Gravel • Model: Pentair • Top/Bottom Opening: 4in • Volume: 100l',
+      quantity: 3,
+      unit: 'pcs',
+      unit_price: 5500,
+      total_price: 16500
+    };
+
+    const { cleanDescription, extractedSpecsAttrs } =
+      extractLineItemAttributesAndCleanDescription(itemWithEmbeddedSpecs);
+
+    // Raw "Specs: ..." line is stripped from description so it never renders twice or leaks when showItemAttributes is false
+    expect(cleanDescription).toBe('Heavy-duty composite pressure vessel.');
+    expect(cleanDescription.includes('Specs:')).toBe(false);
+
+    // Structured attributes are cleanly parsed from the embedded Specs line
+    expect(extractedSpecsAttrs.length).toBe(5);
+    expect(extractedSpecsAttrs[0].key).toBe('Diameter');
+    expect(extractedSpecsAttrs[0].value).toBe('100cm');
+    expect(extractedSpecsAttrs[2].key).toBe('Model');
+    expect(extractedSpecsAttrs[2].value).toBe('Pentair');
+
+    // Verify resolveTableColumnLayout respects showItemAttributes = false
+    const hiddenSpecsColLayout = resolveTableColumnLayout({
+      brand: true,
+      model: true,
+      origin: true,
+      availability: true,
+      unit_price: true,
+      showItemAttributes: false
+    });
+    expect(hiddenSpecsColLayout.showItemAttributes).toBe(false);
+  });
+
+  it('17c. Dynamic A4 297mm sheet overflow detection only triggers when scrollHeight exceeds 297mm (plus tolerance)', () => {
+    // At 794px width (210mm at 96dpi), 297mm is ceil(794 * 297 / 210) = 1123px.
+    // Standard 1-page sheet that fits exactly at 297mm (1123px) must NOT trigger the red warning:
+    expect(isSheetOverflowingA4(1123, 794, 6)).toBe(false);
+    expect(isSheetOverflowingA4(1128, 794, 6)).toBe(false);
+
+    // Sheet that overflows 297mm (e.g. 1180px > 1123 + 6) MUST trigger the red warning:
+    expect(isSheetOverflowingA4(1180, 794, 6)).toBe(true);
   });
 });
 

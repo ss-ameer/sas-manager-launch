@@ -296,16 +296,27 @@ export interface QuotationSubmittalIndexEntry {
   badgeLabel: string;
 }
 
+export interface TopCardGridPosition {
+  gridRowStart: number;
+  gridColumnStart: number;
+  gridColumnEnd: number;
+  placementClass: string;
+}
+
 export interface ResolvedTopCardsLayout {
   recipientStyle: 'framed' | 'minimal';
+  recipientPlacement: 'left' | 'full' | 'right';
   recipientWidth: '50' | '100';
   recipientRadius: 'rounded' | 'sharp';
   recipientColSpanClass: 'col-span-6 print:col-span-6' | 'col-span-12 print:col-span-12';
+  recipientGridPosition: TopCardGridPosition;
   recipientCardClassName: string;
   offerStyle: 'framed' | 'minimal';
+  offerPlacement: 'left' | 'full' | 'right';
   offerWidth: '50' | '100';
   offerRadius: 'rounded' | 'sharp';
   offerColSpanClass: 'col-span-6 print:col-span-6' | 'col-span-12 print:col-span-12';
+  offerGridPosition: TopCardGridPosition;
   offerCardClassName: string;
   cardsOrder: 'recipient_first' | 'offer_first';
 }
@@ -317,42 +328,199 @@ export function resolveTopCardsLayout(
   cardsOrder: 'recipient_first' | 'offer_first' = 'recipient_first'
 ): ResolvedTopCardsLayout {
   const cfg = recipientConfig || {};
+  const resolvedOrder: 'recipient_first' | 'offer_first' =
+    cfg.cardsOrder || cardsOrder || 'recipient_first';
+
   const recipientStyle: 'framed' | 'minimal' =
     cfg.recipientCardStyle || cfg.style || globalBlockStyle || 'framed';
   const offerStyle: 'framed' | 'minimal' =
     cfg.offerCardStyle || cfg.style || globalBlockStyle || 'framed';
 
-  const recipientWidth: '50' | '100' = cfg.recipientCardWidth || '50';
-  const offerWidth: '50' | '100' = cfg.offerCardWidth || '50';
+  const defaultRecipientPlacement: 'left' | 'right' =
+    resolvedOrder === 'offer_first' ? 'right' : 'left';
+  const defaultOfferPlacement: 'left' | 'right' =
+    resolvedOrder === 'offer_first' ? 'left' : 'right';
+
+  const recipientPlacement: 'left' | 'full' | 'right' =
+    cfg.recipientPlacement ||
+    (cfg.recipientCardWidth === '100' || cfg.layout === 'stacked'
+      ? 'full'
+      : defaultRecipientPlacement);
+
+  const offerPlacement: 'left' | 'full' | 'right' =
+    cfg.offerPlacement ||
+    (cfg.offerCardWidth === '100' || cfg.layout === 'stacked'
+      ? 'full'
+      : defaultOfferPlacement);
+
+  const recipientWidth: '50' | '100' = recipientPlacement === 'full' ? '100' : '50';
+  const offerWidth: '50' | '100' = offerPlacement === 'full' ? '100' : '50';
 
   const recipientRadius: 'rounded' | 'sharp' =
     cfg.recipientCardRadius || cfg.globalCardRadius || globalCardRadius || 'rounded';
   const offerRadius: 'rounded' | 'sharp' =
     cfg.offerCardRadius || cfg.globalCardRadius || globalCardRadius || 'rounded';
 
-  const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
+  // Compute 2-column row-pairing positions matching renderBlocksGrid
+  const orderedCards =
+    resolvedOrder === 'offer_first'
+      ? [
+          { key: 'offer' as const, placement: offerPlacement },
+          { key: 'recipient' as const, placement: recipientPlacement }
+        ]
+      : [
+          { key: 'recipient' as const, placement: recipientPlacement },
+          { key: 'offer' as const, placement: offerPlacement }
+        ];
+
+  let currentRow = 1;
+  let rowHasLeft = false;
+  let rowHasRight = false;
+  const gridMap: Record<'recipient' | 'offer', TopCardGridPosition> = {
+    recipient: {
+      gridRowStart: 1,
+      gridColumnStart: 1,
+      gridColumnEnd: 2,
+      placementClass: 'col-span-1 col-start-1'
+    },
+    offer: {
+      gridRowStart: 1,
+      gridColumnStart: 2,
+      gridColumnEnd: 3,
+      placementClass: 'col-span-1 col-start-2'
+    }
+  };
+
+  orderedCards.forEach(({ key, placement }) => {
+    if (placement === 'full') {
+      if (rowHasLeft || rowHasRight) {
+        currentRow++;
+        rowHasLeft = false;
+        rowHasRight = false;
+      }
+      const rowStart = currentRow;
+      currentRow++;
+      gridMap[key] = {
+        gridRowStart: rowStart,
+        gridColumnStart: 1,
+        gridColumnEnd: 3,
+        placementClass: 'col-span-2 col-start-1 w-full'
+      };
+    } else if (placement === 'left') {
+      if (rowHasLeft) {
+        currentRow++;
+        rowHasLeft = false;
+        rowHasRight = false;
+      }
+      const rowStart = currentRow;
+      rowHasLeft = true;
+      if (rowHasLeft && rowHasRight) {
+        currentRow++;
+        rowHasLeft = false;
+        rowHasRight = false;
+      }
+      gridMap[key] = {
+        gridRowStart: rowStart,
+        gridColumnStart: 1,
+        gridColumnEnd: 2,
+        placementClass: 'col-span-1 col-start-1'
+      };
+    } else {
+      if (rowHasRight) {
+        currentRow++;
+        rowHasLeft = false;
+        rowHasRight = false;
+      }
+      const rowStart = currentRow;
+      rowHasRight = true;
+      if (rowHasLeft && rowHasRight) {
+        currentRow++;
+        rowHasLeft = false;
+        rowHasRight = false;
+      }
+      gridMap[key] = {
+        gridRowStart: rowStart,
+        gridColumnStart: 2,
+        gridColumnEnd: 3,
+        placementClass: 'col-span-1 col-start-2'
+      };
+    }
+  });
+
+  const getCardClasses = (
+    style: 'framed' | 'minimal',
+    radius: 'rounded' | 'sharp',
+    placement: 'left' | 'full' | 'right'
+  ) => {
+    if (style === 'minimal') {
+      return 'border-t border-slate-200/90 rounded-none bg-transparent print:bg-transparent print:border-slate-300 pt-2 pb-1 px-1 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid';
+    }
     const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
-    const frameClass =
-      style === 'minimal'
-        ? 'border border-transparent bg-transparent print:bg-transparent print:border-transparent'
-        : 'border border-slate-200 bg-slate-50/50 print:bg-transparent print:border-slate-300';
-    return `${frameClass} ${radiusClass} p-3 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid`;
+    const padClass = placement === 'full' ? 'py-2 px-3' : 'p-3';
+    return `border border-slate-200 bg-slate-50/50 print:bg-transparent print:border-slate-300 ${radiusClass} ${padClass} h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid`;
   };
 
   return {
     recipientStyle,
+    recipientPlacement,
     recipientWidth,
     recipientRadius,
     recipientColSpanClass:
       recipientWidth === '100' ? 'col-span-12 print:col-span-12' : 'col-span-6 print:col-span-6',
-    recipientCardClassName: getCardClasses(recipientStyle, recipientRadius),
+    recipientGridPosition: gridMap.recipient,
+    recipientCardClassName: getCardClasses(recipientStyle, recipientRadius, recipientPlacement),
     offerStyle,
+    offerPlacement,
     offerWidth,
     offerRadius,
     offerColSpanClass:
       offerWidth === '100' ? 'col-span-12 print:col-span-12' : 'col-span-6 print:col-span-6',
-    offerCardClassName: getCardClasses(offerStyle, offerRadius),
-    cardsOrder: cfg.cardsOrder || cardsOrder || 'recipient_first'
+    offerGridPosition: gridMap.offer,
+    offerCardClassName: getCardClasses(offerStyle, offerRadius, offerPlacement),
+    cardsOrder: resolvedOrder
+  };
+}
+
+export function isSheetOverflowingA4(
+  scrollHeightPx: number,
+  clientWidthPx: number,
+  tolerancePx: number = 6
+): boolean {
+  const a4HeightPx = clientWidthPx > 0 ? Math.ceil(clientWidthPx * (297 / 210)) : 1123;
+  return scrollHeightPx > a4HeightPx + tolerancePx;
+}
+
+export function extractLineItemAttributesAndCleanDescription(item: QuotationLineItem): {
+  cleanDescription: string;
+  extractedSpecsAttrs: Array<{ key: string; value: string }>;
+} {
+  const rawDesc = item.description || '';
+  const extractedSpecsAttrs: Array<{ key: string; value: string }> = [];
+  const cleanLines: string[] = [];
+
+  rawDesc.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    const specsMatch = trimmed.match(/^specs:\s*(.+)$/i);
+    if (specsMatch && specsMatch[1]) {
+      const segments = specsMatch[1].split(/\s*[•|]\s*/);
+      segments.forEach((seg) => {
+        const colonIdx = seg.indexOf(':');
+        if (colonIdx > 0) {
+          const k = seg.slice(0, colonIdx).trim();
+          const v = seg.slice(colonIdx + 1).trim();
+          if (k && v) {
+            extractedSpecsAttrs.push({ key: k, value: v });
+          }
+        }
+      });
+    } else {
+      cleanLines.push(line);
+    }
+  });
+
+  return {
+    cleanDescription: cleanLines.join('\n').trim(),
+    extractedSpecsAttrs
   };
 }
 
@@ -595,19 +763,16 @@ export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
 };
 
 export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
-  style: 'framed',
   layout: 'split',
   showAttention: true,
   showSalesRep: true,
   showValidity: true,
   showEnquiryRef: true,
   showSubject: true,
-  recipientCardStyle: 'framed',
+  recipientPlacement: 'left',
   recipientCardWidth: '50',
-  recipientCardRadius: 'rounded',
-  offerCardStyle: 'framed',
-  offerCardWidth: '50',
-  offerCardRadius: 'rounded'
+  offerPlacement: 'right',
+  offerCardWidth: '50'
 };
 
 export interface QuotationSheetPage {
@@ -689,6 +854,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const sheetRef = React.useRef<HTMLElement | null>(null);
   const page2Ref = React.useRef<HTMLElement | null>(null);
   const tableRef = React.useRef<HTMLDivElement | null>(null);
+  const sheetElsRef = React.useRef<Record<number, HTMLElement | null>>({});
+  const [overflowingSheets, setOverflowingSheets] = React.useState<Record<number, boolean>>({});
 
   // Resolve presentation theme & block style
   const resolvedBlockStyle: 'framed' | 'minimal' =
@@ -1282,6 +1449,42 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const totalSheets = totalDocumentPages;
   const totalPages = totalDocumentPages;
 
+  // Dynamically measure sheet height vs 297mm A4 boundary so the overflow warning only shows when a sheet actually overflows
+  React.useEffect(() => {
+    const checkOverflows = () => {
+      const next: Record<number, boolean> = {};
+      (Object.entries(sheetElsRef.current) as Array<[string, HTMLElement | null]>).forEach(
+        ([idxStr, el]) => {
+          const idx = Number(idxStr);
+          if (el) {
+            next[idx] = isSheetOverflowingA4(el.scrollHeight, el.clientWidth, 6);
+          }
+        }
+      );
+      setOverflowingSheets((prev) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
+        if (
+          prevKeys.length === nextKeys.length &&
+          nextKeys.every((k) => prev[Number(k)] === next[Number(k)])
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+
+    checkOverflows();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => checkOverflows());
+      (Object.values(sheetElsRef.current) as Array<HTMLElement | null>).forEach((el) => {
+        if (el) ro.observe(el);
+      });
+      return () => ro.disconnect();
+    }
+  }, [sheetPartitions, rawLineItems, resolvedBlocks, fontSizeScale, tableDensity, resolvedBlockStyle]);
+
   // Render compact executive "Attached Technical Submittals & Enclosures" index strip
   const renderSubmittalsIndex = () => {
     if (!paginationWithAnnexes.showSubmittalsIndex || paginationWithAnnexes.submittalsIndexEntries.length === 0) {
@@ -1294,7 +1497,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     return (
       <section
-        className={`quotation-submittals-index my-2.5 p-2.5 border border-slate-200 bg-slate-50/60 print:bg-transparent print:border-slate-300 break-inside-avoid ${radiusClass}`}
+        className={`quotation-submittals-index mb-3 print:mb-2 p-2.5 border border-slate-200 bg-slate-50/60 print:bg-transparent print:border-slate-300 break-inside-avoid ${radiusClass}`}
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
       >
         <div className="flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-2">
@@ -1843,24 +2046,29 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           });
 
           return (
-            <section key={`grid_seg_${segIdx}`} className="my-3 w-full print:my-2" style={{ width: '100%', maxWidth: '100%' }}>
+            <section key={`grid_seg_${segIdx}`} className="mb-3 w-full print:mb-2" style={{ width: '100%', maxWidth: '100%' }}>
               <div
-                className="quotation-blocks-grid grid grid-cols-2 gap-3 mt-3 items-stretch w-full"
+                className="quotation-blocks-grid grid grid-cols-2 gap-3 items-stretch w-full"
                 style={{ width: '100%', maxWidth: '100%' }}
               >
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
                   const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
-                  const padClass = b.padding === 'compact' ? 'p-2' : 'p-3';
+                  const isMinimalBlock = b.style === 'minimal';
+                  const padClass = isMinimalBlock
+                    ? 'pt-2 pb-1 px-1'
+                    : b.padding === 'compact'
+                    ? 'p-2'
+                    : 'p-3';
                   const isSelected = activeSelectedSection === b.id;
                   const isInteractive = Boolean(onSelectSection || onSelectBlock);
                   const bType = b.type || b.id;
 
                   const cardStyleClass = [
                     padClass,
-                    `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} h-full flex flex-col justify-between transition-all duration-150`,
-                    b.style === 'minimal'
-                      ? 'border border-transparent bg-transparent'
-                      : 'border border-slate-200 bg-slate-50/50',
+                    isMinimalBlock
+                      ? 'rounded-none border-t border-slate-200/90 bg-transparent print:bg-transparent print:border-slate-300'
+                      : `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} border border-slate-200 bg-slate-50/50`,
+                    'h-full flex flex-col justify-between transition-all duration-150',
                     isInteractive ? 'cursor-pointer' : '',
                     isSelected
                       ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
@@ -1920,10 +2128,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       resolvedHeaderConfig.logoSpacing === 'none'
         ? 'mb-0 pb-0'
         : resolvedHeaderConfig.logoSpacing === 'tight'
-        ? 'mb-2 pb-0'
+        ? 'mb-1 pb-0'
         : resolvedHeaderConfig.logoSpacing === 'spacious'
-        ? 'mb-6 pb-2'
-        : 'mb-4 pb-1';
+        ? 'mb-3 pb-1'
+        : 'mb-1.5 pb-0';
 
     const resolvedGlobalRadius =
       propGlobalCardRadius ||
@@ -1961,6 +2169,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     const recipientCardBase = topCardsLayout.recipientCardClassName;
     const offerCardBase = topCardsLayout.offerCardClassName;
+    const isRecipientFullWidth = topCardsLayout.recipientPlacement === 'full';
+    const isOfferFullWidth = topCardsLayout.offerPlacement === 'full';
 
     const renderSubjectBanner = () => {
       if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
@@ -1968,7 +2178,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       }
       return (
         <div
-          className={`mb-3 px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 ${globalRadiusClass} relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
+          className={`mb-3 px-3 py-1.5 ${
+            isMinimal
+              ? 'border-y border-slate-200/90 bg-transparent rounded-none'
+              : `bg-slate-50 border border-slate-200 ${globalRadiusClass}`
+          } text-xs font-medium text-slate-800 relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
             isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
           } ${
             activeSelectedSection === 'subject'
@@ -2019,35 +2233,73 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             Submitted To
           </div>
         )}
-        <div>
-          <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1.5">
-            Submitted To / Attention To
+        {isRecipientFullWidth ? (
+          /* Compact 100% Full-Width Horizontal Strip Layout */
+          <div>
+            <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+              Submitted To / Attention To
+            </div>
+            <div className="flex flex-row items-baseline justify-between gap-4">
+              <div className="min-w-0">
+                <span className="text-sm font-bold text-slate-900 mr-2">{clientEntityName}</span>
+                {showAttention && (
+                  <span className="text-xs text-slate-700 font-medium">
+                    • Attn:{' '}
+                    <span className="text-slate-900 font-semibold">
+                      {clientContactPerson || 'Procurement / Commercial Dept.'}
+                    </span>
+                  </span>
+                )}
+                <p className="text-xs text-slate-600 mt-0.5">{clientAddress}</p>
+              </div>
+              <div className="text-right shrink-0 text-xs text-slate-600 space-y-0.5">
+                <p>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    TRN: <span className="text-slate-700 font-mono">{clientTrn || 'Not Registered'}</span>
+                  </span>
+                </p>
+                {(clientPhone || clientEmail) && (
+                  <p className="text-slate-500 text-[11px]">
+                    {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
-          <h3 className="text-sm font-bold text-slate-900">
-            {clientEntityName}
-          </h3>
-          {showAttention && (
-            <p className="text-xs text-slate-700 font-medium mt-0.5">
-              Attn:{' '}
-              <span className="text-slate-900 font-semibold">
-                {clientContactPerson || 'Procurement / Commercial Dept.'}
-              </span>
-            </p>
-          )}
-          <p className="text-xs text-slate-600 mt-1">
-            {clientAddress}
-          </p>
-        </div>
-        <div className="text-xs text-slate-600 space-y-0.5 pt-2 mt-2 border-t border-slate-200/60">
-          <p>
-            <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
-          </p>
-          {(clientPhone || clientEmail) && (
-            <p className="text-slate-500 text-[11px]">
-              {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
-            </p>
-          )}
-        </div>
+        ) : (
+          /* Standard 50% Half-Width Vertical Card Layout */
+          <>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+                Submitted To / Attention To
+              </div>
+              <h3 className="text-sm font-bold text-slate-900">
+                {clientEntityName}
+              </h3>
+              {showAttention && (
+                <p className="text-xs text-slate-700 font-medium mt-0.5">
+                  Attn:{' '}
+                  <span className="text-slate-900 font-semibold">
+                    {clientContactPerson || 'Procurement / Commercial Dept.'}
+                  </span>
+                </p>
+              )}
+              <p className="text-xs text-slate-600 mt-0.5">
+                {clientAddress}
+              </p>
+            </div>
+            <div className="text-xs text-slate-600 space-y-0.5 pt-1.5 mt-1.5 border-t border-slate-200/60">
+              <p>
+                <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
+              </p>
+              {(clientPhone || clientEmail) && (
+                <p className="text-slate-500 text-[11px]">
+                  {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </div>
     );
 
@@ -2077,59 +2329,115 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             Commercial Offer
           </div>
         )}
-        <div>
-          <div className="pb-1.5 border-b border-slate-200/60 flex items-center justify-between gap-2">
-            <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
-              Commercial Offer
-            </span>
-            <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
-              Rev {quotation.revision_number || 1}
-            </span>
-          </div>
-          <div className="py-2 text-center">
-            <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
-              {quotation.formatted_quote_ref || quotation.quote_number}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+        {isOfferFullWidth ? (
+          /* Compact 100% Full-Width 4-Column Horizontal Metadata Strip */
           <div>
-            <span className="text-slate-400 text-[10px] uppercase block">Date</span>
-            <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+            <div className="pb-1.5 border-b border-slate-200/60 flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+                Commercial Offer
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm sm:text-base font-mono font-bold text-slate-900">
+                  {quotation.formatted_quote_ref || quotation.quote_number}
+                </span>
+                <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
+                  Rev {quotation.revision_number || 1}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-3 pt-1.5 text-xs items-center">
+              <div>
+                <span className="text-slate-400 text-[9.5px] uppercase block">Date</span>
+                <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+              </div>
+              {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' ? (
+                <div>
+                  <span className="text-slate-400 text-[9.5px] uppercase block">Valid Until</span>
+                  <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                </div>
+              ) : showEnquiryRef && enquiryRef ? (
+                <div>
+                  <span className="text-slate-400 text-[9.5px] uppercase block">Enquiry Ref</span>
+                  <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-slate-400 text-[9.5px] uppercase block">Validity</span>
+                  <span className="font-semibold text-slate-800">Standard</span>
+                </div>
+              )}
+              <div>
+                <span className="text-slate-400 text-[9.5px] uppercase block">Prepared By</span>
+                <span className="font-semibold text-slate-800 truncate block">
+                  {showSalesRep && resolvedSalesRep ? resolvedSalesRep : 'Authorized Rep'}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 text-[9.5px] uppercase block">Status</span>
+                <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                  {String(quotation.status || 'Draft').toUpperCase()}
+                </span>
+              </div>
+            </div>
           </div>
-          {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+        ) : (
+          /* Standard 50% Half-Width Vertical Card Layout */
+          <>
             <div>
-              <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
-              <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">
+                  Commercial Offer
+                </span>
+                <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
+                  Rev {quotation.revision_number || 1}
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
+                  {quotation.formatted_quote_ref || quotation.quote_number}
+                </div>
+              </div>
             </div>
-          )}
-          {showSalesRep && resolvedSalesRep && (
-            <div>
-              <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
-              <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+
+            <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-200/60 text-xs">
+              <div>
+                <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+                <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+              </div>
+              {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+                  <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                </div>
+              )}
+              {showSalesRep && resolvedSalesRep && (
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
+                  <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+                </div>
+              )}
+              {showEnquiryRef && enquiryRef && (
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+                  <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                </div>
+              )}
+              <div className="col-span-2 pt-0.5 flex items-center justify-between">
+                <span className="text-slate-400 text-[10px] uppercase">Status</span>
+                <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                  {String(quotation.status || 'Draft').toUpperCase()}
+                </span>
+              </div>
             </div>
-          )}
-          {showEnquiryRef && enquiryRef && (
-            <div>
-              <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
-              <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
-            </div>
-          )}
-          <div className="col-span-2 pt-0.5 flex items-center justify-between">
-            <span className="text-slate-400 text-[10px] uppercase">Status</span>
-            <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
-              {String(quotation.status || 'Draft').toUpperCase()}
-            </span>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     );
 
     return (
       <>
         <header
-          className={`quotation-header-branding border-b border-slate-200 pb-4 mb-4 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+          className={`quotation-header-branding border-b border-slate-200 pb-3 mb-3 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section ${
             isInteractive ? 'cursor-pointer' : ''
           } ${
             isHeaderSelected
@@ -2306,28 +2614,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
         <div
-          className="w-full mb-4 quotation-client-offer-grid grid grid-cols-12 gap-3 print:grid print:grid-cols-12 print:gap-3 break-inside-avoid page-break-inside-avoid print:mb-4"
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          {topCardsLayout.cardsOrder === 'offer_first' ? (
-            <>
-              <div className={`${topCardsLayout.offerColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
-                {renderOfferCard()}
-              </div>
-              <div className={`${topCardsLayout.recipientColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
-                {renderRecipientCard()}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={`${topCardsLayout.recipientColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
-                {renderRecipientCard()}
-              </div>
-              <div className={`${topCardsLayout.offerColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
-                {renderOfferCard()}
-              </div>
-            </>
-          )}
+          <div
+            className={`${topCardsLayout.recipientGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
+            style={{
+              gridRowStart: topCardsLayout.recipientGridPosition.gridRowStart,
+              gridColumnStart: topCardsLayout.recipientGridPosition.gridColumnStart,
+              gridColumnEnd: topCardsLayout.recipientGridPosition.gridColumnEnd,
+              breakInside: 'avoid',
+              pageBreakInside: 'avoid'
+            }}
+          >
+            {renderRecipientCard()}
+          </div>
+          <div
+            className={`${topCardsLayout.offerGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
+            style={{
+              gridRowStart: topCardsLayout.offerGridPosition.gridRowStart,
+              gridColumnStart: topCardsLayout.offerGridPosition.gridColumnStart,
+              gridColumnEnd: topCardsLayout.offerGridPosition.gridColumnEnd,
+              breakInside: 'avoid',
+              pageBreakInside: 'avoid'
+            }}
+          >
+            {renderOfferCard()}
+          </div>
         </div>
         {resolvedSubjectPlacement === 'below_cards' && renderSubjectBanner()}
       </>
@@ -2340,12 +2653,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     showEmptyPlaceholder: boolean,
     isContinuation: boolean = false
   ) => {
+    const resolvedTableRadiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+
     return (
       <section
         ref={!isContinuation ? tableRef : undefined}
-        className={`quotation-items-section flex-1 my-2 w-full transition-all duration-150 ${
-          (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
-        } quotation-structural-section relative group ${!isContinuation ? 'print:pt-4' : 'print:pt-1'} ${
+        className={`quotation-items-section mb-3 print:mb-2 w-full transition-all duration-150 ${
+          isMinimal ? 'rounded-none' : resolvedTableRadiusClass
+        } quotation-structural-section relative group ${
           isInteractive ? 'cursor-pointer' : ''
         } ${
           isTableSelected
@@ -2371,9 +2689,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
           </div>
         )}
-        <div className={`${
-          (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'
-        } border border-slate-200 overflow-hidden w-full`} style={{ width: '100%', maxWidth: '100%' }}>
+        <div
+          className={`${
+            isMinimal
+              ? 'border-y border-slate-200/90 rounded-none'
+              : `${resolvedTableRadiusClass} border border-slate-200`
+          } overflow-hidden w-full`}
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
           <table
             className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
             style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
@@ -2463,113 +2786,148 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                               </span>
                             )}
                           </div>
-                          {item.description && (
-                            <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
-                              {item.description}
-                            </div>
-                          )}
-                          {/* Technical Specifications & Attributes Block */}
                           {(() => {
-                            if (!showItemAttributes) return null;
-                            const allAttrs: Array<{ key: string; value: string }> = [];
-
-                            if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-                              allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
-                            }
-                            if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-                              allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
-                            }
-                            if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-                              allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
-                            }
-                            if (showAvailability && item.availability && item.availability.trim()) {
-                              allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
-                            }
-
-                            const rawAttrs: Array<{ key: string; value: string }> = [];
-                            const itemAny = item as any;
-
-                            if (Array.isArray(item.attributes)) {
-                              item.attributes.forEach((attr) => {
-                                if (attr && (attr.key || (attr as any).name) && attr.value) {
-                                  rawAttrs.push({ key: String(attr.key || (attr as any).name).trim(), value: String(attr.value).trim() });
-                                }
-                              });
-                            } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
-                              Object.entries(itemAny.attributes).forEach(([k, v]) => {
-                                if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                  rawAttrs.push({ key: k.trim(), value: String(v).trim() });
-                                }
-                              });
-                            }
-
-                            if (Array.isArray(itemAny.specs)) {
-                              itemAny.specs.forEach((s: any) => {
-                                if (s && s.key && s.value) {
-                                  rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                                }
-                              });
-                            }
-
-                            if (Array.isArray(itemAny.specifications)) {
-                              itemAny.specifications.forEach((s: any) => {
-                                if (s && s.key && s.value) {
-                                  rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                                }
-                              });
-                            }
-
-                            rawAttrs.forEach((attr) => {
-                              const kLower = attr.key.toLowerCase();
-                              if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
-                                allAttrs.push(attr);
-                              }
-                            });
-
-                            const itemVisibleKeys = Array.isArray(item.visible_attributes)
-                              ? item.visible_attributes.map((k) => k.toLowerCase())
-                              : undefined;
-                            const itemHiddenKeys = Array.isArray(item.hidden_attributes)
-                              ? item.hidden_attributes.map((k) => k.toLowerCase())
-                              : undefined;
-
-                            const visibleAttrs = allAttrs.filter((attr) => {
-                              const kLower = attr.key.toLowerCase();
-                              if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
-                                return false;
-                              }
-                              if (itemVisibleKeys !== undefined) {
-                                return itemVisibleKeys.includes(kLower);
-                              }
-                              if (itemHiddenKeys !== undefined) {
-                                return !itemHiddenKeys.includes(kLower);
-                              }
-                              return true;
-                            });
-
-                            if (visibleAttrs.length === 0) return null;
-
-                            if (attributeDisplayFormat === 'inline_text') {
-                              return (
-                                <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1.5 leading-normal">
-                                  <span className="font-semibold text-slate-700">Specs: </span>
-                                  {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
-                                </div>
-                              );
-                            }
+                            const { cleanDescription, extractedSpecsAttrs } =
+                              extractLineItemAttributesAndCleanDescription(item);
 
                             return (
-                              <div className="flex flex-wrap gap-1.5 mt-2 print:mt-1.5">
-                                {visibleAttrs.map((attr, aIdx) => (
-                                  <span
-                                    key={aIdx}
-                                    className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
-                                  >
-                                    <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                    <span>{attr.value}</span>
-                                  </span>
-                                ))}
-                              </div>
+                              <>
+                                {cleanDescription && (
+                                  <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
+                                    {cleanDescription}
+                                  </div>
+                                )}
+                                {/* Technical Specifications & Attributes Block */}
+                                {(() => {
+                                  if (!showItemAttributes) return null;
+                                  const allAttrs: Array<{ key: string; value: string }> = [];
+
+                                  if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+                                    allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
+                                  }
+                                  if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+                                    allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
+                                  }
+                                  if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+                                    allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
+                                  }
+                                  if (showAvailability && item.availability && item.availability.trim()) {
+                                    allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
+                                  }
+
+                                  const rawAttrs: Array<{ key: string; value: string }> = [...extractedSpecsAttrs];
+                                  const itemAny = item as any;
+                                  const isRealDiffuserOrPump =
+                                    item.item_name?.toLowerCase().includes('diffuser') ||
+                                    item.item_name?.toLowerCase().includes('jackson') ||
+                                    item.item_name?.toLowerCase().includes('dosing pump') ||
+                                    item.item_name?.toLowerCase().includes('item one');
+
+                                  const isLegacySampleAttr = (k: string, v: string) => {
+                                    if (isRealDiffuserOrPump || extractedSpecsAttrs.length === 0) return false;
+                                    return (
+                                      (k === 'Size' && v === '9 Inch / DN200') ||
+                                      (k === 'Material' && v === 'EPDM Membrane / ABS Body') ||
+                                      (k === 'Connection' && v === '3/4" NPT Thread') ||
+                                      (k === 'Design Flow' && v === '2 - 5 Nm³/h') ||
+                                      (k === 'Capacity' && v === '15 LPH') ||
+                                      (k === 'Pressure' && v === '10 bar') ||
+                                      (k === 'Power Supply' && v === '220V / 50Hz / 1Ph')
+                                    );
+                                  };
+
+                                  if (Array.isArray(item.attributes)) {
+                                    item.attributes.forEach((attr) => {
+                                      if (attr && (attr.key || (attr as any).name) && attr.value) {
+                                        const k = String(attr.key || (attr as any).name).trim();
+                                        const v = String(attr.value).trim();
+                                        if (!isLegacySampleAttr(k, v)) {
+                                          rawAttrs.push({ key: k, value: v });
+                                        }
+                                      }
+                                    });
+                                  } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+                                    Object.entries(itemAny.attributes).forEach(([k, v]) => {
+                                      if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                        const kTrim = k.trim();
+                                        const vTrim = String(v).trim();
+                                        if (!isLegacySampleAttr(kTrim, vTrim)) {
+                                          rawAttrs.push({ key: kTrim, value: vTrim });
+                                        }
+                                      }
+                                    });
+                                  }
+
+                                  if (Array.isArray(itemAny.specs)) {
+                                    itemAny.specs.forEach((s: any) => {
+                                      if (s && s.key && s.value) {
+                                        rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                      }
+                                    });
+                                  }
+
+                                  if (Array.isArray(itemAny.specifications)) {
+                                    itemAny.specifications.forEach((s: any) => {
+                                      if (s && s.key && s.value) {
+                                        rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                      }
+                                    });
+                                  }
+
+                                  rawAttrs.forEach((attr) => {
+                                    const kLower = attr.key.toLowerCase();
+                                    if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                                      allAttrs.push(attr);
+                                    }
+                                  });
+
+                                  const itemVisibleKeys = Array.isArray(item.visible_attributes)
+                                    ? item.visible_attributes.map((k) => k.toLowerCase())
+                                    : undefined;
+                                  const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+                                    ? item.hidden_attributes.map((k) => k.toLowerCase())
+                                    : undefined;
+
+                                  const visibleAttrs = allAttrs.filter((attr) => {
+                                    const kLower = attr.key.toLowerCase();
+                                    if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                                      return false;
+                                    }
+                                    if (itemVisibleKeys !== undefined) {
+                                      return itemVisibleKeys.includes(kLower);
+                                    }
+                                    if (itemHiddenKeys !== undefined) {
+                                      return !itemHiddenKeys.includes(kLower);
+                                    }
+                                    return true;
+                                  });
+
+                                  if (visibleAttrs.length === 0) return null;
+
+                                  if (attributeDisplayFormat === 'inline_text') {
+                                    return (
+                                      <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1 leading-normal">
+                                        <span className="font-semibold text-slate-700">Specs: </span>
+                                        {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="flex flex-wrap gap-1.5 mt-1.5 print:mt-1">
+                                      {visibleAttrs.map((attr, aIdx) => (
+                                        <span
+                                          key={aIdx}
+                                          className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
+                                        >
+                                          <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                          <span>{attr.value}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </>
                             );
                           })()}
                         </td>
@@ -2663,12 +3021,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-page-sheet {
             width: 210mm !important;
-            min-height: 297mm !important;
+            min-height: 294mm !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
             margin: 0 !important;
-            padding: 14mm !important;
+            padding-top: 10mm !important;
+            padding-bottom: 8mm !important;
+            padding-left: 14mm !important;
+            padding-right: 14mm !important;
             box-shadow: none !important;
             border: none !important;
             box-sizing: border-box !important;
@@ -2750,6 +3111,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             padding-top: 2mm !important;
             padding-bottom: 1mm !important;
             border-top: 1px solid #e2e8f0 !important;
+            page-break-before: avoid !important;
+            break-before: avoid !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             margin-top: auto !important;
@@ -2847,12 +3210,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               )}
 
             <article
-              ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
-              className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+              ref={(el) => {
+                sheetElsRef.current[sheetIdx] = el;
+                if (isFirst) sheetRef.current = el;
+                else if (sheetIdx === 1) page2Ref.current = el;
+              }}
+              className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
                 isVeryLastDocumentSheet
                   ? 'quotation-last-sheet print:break-after-avoid'
                   : 'print:break-after-page'
-              } print:min-h-[297mm]`}
+              } print:min-h-[294mm]`}
               style={{ boxSizing: 'border-box' }}
             >
               {/* Top Accent Stripe */}
@@ -2861,8 +3228,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 style={{ backgroundColor: accentColor }}
               />
 
-              {/* Subtle Non-Printing 297mm A4 Height Limit Boundary Guide Line */}
-              {showPageBreakGuides !== false && (
+              {/* Subtle Non-Printing 297mm A4 Height Limit Boundary Guide Line — Rendered ONLY when sheet actually overflows 297mm */}
+              {showPageBreakGuides !== false && overflowingSheets[sheetIdx] === true && (
                 <div
                   className="quotation-canvas-guide pointer-events-none absolute left-0 right-0 top-[297mm] border-t-2 border-dashed border-rose-400/80 z-30 print:hidden flex justify-end pr-3"
                   aria-hidden="true"
@@ -2927,11 +3294,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         return (
           <article
             key={att.id || `annex_sheet_${annexIdx + 1}`}
-            className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexPageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+            className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexPageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
               isLastAnnexSheet
                 ? 'quotation-last-sheet print:break-after-avoid'
                 : 'print:break-after-page'
-            } print:min-h-[297mm]`}
+            } print:min-h-[294mm]`}
             style={{ boxSizing: 'border-box' }}
           >
             {/* Top Accent Stripe */}

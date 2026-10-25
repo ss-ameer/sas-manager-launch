@@ -40,7 +40,8 @@ import {
   DEFAULT_QUOTATION_BLOCKS,
   DEFAULT_HEADER_CONFIG,
   DEFAULT_RECIPIENT_CONFIG,
-  DEFAULT_FOOTER_CONFIG
+  DEFAULT_FOOTER_CONFIG,
+  extractLineItemAttributesAndCleanDescription
 } from './QuotationDocument';
 import {
   X,
@@ -935,11 +936,24 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         });
         setRecipientConfig({
           ...DEFAULT_RECIPIENT_CONFIG,
-          globalCardRadius: hydrated.globalCardRadius,
-          cardsOrder: hydrated.cardsOrder,
-          subjectPlacement: hydrated.subjectPlacement,
           ...(profile?.recipient_config || {}),
-          ...(targetQuote.recipient_config || {})
+          ...(targetQuote.recipient_config || {}),
+          style: targetQuote.recipient_config?.style || hydrated.blockStyle,
+          recipientCardStyle:
+            targetQuote.recipient_config?.recipientCardStyle ||
+            targetQuote.recipient_config?.style ||
+            hydrated.blockStyle,
+          offerCardStyle:
+            targetQuote.recipient_config?.offerCardStyle ||
+            targetQuote.recipient_config?.style ||
+            hydrated.blockStyle,
+          globalCardRadius: hydrated.globalCardRadius,
+          recipientCardRadius:
+            targetQuote.recipient_config?.recipientCardRadius || hydrated.globalCardRadius,
+          offerCardRadius:
+            targetQuote.recipient_config?.offerCardRadius || hydrated.globalCardRadius,
+          cardsOrder: hydrated.cardsOrder,
+          subjectPlacement: hydrated.subjectPlacement
         });
         setFooterConfig({
           ...DEFAULT_FOOTER_CONFIG,
@@ -1302,6 +1316,28 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
     if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
     if (preset.logo_position) setLogoPosition(preset.logo_position);
+    if (preset.recipient_config) {
+      setRecipientConfig((prev) => ({
+        ...prev,
+        ...preset.recipient_config,
+        ...(preset.block_style
+          ? {
+              style: preset.block_style,
+              recipientCardStyle: preset.recipient_config?.recipientCardStyle || preset.block_style,
+              offerCardStyle: preset.recipient_config?.offerCardStyle || preset.block_style
+            }
+          : {}),
+        ...(preset.globalCardRadius
+          ? {
+              globalCardRadius: preset.globalCardRadius,
+              recipientCardRadius: preset.recipient_config?.recipientCardRadius || preset.globalCardRadius,
+              offerCardRadius: preset.recipient_config?.offerCardRadius || preset.globalCardRadius
+            }
+          : {}),
+        ...(preset.cardsOrder ? { cardsOrder: preset.cardsOrder } : {}),
+        ...(preset.subjectPlacement ? { subjectPlacement: preset.subjectPlacement } : {})
+      }));
+    }
     if (preset.block_style) {
       handleSetGlobalBlockStyle(preset.block_style);
     }
@@ -1324,15 +1360,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
     if (preset.header_config) {
       setHeaderConfig((prev) => ({ ...prev, ...preset.header_config }));
-    }
-    if (preset.recipient_config) {
-      setRecipientConfig((prev) => ({
-        ...prev,
-        ...preset.recipient_config,
-        ...(preset.globalCardRadius ? { globalCardRadius: preset.globalCardRadius } : {}),
-        ...(preset.cardsOrder ? { cardsOrder: preset.cardsOrder } : {}),
-        ...(preset.subjectPlacement ? { subjectPlacement: preset.subjectPlacement } : {})
-      }));
     }
     if (preset.footer_config) {
       setFooterConfig((prev) => ({
@@ -1444,38 +1471,38 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const sourceQuotation = activeSourceQuotation || editingQuotation;
     let baseItems: QuotationLineItem[];
     if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
-      baseItems = sourceQuotation.line_items.map((item, idx) => {
-        if (item.attributes && item.attributes.length > 0) return item;
-        // Enrich sample items if they match Item 1 or Item 2
-        if (
-          idx === 0 &&
-          (item.item_name?.toLowerCase().includes('diffuser') ||
+      baseItems = sourceQuotation.line_items.map((item) => {
+        const { cleanDescription, extractedSpecsAttrs } =
+          extractLineItemAttributesAndCleanDescription(item);
+        if (extractedSpecsAttrs.length > 0) {
+          const existingAttrs = Array.isArray(item.attributes) ? item.attributes : [];
+          const isRealDiffuserOrPump =
+            item.item_name?.toLowerCase().includes('diffuser') ||
             item.item_name?.toLowerCase().includes('jackson') ||
-            !item.attributes)
-        ) {
+            item.item_name?.toLowerCase().includes('dosing pump') ||
+            item.item_name?.toLowerCase().includes('item one');
+          const filteredExisting = existingAttrs.filter((a) => {
+            if (isRealDiffuserOrPump) return true;
+            return !(
+              (a.key === 'Size' && a.value === '9 Inch / DN200') ||
+              (a.key === 'Material' && a.value === 'EPDM Membrane / ABS Body') ||
+              (a.key === 'Connection' && a.value === '3/4" NPT Thread') ||
+              (a.key === 'Design Flow' && a.value === '2 - 5 Nm³/h') ||
+              (a.key === 'Capacity' && a.value === '15 LPH') ||
+              (a.key === 'Pressure' && a.value === '10 bar') ||
+              (a.key === 'Power Supply' && a.value === '220V / 50Hz / 1Ph')
+            );
+          });
+          const mergedAttrs = [...extractedSpecsAttrs];
+          filteredExisting.forEach((a) => {
+            if (!mergedAttrs.some((m) => m.key.toLowerCase() === a.key.toLowerCase())) {
+              mergedAttrs.push(a);
+            }
+          });
           return {
             ...item,
-            attributes: [
-              { key: 'Size', value: '9 Inch / DN200' },
-              { key: 'Material', value: 'EPDM Membrane / ABS Body' },
-              { key: 'Connection', value: '3/4" NPT Thread' },
-              { key: 'Design Flow', value: '2 - 5 Nm³/h' }
-            ]
-          };
-        }
-        if (
-          idx === 1 &&
-          (item.item_name?.toLowerCase().includes('pump') ||
-            item.item_name?.toLowerCase().includes('dosing') ||
-            !item.attributes)
-        ) {
-          return {
-            ...item,
-            attributes: [
-              { key: 'Capacity', value: '15 LPH' },
-              { key: 'Pressure', value: '10 bar' },
-              { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
-            ]
+            description: cleanDescription,
+            attributes: mergedAttrs
           };
         }
         return item;
@@ -1493,33 +1520,43 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
               : QuotationRepository.roundCurrency(qty * uPrice);
 
+          const { cleanDescription, extractedSpecsAttrs } =
+            extractLineItemAttributesAndCleanDescription({
+              item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
+              description: li.description || '',
+              quantity: qty,
+              unit: li.unit || 'pcs',
+              unit_price: uPrice,
+              total_price: tPrice
+            });
+
           // Extract attributes if available
-          const brandAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value;
-          const modelAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
-          const originAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value;
+          const brandAttr =
+            li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value ||
+            extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('brand'))?.value;
+          const modelAttr =
+            li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value ||
+            extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
+          const originAttr =
+            li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value ||
+            extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('origin'))?.value;
 
           let itemAttrs: QuotationItemAttribute[] | undefined = undefined;
           if (Array.isArray(li.attributes) && li.attributes.length > 0) {
             itemAttrs = li.attributes.map((a) => ({ key: a.key, value: a.value }));
-          } else if (idx === 0) {
-            itemAttrs = [
-              { key: 'Size', value: '9 Inch / DN200' },
-              { key: 'Material', value: 'EPDM Membrane / ABS Body' },
-              { key: 'Connection', value: '3/4" NPT Thread' },
-              { key: 'Design Flow', value: '2 - 5 Nm³/h' }
-            ];
-          } else if (idx === 1) {
-            itemAttrs = [
-              { key: 'Capacity', value: '15 LPH' },
-              { key: 'Pressure', value: '10 bar' },
-              { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
-            ];
+            extractedSpecsAttrs.forEach((ea) => {
+              if (!itemAttrs!.some((ia) => ia.key.toLowerCase() === ea.key.toLowerCase())) {
+                itemAttrs!.push(ea);
+              }
+            });
+          } else if (extractedSpecsAttrs.length > 0) {
+            itemAttrs = extractedSpecsAttrs;
           }
 
           return {
             id: li.id || `item_${idx}`,
             item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
-            description: li.description || '',
+            description: cleanDescription,
             quantity: qty,
             unit: li.unit || 'pcs',
             unit_price: uPrice,
@@ -1556,6 +1593,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const availableAttributeKeys = useMemo(() => {
     const keysSet = new Set<string>();
     quotationLineItems.forEach((item) => {
+      const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription(item);
+      extractedSpecsAttrs.forEach((a) => {
+        if (a && a.key && a.key.trim()) keysSet.add(a.key.trim());
+      });
       if (item.attributes && Array.isArray(item.attributes)) {
         item.attributes.forEach((a) => {
           if (a && a.key && a.key.trim()) {
@@ -4413,40 +4454,90 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Card Width & Geometry */}
+                    {/* 2. Card Placement & Width (3-Way Placement Track) */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
-                        Card Width Allocation
+                        Card Placement &amp; Width
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Allocate 50% split width or full 100% width stacked layout.
+                        Position on the 2-column A4 grid or span full 100% width.
                       </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
                         {[
-                          { id: '50' as const, label: 'Half Width (50%)', desc: 'Side-by-side grid' },
-                          { id: '100' as const, label: 'Full Width (100%)', desc: 'Stacked banner' }
-                        ].map((item) => {
-                          const isSelected = (recipientConfig.recipientCardWidth || '50') === item.id;
+                          { id: 'left' as const, label: 'Left 50%' },
+                          { id: 'full' as const, label: 'Full 100%' },
+                          { id: 'right' as const, label: 'Right 50%' }
+                        ].map((opt) => {
+                          const defaultPlacement =
+                            (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === 'offer_first'
+                              ? 'right'
+                              : 'left';
+                          const activePlacement =
+                            recipientConfig.recipientPlacement ||
+                            (recipientConfig.recipientCardWidth === '100' ? 'full' : defaultPlacement);
+                          const isSelected = activePlacement === opt.id;
                           return (
                             <button
-                              key={item.id}
+                              key={opt.id}
                               type="button"
-                              onClick={() => setRecipientConfig((prev) => ({
-                                ...prev,
-                                recipientCardWidth: item.id
-                              }))}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              onClick={() =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  recipientPlacement: opt.id,
+                                  recipientCardWidth: opt.id === 'full' ? '100' : '50',
+                                  layout:
+                                    opt.id === 'full' && (prev.offerPlacement === 'full' || prev.offerCardWidth === '100')
+                                      ? 'stacked'
+                                      : 'split'
+                                }))
+                              }
+                              className={`py-2 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
                                 isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                               }`}
                             >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                              {opt.label}
                             </button>
                           );
                         })}
+                      </div>
+                      {/* Quick-Pair Action Buttons */}
+                      <div className="grid grid-cols-2 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentOrder = recipientConfig.cardsOrder || cardsOrder || 'recipient_first';
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              layout: 'split',
+                              recipientPlacement: currentOrder === 'offer_first' ? 'right' : 'left',
+                              offerPlacement: currentOrder === 'offer_first' ? 'left' : 'right',
+                              recipientCardWidth: '50',
+                              offerCardWidth: '50'
+                            }));
+                          }}
+                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
+                        >
+                          Pair 50/50 Side-by-Side
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              layout: 'stacked',
+                              recipientPlacement: 'full',
+                              offerPlacement: 'full',
+                              recipientCardWidth: '100',
+                              offerCardWidth: '100'
+                            }))
+                          }
+                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
+                        >
+                          Stack Both 100%
+                        </button>
                       </div>
                     </div>
 
@@ -4461,7 +4552,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'rounded' as const, label: 'Rounded Corners', desc: 'Modern enterprise' },
                           { id: 'sharp' as const, label: 'Sharp Corners', desc: 'Classic rectangular' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.recipientCardRadius || 'rounded') === item.id;
+                          const isSelected = (recipientConfig.recipientCardRadius || globalCardRadius || 'rounded') === item.id;
                           return (
                             <button
                               key={item.id}
@@ -4495,8 +4586,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </p>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
-                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client on left' },
-                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer on left' }
+                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client first / left' },
+                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer first / left' }
                         ].map((item) => {
                           const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
                           return (
@@ -4505,10 +4596,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               type="button"
                               onClick={() => {
                                 setCardsOrder(item.id);
-                                setRecipientConfig((prev) => ({
-                                  ...prev,
-                                  cardsOrder: item.id
-                                }));
+                                setRecipientConfig((prev) => {
+                                  const isRecFull = prev.recipientPlacement === 'full' || prev.recipientCardWidth === '100';
+                                  const isOffFull = prev.offerPlacement === 'full' || prev.offerCardWidth === '100';
+                                  return {
+                                    ...prev,
+                                    cardsOrder: item.id,
+                                    ...(!isRecFull && !isOffFull
+                                      ? {
+                                          recipientPlacement: item.id === 'offer_first' ? 'right' : 'left',
+                                          offerPlacement: item.id === 'offer_first' ? 'left' : 'right'
+                                        }
+                                      : {})
+                                  };
+                                });
                               }}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
@@ -4718,40 +4819,90 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Card Width & Geometry */}
+                    {/* 2. Card Placement & Width (3-Way Placement Track) */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
-                        Card Width Allocation
+                        Card Placement &amp; Width
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Allocate 50% split width or full 100% width stacked layout.
+                        Position on the 2-column A4 grid or span full 100% width (compact 4-column horizontal bar).
                       </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
                         {[
-                          { id: '50' as const, label: 'Half Width (50%)', desc: 'Side-by-side grid' },
-                          { id: '100' as const, label: 'Full Width (100%)', desc: 'Stacked banner' }
-                        ].map((item) => {
-                          const isSelected = (recipientConfig.offerCardWidth || '50') === item.id;
+                          { id: 'left' as const, label: 'Left 50%' },
+                          { id: 'full' as const, label: 'Full 100%' },
+                          { id: 'right' as const, label: 'Right 50%' }
+                        ].map((opt) => {
+                          const defaultPlacement =
+                            (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === 'offer_first'
+                              ? 'left'
+                              : 'right';
+                          const activePlacement =
+                            recipientConfig.offerPlacement ||
+                            (recipientConfig.offerCardWidth === '100' ? 'full' : defaultPlacement);
+                          const isSelected = activePlacement === opt.id;
                           return (
                             <button
-                              key={item.id}
+                              key={opt.id}
                               type="button"
-                              onClick={() => setRecipientConfig((prev) => ({
-                                ...prev,
-                                offerCardWidth: item.id
-                              }))}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              onClick={() =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  offerPlacement: opt.id,
+                                  offerCardWidth: opt.id === 'full' ? '100' : '50',
+                                  layout:
+                                    opt.id === 'full' && (prev.recipientPlacement === 'full' || prev.recipientCardWidth === '100')
+                                      ? 'stacked'
+                                      : 'split'
+                                }))
+                              }
+                              className={`py-2 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
                                 isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                               }`}
                             >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
+                              {opt.label}
                             </button>
                           );
                         })}
+                      </div>
+                      {/* Quick-Pair Action Buttons */}
+                      <div className="grid grid-cols-2 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentOrder = recipientConfig.cardsOrder || cardsOrder || 'recipient_first';
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              layout: 'split',
+                              recipientPlacement: currentOrder === 'offer_first' ? 'right' : 'left',
+                              offerPlacement: currentOrder === 'offer_first' ? 'left' : 'right',
+                              recipientCardWidth: '50',
+                              offerCardWidth: '50'
+                            }));
+                          }}
+                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
+                        >
+                          Pair 50/50 Side-by-Side
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              layout: 'stacked',
+                              recipientPlacement: 'full',
+                              offerPlacement: 'full',
+                              recipientCardWidth: '100',
+                              offerCardWidth: '100'
+                            }))
+                          }
+                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
+                        >
+                          Stack Both 100%
+                        </button>
                       </div>
                     </div>
 
@@ -4766,7 +4917,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'rounded' as const, label: 'Rounded Corners', desc: 'Modern enterprise' },
                           { id: 'sharp' as const, label: 'Sharp Corners', desc: 'Classic rectangular' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.offerCardRadius || 'rounded') === item.id;
+                          const isSelected = (recipientConfig.offerCardRadius || globalCardRadius || 'rounded') === item.id;
                           return (
                             <button
                               key={item.id}
@@ -4800,8 +4951,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </p>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
-                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client on left' },
-                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer on left' }
+                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client first / left' },
+                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer first / left' }
                         ].map((item) => {
                           const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
                           return (
@@ -4810,10 +4961,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               type="button"
                               onClick={() => {
                                 setCardsOrder(item.id);
-                                setRecipientConfig((prev) => ({
-                                  ...prev,
-                                  cardsOrder: item.id
-                                }));
+                                setRecipientConfig((prev) => {
+                                  const isRecFull = prev.recipientPlacement === 'full' || prev.recipientCardWidth === '100';
+                                  const isOffFull = prev.offerPlacement === 'full' || prev.offerCardWidth === '100';
+                                  return {
+                                    ...prev,
+                                    cardsOrder: item.id,
+                                    ...(!isRecFull && !isOffFull
+                                      ? {
+                                          recipientPlacement: item.id === 'offer_first' ? 'right' : 'left',
+                                          offerPlacement: item.id === 'offer_first' ? 'left' : 'right'
+                                        }
+                                      : {})
+                                  };
+                                });
                               }}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
@@ -5327,14 +5488,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             checked: visibleColumns.showUom !== false,
                             onChange: (checked: boolean) =>
                               setVisibleColumns((prev) => ({ ...prev, showUom: checked }))
-                          },
-                          {
-                            key: 'showItemAttributes' as const,
-                            label: 'Show Technical Attribute Pills',
-                            desc: 'Render technical specification pills inside item rows',
-                            checked: visibleColumns.showItemAttributes !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, showItemAttributes: checked }))
                           }
                         ].map((col) => (
                           <div
