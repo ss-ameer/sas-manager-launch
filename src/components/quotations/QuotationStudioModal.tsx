@@ -265,6 +265,51 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [signatureStyle, setSignatureStyle] = useState<QuotationSignatureStyle>(
     editingQuotation?.signature_style || profile?.signature_style || 'script'
   );
+  const [companySealUrl, setCompanySealUrl] = useState<string>(
+    () =>
+      editingQuotation?.company_seal_url ||
+      (editingQuotation as any)?.companySettings?.company_seal_url ||
+      profile?.stamp_seal_url ||
+      ''
+  );
+  const [signatureImageUrl, setSignatureImageUrl] = useState<string>(
+    () =>
+      editingQuotation?.signature_image_url ||
+      editingQuotation?.signatories?.[0]?.signature_url ||
+      ''
+  );
+  const sealFileInputRef = useRef<HTMLInputElement | null>(null);
+  const signatureFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleUploadCompanySeal = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (dataUri) {
+        setCompanySealUrl(dataUri);
+        setShowCompanySeal(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleUploadSignatureImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (dataUri) {
+        setSignatureImageUrl(dataUri);
+        setSignatureStyle('image');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
     editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
   );
@@ -434,6 +479,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   const handleSetGlobalBlockStyle = (style: 'framed' | 'minimal') => {
     setBlockStyle(style);
+    setRecipientConfig((prev) => ({
+      ...prev,
+      style,
+      recipientCardStyle: style,
+      offerCardStyle: style
+    }));
     setLayoutBlocks((prev) =>
       prev.map((b) => {
         const bType =
@@ -447,6 +498,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         return { ...b, style };
       })
     );
+  };
+
+  const handleSetGlobalCardRadius = (radius: 'rounded' | 'sharp') => {
+    setGlobalCardRadius(radius);
+    setRecipientConfig((prev) => ({
+      ...prev,
+      globalCardRadius: radius,
+      recipientCardRadius: radius,
+      offerCardRadius: radius
+    }));
   };
 
   const handleSetFontSizeScale = (scale: QuotationFontSizeScale) => {
@@ -788,6 +849,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       setSelectedBankId(hydrated.selectedBankId);
       setFlyerAttachments(hydrated.flyerAttachments);
       setShowSubmittalsIndex(hydrated.showSubmittalsIndex);
+      setCompanySealUrl(hydrated.companySealUrl || '');
+      setSignatureImageUrl(hydrated.signatureImageUrl || '');
 
       if (targetQuote) {
         setClientContactPerson(
@@ -1048,14 +1111,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         const dataUri = typeof reader.result === 'string' ? reader.result : '';
         if (!dataUri) return;
         const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+        const resolvedTitle = cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`;
         const newAtt: Attachment = {
           id: `annex_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
-          name: cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`,
+          name: resolvedTitle,
           url: dataUri,
           type: file.type || (isImage ? 'image/png' : 'application/pdf'),
           size: file.size,
           uploadedAt: new Date().toISOString(),
-          render_as_annex_page: isImage
+          render_as_annex_page: isImage,
+          show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: resolvedTitle })
         };
         setFlyerAttachments((prev) => [...prev, newAtt]);
       };
@@ -1084,7 +1149,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       url: trimmedUrl,
       type: isPdfOrDoc ? 'pdf' : 'image',
       uploadedAt: new Date().toISOString(),
-      render_as_annex_page: !isPdfOrDoc
+      render_as_annex_page: !isPdfOrDoc,
+      show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: trimmedTitle })
     };
     setFlyerAttachments((prev) => [...prev, newAtt]);
     setNewAttachmentTitle('');
@@ -1233,18 +1299,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
     if (preset.signatory_type) setSignatoryType(preset.signatory_type);
     if (preset.signature_style) setSignatureStyle(preset.signature_style);
+    if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
+    if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.block_style) {
       handleSetGlobalBlockStyle(preset.block_style);
     }
     if (preset.globalCardRadius) {
-      setGlobalCardRadius(preset.globalCardRadius);
-      setRecipientConfig((prev) => ({
-        ...prev,
-        globalCardRadius: preset.globalCardRadius,
-        recipientCardRadius: preset.globalCardRadius,
-        offerCardRadius: preset.globalCardRadius
-      }));
+      handleSetGlobalCardRadius(preset.globalCardRadius);
     }
     if (preset.cardsOrder) {
       setCardsOrder(preset.cardsOrder);
@@ -1756,19 +1818,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   // Resolved Signatories array
   const signatories = useMemo(() => {
     if (signatoryMode === 'none' || signatoryMode === 'stamp_only') return [];
+    const primarySig = {
+      name: signatoryName,
+      designation: signatoryTitle,
+      ...(signatureImageUrl ? { signature_url: signatureImageUrl } : {})
+    };
     if (signatoryMode === 'dual') {
       return [
-        { name: signatoryName, designation: signatoryTitle },
+        primarySig,
         { name: secondarySignatoryName, designation: secondarySignatoryTitle }
       ];
     }
-    return [{ name: signatoryName, designation: signatoryTitle }];
+    return [primarySig];
   }, [
     signatoryMode,
     signatoryName,
     signatoryTitle,
     secondarySignatoryName,
-    secondarySignatoryTitle
+    secondarySignatoryTitle,
+    signatureImageUrl
   ]);
 
   // Derived validity date
@@ -1872,6 +1940,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_name: secondarySignatoryName,
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
+      company_seal_url: companySealUrl || undefined,
+      signature_image_url: signatureImageUrl || undefined,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
       cardsOrder: cardsOrder,
@@ -1924,6 +1994,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     secondarySignatoryName,
     secondarySignatoryTitle,
     signatureStyle,
+    companySealUrl,
+    signatureImageUrl,
     blockStyle,
     globalCardRadius,
     cardsOrder,
@@ -1932,6 +2004,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     flyerAttachments,
     showSubmittalsIndex,
     headerConfig,
+    recipientConfig,
     footerConfig,
     visibleColumns,
     clientContactPerson,
@@ -2156,6 +2229,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_name: secondarySignatoryName,
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
+      company_seal_url: companySealUrl || undefined,
+      signature_image_url: signatureImageUrl || undefined,
       logo_position: logoPosition,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
@@ -2715,15 +2790,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             <button
                               key={cr.id}
                               type="button"
-                              onClick={() => {
-                                setGlobalCardRadius(cr.id);
-                                setRecipientConfig((prev) => ({
-                                  ...prev,
-                                  globalCardRadius: cr.id,
-                                  recipientCardRadius: cr.id,
-                                  offerCardRadius: cr.id
-                                }));
-                              }}
+                              onClick={() => handleSetGlobalCardRadius(cr.id)}
                               className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
                                 isSelected
                                   ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
@@ -3392,6 +3459,101 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     )}
 
+                    {/* Company Seal / Stamp Image Uploader & Signature Image Uploader */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
+                      <input
+                        ref={sealFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadCompanySeal}
+                        className="hidden"
+                      />
+                      <input
+                        ref={signatureFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadSignatureImage}
+                        className="hidden"
+                      />
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                          <Stamp className="w-3.5 h-3.5 text-blue-600" />
+                          Company Stamp / Seal Image
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => sealFileInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>📤 Upload Stamp / Seal Image</span>
+                        </button>
+                      </div>
+
+                      {companySealUrl && (
+                        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <img
+                              src={companySealUrl}
+                              alt="Stamp Preview"
+                              className="h-12 w-12 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                            />
+                            <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                              Custom Stamp / Seal Active
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCompanySealUrl('')}
+                            className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                          >
+                            🗑️ Remove Stamp Image
+                          </button>
+                        </div>
+                      )}
+
+                      {signatureStyle === 'image' && (
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-slate-700">
+                              Authorized Signature Image
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => signatureFileInputRef.current?.click()}
+                              className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <Upload className="w-3 h-3" />
+                              <span>📤 Upload Signature Image</span>
+                            </button>
+                          </div>
+
+                          {signatureImageUrl && (
+                            <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img
+                                  src={signatureImageUrl}
+                                  alt="Signature Preview"
+                                  className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                                />
+                                <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                                  Digital Signature Active
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSignatureImageUrl('')}
+                                className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                              >
+                                🗑️ Remove
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Remittance Bank Account Selector + Edit Wire Details inline override */}
                     <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
                       <div className="flex items-center justify-between">
@@ -3611,6 +3773,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           {flyerAttachments.map((att, idx) => {
                             const attId = att.id || `annex_${idx}`;
                             const isAnnexPage = att.render_as_annex_page !== false;
+                            const showTitleInHeader = att.show_title_on_annex !== false;
                             const isFirst = idx === 0;
                             const isLast = idx === flyerAttachments.length - 1;
 
@@ -3619,7 +3782,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 key={attId}
                                 className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
                               >
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-2">
+                                  {/* 40x40px Thumbnail Preview */}
+                                  {att.url && att.type !== 'pdf' ? (
+                                    <img
+                                      src={att.url}
+                                      alt={att.name || `Annex ${idx + 1}`}
+                                      className="w-10 h-10 object-cover rounded border border-slate-200 bg-white shrink-0"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 shrink-0">
+                                      <FileText className="w-4 h-4" />
+                                    </div>
+                                  )}
+
                                   <span className="w-5 h-5 rounded-md bg-slate-200 text-slate-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
                                     #{idx + 1}
                                   </span>
@@ -3629,8 +3808,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     onChange={(e) =>
                                       handleUpdateAttachment(attId, { name: e.target.value })
                                     }
-                                    className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs bg-white text-slate-800 font-medium"
-                                    placeholder="Attachment Display Title"
+                                    className="flex-1 min-w-0 rounded-md border border-slate-300 px-2 py-1 text-xs bg-white text-slate-800 font-medium"
+                                    placeholder="Optional Display Title (leave blank or uncheck below to hide)"
                                   />
                                   <div className="flex items-center gap-0.5 shrink-0">
                                     <button
@@ -3661,6 +3840,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     </button>
                                   </div>
                                 </div>
+
+                                {/* Show Title in Annex Header Toggle */}
+                                {isAnnexPage && (
+                                  <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
+                                    <span className="text-[10.5px] font-medium text-slate-700">
+                                      Show Title in Annex Header
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={showTitleInHeader}
+                                      onChange={(e) =>
+                                        handleUpdateAttachment(attId, {
+                                          show_title_on_annex: e.target.checked
+                                        })
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                  </label>
+                                )}
 
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <button
@@ -4192,15 +4390,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered card container' },
                           { id: 'minimal' as const, label: 'Minimal', desc: 'Clean accent divider' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.recipientCardStyle || recipientConfig.style || 'framed') === item.id;
+                          const isSelected = (recipientConfig.recipientCardStyle || recipientConfig.style || blockStyle || 'framed') === item.id;
                           return (
                             <button
                               key={item.id}
                               type="button"
                               onClick={() => setRecipientConfig((prev) => ({
                                 ...prev,
-                                recipientCardStyle: item.id,
-                                style: item.id
+                                recipientCardStyle: item.id
                               }))}
                               className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                                 isSelected
@@ -4498,7 +4695,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered container' },
                           { id: 'minimal' as const, label: 'Minimal', desc: 'Clean divider' }
                         ].map((item) => {
-                          const isSelected = (recipientConfig.offerCardStyle || recipientConfig.style || 'framed') === item.id;
+                          const isSelected = (recipientConfig.offerCardStyle || recipientConfig.style || blockStyle || 'framed') === item.id;
                           return (
                             <button
                               key={item.id}
@@ -5998,6 +6195,40 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                               </div>
 
+                              {/* Company Seal / Stamp Image Uploader inside Right Inspector */}
+                              <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                <button
+                                  type="button"
+                                  onClick={() => sealFileInputRef.current?.click()}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                                >
+                                  <Upload className="w-3.5 h-3.5" />
+                                  <span>📤 Upload Stamp / Seal Image</span>
+                                </button>
+
+                                {companySealUrl && (
+                                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <img
+                                        src={companySealUrl}
+                                        alt="Stamp Preview"
+                                        className="h-12 w-12 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                                      />
+                                      <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                                        Stamp Image Uploaded
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCompanySealUrl('')}
+                                      className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                                    >
+                                      🗑️ Remove Stamp Image
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
                               <div>
                                 <label className="block text-slate-600 font-medium text-[11px] mb-1">
                                   Signature Style
@@ -6012,6 +6243,41 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   <option value="image">Digital Image / Box</option>
                                 </select>
                               </div>
+
+                              {signatureStyle === 'image' && (
+                                <div className="space-y-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => signatureFileInputRef.current?.click()}
+                                    className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                                  >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    <span>📤 Upload Signature Image</span>
+                                  </button>
+
+                                  {signatureImageUrl && (
+                                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <img
+                                          src={signatureImageUrl}
+                                          alt="Signature Preview"
+                                          className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                                        />
+                                        <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                                          Signature Uploaded
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSignatureImageUrl('')}
+                                        className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                                      >
+                                        🗑️ Remove
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
 
                               <button
                                 type="button"

@@ -460,6 +460,7 @@ export interface Attachment {
   uploadedByUserName?: string;
   storageProvider?: 'supabase' | 'local';
   render_as_annex_page?: boolean;
+  show_title_on_annex?: boolean;
 }
 
 export type QuotationAnnexAttachment = Attachment;
@@ -1253,6 +1254,8 @@ export interface QuotationPreset extends SoftDeleteFields {
   secondary_signatory_name?: string;
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
+  company_seal_url?: string;
+  signature_image_url?: string;
   logo_position?: QuotationLogoPosition;
   block_style?: 'framed' | 'minimal';
   globalCardRadius?: 'rounded' | 'sharp';
@@ -1323,6 +1326,8 @@ export interface Quotation extends SoftDeleteFields {
   secondary_signatory_name?: string;
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
+  company_seal_url?: string;
+  signature_image_url?: string;
   logo_position?: QuotationLogoPosition;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;

@@ -123,6 +123,24 @@ export class QuotationRepository {
    * - Generates a fresh ID, updates formatted_quote_ref with -R${nextRev}, sets status: 'Draft', and sets parent_quotation_id: source.id
    * - Deep-clones 100% of Phase 1–3.2 fields without shared reference mutation.
    */
+  public static isGenericCameraFilename(name?: string | null): boolean {
+    if (!name || !name.trim()) return true;
+    const cleaned = name.trim().replace(/\.[^/.]+$/, '');
+    return /^(whatsapp\s*(image|video|doc|audio)?|img[-_\s]|dsc[-_\s]|pxl[-_\s]|screenshot|screen\s*shot|photo[-_\s]?|image[-_\s]?\d*|dcim|vid[-_\s])/i.test(
+      cleaned
+    );
+  }
+
+  public static resolveShowTitleOnAnnex(att: {
+    name?: string | null;
+    show_title_on_annex?: boolean;
+  }): boolean {
+    if (typeof att.show_title_on_annex === 'boolean') {
+      return att.show_title_on_annex;
+    }
+    return !this.isGenericCameraFilename(att.name);
+  }
+
   public static cloneQuotationAsNextRevision(
     source: Quotation,
     existingRevisions?: Quotation[]
@@ -210,9 +228,12 @@ export class QuotationRepository {
         }
       : undefined;
 
-    // Deep-clone flyer_attachments
+    // Deep-clone flyer_attachments preserving show_title_on_annex and render_as_annex_page
     const clonedFlyerAttachments = Array.isArray(source.flyer_attachments)
-      ? source.flyer_attachments.map((att) => ({ ...att }))
+      ? source.flyer_attachments.map((att) => ({
+          ...att,
+          show_title_on_annex: this.resolveShowTitleOnAnnex(att)
+        }))
       : undefined;
 
     // Deep-clone configs and bank snapshots
@@ -293,6 +314,8 @@ export class QuotationRepository {
       table_density: source.table_density,
       table_font_scale: source.table_font_scale,
       block_style: source.block_style,
+      company_seal_url: source.company_seal_url,
+      signature_image_url: source.signature_image_url,
       created_at: now,
       updatedAt: now
     };
@@ -599,7 +622,9 @@ export class QuotationRepository {
         paymentTerms: fromPreset.defaultPaymentTerms,
         validityDays: fromPreset.defaultValidityDays,
         freightAmount: 0,
-        taxRatePercent: 5
+        taxRatePercent: 5,
+        companySealUrl: fromPreset.companySealUrl || profile?.stamp_seal_url || '',
+        signatureImageUrl: fromPreset.signatureImageUrl || ''
       };
     }
 
@@ -635,7 +660,10 @@ export class QuotationRepository {
       : [];
 
     const flyerAttachments = Array.isArray(quotation?.flyer_attachments)
-      ? quotation!.flyer_attachments.map((att) => ({ ...att }))
+      ? quotation!.flyer_attachments.map((att) => ({
+          ...att,
+          show_title_on_annex: this.resolveShowTitleOnAnnex(att)
+        }))
       : [];
 
     const showSubmittalsIndex =
@@ -691,7 +719,16 @@ export class QuotationRepository {
       paymentTerms: quotation?.payment_terms || (profile as any)?.default_payment_terms || '100% Advance',
       validityDays: 30,
       freightAmount: Number(quotation?.freight_amount) || 0,
-      taxRatePercent: quotation?.tax_rate_percent ?? 5
+      taxRatePercent: quotation?.tax_rate_percent ?? 5,
+      companySealUrl:
+        quotation?.company_seal_url ||
+        (quotation as any)?.companySettings?.company_seal_url ||
+        profile?.stamp_seal_url ||
+        '',
+      signatureImageUrl:
+        quotation?.signature_image_url ||
+        quotation?.signatories?.[0]?.signature_url ||
+        ''
     };
   }
 
@@ -1201,13 +1238,15 @@ export class QuotationRepository {
               typeof att.render_as_annex_page === 'boolean'
                 ? att.render_as_annex_page
                 : !isNonImageDoc;
+            const showTitleOnAnnex = this.resolveShowTitleOnAnnex(att);
             return {
               ...att,
               id: att.id || `annex_${idx + 1}`,
-              name: att.name || `Technical Annex ${idx + 1}`,
+              name: att.name !== undefined ? att.name : `Technical Annex ${idx + 1}`,
               url: att.url,
               type: att.type || 'image',
-              render_as_annex_page: renderAsAnnex
+              render_as_annex_page: renderAsAnnex,
+              show_title_on_annex: showTitleOnAnnex
             };
           })
       : [];
@@ -1240,6 +1279,8 @@ export class QuotationRepository {
       showCustomerAcceptance: normalizedFooterConfig.showCustomerAcceptance,
       showSignatories: normalizedFooterConfig.showSignatories,
       footerLayoutMode: normalizedFooterConfig.footerLayoutMode,
+      company_seal_url: input.company_seal_url,
+      signature_image_url: input.signature_image_url,
       footer_config: normalizedFooterConfig
     };
   }
@@ -1273,7 +1314,9 @@ export class QuotationRepository {
       defaultTaxMode: serialized.default_tax_mode || 'taxes_extra',
       defaultPriceBasis: serialized.default_price_basis || 'Ex-Works',
       defaultPaymentTerms: serialized.default_payment_terms || '100% Advance',
-      defaultValidityDays: serialized.default_validity_days ?? 30
+      defaultValidityDays: serialized.default_validity_days ?? 30,
+      companySealUrl: serialized.company_seal_url || '',
+      signatureImageUrl: serialized.signature_image_url || ''
     };
   }
 

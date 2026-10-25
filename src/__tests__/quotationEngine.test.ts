@@ -25,6 +25,8 @@ import {
   resolveDocumentPaginationWithAnnexes,
   resolveModularLayoutBlocks,
   toggleBlockVisibilityInList,
+  resolveTopCardsLayout,
+  resolveAnnexHeaderTitle,
   amountInWordsAED,
   DEFAULT_QUOTATION_BLOCKS
 } from '../components/quotations/QuotationDocument';
@@ -1342,14 +1344,16 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       name: 'Annex A: Standard MBR Membrane Module Datasheet',
       url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       type: 'image/png',
-      render_as_annex_page: true
+      render_as_annex_page: true,
+      show_title_on_annex: true
     });
     expect(hydrated.flyerAttachments[1]).toEqual({
       id: 'preset_flyer_2',
       name: 'Standard Warranty & Quality Assurance Certificate',
       url: 'https://example.com/warranty-cert.pdf',
       type: 'pdf',
-      render_as_annex_page: false
+      render_as_annex_page: false,
+      show_title_on_annex: true
     });
     expect(hydrated.showSubmittalsIndex).toBe(true);
   });
@@ -1896,6 +1900,185 @@ describe('Suite 15: Modular Block Placement Fidelity, Single-Source Visibility S
     blocks = toggleBlockVisibilityInList(blocks, 'signatory', true);
     expect(blocks.find((b) => b.id === 'signatory')!.enabled).toBe(true);
     expect(showCompanySeal).toBe(false);
+  });
+});
+
+// ============================================================================
+// SUITE 16: TOP CARDS UNIFICATION, COMPANY SEAL / SIGNATURE PERSISTENCE &
+//           ANNEX HEADER TITLE VISIBILITY
+// ============================================================================
+
+describe('Suite 16: Top Cards Unification, Company Seal / Signature Persistence & Annex Header Title Visibility', () => {
+  it('16a. Independent 50% / 100% width allocation and Framed / Minimal presentation style synchronization on Submitted To and Commercial Offer cards', () => {
+    // 1. Default 50% / 50% split with global Framed + Rounded
+    const defaultLayout = resolveTopCardsLayout({}, 'framed', 'rounded', 'recipient_first');
+    expect(defaultLayout.recipientWidth).toBe('50');
+    expect(defaultLayout.offerWidth).toBe('50');
+    expect(defaultLayout.recipientColSpanClass).toBe('col-span-6 print:col-span-6');
+    expect(defaultLayout.offerColSpanClass).toBe('col-span-6 print:col-span-6');
+    expect(defaultLayout.recipientStyle).toBe('framed');
+    expect(defaultLayout.offerStyle).toBe('framed');
+    expect(defaultLayout.recipientCardClassName.includes('border-slate-200 bg-slate-50/50')).toBe(true);
+    expect(defaultLayout.recipientCardClassName.includes('rounded-lg')).toBe(true);
+
+    // 2. Setting Submitted To to 100% leaves Commercial Offer at 50% independently!
+    const independentWidthLayout = resolveTopCardsLayout(
+      { recipientCardWidth: '100', offerCardWidth: '50' },
+      'framed',
+      'rounded',
+      'recipient_first'
+    );
+    expect(independentWidthLayout.recipientWidth).toBe('100');
+    expect(independentWidthLayout.recipientColSpanClass).toBe('col-span-12 print:col-span-12');
+    expect(independentWidthLayout.offerWidth).toBe('50');
+    expect(independentWidthLayout.offerColSpanClass).toBe('col-span-6 print:col-span-6');
+
+    // 3. Global Minimal + Sharp synchronizes both cards unless overridden per-card
+    const minimalSharpLayout = resolveTopCardsLayout({}, 'minimal', 'sharp', 'offer_first');
+    expect(minimalSharpLayout.recipientStyle).toBe('minimal');
+    expect(minimalSharpLayout.offerStyle).toBe('minimal');
+    expect(minimalSharpLayout.recipientRadius).toBe('sharp');
+    expect(minimalSharpLayout.offerRadius).toBe('sharp');
+    expect(minimalSharpLayout.recipientCardClassName.includes('border-transparent bg-transparent')).toBe(true);
+    expect(minimalSharpLayout.recipientCardClassName.includes('rounded-none')).toBe(true);
+    expect(minimalSharpLayout.cardsOrder).toBe('offer_first');
+  });
+
+  it('16b. Persisting and cloning company_seal_url, signature_image_url, and show_title_on_annex across presets and revisions (R1 -> R2)', () => {
+    const sampleSealDataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA';
+    const sampleSigDataUri = 'data:image/png;base64,R0lGODlhAQABAIAAAAAAAP///yH5';
+
+    // 1. Preset snapshot serialization & hydration
+    const presetInput = QuotationRepository.serializePresetSnapshot({
+      workspace_id: 'ws_16',
+      workspaceId: 'ws_16',
+      preset_name: 'Seal & Signature Preset',
+      visible_columns: { brand: true, model: true, origin: true, availability: true, unit_price: true },
+      default_tax_mode: 'taxes_extra',
+      default_price_basis: 'Ex-Works',
+      default_payment_terms: '100% Advance',
+      default_validity_days: 30,
+      signatory_mode: 'single',
+      company_seal_url: sampleSealDataUri,
+      signature_image_url: sampleSigDataUri,
+      flyer_attachments: [
+        {
+          id: 'att_wa',
+          name: 'WhatsApp Image 2026-04-17 at 20.55.57',
+          url: 'https://example.com/wa.jpg',
+          type: 'image',
+          render_as_annex_page: true
+        },
+        {
+          id: 'att_spec',
+          name: 'Pump Performance Curve',
+          url: 'https://example.com/curve.png',
+          type: 'image',
+          render_as_annex_page: true,
+          show_title_on_annex: true
+        }
+      ]
+    });
+
+    const hydratedPreset = QuotationRepository.hydrateFromPresetSnapshot(presetInput);
+    expect(hydratedPreset.companySealUrl).toBe(sampleSealDataUri);
+    expect(hydratedPreset.signatureImageUrl).toBe(sampleSigDataUri);
+    // WhatsApp generic filename auto-defaults show_title_on_annex to false!
+    expect(hydratedPreset.flyerAttachments[0].show_title_on_annex).toBe(false);
+    expect(hydratedPreset.flyerAttachments[1].show_title_on_annex).toBe(true);
+
+    // 2. Revision cloning (R1 -> R2) preserves company_seal_url, signature_image_url, and show_title_on_annex
+    const r1Quote: Quotation = {
+      id: 'q_seal_r1',
+      workspace_id: 'ws_16',
+      workspaceId: 'ws_16',
+      enquiry_id: 'enq_16',
+      quote_number: 'QT-2026-0116',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0116-R1',
+      status: 'Sent',
+      client_snapshot: { entity_name: 'Gulf Water Authority' },
+      sender_snapshot: { entity_name: 'FlowTech LLC' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 5000,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 250,
+      grand_total: 5250,
+      company_seal_url: sampleSealDataUri,
+      signature_image_url: sampleSigDataUri,
+      flyer_attachments: [
+        {
+          id: 'att_1',
+          name: 'Custom Flyer Title',
+          url: 'https://example.com/flyer.png',
+          type: 'image',
+          render_as_annex_page: true,
+          show_title_on_annex: false
+        }
+      ],
+      created_at: '2026-10-25T00:00:00.000Z'
+    };
+
+    const r2Quote = QuotationRepository.cloneQuotationAsNextRevision(r1Quote);
+    expect(r2Quote.revision_number).toBe(2);
+    expect(r2Quote.company_seal_url).toBe(sampleSealDataUri);
+    expect(r2Quote.signature_image_url).toBe(sampleSigDataUri);
+    expect(r2Quote.flyer_attachments?.[0]?.show_title_on_annex).toBe(false);
+
+    const hydratedState = QuotationRepository.hydrateStudioStateFromQuotation(r2Quote);
+    expect(hydratedState.companySealUrl).toBe(sampleSealDataUri);
+    expect(hydratedState.signatureImageUrl).toBe(sampleSigDataUri);
+    expect(hydratedState.flyerAttachments[0].show_title_on_annex).toBe(false);
+  });
+
+  it('16c. Annex header title suppression when show_title_on_annex is false or when filename is a generic camera/WhatsApp string', () => {
+    const attachments: Attachment[] = [
+      {
+        id: 'a1',
+        name: 'WhatsApp Image 2026-04-17 at 20.55.57',
+        url: 'https://example.com/wa1.jpg',
+        type: 'image',
+        render_as_annex_page: true
+        // show_title_on_annex omitted -> auto-detected as false due to WhatsApp filename
+      },
+      {
+        id: 'a2',
+        name: 'Grundfos CR32 Technical Datasheet',
+        url: 'https://example.com/cr32.png',
+        type: 'image',
+        render_as_annex_page: true,
+        show_title_on_annex: false // explicitly hidden by user
+      },
+      {
+        id: 'a3',
+        name: 'Grundfos CR32 Dimensional Drawing',
+        url: 'https://example.com/cr32_dim.png',
+        type: 'image',
+        render_as_annex_page: true,
+        show_title_on_annex: true // explicitly shown
+      }
+    ];
+
+    expect(resolveAnnexHeaderTitle(attachments[0], 1)).toBe('TECHNICAL ANNEX 1');
+    expect(resolveAnnexHeaderTitle(attachments[1], 2)).toBe('TECHNICAL ANNEX 2');
+    expect(resolveAnnexHeaderTitle(attachments[2], 3)).toBe(
+      'TECHNICAL ANNEX 3: Grundfos CR32 Dimensional Drawing'
+    );
+
+    const pagination = resolveDocumentPaginationWithAnnexes(
+      DEFAULT_QUOTATION_BLOCKS,
+      [],
+      attachments,
+      true
+    );
+    expect(pagination.annexSheets.length).toBe(3);
+    expect(pagination.annexSheets[0].headerTitle).toBe('TECHNICAL ANNEX 1');
+    expect(pagination.annexSheets[1].headerTitle).toBe('TECHNICAL ANNEX 2');
+    expect(pagination.annexSheets[2].headerTitle).toBe(
+      'TECHNICAL ANNEX 3: Grundfos CR32 Dimensional Drawing'
+    );
   });
 });
 

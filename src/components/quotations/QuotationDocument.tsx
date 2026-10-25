@@ -296,6 +296,86 @@ export interface QuotationSubmittalIndexEntry {
   badgeLabel: string;
 }
 
+export interface ResolvedTopCardsLayout {
+  recipientStyle: 'framed' | 'minimal';
+  recipientWidth: '50' | '100';
+  recipientRadius: 'rounded' | 'sharp';
+  recipientColSpanClass: 'col-span-6 print:col-span-6' | 'col-span-12 print:col-span-12';
+  recipientCardClassName: string;
+  offerStyle: 'framed' | 'minimal';
+  offerWidth: '50' | '100';
+  offerRadius: 'rounded' | 'sharp';
+  offerColSpanClass: 'col-span-6 print:col-span-6' | 'col-span-12 print:col-span-12';
+  offerCardClassName: string;
+  cardsOrder: 'recipient_first' | 'offer_first';
+}
+
+export function resolveTopCardsLayout(
+  recipientConfig?: QuotationRecipientConfig,
+  globalBlockStyle: 'framed' | 'minimal' = 'framed',
+  globalCardRadius: 'rounded' | 'sharp' = 'rounded',
+  cardsOrder: 'recipient_first' | 'offer_first' = 'recipient_first'
+): ResolvedTopCardsLayout {
+  const cfg = recipientConfig || {};
+  const recipientStyle: 'framed' | 'minimal' =
+    cfg.recipientCardStyle || cfg.style || globalBlockStyle || 'framed';
+  const offerStyle: 'framed' | 'minimal' =
+    cfg.offerCardStyle || cfg.style || globalBlockStyle || 'framed';
+
+  const recipientWidth: '50' | '100' = cfg.recipientCardWidth || '50';
+  const offerWidth: '50' | '100' = cfg.offerCardWidth || '50';
+
+  const recipientRadius: 'rounded' | 'sharp' =
+    cfg.recipientCardRadius || cfg.globalCardRadius || globalCardRadius || 'rounded';
+  const offerRadius: 'rounded' | 'sharp' =
+    cfg.offerCardRadius || cfg.globalCardRadius || globalCardRadius || 'rounded';
+
+  const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
+    const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
+    const frameClass =
+      style === 'minimal'
+        ? 'border border-transparent bg-transparent print:bg-transparent print:border-transparent'
+        : 'border border-slate-200 bg-slate-50/50 print:bg-transparent print:border-slate-300';
+    return `${frameClass} ${radiusClass} p-3 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid`;
+  };
+
+  return {
+    recipientStyle,
+    recipientWidth,
+    recipientRadius,
+    recipientColSpanClass:
+      recipientWidth === '100' ? 'col-span-12 print:col-span-12' : 'col-span-6 print:col-span-6',
+    recipientCardClassName: getCardClasses(recipientStyle, recipientRadius),
+    offerStyle,
+    offerWidth,
+    offerRadius,
+    offerColSpanClass:
+      offerWidth === '100' ? 'col-span-12 print:col-span-12' : 'col-span-6 print:col-span-6',
+    offerCardClassName: getCardClasses(offerStyle, offerRadius),
+    cardsOrder: cfg.cardsOrder || cardsOrder || 'recipient_first'
+  };
+}
+
+export function isGenericAnnexFilename(name?: string | null): boolean {
+  if (!name || !name.trim()) return true;
+  const cleaned = name.trim().replace(/\.[^/.]+$/, '');
+  return /^(whatsapp\s*(image|video|doc|audio)?|img[-_\s]|dsc[-_\s]|pxl[-_\s]|screenshot|screen\s*shot|photo[-_\s]?|image[-_\s]?\d*|dcim|vid[-_\s])/i.test(
+    cleaned
+  );
+}
+
+export function resolveAnnexHeaderTitle(att: Attachment, annexNumber: number): string {
+  const showTitle =
+    typeof att.show_title_on_annex === 'boolean'
+      ? att.show_title_on_annex
+      : !isGenericAnnexFilename(att.name);
+  const cleanName = (att.name || '').trim();
+  if (!showTitle || !cleanName) {
+    return `TECHNICAL ANNEX ${annexNumber}`;
+  }
+  return `TECHNICAL ANNEX ${annexNumber}: ${cleanName}`;
+}
+
 export function resolveDocumentPaginationWithAnnexes(
   blocks: QuotationBlockConfig[],
   lineItems?: QuotationLineItem[],
@@ -335,7 +415,7 @@ export function resolveDocumentPaginationWithAnnexes(
         annexNumber,
         sheetNumber,
         totalDocumentPages,
-        headerTitle: `TECHNICAL ANNEX ${annexNumber}: ${att.name}`,
+        headerTitle: resolveAnnexHeaderTitle(att, annexNumber),
         pageLabel: `Page ${sheetNumber} of ${totalDocumentPages}`,
         attachment: att,
         isLastDocumentSheet: isLastAnnex
@@ -1091,7 +1171,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // Reusable micro-footer watermark helper
   const renderFooter = (pageNumber: number, totalPages: number) => (
     <footer
-      className={`document-print-footer mt-auto pt-2 border-t border-slate-200 text-xs break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative group transition-all duration-150 rounded-lg quotation-structural-section ${
+      className={`document-print-footer quotation-page-footer mt-auto pt-2 border-t border-slate-200 bg-white text-xs break-inside-avoid page-break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative z-10 group transition-all duration-150 rounded-lg quotation-structural-section ${
         isInteractive ? 'cursor-pointer' : ''
       } ${
         isFooterSelected
@@ -1105,7 +1185,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         onSelectSection?.('footer');
         onSelectBlock?.('footer' as any);
       } : undefined}
-      style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        marginTop: 'auto',
+        position: 'relative',
+        zIndex: 1,
+        backgroundColor: '#ffffff',
+        paddingTop: '2mm',
+        breakInside: 'avoid',
+        pageBreakInside: 'avoid'
+      }}
     >
       {isInteractive && (
         <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
@@ -1467,6 +1557,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       </div>
     );
 
+    const resolvedCompanySealUrl =
+      quotation.company_seal_url ||
+      (quotation as any).companySettings?.company_seal_url ||
+      profile?.stamp_seal_url ||
+      '';
+
     const renderSignatoryBlock = () => (
       <div className="signatory-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div className={`flex items-center ${footerLayoutMode === 'seller_only' ? 'justify-between' : 'justify-end'} gap-5 w-full`}>
@@ -1484,11 +1580,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             {/* Official Stamp / Seal */}
             {resolvedShowCompanySeal && (
               <div className="company-seal-box flex flex-col items-center">
-                {profile?.stamp_seal_url ? (
+                {resolvedCompanySealUrl ? (
                   <img
-                    src={profile.stamp_seal_url}
-                    alt="Official Seal"
-                    className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                    src={resolvedCompanySealUrl}
+                    alt="Company Seal"
+                    className="max-h-16 max-w-[110px] object-contain mx-auto opacity-95 mix-blend-multiply"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                     }}
@@ -1508,32 +1604,38 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
             {/* Signatories Rendering */}
             <div className="flex gap-4 justify-end">
-              {resolvedSignatories.map((sig, sIdx) => (
-                <div key={sIdx} className="text-center min-w-[120px]">
-                  <div className="h-10 flex items-end justify-center mb-1">
-                    {signatureStyle === 'image' && sig.signature_url ? (
-                      <img
-                        src={sig.signature_url}
-                        alt={sig.name}
-                        className="max-h-10 object-contain"
-                      />
-                    ) : signatureStyle === 'script' ? (
-                      <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                        {sig.name}
-                      </span>
-                    ) : signatureStyle === 'image' ? (
-                      <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                        Digital Signature
-                      </div>
-                    ) : (
-                      <div className="h-4" />
-                    )}
+              {resolvedSignatories.map((sig, sIdx) => {
+                const resolvedSignatureImgUrl =
+                  (sIdx === 0 ? quotation.signature_image_url : undefined) ||
+                  sig.signature_url ||
+                  '';
+                return (
+                  <div key={sIdx} className="text-center min-w-[120px]">
+                    <div className="h-12 flex items-end justify-center mb-1">
+                      {signatureStyle === 'image' && resolvedSignatureImgUrl ? (
+                        <img
+                          src={resolvedSignatureImgUrl}
+                          alt="Authorized Signature"
+                          className="max-h-12 object-contain mx-auto"
+                        />
+                      ) : signatureStyle === 'script' ? (
+                        <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
+                          {sig.name}
+                        </span>
+                      ) : signatureStyle === 'image' ? (
+                        <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+                          Digital Signature
+                        </div>
+                      ) : (
+                        <div className="h-4" />
+                      )}
+                    </div>
+                    <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
+                    <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
+                    <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
                   </div>
-                  <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                  <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">{sig.name}</p>
-                  <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">{sig.title}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1640,6 +1742,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             const isSelected = activeSelectedSection === b.id;
             const isInteractive = Boolean(onSelectSection || onSelectBlock);
             const spacerMeta = resolveSpacerPresentation(b);
+            const showGuides = isInteractive && showPageBreakGuides !== false;
             return (
               <div
                 key={b.id}
@@ -1648,8 +1751,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   height: spacerMeta.heightStyle
                 }}
                 className={`quotation-spacer-block ${spacerMeta.className} ${
-                  isInteractive
+                  showGuides
                     ? 'cursor-pointer rounded-lg border border-dashed border-slate-200/80 hover:border-blue-400 hover:bg-blue-50/30 print:border-none print:bg-transparent transition-all relative group'
+                    : isInteractive
+                    ? 'cursor-pointer relative group'
                     : ''
                 } ${
                   isSelected
@@ -1657,7 +1762,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     : ''
                 }`}
               >
-                {isInteractive && (
+                {showGuides && (
                   <div
                     className={`quotation-canvas-guide absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity print:hidden ${
                       isSelected ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
@@ -1842,31 +1947,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       resolvedRecipientConfig.subjectPlacement ||
       'below_cards';
 
-    const recStyle = resolvedRecipientConfig.recipientCardStyle || resolvedRecipientConfig.style || 'framed';
-    const recWidth = resolvedRecipientConfig.recipientCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-    const recRadius = resolvedRecipientConfig.recipientCardRadius || resolvedGlobalRadius;
-
-    const offerStyle = resolvedRecipientConfig.offerCardStyle || resolvedRecipientConfig.style || 'framed';
-    const offerWidth = resolvedRecipientConfig.offerCardWidth || (resolvedRecipientConfig.layout === 'stacked' ? '100' : '50');
-    const offerRadius = resolvedRecipientConfig.offerCardRadius || resolvedGlobalRadius;
-
-    const isStacked = recWidth === '100' || offerWidth === '100' || resolvedRecipientConfig.layout === 'stacked';
+    const topCardsLayout = resolveTopCardsLayout(
+      resolvedRecipientConfig,
+      resolvedBlockStyle,
+      resolvedGlobalRadius,
+      resolvedCardsOrder
+    );
 
     const showAttention = resolvedRecipientConfig.showAttention !== false;
     const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
     const showValidity = resolvedRecipientConfig.showValidity !== false;
     const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
 
-    const getCardClasses = (style: 'framed' | 'minimal', radius: 'rounded' | 'sharp') => {
-      const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
-      if (style === 'framed') {
-        return `border border-slate-200 ${radiusClass} p-3.5 bg-slate-50/40 print:bg-transparent print:border-slate-300 h-full flex flex-col justify-between`;
-      }
-      return `border-b border-slate-200 ${radiusClass} pb-2 bg-transparent h-full flex flex-col justify-between`;
-    };
-
-    const recipientCardBase = getCardClasses(recStyle, recRadius);
-    const offerCardBase = getCardClasses(offerStyle, offerRadius);
+    const recipientCardBase = topCardsLayout.recipientCardClassName;
+    const offerCardBase = topCardsLayout.offerCardClassName;
 
     const renderSubjectBanner = () => {
       if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
@@ -2212,22 +2306,26 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
         {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
         <div
-          className={`w-full mb-4 quotation-client-offer-grid break-inside-avoid print:mb-4 ${
-            isStacked
-              ? 'flex flex-col gap-3 print:flex print:flex-col print:gap-3'
-              : 'grid grid-cols-2 gap-4 print:grid print:grid-cols-2 print:gap-4'
-          }`}
+          className="w-full mb-4 quotation-client-offer-grid grid grid-cols-12 gap-3 print:grid print:grid-cols-12 print:gap-3 break-inside-avoid page-break-inside-avoid print:mb-4"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          {resolvedCardsOrder === 'offer_first' ? (
+          {topCardsLayout.cardsOrder === 'offer_first' ? (
             <>
-              {renderOfferCard()}
-              {renderRecipientCard()}
+              <div className={`${topCardsLayout.offerColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
+                {renderOfferCard()}
+              </div>
+              <div className={`${topCardsLayout.recipientColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
+                {renderRecipientCard()}
+              </div>
             </>
           ) : (
             <>
-              {renderRecipientCard()}
-              {renderOfferCard()}
+              <div className={`${topCardsLayout.recipientColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
+                {renderRecipientCard()}
+              </div>
+              <div className={`${topCardsLayout.offerColSpanClass} flex flex-col break-inside-avoid page-break-inside-avoid`}>
+                {renderOfferCard()}
+              </div>
             </>
           )}
         </div>
@@ -2322,14 +2420,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 )}
                 {showUnitPrice && (
                   <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right whitespace-nowrap`}
+                    className={`${thPad} pl-2 pr-3.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 border-r border-slate-200 last:border-r-0 text-right whitespace-nowrap`}
+                    style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
                   >
                     Unit Price
                   </th>
                 )}
                 {showLineTotal && (
                   <th
-                    className={`${thPad} px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right whitespace-nowrap`}
+                    className={`${thPad} pl-3 pr-4 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 text-right whitespace-nowrap`}
+                    style={{ paddingRight: '16px' }}
                   >
                     Total ({currency})
                   </th>
@@ -2484,7 +2584,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           </td>
                         )}
                         {showUnitPrice && (
-                          <td className={`${tdPad} px-2 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                          <td
+                            className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                            style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                          >
                             {Number(item.unit_price || 0).toLocaleString('en-US', {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2
@@ -2492,7 +2595,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           </td>
                         )}
                         {showLineTotal && (
-                          <td className={`${tdPad} px-2.5 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}>
+                          <td
+                            className={`${tdPad} pl-3 pr-4 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                            style={{ paddingRight: '16px' }}
+                          >
                             {item.is_optional ? (
                               <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
                                 [Excluded]
@@ -2635,12 +2741,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
-          .document-print-footer {
-            position: static !important;
+          .document-print-footer,
+          .quotation-page-footer {
+            position: relative !important;
+            z-index: 1 !important;
             width: 100% !important;
-            background: transparent !important;
-            padding-top: 6px !important;
-            padding-bottom: 2px !important;
+            background: #ffffff !important;
+            padding-top: 2mm !important;
+            padding-bottom: 1mm !important;
             border-top: 1px solid #e2e8f0 !important;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
@@ -2700,93 +2808,110 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         const isVeryLastDocumentSheet = isLastMainSheet && annexSheets.length === 0;
         const isContinuation = !isFirst;
         const isBreakSelected = Boolean(sheet.pageBreakBlock && activeSelectedSection === sheet.pageBreakBlock.id);
+        const sheetKey = sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`;
 
         return (
-          <article
-            key={sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`}
-            ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
-            className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
-              isVeryLastDocumentSheet
-                ? 'quotation-last-sheet print:break-after-avoid'
-                : 'print:break-after-page'
-            } print:min-h-[297mm]`}
-            style={{ boxSizing: 'border-box' }}
-          >
-            {/* Top Accent Stripe */}
-            <div
-              className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-              style={{ backgroundColor: accentColor }}
-            />
-
-            {/* Interactive Page Break Badge on Continuation Sheets (Screen Only) */}
-            {isContinuation && isInteractive && (sheet.pageBreakBlock || sheet.isTableContinuationSheet) && (
-              <div
-                onClick={() => {
-                  if (sheet.pageBreakBlock) {
-                    onSelectSection
-                      ? onSelectSection(sheet.pageBreakBlock.id)
-                      : onSelectBlock?.(sheet.pageBreakBlock.id);
-                  } else {
-                    onSelectSection
-                      ? onSelectSection('items_table')
-                      : onSelectBlock?.('items_table');
-                  }
-                }}
-                className={`quotation-canvas-guide mb-2 px-2.5 py-1 rounded-md border border-dashed flex items-center justify-between text-[10px] font-mono cursor-pointer transition print:hidden ${
-                  isBreakSelected || (sheet.isTableContinuationSheet && isTableSelected)
-                    ? 'bg-amber-100/90 border-amber-400 text-amber-900 ring-2 ring-amber-400/50'
-                    : 'bg-amber-50/60 hover:bg-amber-100/60 border-amber-300 text-amber-800'
-                }`}
-              >
-                <span>
-                  {sheet.isTableContinuationSheet
-                    ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`
-                    : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`}
-                </span>
-                <span className="text-[9px] underline">
-                  {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
-                </span>
-              </div>
-            )}
-
-            {/* Page Body Content */}
-            <div className={`flex-1 flex flex-col justify-start w-full ${isContinuation ? 'pt-[4mm]' : ''}`}>
-              {isFirst ? (
-                <>
-                  {renderTopSection()}
-                  {sheet.tableChunk &&
-                    renderItemsTable(
-                      sheet.tableChunk.items,
-                      sheet.tableChunk.startIndex,
-                      rawLineItems.length === 0,
-                      false
-                    )}
-                </>
-              ) : (
-                <>
-                  {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
-                    <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
-                      {renderCompactRunningHeader(sheet.sheetNumber, totalDocumentPages)}
-                    </div>
-                  )}
-                  {sheet.tableChunk &&
-                    sheet.tableChunk.items.length > 0 &&
-                    renderItemsTable(
-                      sheet.tableChunk.items,
-                      sheet.tableChunk.startIndex,
-                      false,
-                      true
-                    )}
-                </>
+          <React.Fragment key={sheetKey}>
+            {/* Interactive Page Break Studio Divider Rendered in Gray Workspace Gap OUTSIDE White A4 Sheet */}
+            {isContinuation &&
+              isInteractive &&
+              showPageBreakGuides !== false &&
+              (sheet.pageBreakBlock || sheet.isTableContinuationSheet) && (
+                <div
+                  onClick={() => {
+                    if (sheet.pageBreakBlock) {
+                      onSelectSection
+                        ? onSelectSection(sheet.pageBreakBlock.id)
+                        : onSelectBlock?.(sheet.pageBreakBlock.id);
+                    } else {
+                      onSelectSection
+                        ? onSelectSection('items_table')
+                        : onSelectBlock?.('items_table');
+                    }
+                  }}
+                  className={`quotation-canvas-guide w-[210mm] max-w-[210mm] -mt-4 mb-4 px-3.5 py-1.5 rounded-xl border border-dashed flex items-center justify-between text-[10.5px] font-mono cursor-pointer transition shadow-xs print:hidden ${
+                    isBreakSelected || (sheet.isTableContinuationSheet && isTableSelected)
+                      ? 'bg-amber-100 border-amber-500 text-amber-950 ring-2 ring-amber-400/60'
+                      : 'bg-amber-50/95 hover:bg-amber-100/90 border-amber-400 text-amber-900'
+                  }`}
+                >
+                  <span className="font-semibold flex items-center gap-1.5">
+                    {sheet.isTableContinuationSheet
+                      ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`
+                      : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`}
+                  </span>
+                  <span className="text-[9.5px] font-bold underline">
+                    {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
+                  </span>
+                </div>
               )}
 
-              {renderBlocksGrid(sheet.blocks)}
-              {isLastMainSheet && renderSubmittalsIndex()}
-            </div>
+            <article
+              ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
+              className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
+                isVeryLastDocumentSheet
+                  ? 'quotation-last-sheet print:break-after-avoid'
+                  : 'print:break-after-page'
+              } print:min-h-[297mm]`}
+              style={{ boxSizing: 'border-box' }}
+            >
+              {/* Top Accent Stripe */}
+              <div
+                className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+                style={{ backgroundColor: accentColor }}
+              />
 
-            {/* Sheet Micro-Footer: Locked to bottom of Sheet */}
-            {renderFooter(sheetIdx + 1, totalDocumentPages)}
-          </article>
+              {/* Subtle Non-Printing 297mm A4 Height Limit Boundary Guide Line */}
+              {showPageBreakGuides !== false && (
+                <div
+                  className="quotation-canvas-guide pointer-events-none absolute left-0 right-0 top-[297mm] border-t-2 border-dashed border-rose-400/80 z-30 print:hidden flex justify-end pr-3"
+                  aria-hidden="true"
+                >
+                  <span className="-mt-2.5 px-2 py-0.5 rounded-full bg-rose-600/95 text-white text-[8.5px] font-mono font-semibold shadow-xs">
+                    ⚠️ 297mm A4 Page Boundary — Add a Page Break or reduce Spacer height to prevent extra print page
+                  </span>
+                </div>
+              )}
+
+              {/* Page Body Content */}
+              <div className="flex-1 flex flex-col justify-start w-full">
+                {isFirst ? (
+                  <>
+                    {renderTopSection()}
+                    {sheet.tableChunk &&
+                      renderItemsTable(
+                        sheet.tableChunk.items,
+                        sheet.tableChunk.startIndex,
+                        rawLineItems.length === 0,
+                        false
+                      )}
+                  </>
+                ) : (
+                  <>
+                    {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
+                      <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
+                        {renderCompactRunningHeader(sheet.sheetNumber, totalDocumentPages)}
+                      </div>
+                    )}
+                    {sheet.tableChunk &&
+                      sheet.tableChunk.items.length > 0 &&
+                      renderItemsTable(
+                        sheet.tableChunk.items,
+                        sheet.tableChunk.startIndex,
+                        false,
+                        true
+                      )}
+                  </>
+                )}
+
+                {renderBlocksGrid(sheet.blocks)}
+                {isLastMainSheet && renderSubmittalsIndex()}
+              </div>
+
+              {/* Sheet Micro-Footer: Strictly in Document Flex Flow */}
+              {renderFooter(sheetIdx + 1, totalDocumentPages)}
+            </article>
+          </React.Fragment>
         );
       })}
 
@@ -2797,6 +2922,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         const annexPageNumber = sheetPartitions.length + annexIdx + 1;
         const isLastAnnexSheet = annexIdx === annexSheetAttachments.length - 1;
         const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
+        const annexHeaderTitle = resolveAnnexHeaderTitle(att, annexIdx + 1);
 
         return (
           <article
@@ -2815,7 +2941,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             />
 
             {/* Continuation Running Header for Technical Annex */}
-            <div className="pt-[4mm] w-full">
+            <div className="w-full">
               <div
                 className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
                 style={{ height: '26px' }}
@@ -2827,7 +2953,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   className="text-[9px] print:text-[8px] font-bold uppercase tracking-wide truncate max-w-[45%] text-center px-2"
                   style={{ color: accentColor }}
                 >
-                  TECHNICAL ANNEX {annexIdx + 1}: {att.name}
+                  {annexHeaderTitle}
                 </div>
                 <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
                   {quoteRef} • Page {annexPageNumber} of {totalDocumentPages}
@@ -2839,7 +2965,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
               <img
                 src={att.url}
-                alt={att.name}
+                alt={att.name || `Technical Annex ${annexIdx + 1}`}
                 className="max-h-[235mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
               />
             </div>
