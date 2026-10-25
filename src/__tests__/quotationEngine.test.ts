@@ -23,6 +23,8 @@ import {
   resolveTableColumnLayout,
   resolveSpacerPresentation,
   resolveDocumentPaginationWithAnnexes,
+  resolveModularLayoutBlocks,
+  toggleBlockVisibilityInList,
   amountInWordsAED,
   DEFAULT_QUOTATION_BLOCKS
 } from '../components/quotations/QuotationDocument';
@@ -1796,6 +1798,106 @@ describe('Suite 14: Principal Audit Hardening & Edge-Case Verification', () => {
   });
 });
 
+// ============================================================================
+// SUITE 15: MODULAR BLOCK PLACEMENT FIDELITY, SINGLE-SOURCE VISIBILITY SYNC
+//           & COMPANY SEAL DECOUPLING
+// ============================================================================
+
+describe('Suite 15: Modular Block Placement Fidelity, Single-Source Visibility Sync & Company Seal Decoupling', () => {
+  it('15a. Modular block placement is respected regardless of legacy footerLayoutMode (signatory & acceptance preserve left/right/full placement and enabled state)', () => {
+    const customBlocks: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true, is_visible: true, placement: 'left' },
+      { id: 'totals', type: 'totals', enabled: true, is_visible: true, placement: 'right' },
+      { id: 'remittance', type: 'remittance', enabled: true, is_visible: true, placement: 'full' },
+      { id: 'signatory', type: 'signatory', enabled: true, is_visible: true, placement: 'full' },
+      { id: 'acceptance', type: 'acceptance', enabled: true, is_visible: true, placement: 'right' }
+    ];
+
+    // Even if legacy footerConfig has footerLayoutMode: 'split' or 'seller_only',
+    // resolveModularLayoutBlocks must honor each block's own placement & enabled state.
+    const resolvedWithSplit = resolveModularLayoutBlocks(customBlocks, 'framed', {
+      hasExplicitLayoutBlocks: true,
+      showBankRemittance: true,
+      showSignatories: true,
+      showCustomerAcceptance: true
+    });
+
+    const sigBlock = resolvedWithSplit.find((b) => b.id === 'signatory')!;
+    const accBlock = resolvedWithSplit.find((b) => b.id === 'acceptance')!;
+    expect(sigBlock.placement).toBe('full');
+    expect(accBlock.placement).toBe('right');
+    expect(accBlock.enabled).toBe(true);
+
+    // Also test when signatory is 'left' and acceptance is 'full'
+    const customBlocks2: QuotationBlockConfig[] = [
+      { id: 'signatory', type: 'signatory', enabled: true, is_visible: true, placement: 'left' },
+      { id: 'acceptance', type: 'acceptance', enabled: true, is_visible: true, placement: 'full' }
+    ];
+    const resolved2 = resolveModularLayoutBlocks(customBlocks2, 'minimal', {
+      hasExplicitLayoutBlocks: true,
+      showSignatories: true,
+      showCustomerAcceptance: true
+    });
+    expect(resolved2[0].placement).toBe('left');
+    expect(resolved2[1].placement).toBe('full');
+    expect(resolved2[1].enabled).toBe(true);
+  });
+
+  it('15b. Toggling block visibility updates both enabled and is_visible in lockstep while keeping the block in layoutBlocks so the Block Inspector stays open', () => {
+    const initialBlocks: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true, is_visible: true, placement: 'left' },
+      { id: 'remittance', type: 'remittance', enabled: true, is_visible: true, placement: 'full' },
+      { id: 'signatory', type: 'signatory', enabled: true, is_visible: true, placement: 'left' },
+      { id: 'acceptance', type: 'acceptance', enabled: true, is_visible: true, placement: 'right' }
+    ];
+
+    // Toggle 'remittance' off
+    const afterOff = toggleBlockVisibilityInList(initialBlocks, 'remittance', false);
+    const remOff = afterOff.find((b) => b.id === 'remittance')!;
+    expect(Boolean(remOff)).toBe(true); // Block remains in array so selectedBlock Inspector does not close
+    expect(remOff.enabled).toBe(false);
+    expect(remOff.is_visible).toBe(false);
+
+    // Other blocks remain untouched
+    expect(afterOff.find((b) => b.id === 'signatory')!.enabled).toBe(true);
+    expect(afterOff.find((b) => b.id === 'acceptance')!.enabled).toBe(true);
+
+    // Toggle 'remittance' back on
+    const afterOn = toggleBlockVisibilityInList(afterOff, 'remittance', true);
+    const remOn = afterOn.find((b) => b.id === 'remittance')!;
+    expect(remOn.enabled).toBe(true);
+    expect(remOn.is_visible).toBe(true);
+  });
+
+  it('15c. Decoupled showCompanySeal: setting showCompanySeal to false leaves signatory block enabled/visible while toggling signatory block does not overwrite showCompanySeal', () => {
+    let showCompanySeal = true;
+    let blocks: QuotationBlockConfig[] = [
+      { id: 'signatory', type: 'signatory', enabled: true, is_visible: true, placement: 'left' },
+      { id: 'acceptance', type: 'acceptance', enabled: true, is_visible: true, placement: 'right' }
+    ];
+
+    // 1. User unchecks "Show Company Seal Placeholder" inside Signatory Inspector -> signatory block remains enabled
+    showCompanySeal = false;
+    const resolvedWhenSealFalse = resolveModularLayoutBlocks(blocks, 'framed', {
+      hasExplicitLayoutBlocks: true,
+      showSignatories: true,
+      showCustomerAcceptance: true
+    });
+    const sigWhenSealFalse = resolvedWhenSealFalse.find((b) => b.id === 'signatory')!;
+    expect(showCompanySeal).toBe(false);
+    expect(sigWhenSealFalse.enabled).toBe(true);
+    expect(sigWhenSealFalse.is_visible).toBe(true);
+
+    // 2. User toggles signatory block visibility off and back on -> showCompanySeal remains false (not overwritten)
+    blocks = toggleBlockVisibilityInList(blocks, 'signatory', false);
+    expect(blocks.find((b) => b.id === 'signatory')!.enabled).toBe(false);
+    expect(showCompanySeal).toBe(false);
+
+    blocks = toggleBlockVisibilityInList(blocks, 'signatory', true);
+    expect(blocks.find((b) => b.id === 'signatory')!.enabled).toBe(true);
+    expect(showCompanySeal).toBe(false);
+  });
+});
 
 // ==========================================
 // TEST REPORT SUMMARY

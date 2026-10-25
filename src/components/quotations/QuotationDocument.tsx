@@ -101,6 +101,24 @@ export const QUOTATION_THEMES: Record<
     badgeBg: 'bg-slate-700',
     tableHeaderBg: 'bg-slate-700',
     borderColor: '#334155'
+  },
+  amber: {
+    name: 'Industrial Amber',
+    primaryHex: '#b45309',
+    darkHex: '#92400e',
+    subtleBg: '#fffbeb',
+    badgeBg: 'bg-amber-700',
+    tableHeaderBg: 'bg-amber-700',
+    borderColor: '#b45309'
+  },
+  teal: {
+    name: 'Marine Teal',
+    primaryHex: '#0f766e',
+    darkHex: '#115e59',
+    subtleBg: '#f0fdfa',
+    badgeBg: 'bg-teal-700',
+    tableHeaderBg: 'bg-teal-700',
+    borderColor: '#0f766e'
   }
 };
 
@@ -419,6 +437,61 @@ export function resolveSpacerPresentation(block: QuotationBlockConfig): {
   };
 }
 
+export function toggleBlockVisibilityInList(
+  blocks: QuotationBlockConfig[],
+  id: QuotationBlockId,
+  enabled: boolean
+): QuotationBlockConfig[] {
+  return blocks.map((b) =>
+    b.id === id ? { ...b, enabled, is_visible: enabled } : b
+  );
+}
+
+export function resolveModularLayoutBlocks(
+  rawBlocks: QuotationBlockConfig[] = DEFAULT_QUOTATION_BLOCKS,
+  resolvedBlockStyle: 'framed' | 'minimal' = 'framed',
+  options?: {
+    hasExplicitLayoutBlocks?: boolean;
+    showBankRemittance?: boolean;
+    showSignatories?: boolean;
+    showCustomerAcceptance?: boolean;
+  }
+): QuotationBlockConfig[] {
+  return rawBlocks.map((b) => {
+    let enabled = b.enabled !== false && b.is_visible !== false;
+    const placement: 'left' | 'right' | 'full' = b.placement || 'full';
+
+    if (b.id === 'remittance' || b.type === 'remittance') {
+      if (options?.showBankRemittance === false) {
+        enabled = false;
+      }
+    } else if (
+      b.id === 'signatory' ||
+      b.id === 'signatories' ||
+      b.type === 'signatory' ||
+      b.type === 'signatories'
+    ) {
+      if (options?.showSignatories === false) {
+        enabled = false;
+      }
+    } else if (b.id === 'acceptance' || b.type === 'acceptance') {
+      if (options?.showCustomerAcceptance === false) {
+        enabled = false;
+      }
+    }
+
+    return {
+      ...b,
+      enabled,
+      is_visible: enabled,
+      placement,
+      style: b.style || resolvedBlockStyle,
+      fontScale: b.fontScale || 'standard',
+      padding: b.padding || 'standard'
+    };
+  });
+}
+
 export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   alignment: 'split',
   showPhone: true,
@@ -572,7 +645,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showSignatories =
     resolvedFooterConfig.showSignatories ??
     quotation.showSignatories ??
-    (showStampAndSignatures || quotation.show_company_seal || profile?.show_company_seal || true);
+    showStampAndSignatures ??
+    true;
 
   const footerLayoutMode: 'split' | 'stacked' | 'seller_only' =
     resolvedFooterConfig.footerLayoutMode ||
@@ -584,7 +658,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     return quotation.line_items || [];
   }, [quotation.line_items]);
 
-  // Resolve modular layout blocks
+  const hasExplicitLayoutBlocks = Boolean(
+    (layoutBlocks && layoutBlocks.length > 0) ||
+    (quotation.layout_blocks && quotation.layout_blocks.length > 0) ||
+    ((quotation as any).presentation_preset?.layout_blocks &&
+      (quotation as any).presentation_preset.layout_blocks.length > 0)
+  );
+
+  // Resolve modular layout blocks using each block's own placement & visibility directly
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
     const raw =
       layoutBlocks ||
@@ -592,53 +673,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       (quotation as any).presentation_preset?.layout_blocks ||
       DEFAULT_QUOTATION_BLOCKS;
 
-    return raw.map((b) => {
-      let enabled = b.enabled ?? b.is_visible ?? true;
-      let placement = b.placement || 'full';
-
-      if (b.id === 'remittance' || b.type === 'remittance') {
-        if (!showBankRemittance) {
-          enabled = false;
-        }
-      } else if (b.id === 'signatory' || b.id === 'signatories' || b.type === 'signatory' || b.type === 'signatories') {
-        if (!showSignatories) {
-          enabled = false;
-        } else if (footerLayoutMode === 'split') {
-          placement = 'left';
-        } else if (footerLayoutMode === 'stacked') {
-          placement = 'full';
-        } else if (footerLayoutMode === 'seller_only') {
-          placement = 'full';
-        }
-      } else if (b.id === 'acceptance' || b.type === 'acceptance') {
-        if (!showCustomerAcceptance || footerLayoutMode === 'seller_only') {
-          enabled = false;
-        } else if (footerLayoutMode === 'split') {
-          placement = 'right';
-        } else if (footerLayoutMode === 'stacked') {
-          placement = 'full';
-        }
-      }
-
-      return {
-        ...b,
-        enabled,
-        is_visible: enabled,
-        placement,
-        style: b.style || resolvedBlockStyle,
-        fontScale: b.fontScale || 'standard',
-        padding: b.padding || 'standard'
-      };
+    return resolveModularLayoutBlocks(raw, resolvedBlockStyle, {
+      hasExplicitLayoutBlocks,
+      showBankRemittance,
+      showSignatories,
+      showCustomerAcceptance
     });
   }, [
     layoutBlocks,
     quotation.layout_blocks,
     (quotation as any).presentation_preset?.layout_blocks,
     resolvedBlockStyle,
+    hasExplicitLayoutBlocks,
     showBankRemittance,
     showSignatories,
-    showCustomerAcceptance,
-    footerLayoutMode
+    showCustomerAcceptance
   ]);
 
   // Resolve theme accent
@@ -706,7 +755,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const resolvedShowCommercialTerms: boolean =
     quotation.show_commercial_terms ?? profile?.show_commercial_terms ?? true;
   const resolvedShowCompanySeal: boolean =
-    quotation.show_company_seal ?? profile?.show_company_seal ?? showStampAndSignatures;
+    quotation.show_company_seal ?? profile?.show_company_seal ?? true;
 
   const activeSelectedSection: StudioSelectedSection = selectedSection !== undefined ? selectedSection : (selectedBlockId as StudioSelectedSection);
   const isHeaderSelected = activeSelectedSection === 'header';
@@ -736,12 +785,23 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   };
 
 
-  // Table Density helpers
+  // Table Density & Typography helpers
   const isCompact = tableDensity === 'compact';
   const thPad = isCompact ? 'py-1.5' : 'py-2.5';
   const tdPad = isCompact ? 'py-1.5' : 'py-2.5';
-  const tableFontSize = typoScale.body;
-  const tableHeadingSize = typoScale.heading;
+  const explicitTableFont = propTableFontScale || quotation.table_font_scale;
+  const tableFontSize =
+    !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'compact'
+      ? 'text-[8.5px] print:text-[8px]'
+      : !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'prominent'
+      ? 'text-[10.5px] print:text-[10px]'
+      : typoScale.body;
+  const tableHeadingSize =
+    !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'compact'
+      ? 'text-[9.5px] print:text-[9px]'
+      : !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'prominent'
+      ? 'text-[11.5px] print:text-[11px]'
+      : typoScale.heading;
 
   const showAmountInWords =
     quotation.showAmountInWords ??
@@ -1095,10 +1155,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const paginationWithAnnexes = React.useMemo(() => {
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
-      if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
+      if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
         if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
         if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
       }
       return true;
@@ -1422,16 +1482,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           )}
           <div className="flex items-center gap-5 shrink-0">
             {/* Official Stamp / Seal */}
-            {resolvedShowCompanySeal && profile?.stamp_seal_url && (
-              <div className="flex flex-col items-center">
-                <img
-                  src={profile.stamp_seal_url}
-                  alt="Official Seal"
-                  className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+            {resolvedShowCompanySeal && (
+              <div className="company-seal-box flex flex-col items-center">
+                {profile?.stamp_seal_url ? (
+                  <img
+                    src={profile.stamp_seal_url}
+                    alt="Official Seal"
+                    className="h-16 w-16 object-contain opacity-90 mix-blend-multiply"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="company-seal-placeholder h-14 w-14 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                    <span className="text-[7.5px] font-mono uppercase tracking-wider text-slate-400 leading-tight">
+                      Official Seal
+                    </span>
+                  </div>
+                )}
                 <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
                   Company Seal
                 </span>
@@ -1533,10 +1601,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
-      if (!layoutBlocks && !quotation.layout_blocks && !(quotation as any).presentation_preset?.layout_blocks) {
+      if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
         if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures && !resolvedShowCompanySeal) return false;
+        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
         if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
       }
       return true;

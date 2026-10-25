@@ -964,7 +964,7 @@ export type QuotationTaxMode = 'tax_calculated' | 'taxes_extra' | 'tax_exempt';
 
 export type QuotationSignatoryMode = 'single' | 'dual' | 'stamp_only' | 'none';
 
-export type QuotationThemeAccent = 'navy' | 'emerald' | 'blue' | 'crimson' | 'slate';
+export type QuotationThemeAccent = 'navy' | 'emerald' | 'blue' | 'crimson' | 'slate' | 'amber' | 'teal';
 export type QuotationSignatureStyle = 'script' | 'line' | 'image';
 export type QuotationLogoPosition = 'left' | 'center' | 'right';
 export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact';

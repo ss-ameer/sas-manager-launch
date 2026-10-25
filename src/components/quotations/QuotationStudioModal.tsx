@@ -329,21 +329,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }));
   });
 
+  const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>('structure');
+  const [showPageBreakGuides, setShowPageBreakGuides] = useState<boolean>(true);
+
   const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
     setLayoutBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, enabled, is_visible: enabled } : b))
     );
-    // Inspector Selection Guard: Automatically close/deselect drawer if the toggled block was selected and is now hidden
-    if (!enabled && selectedSection === id) {
-      setSelectedSection(null);
-    }
     if (id === 'terms') setShowCommercialTerms(enabled);
     if (id === 'remittance') {
       setShowBankDetails(enabled);
       setFooterConfig((prev) => ({ ...prev, showBankRemittance: enabled }));
     }
     if (id === 'signatory') {
-      setShowCompanySeal(enabled);
+      // Decoupled from showCompanySeal: toggling signatory block visibility never overwrites showCompanySeal
       setFooterConfig((prev) => ({ ...prev, showSignatories: enabled }));
     }
     if (id === 'acceptance') {
@@ -456,54 +455,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     setFooterConfig((prev) => ({ ...prev, fontSizeScale: scale }));
   };
 
-  // Modular Closing Layout & Footer Card Handlers
-  const handleSetFooterLayoutMode = (mode: 'split' | 'stacked' | 'seller_only') => {
-    setFooterConfig((prev) => ({
-      ...prev,
-      footerLayoutMode: mode
-    }));
-    setLayoutBlocks((prev) =>
-      prev.map((b) => {
-        if (b.id === 'signatory') {
-          return {
-            ...b,
-            placement: mode === 'split' ? 'left' : 'full'
-          };
-        }
-        if (b.id === 'acceptance') {
-          return {
-            ...b,
-            placement: mode === 'split' ? 'right' : 'full',
-            enabled: mode === 'seller_only' ? false : (footerConfig.showCustomerAcceptance !== false)
-          };
-        }
-        return b;
-      })
-    );
-  };
-
+  // Canonical Block Visibility Delegators (Single Source of Truth)
   const handleToggleBankRemittance = (enabled: boolean) => {
-    setFooterConfig((prev) => ({ ...prev, showBankRemittance: enabled }));
-    setShowBankDetails(enabled);
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === 'remittance' ? { ...b, enabled } : b))
-    );
+    handleToggleBlockEnabled('remittance', enabled);
   };
 
   const handleToggleCustomerAcceptance = (enabled: boolean) => {
-    setFooterConfig((prev) => ({ ...prev, showCustomerAcceptance: enabled }));
-    setCustomerAcceptanceEnabled(enabled);
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === 'acceptance' ? { ...b, enabled } : b))
-    );
+    handleToggleBlockEnabled('acceptance', enabled);
   };
 
   const handleToggleSignatories = (enabled: boolean) => {
-    setFooterConfig((prev) => ({ ...prev, showSignatories: enabled }));
-    setShowCompanySeal(enabled);
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === 'signatory' ? { ...b, enabled } : b))
-    );
+    handleToggleBlockEnabled('signatory', enabled);
   };
 
   // Retractable Right-Side Contextual Block & Section Inspector selection
@@ -524,7 +486,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
     const found = layoutBlocks.find((b) => b.id === selectedBlockId);
-    if (!found || !found.enabled) return null;
+    if (!found) return null;
     return found;
   }, [layoutBlocks, selectedBlockId]);
 
@@ -532,10 +494,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (selectedSection === id) {
       setSelectedSection(null);
     } else {
-      const target = layoutBlocks.find((b) => b.id === id);
-      if (target && !target.enabled) {
-        handleToggleBlockEnabled(id, true);
-      }
       setSelectedSection(id);
     }
   };
@@ -550,9 +508,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       section === 'recipient_info' ||
       section === 'quote_meta' ||
       section === 'subject' ||
-      section === 'footer' ||
-      section === 'signatories' ||
-      section === 'style'
+      section === 'footer'
     ) {
       setSelectedSection(section);
     } else if (section) {
@@ -1338,10 +1294,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     } else if (typeof preset.footer_config?.showSignatories === 'boolean') {
       handleToggleSignatories(preset.footer_config.showSignatories);
     }
-    if (preset.footerLayoutMode) {
-      handleSetFooterLayoutMode(preset.footerLayoutMode);
-    } else if (preset.footer_config?.footerLayoutMode) {
-      handleSetFooterLayoutMode(preset.footer_config.footerLayoutMode);
+    if (preset.footerLayoutMode || preset.footer_config?.footerLayoutMode) {
+      const legacyMode = preset.footerLayoutMode || preset.footer_config?.footerLayoutMode;
+      setFooterConfig((prev) => ({ ...prev, footerLayoutMode: legacyMode }));
     }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
@@ -2500,11 +2455,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden print:overflow-visible print:block print:w-full">
           {/* Left Column: Form Controls & Customization */}
           <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden">
-            <div className="p-5 space-y-6">
+            {/* Sticky Top Bar: Document Preset Selector + 2-Tab Mode Switcher */}
+            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-5 pt-4 pb-3 space-y-3">
               {/* Preset Selector */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-mono font-bold text-slate-500 uppercase tracking-wider">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider">
                     Document Preset
                   </label>
                   <button
@@ -2531,7 +2487,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       const found = presets.find((p) => p.id === val);
                       if (found) applyPreset(found);
                     }}
-                    className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2.5 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   >
                     <option value="">Standard Default Template</option>
                     {presets.map((p) => (
@@ -2593,70 +2549,97 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 )}
               </div>
 
-              {/* Layout Engine & Section Toggles Accordion */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              {/* 2-Tab Segmented Switcher */}
+              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                 <button
                   type="button"
-                  onClick={() => setIsLayoutOpen(!isLayoutOpen)}
-                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
+                  onClick={() => setActiveLeftTab('structure')}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeLeftTab === 'structure'
+                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200/60'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <Layout className="w-3.5 h-3.5 text-slate-500" />
-                    Table Density &amp; Style
-                  </span>
-                  {isLayoutOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                  <span>📐 Structure &amp; Theme</span>
                 </button>
-                {isLayoutOpen && (
-                  <div className="p-4 space-y-4 bg-white text-xs border-t border-slate-200">
-                    {/* Table Density Switch */}
+                <button
+                  type="button"
+                  onClick={() => setActiveLeftTab('content')}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeLeftTab === 'content'
+                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200/60'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>📝 Deal Data &amp; Content</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-5 flex-1">
+              {activeLeftTab === 'structure' ? (
+                <>
+                  {/* Card 1: Global Theme & Presentation (Single Consolidated Card) */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-4 text-xs shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                        <Palette className="w-3.5 h-3.5 text-blue-600" />
+                        Global Theme &amp; Presentation
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 capitalize">
+                        {themeAccent} • {fontSizeScale}
+                      </span>
+                    </div>
+
+                    {/* Accent Color Theme: 6 Swatches (Navy, Emerald, Slate, Amber, Crimson, Teal) */}
                     <div>
                       <label className="block text-slate-500 font-medium mb-1.5">
-                        Itemized Table Density
+                        Accent Color Theme
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: 'comfortable', label: 'Comfortable', desc: 'Spacious padding' },
-                          { id: 'compact', label: 'Compact', desc: 'Tighter lines (Fit more)' }
-                        ].map((d) => {
-                          const isSelected = tableDensity === d.id;
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {(['navy', 'emerald', 'slate', 'amber', 'crimson', 'teal'] as QuotationThemeAccent[]).map((themeKey) => {
+                          const t = QUOTATION_THEMES[themeKey] || QUOTATION_THEMES.navy;
+                          const isSelected = themeAccent === themeKey;
                           return (
                             <button
-                              key={d.id}
+                              key={themeKey}
                               type="button"
-                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
-                              className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
+                              onClick={() => setThemeAccent(themeKey)}
+                              className={`flex flex-col items-center p-1.5 rounded-lg border text-center transition cursor-pointer ${
                                 isSelected
-                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                  ? 'border-slate-900 bg-slate-50 ring-2 ring-slate-900/20'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white'
                               }`}
                             >
-                              <span>{d.label}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">{d.desc}</span>
+                              <div
+                                className="w-4 h-4 rounded-full shadow-xs mb-1"
+                                style={{ backgroundColor: t.primaryHex }}
+                              />
+                              <span className="text-[9.5px] font-bold capitalize text-slate-700">
+                                {themeKey}
+                              </span>
                             </button>
                           );
                         })}
                       </div>
                     </div>
 
-                    {/* Uniform Typography Scale Engine */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                    {/* Global Font Size Scale */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Type className="w-3.5 h-3.5 text-blue-600" />
-                          Uniform Typography Scale
+                        <label className="text-slate-600 font-medium flex items-center gap-1.5">
+                          <Type className="w-3.5 h-3.5 text-slate-400" />
+                          Global Font Size Scale
                         </label>
                         <span className="text-[10px] font-mono text-slate-400 capitalize">
                           {fontSizeScale}
                         </span>
                       </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Dynamically scale font sizes across table cells, descriptions, terms, and closing cards.
-                      </p>
                       <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                         {[
                           { id: 'compact', label: 'Compact', pt: '9pt' },
                           { id: 'standard', label: 'Standard', pt: '10pt' },
-                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
+                          { id: 'comfortable', label: 'Comfort', pt: '11pt' },
                           { id: 'large', label: 'Large', pt: '12pt' }
                         ].map((s) => {
                           const isSelected = fontSizeScale === s.id;
@@ -2679,11 +2662,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Global Presentation Layout Style (Framed vs Minimal) */}
-                    <div>
+                    {/* Presentation Style: Framed vs Minimal */}
+                    <div className="pt-2.5 border-t border-slate-100">
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-slate-500 font-medium">
-                          Global Block Style
+                        <label className="text-slate-600 font-medium">
+                          Presentation Style
                         </label>
                         <span className="text-[10px] text-slate-400 font-mono capitalize">{blockStyle}</span>
                       </div>
@@ -2710,68 +2693,141 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           );
                         })}
                       </div>
+                    </div>
 
-                      {/* Universal Corner Radius Switch */}
-                      <div className="mt-3 pt-2.5 border-t border-slate-100">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-slate-500 font-medium">
-                            Corner Radius
-                          </label>
-                          <span className="text-[10px] text-slate-400 font-mono capitalize">
-                            {globalCardRadius === 'sharp' ? 'Sharp (0px)' : 'Rounded (8px)'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: 'rounded' as const, label: 'Rounded (8px)', desc: 'Organic curves' },
-                            { id: 'sharp' as const, label: 'Sharp (0px)', desc: 'Clean right angles' }
-                          ].map((cr) => {
-                            const isSelected = globalCardRadius === cr.id;
-                            return (
-                              <button
-                                key={cr.id}
-                                type="button"
-                                onClick={() => {
-                                  setGlobalCardRadius(cr.id);
-                                  setRecipientConfig((prev) => ({
-                                    ...prev,
-                                    globalCardRadius: cr.id,
-                                    recipientCardRadius: cr.id,
-                                    offerCardRadius: cr.id
-                                  }));
-                                }}
-                                className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
-                                  isSelected
-                                    ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
-                                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                                }`}
-                              >
-                                <span className="font-medium">{cr.label}</span>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                              </button>
-                            );
-                          })}
-                        </div>
+                    {/* Corner Style: Rounded (8px) vs Sharp (0px) */}
+                    <div className="pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-slate-600 font-medium">
+                          Corner Style
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {globalCardRadius === 'sharp' ? 'Sharp (0px)' : 'Rounded (8px)'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'rounded' as const, label: 'Rounded (8px)' },
+                          { id: 'sharp' as const, label: 'Sharp (0px)' }
+                        ].map((cr) => {
+                          const isSelected = globalCardRadius === cr.id;
+                          return (
+                            <button
+                              key={cr.id}
+                              type="button"
+                              onClick={() => {
+                                setGlobalCardRadius(cr.id);
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  globalCardRadius: cr.id,
+                                  recipientCardRadius: cr.id,
+                                  offerCardRadius: cr.id
+                                }));
+                              }}
+                              className={`py-2 px-3 rounded-lg border flex items-center justify-between text-xs transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="font-medium">{cr.label}</span>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {/* Fixed Structural Sections Overview */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <label className="block text-slate-700 font-bold text-xs">
-                            Structural Sections
-                          </label>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Fixed enterprise financial sections
-                          </p>
-                        </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium border border-blue-200">
-                          Anchored
-                        </span>
+                    {/* Canvas Page Break Guides: On | Off */}
+                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                      <div>
+                        <span className="text-slate-700 font-medium block">Canvas Page Break Guides</span>
+                        <span className="text-[10px] text-slate-400">Visual A4 sheet boundary markers on preview</span>
                       </div>
+                      <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 rounded-lg border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setShowPageBreakGuides(true)}
+                          className={`px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
+                            showPageBreakGuides
+                              ? 'bg-blue-600 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          On
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowPageBreakGuides(false)}
+                          className={`px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
+                            !showPageBreakGuides
+                              ? 'bg-slate-700 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Off
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
-                      {/* 1. Header & Company Branding Section Card */}
+                  {/* Card 2: Unified Document Outline (Single Reorderable & Inspectable Tree) */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-4 text-xs shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                          <Layers className="w-3.5 h-3.5 text-blue-600" />
+                          Unified Document Outline
+                        </span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Click any section to inspect &amp; customize in the Right Panel
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLayoutBlocks(
+                            DEFAULT_QUOTATION_BLOCKS.map((b) => ({
+                              ...b,
+                              enabled: true,
+                              is_visible: true,
+                              fontScale: 'standard',
+                              padding: 'standard'
+                            }))
+                          );
+                          setCardsOrder('recipient_first');
+                          setSubjectPlacement('below_cards');
+                          setRecipientConfig((prev) => ({
+                            ...prev,
+                            cardsOrder: 'recipient_first',
+                            subjectPlacement: 'below_cards',
+                            showSubjectBanner: true
+                          }));
+                          setShowCommercialTerms(true);
+                          setShowBankDetails(true);
+                          setCustomerAcceptanceEnabled(true);
+                          setFooterConfig((prev) => ({
+                            ...prev,
+                            showBankRemittance: true,
+                            showCustomerAcceptance: true,
+                            showSignatories: true
+                          }));
+                        }}
+                        className="px-2 py-1 rounded-md text-[10.5px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 transition flex items-center gap-1 cursor-pointer"
+                        title="Reset outline order and visibility to standard defaults"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Reset Default</span>
+                      </button>
+                    </div>
+
+                    {/* Fixed Top Sections */}
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 block">
+                        Fixed Top Sections
+                      </span>
+
+                      {/* 1. Document Header */}
                       <div
                         onClick={() => handleInspectSection('header')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
@@ -2786,7 +2842,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           </div>
                           <div className="truncate">
                             <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Header &amp; Branding
+                              Document Header
                             </span>
                             <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
                               {headerConfig.alignment || 'split'} • {headerConfig.logoHeightPx || 44}px logo
@@ -2798,104 +2854,129 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             ? 'bg-blue-600 text-white'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
-                          {selectedSection === 'header' ? 'Inspecting' : 'Customize'}
+                          {selectedSection === 'header' ? 'Inspecting' : 'Inspect'}
                         </span>
                       </div>
 
-                      {/* 2. Client Info Section Card */}
-                      <div
-                        onClick={() => handleInspectSection('recipient_info')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'recipient_info' || selectedSection === 'recipient_meta'
-                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <User className="w-3.5 h-3.5" />
+                      {/* 2. Submitted To (Client) & Commercial Offer Row with inline Swap Order */}
+                      <div className="border border-slate-200 rounded-xl p-2 bg-slate-50/50 space-y-1.5">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[10px] font-mono font-semibold text-slate-500">
+                            {cardsOrder === 'offer_first' ? 'Offer Left ↔ Client Right' : 'Client Left ↔ Offer Right'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextOrder = cardsOrder === 'offer_first' ? 'recipient_first' : 'offer_first';
+                              setCardsOrder(nextOrder);
+                              setRecipientConfig((prev) => ({ ...prev, cardsOrder: nextOrder }));
+                            }}
+                            className="px-2 py-0.5 rounded-md bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
+                            title="Swap left/right order of Client & Commercial Offer cards"
+                          >
+                            <span>⇄ Swap Order</span>
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div
+                            onClick={() => handleInspectSection('recipient_info')}
+                            className={`border rounded-lg px-2 py-1.5 transition-all flex items-center justify-between gap-1.5 cursor-pointer ${
+                              selectedSection === 'recipient_info' || selectedSection === 'recipient_meta'
+                                ? 'bg-blue-50/90 border-blue-400 ring-1 ring-blue-400/50'
+                                : 'bg-white hover:bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <div className="truncate">
+                                <span className="text-[11px] font-semibold text-slate-800 block truncate">
+                                  Submitted To (Client)
+                                </span>
+                                <span className="text-[9.5px] text-slate-400 font-mono block truncate">
+                                  {liveQuotation.client_snapshot?.entity_name || 'B2B Client'}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Client &amp; Recipient Info
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
-                              {liveQuotation.client_snapshot?.entity_name || 'B2B Client'} • {recipientConfig.style || 'framed'}
-                            </span>
+
+                          <div
+                            onClick={() => handleInspectSection('quote_meta')}
+                            className={`border rounded-lg px-2 py-1.5 transition-all flex items-center justify-between gap-1.5 cursor-pointer ${
+                              selectedSection === 'quote_meta'
+                                ? 'bg-blue-50/90 border-blue-400 ring-1 ring-blue-400/50'
+                                : 'bg-white hover:bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <FileCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <div className="truncate">
+                                <span className="text-[11px] font-semibold text-slate-800 block truncate">
+                                  Commercial Offer
+                                </span>
+                                <span className="text-[9.5px] text-slate-400 font-mono block truncate">
+                                  Rev {liveQuotation.revision_number}
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'recipient_info' || selectedSection === 'recipient_meta'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'recipient_info' || selectedSection === 'recipient_meta' ? 'Inspecting' : 'Customize'}
-                        </span>
                       </div>
 
-                      {/* 3. Commercial Offer Metadata Card */}
+                      {/* 3. Project Subject Banner (with visibility switch + click row -> subject Inspector) */}
                       <div
-                        onClick={() => handleInspectSection('quote_meta')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'quote_meta'
-                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <FileCheck className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Commercial Offer
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
-                              Ref: {liveQuotation.formatted_quote_ref || liveQuotation.quote_number} • Rev {liveQuotation.revision_number}
-                            </span>
-                          </div>
-                        </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'quote_meta'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'quote_meta' ? 'Inspecting' : 'Customize'}
-                        </span>
-                      </div>
-
-                      {/* Project Subject Banner Section Card */}
-                      <div
-                        onClick={() => handleInspectSection('subject')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
                           selectedSection === 'subject'
                             ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                            : recipientConfig.showSubjectBanner !== false
+                            ? 'bg-white hover:bg-slate-50/80 border-slate-200'
+                            : 'bg-slate-50/60 border-slate-200/60 opacity-65'
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <Tag className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Project Subject Banner
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
-                              {quotationSubject || 'No subject set'}
-                            </span>
+                          <input
+                            type="checkbox"
+                            checked={recipientConfig.showSubjectBanner !== false}
+                            onChange={(e) =>
+                              setRecipientConfig((prev) => ({
+                                ...prev,
+                                showSubjectBanner: e.target.checked
+                              }))
+                            }
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                            title="Toggle Project Subject Banner visibility"
+                          />
+                          <div
+                            onClick={() => handleInspectSection('subject')}
+                            className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer"
+                          >
+                            <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                              <Tag className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="truncate">
+                              <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                                Project Subject Banner
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">
+                                {quotationSubject || 'No subject set'} • {subjectPlacement === 'above_cards' ? 'Above Cards' : 'Below Cards'}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'subject'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'subject' ? 'Inspecting' : 'Customize'}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleInspectSection('subject')}
+                          className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition cursor-pointer ${
+                            selectedSection === 'subject'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {selectedSection === 'subject' ? 'Inspecting' : 'Inspect'}
+                        </button>
                       </div>
 
-                      {/* 4. Line Items Table Section Card */}
+                      {/* 4. Line Items Table */}
                       <div
                         onClick={() => handleInspectSection('items_table')}
                         className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
@@ -2913,7 +2994,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               Line Items Table
                             </span>
                             <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
-                              {tableDensity} • {tableFontScale} • {Object.values(visibleColumns).filter(Boolean).length} cols
+                              {tableDensity} • {tableFontScale} • {quotationLineItems.slice(0, -1).filter((it) => it.page_break_after).length} row break(s)
                             </span>
                           </div>
                         </div>
@@ -2922,121 +3003,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             ? 'bg-blue-600 text-white'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
-                          {selectedSection === 'items_table' ? 'Inspecting' : 'Customize'}
-                        </span>
-                      </div>
-
-                      {/* 5. Signatories & Remittance Account Section Card */}
-                      <div
-                        onClick={() => handleInspectSection('signatories')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'signatories'
-                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <Stamp className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Signatories &amp; Closing
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
-                              {(footerConfig.footerLayoutMode || 'split').toUpperCase()} • {footerConfig.showSignatories !== false ? 'Signatures' : 'No Sig'} • {footerConfig.showCustomerAcceptance !== false ? 'Client Box' : 'No Client'}
-                            </span>
-                          </div>
-                        </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'signatories'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'signatories' ? 'Inspecting' : 'Customize'}
-                        </span>
-                      </div>
-
-                      {/* 6. Footer & Legal Baseline Section Card */}
-                      <div
-                        onClick={() => handleInspectSection('footer')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'footer'
-                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Footer &amp; Legal
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
-                              {footerConfig.showPageNumbers !== false ? 'Page #' : 'No Page #'} • {footerConfig.showDisclaimer !== false ? 'Legal Active' : 'No Legal'}
-                            </span>
-                          </div>
-                        </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'footer'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'footer' ? 'Inspecting' : 'Customize'}
-                        </span>
-                      </div>
-
-                      {/* 7. Style & Typography Inspector Section Card */}
-                      <div
-                        onClick={() => handleInspectSection('style')}
-                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          selectedSection === 'style'
-                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                            <Palette className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
-                              Style &amp; Typography
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5 capitalize">
-                              {fontSizeScale} scale • {blockStyle}
-                            </span>
-                          </div>
-                        </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
-                          selectedSection === 'style'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}>
-                          {selectedSection === 'style' ? 'Inspecting' : 'Customize'}
+                          {selectedSection === 'items_table' ? 'Inspecting' : 'Inspect'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Compact Document Blocks Overview */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                    {/* Reorderable Closing Sequence (layoutBlocks) */}
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
                       <div className="flex items-center justify-between">
-                        <div>
-                          <label className="block text-slate-700 font-bold text-xs">
-                            Document Blocks Overview
-                          </label>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Click any block or preview card to inspect & customize
-                          </p>
-                        </div>
+                        <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400">
+                          Reorderable Closing Sequence
+                        </span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
-                          {layoutBlocks.filter((b) => b.enabled).length} of {layoutBlocks.length} Active
+                          {layoutBlocks.filter((b) => b.enabled !== false && b.is_visible !== false).length} of {layoutBlocks.length} Active
                         </span>
                       </div>
 
-                      <div className="space-y-1.5 mt-2">
+                      <div className="space-y-1.5">
                         {layoutBlocks.map((block, idx) => {
                           const meta = getBlockMeta(block);
                           const Icon = meta.icon;
@@ -3067,7 +3050,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                               }`}
                             >
-                              {/* Reorder arrows + Checkbox + Block Info */}
                               <div className="flex items-center gap-2 min-w-0 flex-1">
                                 <div className="flex flex-col gap-0.5 shrink-0">
                                   <button
@@ -3132,7 +3114,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* Action Buttons */}
                               <div className="flex items-center gap-1 shrink-0">
                                 {isRemovable && (
                                   <button
@@ -3162,8 +3143,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         })}
                       </div>
 
-                      {/* Block Controls Bar: + Page Break & + Spacer */}
-                      <div className="grid grid-cols-2 gap-2 pt-2">
+                      {/* Bottom Action Buttons: + Insert Page Break & + Insert Vertical Spacer */}
+                      <div className="grid grid-cols-2 gap-2 pt-1.5">
                         <button
                           type="button"
                           onClick={handleAddPageBreak}
@@ -3171,7 +3152,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           title="Insert a Page Break block to start a new A4 sheet"
                         >
                           <Scissors className="w-3.5 h-3.5 text-amber-600" />
-                          <span>+ Page Break</span>
+                          <span>+ Insert Page Break</span>
                         </button>
                         <button
                           type="button"
@@ -3180,343 +3161,102 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           title="Insert an adjustable vertical Spacer block"
                         >
                           <MoveVertical className="w-3.5 h-3.5 text-slate-500" />
-                          <span>+ Spacer</span>
+                          <span>+ Insert Vertical Spacer</span>
                         </button>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
 
-              {/* Branding, Themes & Presentation Accordion */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsBrandingOpen(!isBrandingOpen)}
-                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Palette className="w-3.5 h-3.5 text-slate-500" />
-                    Branding, Themes & Presentation
-                  </span>
-                  {isBrandingOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-                </button>
-                {isBrandingOpen && (
-                  <div className="p-4 space-y-4 bg-white text-xs border-t border-slate-200">
-                    {/* Theme Accent Swatches */}
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1.5">
-                        Color Theme Accent
-                      </label>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {(['navy', 'emerald', 'blue', 'crimson', 'slate'] as QuotationThemeAccent[]).map((themeKey) => {
-                          const t = QUOTATION_THEMES[themeKey];
-                          const isSelected = themeAccent === themeKey;
-                          return (
-                            <button
-                              key={themeKey}
-                              type="button"
-                              onClick={() => setThemeAccent(themeKey)}
-                              className={`flex flex-col items-center p-2 rounded-lg border text-center transition cursor-pointer ${
-                                isSelected
-                                  ? 'border-slate-900 bg-slate-50 ring-2 ring-slate-900/20'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <div
-                                className="w-5 h-5 rounded-full shadow-xs mb-1"
-                                style={{ backgroundColor: t.primaryHex }}
-                              />
-                              <span className="text-[10px] font-bold capitalize text-slate-700">
-                                {themeKey}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Logo Alignment */}
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1.5">
-                        Logo Alignment
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: 'left', label: 'Left', icon: AlignLeft },
-                          { id: 'center', label: 'Center', icon: AlignCenter },
-                          { id: 'right', label: 'Right', icon: AlignRight }
-                        ].map((pos) => {
-                          const Icon = pos.icon;
-                          const isSelected = logoPosition === pos.id;
-                          return (
-                            <button
-                              key={pos.id}
-                              type="button"
-                              onClick={() => setLogoPosition(pos.id as QuotationLogoPosition)}
-                              className={`py-1.5 px-2 rounded-lg border flex items-center justify-center gap-1.5 text-xs font-medium transition cursor-pointer ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <Icon className="w-3.5 h-3.5" />
-                              <span>{pos.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Document Options Toggles */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <label className="flex items-center space-x-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={amountInWordsEnabled}
-                          onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-slate-700 font-medium">Amount in Words (Total Spelled Out)</span>
-                      </label>
-                      <label className="flex items-center space-x-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={customerAcceptanceEnabled}
-                          onChange={(e) => setCustomerAcceptanceEnabled(e.target.checked)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-slate-700 font-medium">Customer Acceptance Signature Box</span>
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Column Visibility Toggles */}
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-slate-500" />
-                    Visible Table Columns
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Dynamic Widths</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <label className="flex items-center space-x-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.brand !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, brand: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700">Brand / Make</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.model !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, model: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700">Model / Part #</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.origin !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, origin: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700">Origin</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.availability !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, availability: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700">Delivery Time</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2 pt-1 border-t border-slate-200/70">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({
-                          ...prev,
-                          unit_price: e.target.checked,
-                          showUnitPrice: e.target.checked
-                        }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700 font-medium">Show Unit Price Column</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.showUom !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, showUom: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700 font-medium">Show UOM / Unit Column</span>
-                  </label>
-                  <label className="flex items-center space-x-2 cursor-pointer select-none col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.showItemAttributes !== false}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({ ...prev, showItemAttributes: e.target.checked }))
-                      }
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700 font-medium">Show Technical Attribute Pills</span>
-                  </label>
-                </div>
-
-                {/* Line-Item Row Page Breaks ("Split Table Here") */}
-                {quotationLineItems.length > 1 && (
-                  <div className="pt-3 border-t border-slate-200/80 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
-                        <Scissors className="w-3.5 h-3.5 text-amber-600" />
-                        Line-Item Row Page Breaks
+                    {/* Document Baseline */}
+                    <div className="pt-3 border-t border-slate-100 space-y-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 block">
+                        Document Baseline
                       </span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {quotationLineItems.slice(0, -1).filter((it) => it.page_break_after).length} Split(s)
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
-                      {quotationLineItems.map((item, idx) => {
-                        const itemKey = item.id || `item_${idx}`;
-                        const isLastItem = idx === quotationLineItems.length - 1;
-                        const hasBreakAfter = Boolean(item.page_break_after) && !isLastItem;
-
-                        return (
-                          <div
-                            key={itemKey}
-                            className={`p-2 rounded-lg border text-xs transition ${
-                              hasBreakAfter
-                                ? 'bg-amber-50/70 border-amber-300'
-                                : 'bg-white border-slate-200/90'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0 flex items-center gap-1.5 flex-1">
-                                <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
-                                  {idx + 1}
-                                </span>
-                                <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
-                                  {item.item_name}
-                                </span>
-                              </div>
-                              {!isLastItem ? (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
-                                  className={`px-2 py-1 rounded-md text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                                    hasBreakAfter
-                                      ? 'bg-amber-600 text-white shadow-2xs'
-                                      : 'bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
-                                  }`}
-                                  title="Split table onto a new A4 sheet immediately after this item"
-                                >
-                                  <Scissors className="w-3 h-3" />
-                                  <span>✂ Page Break After Item</span>
-                                </button>
-                              ) : (
-                                <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
-                                  Final Row
-                                </span>
-                              )}
-                            </div>
-                            {hasBreakAfter && (
-                              <div className="mt-1.5 px-2 py-0.5 rounded bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
-                                <span>📄 Splits to Next Page After Item #{idx + 1}</span>
-                                <span className="text-[9px] text-amber-700">New Sheet</span>
-                              </div>
-                            )}
+                      <div
+                        onClick={() => handleInspectSection('footer')}
+                        className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                          selectedSection === 'footer'
+                            ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                            : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                            <ShieldCheck className="w-3.5 h-3.5" />
                           </div>
-                        );
-                      })}
+                          <div className="truncate">
+                            <span className="text-xs font-semibold text-slate-800 block leading-tight">
+                              Footer &amp; Legal Disclaimer
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                              {footerConfig.showPageNumbers !== false ? 'Page #' : 'No Page #'} • {footerConfig.showDisclaimer !== false ? 'Legal Active' : 'No Legal'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                          selectedSection === 'footer'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                          {selectedSection === 'footer' ? 'Inspecting' : 'Inspect'}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
+                </>
+              ) : (
+                <>
+                  {/* TAB 2: Deal Data & Content */}
+                  {/* Card 1: Tax & Financial Adjustments */}
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5 text-blue-600" />
+                      Tax &amp; Financial Adjustments
+                    </span>
 
-              {/* Financial & Tax Adjustments */}
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <DollarSign className="w-3.5 h-3.5 text-slate-500" />
-                  Tax & Financial Adjustments
-                </span>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Tax Calculation</label>
+                        <select
+                          value={taxMode}
+                          onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
+                          className="w-full text-xs rounded-lg border border-slate-300 p-2 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="taxes_extra">Taxes Extra (5% add-on)</option>
+                          <option value="tax_calculated">Inclusive (Tax in price)</option>
+                          <option value="tax_exempt">Tax Exempt (0%)</option>
+                        </select>
+                      </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Tax Calculation</label>
-                    <select
-                      value={taxMode}
-                      onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
-                      className="w-full text-xs rounded-lg border border-slate-300 p-2 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="taxes_extra">Taxes Extra (5% add-on)</option>
-                      <option value="tax_calculated">Inclusive (Tax in price)</option>
-                      <option value="tax_exempt">Tax Exempt (0%)</option>
-                    </select>
-                  </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1">Freight / Shipping</label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={freightAmount}
+                            onChange={(e) => setFreightAmount(Number(e.target.value) || 0)}
+                            className="w-full text-xs rounded-lg border border-slate-300 p-2 pl-7 font-mono bg-white text-slate-800"
+                          />
+                          <Truck className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2.5" />
+                        </div>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1">Freight / Shipping</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="50"
-                        value={freightAmount}
-                        onChange={(e) => setFreightAmount(Number(e.target.value) || 0)}
-                        className="w-full text-xs rounded-lg border border-slate-300 p-2 pl-7 font-mono bg-white text-slate-800"
-                      />
-                      <Truck className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2.5" />
+                    <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Live Calculated Total:</span>
+                      <span className="font-mono font-bold text-sm text-blue-900">
+                        {liveQuotation.currency} {financialTotals.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   </div>
-                </div>
 
-                {/* Subtotal & Grand Total Quick Review */}
-                <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Live Calculated Total:</span>
-                  <span className="font-mono font-bold text-sm text-blue-900">
-                    {liveQuotation.currency} {financialTotals.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Commercial Terms Accordion */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsTermsOpen(!isTermsOpen)}
-                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                    Commercial Terms & Validity
-                  </span>
-                  {isTermsOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-                </button>
-                {isTermsOpen && (
-                  <div className="p-4 space-y-3 bg-white text-xs border-t border-slate-200">
+                  {/* Card 2: Commercial Terms & Validity */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3 text-xs shadow-2xs">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <FileCheck className="w-3.5 h-3.5 text-blue-600" />
+                      Commercial Terms &amp; Validity
+                    </span>
                     <div>
                       <label className="block text-slate-500 font-medium mb-1">Price Basis</label>
                       <input
@@ -3559,115 +3299,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       />
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Signatory & Remittance Accordion */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsSignatoryOpen(!isSignatoryOpen)}
-                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
-                    Signatories & Remittance Account
-                  </span>
-                  {isSignatoryOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-                </button>
-                {isSignatoryOpen && (
-                  <div className="p-4 space-y-3.5 bg-white text-xs border-t border-slate-200">
-                    {/* Closing Layout Mode */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-700 font-bold text-xs flex items-center gap-1.5">
-                          <Layout className="w-3.5 h-3.5 text-blue-600" />
-                          Closing Layout
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleInspectSection('signatories')}
-                          className="text-[10px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                        >
-                          Open Inspector
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                        {[
-                          { id: 'split', label: 'Split (50/50)' },
-                          { id: 'stacked', label: 'Stacked' },
-                          { id: 'seller_only', label: 'Seller Only' }
-                        ].map((m) => {
-                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
-                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                  : 'hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              {m.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  {/* Card 3: Signatory & Remittance Account Data (Pure Data Only — Zero Layout/Visibility Duplication) */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3.5 text-xs shadow-2xs">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                      Signatory &amp; Remittance Account Data
+                    </span>
 
-                    {/* Modular Footer Cards Toggles */}
-                    <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
-                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                          <Landmark className="w-3.5 h-3.5 text-slate-400" />
-                          Display Bank Remittance Card
-                        </span>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={footerConfig.showBankRemittance !== false}
-                            onChange={(e) => handleToggleBankRemittance(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-
-                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
-                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                          <FileCheck className="w-3.5 h-3.5 text-slate-400" />
-                          Display Customer Acceptance / Stamp Box
-                        </span>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
-                            disabled={footerConfig.footerLayoutMode === 'seller_only'}
-                            onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
-                        </label>
-                      </div>
-
-                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/80">
-                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                          <Stamp className="w-3.5 h-3.5 text-slate-400" />
-                          Display Authorized Signatories
-                        </span>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={footerConfig.showSignatories !== false}
-                            onChange={(e) => handleToggleSignatories(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Signatory Count</label>
@@ -3678,7 +3317,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             setSignatoryType(val);
                             setSignatoryMode(val);
                           }}
-                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
                         >
                           <option value="single">Single Signatory</option>
                           <option value="dual">Dual Signatory</option>
@@ -3686,11 +3325,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-slate-500 font-medium mb-1">Signature Style</label>
+                        <label className="block text-slate-500 font-medium mb-1">Signature Render Style</label>
                         <select
                           value={signatureStyle}
                           onChange={(e) => setSignatureStyle(e.target.value as QuotationSignatureStyle)}
-                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
                         >
                           <option value="script">Script (Cursive Autopen)</option>
                           <option value="line">Classic Sign Line</option>
@@ -3753,12 +3392,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     )}
 
-                    {bankRegistry && bankRegistry.length > 0 && (
-                      <div className="pt-2 border-t border-slate-100 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-slate-500 font-medium text-xs">Remittance Bank</label>
-                          <span className="text-[10px] text-slate-400 font-mono">{bankRegistry.length} in registry</span>
-                        </div>
+                    {/* Remittance Bank Account Selector + Edit Wire Details inline override */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1.5">
+                          <Landmark className="w-3.5 h-3.5 text-blue-600" />
+                          Remittance Bank Account
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingBankDetails((prev) => !prev)}
+                          className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[10.5px] font-semibold transition cursor-pointer"
+                        >
+                          {isEditingBankDetails ? 'Hide Wire Details' : 'Edit Wire Details'}
+                        </button>
+                      </div>
+
+                      {bankRegistry && bankRegistry.length > 0 && (
                         <select
                           value={selectedBankId}
                           onChange={(e) => handleSelectBank(e.target.value)}
@@ -3773,32 +3423,116 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             );
                           })}
                         </select>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      )}
 
-              {/* Technical Annexures & Flyers Accordion */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsAnnexOpen(!isAnnexOpen)}
-                  className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-800 transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Technical Annexures &amp; Flyers</span>
-                    {flyerAttachments.length > 0 && (
-                      <span className="px-1.5 py-0.2 text-[10px] font-mono rounded-full bg-blue-100 text-blue-700">
-                        {flyerAttachments.length}
+                      {isEditingBankDetails && (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10.5px] font-bold text-slate-700">Inline Wire Details Override</span>
+                            <button
+                              type="button"
+                              onClick={handleResetBankOverride}
+                              className="text-[10px] text-slate-500 hover:text-blue-600 underline cursor-pointer"
+                            >
+                              Reset to Registry
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">Bank Name</label>
+                              <input
+                                type="text"
+                                value={customBankOverride?.bankName ?? activeBankAccount?.bankName ?? ''}
+                                onChange={(e) =>
+                                  setCustomBankOverride((prev) => ({
+                                    ...(prev || {}),
+                                    bankName: e.target.value
+                                  }))
+                                }
+                                placeholder="Bank Name"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">Beneficiary Name</label>
+                              <input
+                                type="text"
+                                value={customBankOverride?.beneficiaryName ?? activeBankAccount?.beneficiaryName ?? ''}
+                                onChange={(e) =>
+                                  setCustomBankOverride((prev) => ({
+                                    ...(prev || {}),
+                                    beneficiaryName: e.target.value
+                                  }))
+                                }
+                                placeholder="Beneficiary Name"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">Account Number</label>
+                              <input
+                                type="text"
+                                value={customBankOverride?.accountNumber ?? activeBankAccount?.accountNumber ?? ''}
+                                onChange={(e) =>
+                                  setCustomBankOverride((prev) => ({
+                                    ...(prev || {}),
+                                    accountNumber: e.target.value
+                                  }))
+                                }
+                                placeholder="Account Number"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-slate-400 text-[10px] mb-0.5">SWIFT / BIC</label>
+                              <input
+                                type="text"
+                                value={customBankOverride?.swiftCode ?? activeBankAccount?.swiftCode ?? ''}
+                                onChange={(e) =>
+                                  setCustomBankOverride((prev) => ({
+                                    ...(prev || {}),
+                                    swiftCode: e.target.value
+                                  }))
+                                }
+                                placeholder="SWIFT Code"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-slate-400 text-[10px] mb-0.5">IBAN</label>
+                              <input
+                                type="text"
+                                value={customBankOverride?.iban ?? activeBankAccount?.iban ?? ''}
+                                onChange={(e) =>
+                                  setCustomBankOverride((prev) => ({
+                                    ...(prev || {}),
+                                    iban: e.target.value
+                                  }))
+                                }
+                                placeholder="IBAN"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card 4: Technical Annexures & Flyers */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3.5 text-xs shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                        <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Technical Annexures &amp; Flyers</span>
                       </span>
-                    )}
-                  </span>
-                  {isAnnexOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-                </button>
-                {isAnnexOpen && (
-                  <div className="p-4 space-y-3.5 bg-white text-xs border-t border-slate-200">
+                      {flyerAttachments.length > 0 && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-mono rounded-full bg-blue-100 text-blue-700 font-semibold">
+                          {flyerAttachments.length} Attached
+                        </span>
+                      )}
+                    </div>
+
                     {/* Submittals Index Visibility Toggle */}
                     <label className="flex items-center space-x-2 cursor-pointer select-none p-2 rounded-lg bg-slate-50 border border-slate-200/80">
                       <input
@@ -3967,8 +3701,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </p>
                     )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
 
             {/* Bottom Actions Bar */}
@@ -4141,7 +3875,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     selectedBlockId={selectedBlockId}
                     onSelectSection={(sec) => setSelectedSection(sec)}
                     onSelectBlock={(id) => setSelectedSection(id)}
-                    showPageBreakGuides={true}
+                    showPageBreakGuides={showPageBreakGuides}
                   />
                 </div>
               </div>
@@ -5143,458 +4877,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 </aside>
               )}
 
-              {/* Retractable Right-Side Contextual Signatories & Remittance Account Inspector Drawer */}
-              {selectedSection === 'signatories' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
-                  {/* Drawer Header */}
-                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Stamp className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-slate-900 text-xs truncate">
-                          Signatories &amp; Remittance Account
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-mono">
-                          Closing Layout • Acceptance • Wire Details
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSection(null)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
-                      title="Close Inspector"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Drawer Content */}
-                  <div className="p-4 space-y-4 text-xs">
-                    {/* 1. Closing Layout Mode: Segmented Button Control */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Layout className="w-3.5 h-3.5 text-blue-600" />
-                          Closing Layout
-                        </label>
-                        <span className="text-[10px] font-mono text-slate-400 capitalize">
-                          {footerConfig.footerLayoutMode || 'split'}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Select the closing card structure for authorized signatures and client confirmation.
-                      </p>
-                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                        {[
-                          { id: 'split', label: 'Split (50/50)' },
-                          { id: 'stacked', label: 'Stacked' },
-                          { id: 'seller_only', label: 'Seller Only' }
-                        ].map((m) => {
-                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
-                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                  : 'hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              {m.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="text-[10px] text-slate-400">
-                        {footerConfig.footerLayoutMode === 'seller_only'
-                          ? 'Customer Acceptance box is omitted; Seller Signatures span full width.'
-                          : footerConfig.footerLayoutMode === 'stacked'
-                          ? 'Signatures render full-width directly above the full-width Acceptance box.'
-                          : 'Signatures & Stamp render on Left (50%), Customer Acceptance on Right (50%).'}
-                      </p>
-                    </div>
-
-                    {/* 2. Independent Toggle Switches for Footer Cards */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                        Closing Cards Visibility
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Independently show or hide closing and remittance modules.
-                      </p>
-                      <div className="space-y-1.5 pt-1">
-                        {/* Bank Remittance Card Toggle */}
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showBankRemittance !== false
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <Landmark className="w-3.5 h-3.5 text-slate-500" />
-                              Display Bank Remittance Card
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Bank wire details, IBAN &amp; beneficiary
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showBankRemittance !== false}
-                              onChange={(e) => handleToggleBankRemittance(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                          </label>
-                        </div>
-
-                        {/* Customer Acceptance / Stamp Box Toggle */}
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                              Display Customer Acceptance / Stamp Box
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Client sign-back confirmation box
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
-                              disabled={footerConfig.footerLayoutMode === 'seller_only'}
-                              onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
-                          </label>
-                        </div>
-
-                        {/* Authorized Signatories Toggle */}
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showSignatories !== false
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <Stamp className="w-3.5 h-3.5 text-slate-500" />
-                              Display Authorized Signatories
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Executive signatures &amp; company stamp
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showSignatories !== false}
-                              onChange={(e) => handleToggleSignatories(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 3. Signatory Details Configuration */}
-                    <div className="space-y-3 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
-                        Signatory Details &amp; Style
-                      </label>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1">Signatory Count</label>
-                          <select
-                            value={signatoryType}
-                            onChange={(e) => {
-                              const val = e.target.value as 'single' | 'dual';
-                              setSignatoryType(val);
-                              setSignatoryMode(val);
-                            }}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                          >
-                            <option value="single">Single Signatory</option>
-                            <option value="dual">Dual Signatory</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1">Signature Style</label>
-                          <select
-                            value={signatureStyle}
-                            onChange={(e) => setSignatureStyle(e.target.value as QuotationSignatureStyle)}
-                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                          >
-                            <option value="script">Script (Cursive Autopen)</option>
-                            <option value="line">Classic Sign Line</option>
-                            <option value="image">Digital Image / Box</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Primary Signatory Inputs */}
-                      <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
-                        <span className="text-[10.5px] font-bold text-slate-700 block">Primary Signatory</span>
-                        <div className="space-y-1.5">
-                          <div>
-                            <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
-                            <input
-                              type="text"
-                              value={signatoryName}
-                              onChange={(e) => setSignatoryName(e.target.value)}
-                              placeholder="e.g. Syed Ameer Sibuma"
-                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-slate-400 text-[10px] mb-0.5">Designation / Title</label>
-                            <input
-                              type="text"
-                              value={signatoryTitle}
-                              onChange={(e) => setSignatoryTitle(e.target.value)}
-                              placeholder="e.g. Account Manager"
-                              className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Secondary Signatory Inputs (if Dual) */}
-                      {signatoryType === 'dual' && (
-                        <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
-                          <span className="text-[10.5px] font-bold text-slate-700 block">Secondary Signatory</span>
-                          <div className="space-y-1.5">
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
-                              <input
-                                type="text"
-                                value={secondarySignatoryName}
-                                onChange={(e) => setSecondarySignatoryName(e.target.value)}
-                                placeholder="e.g. Authorized Director"
-                                className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">Designation / Title</label>
-                              <input
-                                type="text"
-                                value={secondarySignatoryTitle}
-                                onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
-                                placeholder="e.g. Commercial Approver"
-                                className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Remittance Bank Registry Selector & Overrides */}
-                      <div className="pt-3 border-t border-slate-100 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                            <Landmark className="w-3.5 h-3.5 text-blue-600" />
-                            Remittance Bank Account
-                          </label>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200">
-                            {bankRegistry.length} in Registry
-                          </span>
-                        </div>
-
-                        {/* Dropdown Selector formatted as: [Bank Name] - [Account No / IBAN] ([Currency]) */}
-                        <div className="space-y-1">
-                          <select
-                            value={selectedBankId}
-                            onChange={(e) => handleSelectBank(e.target.value)}
-                            className="w-full rounded-xl border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                          >
-                            {bankRegistry.map((b) => {
-                              const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
-                              return (
-                                <option key={b.id} value={b.id}>
-                                  {b.bankName} - {acctLabel} ({b.currency})
-                                </option>
-                              );
-                            })}
-                            {bankRegistry.length === 0 && (
-                              <option value="">Default Corporate Wire Account (AED)</option>
-                            )}
-                          </select>
-                        </div>
-
-                        {/* Active Bank Card & Custom Override Action Trigger */}
-                        {activeBankAccount && (
-                          <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5 text-[11px]">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold text-slate-900 flex items-center gap-1.5 truncate">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                                <span className="truncate">{activeBankAccount.bankName || activeBankAccount.bank_name}</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setIsEditingBankDetails(!isEditingBankDetails)}
-                                className={`text-[10px] font-medium flex items-center gap-1 px-2 py-0.5 rounded-md transition cursor-pointer shrink-0 ${
-                                  isEditingBankDetails
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                {isEditingBankDetails ? 'Done' : 'Edit Wire Details'}
-                              </button>
-                            </div>
-
-                            <div className="text-slate-600 space-y-0.5 font-mono text-[10px] leading-tight">
-                              <div>Beneficiary: <span className="text-slate-800 font-sans">{activeBankAccount.beneficiaryName || activeBankAccount.account_name}</span></div>
-                              <div>Acct: <span className="text-slate-900 font-semibold">{activeBankAccount.accountNumber || activeBankAccount.account_number || '—'}</span></div>
-                              {activeBankAccount.iban && (
-                                <div className="truncate">IBAN: <span className="text-slate-900 font-bold">{activeBankAccount.iban}</span></div>
-                              )}
-                              {activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic ? (
-                                <div>SWIFT: <span className="text-slate-800 font-semibold">{activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic}</span></div>
-                              ) : null}
-                            </div>
-
-                            {/* Inline Fields to edit active IBAN/SWIFT details directly for custom overrides */}
-                            {isEditingBankDetails && (
-                              <div className="mt-2 pt-2 border-t border-slate-200/80 space-y-2 animate-in fade-in duration-150">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-bold text-blue-900">
-                                    Custom Wire Overrides
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={handleResetBankOverride}
-                                    className="text-[9.5px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <RotateCcw className="w-2.5 h-2.5" />
-                                    Reset to Default
-                                  </button>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  <div>
-                                    <label className="block text-slate-500 text-[10px] mb-0.5">Bank Name</label>
-                                    <input
-                                      type="text"
-                                      value={customBankOverride?.bankName ?? (activeBankAccount.bankName || activeBankAccount.bank_name || '')}
-                                      onChange={(e) =>
-                                        setCustomBankOverride((prev) => ({
-                                          ...(prev || {}),
-                                          bankName: e.target.value
-                                        }))
-                                      }
-                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white"
-                                      placeholder="Bank Name"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-slate-500 text-[10px] mb-0.5">Beneficiary Name</label>
-                                    <input
-                                      type="text"
-                                      value={customBankOverride?.beneficiaryName ?? (activeBankAccount.beneficiaryName || activeBankAccount.account_name || '')}
-                                      onChange={(e) =>
-                                        setCustomBankOverride((prev) => ({
-                                          ...(prev || {}),
-                                          beneficiaryName: e.target.value
-                                        }))
-                                      }
-                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white"
-                                      placeholder="Beneficiary Account Name"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-slate-500 text-[10px] mb-0.5">Account Number</label>
-                                    <input
-                                      type="text"
-                                      value={customBankOverride?.accountNumber ?? (activeBankAccount.accountNumber || activeBankAccount.account_number || '')}
-                                      onChange={(e) =>
-                                        setCustomBankOverride((prev) => ({
-                                          ...(prev || {}),
-                                          accountNumber: e.target.value
-                                        }))
-                                      }
-                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono"
-                                      placeholder="Account Number"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-slate-500 text-[10px] mb-0.5">IBAN</label>
-                                    <input
-                                      type="text"
-                                      value={customBankOverride?.iban ?? (activeBankAccount.iban || '')}
-                                      onChange={(e) =>
-                                        setCustomBankOverride((prev) => ({
-                                          ...(prev || {}),
-                                          iban: e.target.value.toUpperCase()
-                                        }))
-                                      }
-                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono uppercase"
-                                      placeholder="AE..."
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-slate-500 text-[10px] mb-0.5">SWIFT / BIC (Optional)</label>
-                                    <input
-                                      type="text"
-                                      value={customBankOverride?.swiftCode ?? (activeBankAccount.swiftCode || (activeBankAccount as any).swift_bic || '')}
-                                      onChange={(e) =>
-                                        setCustomBankOverride((prev) => ({
-                                          ...(prev || {}),
-                                          swiftCode: e.target.value.toUpperCase()
-                                        }))
-                                      }
-                                      className="w-full rounded-lg border border-slate-300 p-1.5 text-slate-800 text-xs bg-white font-mono uppercase"
-                                      placeholder="e.g. EBILAEADXXX"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Informational Atomic Card Break Protection Guardrail */}
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
-                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Atomic Card Break Protection
-                      </div>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Signatories, stamp boxes, and customer acceptance cards enforce strict break-inside avoidance. If touching the 297mm A4 boundary, the browser pushes the intact container to Page 2+ rather than slicing text in half.
-                      </p>
-                    </div>
-                  </div>
-                </aside>
-              )}
-
               {/* Retractable Right-Side Contextual Footer & Legal Inspector Drawer */}
               {selectedSection === 'footer' && (
                 <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
@@ -5691,130 +4973,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   showDisclaimer: e.target.checked
                                 }))
                               }
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Closing Layout Mode & Modular Footer Cards */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Layout className="w-3.5 h-3.5 text-blue-600" />
-                          Closing Layout
-                        </label>
-                        <span className="text-[10px] font-mono text-slate-400 capitalize">
-                          {footerConfig.footerLayoutMode || 'split'}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Configure the closing arrangement of signatories and customer acceptance box.
-                      </p>
-                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                        {[
-                          { id: 'split', label: 'Split (50/50)' },
-                          { id: 'stacked', label: 'Stacked' },
-                          { id: 'seller_only', label: 'Seller Only' }
-                        ].map((m) => {
-                          const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => handleSetFooterLayoutMode(m.id as any)}
-                              className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                  : 'hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              {m.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Independent Toggles */}
-                      <div className="space-y-1.5 pt-1">
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showBankRemittance !== false
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <Landmark className="w-3.5 h-3.5 text-slate-500" />
-                              Display Bank Remittance Card
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Bank wire details, IBAN &amp; beneficiary
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showBankRemittance !== false}
-                              onChange={(e) => handleToggleBankRemittance(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                          </label>
-                        </div>
-
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <FileCheck className="w-3.5 h-3.5 text-slate-500" />
-                              Display Customer Acceptance / Stamp Box
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Client sign-back confirmation box
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
-                              disabled={footerConfig.footerLayoutMode === 'seller_only'}
-                              onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
-                          </label>
-                        </div>
-
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            footerConfig.showSignatories !== false
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight flex items-center gap-1.5">
-                              <Stamp className="w-3.5 h-3.5 text-slate-500" />
-                              Display Authorized Signatories
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Executive signatures &amp; company stamp
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={footerConfig.showSignatories !== false}
-                              onChange={(e) => handleToggleSignatories(e.target.checked)}
                               className="sr-only peer"
                             />
                             <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -6380,25 +5538,24 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           Table Typography Scaling
                         </label>
                         <span className="text-[10px] font-mono text-slate-400 capitalize">
-                          {fontSizeScale}
+                          {tableFontScale}
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Scale font sizes for descriptions, item titles, and numbers across table cells.
+                        Scale font sizes specifically for descriptions, item titles, and numbers across table cells.
                       </p>
-                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                         {[
-                          { id: 'compact', label: 'Compact', pt: '9pt' },
-                          { id: 'standard', label: 'Standard', pt: '10pt' },
-                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
-                          { id: 'large', label: 'Large', pt: '12pt' }
+                          { id: 'compact' as const, label: 'Compact', pt: '9pt' },
+                          { id: 'standard' as const, label: 'Standard', pt: '10pt' },
+                          { id: 'prominent' as const, label: 'Prominent', pt: '11pt' }
                         ].map((s) => {
-                          const isSelected = fontSizeScale === s.id;
+                          const isSelected = tableFontScale === s.id;
                           return (
                             <button
                               key={s.id}
                               type="button"
-                              onClick={() => handleSetFontSizeScale(s.id as QuotationFontSizeScale)}
+                              onClick={() => setTableFontScale(s.id)}
                               className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
                                 isSelected
                                   ? 'bg-blue-600 text-white font-semibold shadow-xs'
@@ -6427,195 +5584,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 </aside>
               )}
 
-              {/* Retractable Right-Side Contextual Style & Typography Inspector Drawer */}
-              {selectedSection === 'style' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
-                  {/* Drawer Header */}
-                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Palette className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-slate-900 text-xs truncate">
-                          Style &amp; Typography Inspector
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-mono">
-                          Font Scaling • Borders • Density
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSection(null)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
-                      title="Close Inspector"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Drawer Content */}
-                  <div className="p-4 space-y-4 text-xs">
-                    {/* 1. Uniform Typography Scale Engine */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Type className="w-3.5 h-3.5 text-blue-600" />
-                          Typography Scale Engine
-                        </label>
-                        <span className="text-[10px] font-mono text-slate-400 capitalize">
-                          {fontSizeScale}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Select global typography scale applied uniformly across table rows, terms, totals, and signatures.
-                      </p>
-                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                        {[
-                          { id: 'compact', label: 'Compact', pt: '9pt' },
-                          { id: 'standard', label: 'Standard', pt: '10pt' },
-                          { id: 'comfortable', label: 'Comfortable', pt: '11pt' },
-                          { id: 'large', label: 'Large', pt: '12pt' }
-                        ].map((s) => {
-                          const isSelected = fontSizeScale === s.id;
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => handleSetFontSizeScale(s.id as QuotationFontSizeScale)}
-                              className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                  : 'hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
-                              <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 2. Global Presentation Layout Style (Framed vs Minimal) */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                          Card Presentation Style
-                        </label>
-                        <span className="text-[10px] text-slate-400 font-mono capitalize">{blockStyle}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: 'framed', label: 'Framed', desc: 'Enterprise card borders' },
-                          { id: 'minimal', label: 'Minimal', desc: 'Clean hairline dividers' }
-                        ].map((b) => {
-                          const isSelected = blockStyle === b.id;
-                          return (
-                            <button
-                              key={b.id}
-                              type="button"
-                              onClick={() => handleSetGlobalBlockStyle(b.id as 'framed' | 'minimal')}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-                                {b.label}
-                              </span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{b.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 3. Universal Corner Radius */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Square className="w-3.5 h-3.5 text-blue-600" />
-                          Universal Corner Radius
-                        </label>
-                        <span className="text-[10px] text-slate-400 font-mono capitalize">
-                          {globalCardRadius === 'sharp' ? 'Sharp (0px)' : 'Rounded (8px)'}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: 'rounded' as const, label: 'Rounded (8px)', desc: 'Organic modern' },
-                          { id: 'sharp' as const, label: 'Sharp (0px)', desc: 'Enterprise crisp' }
-                        ].map((cr) => {
-                          const isSelected = globalCardRadius === cr.id;
-                          return (
-                            <button
-                              key={cr.id}
-                              type="button"
-                              onClick={() => {
-                                setGlobalCardRadius(cr.id);
-                                setRecipientConfig((prev) => ({
-                                  ...prev,
-                                  globalCardRadius: cr.id,
-                                  recipientCardRadius: cr.id,
-                                  offerCardRadius: cr.id
-                                }));
-                              }}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-                                {cr.label}
-                              </span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{cr.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 4. Itemized Table Density */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Table className="w-3.5 h-3.5 text-blue-600" />
-                        Table Density
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: 'comfortable', label: 'Comfortable', desc: 'Spacious padding' },
-                          { id: 'compact', label: 'Compact', desc: 'Dense line items' }
-                        ].map((d) => {
-                          const isSelected = tableDensity === d.id;
-                          return (
-                            <button
-                              key={d.id}
-                              type="button"
-                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-                                {d.label}
-                              </span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{d.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </aside>
-              )}
-
               {/* Retractable Right-Side Contextual Block Inspector Drawer */}
               {selectedBlock && (() => {
                 const meta = getBlockMeta(selectedBlock);
@@ -6623,6 +5591,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 const blockIndex = layoutBlocks.findIndex((b) => b.id === selectedBlock.id);
                 const isFirst = blockIndex === 0;
                 const isLast = blockIndex === layoutBlocks.length - 1;
+                const isBlockHidden = selectedBlock.enabled === false || selectedBlock.is_visible === false;
                 const selectedBlockType =
                   selectedBlock.type ||
                   (selectedBlock.id.startsWith('break_')
@@ -6671,7 +5640,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             Document Visibility
                           </span>
                           <span className="text-[10.5px] text-slate-500">
-                            {selectedBlock.enabled !== false && selectedBlock.is_visible !== false
+                            {!isBlockHidden
                               ? 'Active in layout sequence'
                               : 'Hidden from output'}
                           </span>
@@ -6679,13 +5648,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={selectedBlock.enabled !== false && selectedBlock.is_visible !== false}
+                            checked={!isBlockHidden}
                             onChange={(e) => handleToggleBlockEnabled(selectedBlock.id, e.target.checked)}
                             className="sr-only peer"
                           />
                           <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                       </div>
+
+                      {/* Amber Notice Banner when Block is Hidden */}
+                      {isBlockHidden && (
+                        <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-medium leading-relaxed">
+                          This block is currently hidden on the PDF. Toggle Document Visibility on to render it.
+                        </div>
+                      )}
 
                       {/* 2. Reordering Controls (Up / Down) */}
                       <div>
@@ -6876,7 +5852,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               })}
                             </div>
                             <p className="text-[10px] text-slate-400 mt-1">
-                              Paired Left & Right blocks on the same row stretch to equal height automatically.
+                              Paired Left &amp; Right blocks on the same row stretch to equal height automatically.
                             </p>
                           </div>
 
@@ -6999,98 +5975,90 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           )}
 
-                          {/* Signatory, Acceptance & Remittance Specific Options */}
-                          {(selectedBlock.id === 'signatory' || selectedBlock.id === 'acceptance' || selectedBlock.id === 'remittance') && (
+                          {/* Signatory Block Specific Options */}
+                          {selectedBlock.id === 'signatory' && (
                             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
                               <div className="flex items-center justify-between">
-                                <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                                  <Layout className="w-3.5 h-3.5 text-blue-600" />
-                                  Closing Layout Mode
+                                <div>
+                                  <span className="font-semibold text-slate-800 text-xs block">
+                                    Show Company Seal Placeholder
+                                  </span>
+                                  <span className="text-[10.5px] text-slate-500">
+                                    Render official stamp image or dashed seal box inside signatory card
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={showCompanySeal}
+                                    onChange={(e) => setShowCompanySeal(e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                                 </label>
-                                <span className="text-[10px] font-mono text-slate-400 capitalize">
-                                  {footerConfig.footerLayoutMode || 'split'}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-slate-500">
-                                Configure closing presentation layout and toggle individual closing cards.
-                              </p>
-
-                              {/* 3-Way Segmented Control */}
-                              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                                {[
-                                  { id: 'split', label: 'Split (50/50)' },
-                                  { id: 'stacked', label: 'Stacked' },
-                                  { id: 'seller_only', label: 'Seller Only' }
-                                ].map((m) => {
-                                  const isSelected = (footerConfig.footerLayoutMode || 'split') === m.id;
-                                  return (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      onClick={() => handleSetFooterLayoutMode(m.id as any)}
-                                      className={`py-1.5 px-1 rounded-lg text-[10.5px] font-medium transition text-center cursor-pointer ${
-                                        isSelected
-                                          ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                          : 'hover:bg-white text-slate-600'
-                                      }`}
-                                    >
-                                      {m.label}
-                                    </button>
-                                  );
-                                })}
                               </div>
 
-                              {/* Independent Toggle Switches */}
-                              <div className="space-y-1.5 pt-1">
-                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                    <Landmark className="w-3.5 h-3.5 text-slate-400" />
-                                    Bank Remittance Card
-                                  </span>
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={footerConfig.showBankRemittance !== false}
-                                      onChange={(e) => handleToggleBankRemittance(e.target.checked)}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                                  </label>
-                                </div>
-
-                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                    <FileCheck className="w-3.5 h-3.5 text-slate-400" />
-                                    Customer Acceptance / Stamp Box
-                                  </span>
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={footerConfig.showCustomerAcceptance !== false && footerConfig.footerLayoutMode !== 'seller_only'}
-                                      disabled={footerConfig.footerLayoutMode === 'seller_only'}
-                                      onChange={(e) => handleToggleCustomerAcceptance(e.target.checked)}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 disabled:opacity-40"></div>
-                                  </label>
-                                </div>
-
-                                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80">
-                                  <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                                    <Stamp className="w-3.5 h-3.5 text-slate-400" />
-                                    Authorized Signatories
-                                  </span>
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={footerConfig.showSignatories !== false}
-                                      onChange={(e) => handleToggleSignatories(e.target.checked)}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-7 h-4 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
-                                  </label>
-                                </div>
+                              <div>
+                                <label className="block text-slate-600 font-medium text-[11px] mb-1">
+                                  Signature Style
+                                </label>
+                                <select
+                                  value={signatureStyle}
+                                  onChange={(e) => setSignatureStyle(e.target.value as QuotationSignatureStyle)}
+                                  className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800 text-xs font-medium"
+                                >
+                                  <option value="script">Script (Cursive Autopen)</option>
+                                  <option value="line">Blank Line (For Wet Signature &amp; Stamp)</option>
+                                  <option value="image">Digital Image / Box</option>
+                                </select>
                               </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setActiveLeftTab('content')}
+                                className="w-full py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                <span>📝 Edit Signatory Names in Deal Data</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Remittance Block Specific Options */}
+                          {selectedBlock.id === 'remittance' && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                              <div>
+                                <label className="block text-slate-600 font-medium text-[11px] mb-1">
+                                  Remittance Bank Account
+                                </label>
+                                <select
+                                  value={selectedBankId}
+                                  onChange={(e) => handleSelectBank(e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800 text-xs font-medium"
+                                >
+                                  {bankRegistry.map((b) => {
+                                    const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
+                                    return (
+                                      <option key={b.id} value={b.id}>
+                                        {b.bankName} - {acctLabel} ({b.currency})
+                                      </option>
+                                    );
+                                  })}
+                                  {bankRegistry.length === 0 && (
+                                    <option value="">Default Corporate Wire Account (AED)</option>
+                                  )}
+                                </select>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveLeftTab('content');
+                                  setIsEditingBankDetails(true);
+                                }}
+                                className="w-full py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                <span>📝 Edit Wire Details in Deal Data</span>
+                              </button>
                             </div>
                           )}
                         </>
