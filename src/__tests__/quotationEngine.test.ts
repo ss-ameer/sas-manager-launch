@@ -23,6 +23,7 @@ import {
   resolveTableColumnLayout,
   resolveSpacerPresentation,
   resolveDocumentPaginationWithAnnexes,
+  amountInWordsAED,
   DEFAULT_QUOTATION_BLOCKS
 } from '../components/quotations/QuotationDocument';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -1572,6 +1573,229 @@ describe('13. Deep-Clone Quotation Revisioning (R1 -> R2), Status Lifecycle & En
     });
   });
 });
+
+// ============================================================================
+// SUITE 14: PRINCIPAL AUDIT HARDENING (TRAILING PAGE-BREAK GUARD, FLOATING-POINT
+//           FILS & VAT PRECISION, REVISION STATE ISOLATION & FINAL-SHEET PRINT BREAK)
+// ============================================================================
+
+describe('Suite 14: Principal Audit Hardening & Edge-Case Verification', () => {
+  it('14a. Trailing & consecutive page_break blocks are guarded so partitionBlocksIntoSheets never generates accidental empty sheets', () => {
+    const blocksWithTrailingBreak: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true, placement: 'left' },
+      { id: 'totals', type: 'totals', enabled: true, placement: 'right' },
+      { id: 'break_middle', type: 'page_break', enabled: true, show_continuation_header: true },
+      { id: 'break_duplicate_empty', type: 'page_break', enabled: true, show_continuation_header: true },
+      { id: 'signatory', type: 'signatory', enabled: true, placement: 'left' },
+      { id: 'acceptance', type: 'acceptance', enabled: true, placement: 'right' },
+      { id: 'break_trailing_at_end', type: 'page_break', enabled: true, show_continuation_header: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(blocksWithTrailingBreak, [
+      {
+        id: 'li_1',
+        item_name: 'Submersible Sewage Pump',
+        description: 'Cast iron impeller',
+        quantity: 2,
+        unit: 'nos',
+        unit_price: 5000,
+        total_price: 10000
+      }
+    ]);
+
+    // Should produce exactly 2 sheets (Sheet 1: terms + totals; Sheet 2: signatory + acceptance).
+    // Both the duplicate middle break and the trailing break at the end are stripped.
+    expect(sheets.length).toBe(2);
+    expect(sheets[0].sheetNumber).toBe(1);
+    expect(sheets[0].totalSheets).toBe(2);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 2');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'totals']);
+    expect(sheets[0].isLastDocumentSheet).toBe(false);
+
+    expect(sheets[1].sheetNumber).toBe(2);
+    expect(sheets[1].totalSheets).toBe(2);
+    expect(sheets[1].pageLabel).toBe('Page 2 of 2');
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual(['signatory', 'acceptance']);
+    expect(sheets[1].isLastDocumentSheet).toBe(true);
+  });
+
+  it('14b. IEEE-754 floating-point precision in calculateTotals and amountInWordsAED handles 0.1 + 0.2, exact fils (.05, .25, .50), zero totals, and multi-million AED tenders cleanly', () => {
+    // 0.1 + 0.2 floating-point line items
+    const floatTotals = QuotationRepository.calculateTotals(
+      [
+        { total_price: 0.1, is_optional: false },
+        { total_price: 0.2, is_optional: false },
+        { total_price: 999.99, is_optional: true }
+      ],
+      0,
+      'tax_exempt',
+      0
+    );
+    expect(floatTotals.subtotal).toBe(0.3);
+    expect(floatTotals.grand_total).toBe(0.3);
+
+    // 1.005 rounding edge case with 5% UAE VAT
+    const vatPrecision = QuotationRepository.calculateTotals(
+      [
+        { quantity: 3, unit_price: 19.99, is_optional: false }, // 59.97
+        { quantity: 1, unit_price: 40.13, is_optional: false }  // 40.13 -> subtotal = 100.10
+      ],
+      0,
+      'taxes_extra',
+      5
+    );
+    expect(vatPrecision.subtotal).toBe(100.1);
+    expect(vatPrecision.tax_amount).toBe(5.01); // 100.10 * 0.05 = 5.005 -> rounds to 5.01
+    expect(vatPrecision.grand_total).toBe(105.11);
+
+    // amountInWordsAED precision checks
+    expect(amountInWordsAED(0.1 + 0.2)).toBe('Zero and Thirty Fils Only');
+    expect(amountInWordsAED(0)).toBe('Zero Only');
+    expect(amountInWordsAED('0.00')).toBe('Zero Only');
+    expect(amountInWordsAED(1250.5)).toBe('One Thousand Two Hundred Fifty and Fifty Fils Only');
+    expect(amountInWordsAED(1250.25)).toBe(
+      'One Thousand Two Hundred Fifty and Twenty-Five Fils Only'
+    );
+    expect(amountInWordsAED(1250.05)).toBe('One Thousand Two Hundred Fifty and Five Fils Only');
+    expect(amountInWordsAED('15,750,000.50')).toBe(
+      'Fifteen Million Seven Hundred Fifty Thousand and Fifty Fils Only'
+    );
+  });
+
+  it('14c. hydrateStudioStateFromQuotation isolates state when switching between R1 (Superseded) <-> R2 (Draft) and resets cleanly when opening a new quotation', () => {
+    const r1: Quotation = {
+      id: 'quote_r1',
+      workspace_id: 'ws_audit',
+      workspaceId: 'ws_audit',
+      enquiry_id: 'enq_audit',
+      quote_number: 'QT-2026-0099',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0099-R1',
+      status: 'Superseded',
+      superseded_by_id: 'quote_r2',
+      client_snapshot: { entity_name: 'ACME Utilities' },
+      sender_snapshot: { entity_name: 'FlowTech Engineering' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 10000,
+      freight_amount: 250,
+      tax_rate_percent: 5,
+      tax_amount: 512.5,
+      grand_total: 10762.5,
+      table_density: 'compact',
+      fontSizeScale: 'compact',
+      block_style: 'minimal',
+      globalCardRadius: 'sharp',
+      cardsOrder: 'offer_first',
+      subjectPlacement: 'above_cards',
+      remittanceBankId: 'bank_usd_99',
+      visible_columns: {
+        showUnitPrice: false,
+        showUom: false,
+        showLineTotal: true
+      },
+      layout_blocks: [
+        { id: 'terms', type: 'terms', enabled: true, placement: 'full' }
+      ],
+      flyer_attachments: [
+        { id: 'att_r1', name: 'R1 Flyer', url: 'https://example.com/r1.png', type: 'image', render_as_annex_page: true }
+      ],
+      show_submittals_index: false,
+      created_at: '2026-10-24T10:00:00.000Z'
+    };
+
+    const r2 = QuotationRepository.cloneQuotationAsNextRevision(r1);
+    r2.table_density = 'comfortable';
+    r2.fontSizeScale = 'large';
+    r2.block_style = 'framed';
+    r2.globalCardRadius = 'rounded';
+    r2.cardsOrder = 'recipient_first';
+    r2.subjectPlacement = 'below_cards';
+    r2.remittanceBankId = 'bank_aed_01';
+    r2.visible_columns = {
+      showUnitPrice: true,
+      showUom: true,
+      showLineTotal: true
+    };
+    r2.flyer_attachments = [
+      { id: 'att_r2_1', name: 'R2 Flyer 1', url: 'https://example.com/r2_1.png', type: 'image', render_as_annex_page: true },
+      { id: 'att_r2_2', name: 'R2 Flyer 2', url: 'https://example.com/r2_2.png', type: 'image', render_as_annex_page: true }
+    ];
+    r2.show_submittals_index = true;
+
+    // 1. Hydrate R1 (Superseded)
+    const stateR1 = QuotationRepository.hydrateStudioStateFromQuotation(r1);
+    expect(stateR1.activeQuotationId).toBe('quote_r1');
+    expect(stateR1.revisionNumber).toBe(1);
+    expect(stateR1.quotationStatus).toBe('Superseded');
+    expect(stateR1.visibleColumns.showUnitPrice).toBe(false);
+    expect(stateR1.visibleColumns.showUom).toBe(false);
+    expect(stateR1.flyerAttachments.length).toBe(1);
+    expect(stateR1.showSubmittalsIndex).toBe(false);
+    expect(stateR1.globalCardRadius).toBe('sharp');
+    expect(stateR1.cardsOrder).toBe('offer_first');
+    expect(stateR1.subjectPlacement).toBe('above_cards');
+    expect(stateR1.selectedBankId).toBe('bank_usd_99');
+
+    // 2. Switch to R2 (Draft) -> verify zero stale closure / state leak from R1
+    const stateR2 = QuotationRepository.hydrateStudioStateFromQuotation(r2);
+    expect(stateR2.activeQuotationId).toBe(r2.id);
+    expect(stateR2.parentQuotationId).toBe('quote_r1');
+    expect(stateR2.revisionNumber).toBe(2);
+    expect(stateR2.quotationStatus).toBe('Draft');
+    expect(stateR2.visibleColumns.showUnitPrice).toBe(true);
+    expect(stateR2.visibleColumns.showUom).toBe(true);
+    expect(stateR2.flyerAttachments.length).toBe(2);
+    expect(stateR2.showSubmittalsIndex).toBe(true);
+    expect(stateR2.globalCardRadius).toBe('rounded');
+    expect(stateR2.cardsOrder).toBe('recipient_first');
+    expect(stateR2.subjectPlacement).toBe('below_cards');
+    expect(stateR2.selectedBankId).toBe('bank_aed_01');
+
+    // 3. Switch to null (brand-new quotation) -> verify flyerAttachments & status reset cleanly
+    const stateNew = QuotationRepository.hydrateStudioStateFromQuotation(null);
+    expect(stateNew.activeQuotationId).toBe('');
+    expect(stateNew.parentQuotationId).toBe(undefined);
+    expect(stateNew.revisionNumber).toBe(1);
+    expect(stateNew.quotationStatus).toBe('Draft');
+    expect(stateNew.flyerAttachments.length).toBe(0);
+    expect(stateNew.showSubmittalsIndex).toBe(true);
+    expect(stateNew.visibleColumns.showUnitPrice).toBe(true);
+  });
+
+  it('14d. Final-sheet print break suppression (isLastDocumentSheet) is true ONLY on the very last sheet across main + annex pages', () => {
+    const blocks: QuotationBlockConfig[] = [
+      { id: 'terms', type: 'terms', enabled: true },
+      { id: 'break_1', type: 'page_break', enabled: true },
+      { id: 'totals', type: 'totals', enabled: true }
+    ];
+
+    // Case 1: 2 Main Sheets + 0 Annex Sheets -> Main Sheet 2 is the last document sheet
+    const withoutAnnexes = resolveDocumentPaginationWithAnnexes(blocks, [], [], true);
+    expect(withoutAnnexes.mainSheets.length).toBe(2);
+    expect(withoutAnnexes.annexSheets.length).toBe(0);
+    expect(withoutAnnexes.mainSheets[0].isLastDocumentSheet).toBe(false);
+    expect(withoutAnnexes.mainSheets[1].isLastDocumentSheet).toBe(true);
+
+    // Case 2: 2 Main Sheets + 2 Annex Sheets -> Main Sheet 2 is NOT last; Annex Sheet 2 IS last
+    const withAnnexes = resolveDocumentPaginationWithAnnexes(
+      blocks,
+      [],
+      [
+        { id: 'a1', name: 'Annex 1', url: 'https://example.com/a1.png', type: 'image', render_as_annex_page: true },
+        { id: 'a2', name: 'Annex 2', url: 'https://example.com/a2.png', type: 'image', render_as_annex_page: true }
+      ],
+      true
+    );
+    expect(withAnnexes.mainSheets.length).toBe(2);
+    expect(withAnnexes.annexSheets.length).toBe(2);
+    expect(withAnnexes.mainSheets[0].isLastDocumentSheet).toBe(false);
+    expect(withAnnexes.mainSheets[1].isLastDocumentSheet).toBe(false);
+    expect(withAnnexes.annexSheets[0].isLastDocumentSheet).toBe(false);
+    expect(withAnnexes.annexSheets[1].isLastDocumentSheet).toBe(true);
+  });
+});
+
 
 // ==========================================
 // TEST REPORT SUMMARY

@@ -175,6 +175,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Active Quotation Revision & Lifecycle Status State
+  const [activeSourceQuotation, setActiveSourceQuotation] = useState<Quotation | null>(
+    () => editingQuotation || null
+  );
+  const [enquiryRevisions, setEnquiryRevisions] = useState<Quotation[]>([]);
   const [activeQuotationId, setActiveQuotationId] = useState<string>(
     () => editingQuotation?.id || ''
   );
@@ -790,52 +794,159 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     );
   });
 
-  // Hydrate state when editingQuotation changes
-  useEffect(() => {
-    if (editingQuotation) {
-      if (typeof editingQuotation.client_contact_person === 'string') {
-        setClientContactPerson(editingQuotation.client_contact_person);
-      }
-      if (typeof editingQuotation.prepared_by === 'string') {
-        setPreparedBy(resolveRepFullName(editingQuotation.prepared_by));
-      }
-      if (typeof editingQuotation.subject === 'string') {
-        setQuotationSubject(editingQuotation.subject);
-      }
-      if (typeof editingQuotation.freight_amount === 'number') {
-        setFreightAmount(editingQuotation.freight_amount);
-      }
-      if (editingQuotation.tax_mode) {
-        setTaxMode(editingQuotation.tax_mode);
-      }
-      if (typeof editingQuotation.tax_rate_percent === 'number') {
-        setTaxRatePercent(editingQuotation.tax_rate_percent);
-      }
-      if (editingQuotation.applied_terms) {
-        setCustomNotes(editingQuotation.applied_terms);
-      }
-      if (typeof editingQuotation.price_basis === 'string') {
-        setPriceBasis(editingQuotation.price_basis);
-      }
-      if (typeof editingQuotation.payment_terms === 'string') {
-        setPaymentTerms(editingQuotation.payment_terms);
-      }
-      if (typeof editingQuotation.custom_notes === 'string') {
-        setCustomNotes(editingQuotation.custom_notes);
-      }
-      if (editingQuotation.globalCardRadius) {
-        setGlobalCardRadius(editingQuotation.globalCardRadius);
-      }
-      if (editingQuotation.cardsOrder) {
-        setCardsOrder(editingQuotation.cardsOrder);
-      }
-      if (editingQuotation.subjectPlacement) {
-        setSubjectPlacement(editingQuotation.subjectPlacement);
-      }
-      if (editingQuotation.line_items) {
+  // Complete, leak-free state hydration helper when switching quotations, enquiries, or revisions (R1 <-> R2)
+  const hydrateStudioFromQuotation = useCallback(
+    (targetQuote: Quotation | null) => {
+      setActiveSourceQuotation(targetQuote);
+      const defaultPreset = presets.find((p) => p.is_default) || presets[0] || null;
+      const hydrated = QuotationRepository.hydrateStudioStateFromQuotation(
+        targetQuote,
+        profile,
+        !targetQuote ? defaultPreset : null
+      );
+
+      setActiveQuotationId(hydrated.activeQuotationId);
+      setParentQuotationId(hydrated.parentQuotationId);
+      setRevisionNumber(hydrated.revisionNumber);
+      setFormattedQuoteRefOverride(hydrated.formattedQuoteRefOverride);
+      setQuotationStatus(hydrated.quotationStatus);
+      setVisibleColumns(hydrated.visibleColumns);
+      setFreightAmount(hydrated.freightAmount);
+      setTaxMode(hydrated.taxMode);
+      setTaxRatePercent(hydrated.taxRatePercent);
+      setPriceBasis(hydrated.priceBasis);
+      setPaymentTerms(hydrated.paymentTerms);
+      setTableDensity(hydrated.tableDensity);
+      setFontSizeScale(hydrated.fontSizeScale);
+      setTableFontScale(
+        hydrated.fontSizeScale === 'compact'
+          ? 'compact'
+          : hydrated.fontSizeScale === 'large'
+          ? 'prominent'
+          : 'standard'
+      );
+      setBlockStyle(hydrated.blockStyle);
+      setGlobalCardRadius(hydrated.globalCardRadius);
+      setCardsOrder(hydrated.cardsOrder);
+      setSubjectPlacement(hydrated.subjectPlacement);
+      setSelectedBankId(hydrated.selectedBankId);
+      setFlyerAttachments(hydrated.flyerAttachments);
+      setShowSubmittalsIndex(hydrated.showSubmittalsIndex);
+
+      if (targetQuote) {
+        setClientContactPerson(
+          targetQuote.client_contact_person ||
+            targetQuote.client_snapshot?.client_contact_person ||
+            targetQuote.client_snapshot?.contact_person ||
+            (enquiry as any)?.contact_person_name ||
+            enquiry?.concerned_person ||
+            ''
+        );
+        setPreparedBy(
+          targetQuote.prepared_by
+            ? resolveRepFullName(targetQuote.prepared_by)
+            : resolveRepFullName(
+                (enquiry as any)?.assigned_salesperson ||
+                  enquiry?.sales_representative ||
+                  salespersonName
+              )
+        );
+        setQuotationSubject(targetQuote.subject || enquiry?.subject || profile?.subject || '');
+        setCustomNotes(
+          targetQuote.custom_notes ||
+            targetQuote.applied_terms ||
+            profile?.default_notes ||
+            'All prices are subject to availability at the time of firm order.'
+        );
+        setHeaderLayout(targetQuote.header_layout || profile?.header_layout || 'split');
+        setShowBankDetails(targetQuote.show_bank_details ?? profile?.show_bank_details ?? true);
+        setShowCommercialTerms(
+          targetQuote.show_commercial_terms ?? profile?.show_commercial_terms ?? true
+        );
+        setShowCompanySeal(targetQuote.show_company_seal ?? profile?.show_company_seal ?? true);
+        setThemeAccent(targetQuote.theme_accent || profile?.theme_accent || 'navy');
+        setLogoPosition(targetQuote.logo_position || profile?.logo_position || 'left');
+        setAmountInWordsEnabled(
+          targetQuote.amount_in_words_enabled ?? profile?.amount_in_words_enabled ?? true
+        );
+        setCustomerAcceptanceEnabled(
+          targetQuote.customer_acceptance_enabled ?? profile?.customer_acceptance_enabled ?? true
+        );
+        const sType =
+          targetQuote.signatory_type ||
+          (targetQuote.signatories && targetQuote.signatories.length > 1 ? 'dual' : 'single');
+        setSignatoryType(sType);
+        setSignatoryMode(sType);
+        setSignatureStyle(targetQuote.signature_style || profile?.signature_style || 'script');
+        setSignatoryName(
+          resolveRepFullName(
+            targetQuote.primary_signatory_name ||
+              targetQuote.signatories?.[0]?.name ||
+              salespersonName
+          )
+        );
+        setSignatoryTitle(
+          targetQuote.primary_signatory_title ||
+            targetQuote.signatories?.[0]?.designation ||
+            profile?.primary_signatory_title ||
+            'Account Manager'
+        );
+        setSecondarySignatoryName(
+          targetQuote.secondary_signatory_name ||
+            targetQuote.signatories?.[1]?.name ||
+            profile?.secondary_signatory_name ||
+            'Authorized Director'
+        );
+        setSecondarySignatoryTitle(
+          targetQuote.secondary_signatory_title ||
+            targetQuote.signatories?.[1]?.designation ||
+            profile?.secondary_signatory_title ||
+            'Commercial Approver'
+        );
+        setPageMode(
+          targetQuote.pageMode ||
+            targetQuote.footer_config?.pageMode ||
+            profile?.pageMode ||
+            'auto'
+        );
+        setHeaderConfig({
+          ...DEFAULT_HEADER_CONFIG,
+          ...(profile?.header_config || {}),
+          ...(targetQuote.header_config || {})
+        });
+        setRecipientConfig({
+          ...DEFAULT_RECIPIENT_CONFIG,
+          globalCardRadius: hydrated.globalCardRadius,
+          cardsOrder: hydrated.cardsOrder,
+          subjectPlacement: hydrated.subjectPlacement,
+          ...(profile?.recipient_config || {}),
+          ...(targetQuote.recipient_config || {})
+        });
+        setFooterConfig({
+          ...DEFAULT_FOOTER_CONFIG,
+          ...(profile?.footer_config || {}),
+          ...(targetQuote.footer_config || {})
+        });
+
+        const savedBlocks =
+          targetQuote.layout_blocks || (targetQuote as any)?.presentation_preset?.layout_blocks;
+        const blocksToUse =
+          savedBlocks && Array.isArray(savedBlocks) && savedBlocks.length > 0
+            ? savedBlocks
+            : DEFAULT_QUOTATION_BLOCKS;
+        setLayoutBlocks(
+          blocksToUse.map((b: QuotationBlockConfig) => ({
+            ...b,
+            enabled: b.enabled ?? b.is_visible ?? true,
+            is_visible: b.is_visible ?? b.enabled ?? true,
+            fontScale: b.fontScale || 'standard',
+            padding: b.padding || 'standard'
+          }))
+        );
+
         const initialMap: Record<string, string[]> = {};
         const initialBreaks: Record<string, boolean> = {};
-        editingQuotation.line_items.forEach((item, idx) => {
+        (targetQuote.line_items || []).forEach((item, idx) => {
           const key = item.id || `item_${idx}`;
           if (item.visible_attributes) {
             initialMap[key] = item.visible_attributes;
@@ -846,73 +957,44 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         });
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
-      }
-      if (editingQuotation.applied_bank_account?.id) {
-        setSelectedBankId(editingQuotation.applied_bank_account.id);
-      }
-      if (editingQuotation.header_layout) {
-        setHeaderLayout(editingQuotation.header_layout);
-      }
-      if (editingQuotation.table_density) {
-        setTableDensity(editingQuotation.table_density);
-      }
-      if (typeof editingQuotation.show_bank_details === 'boolean') {
-        setShowBankDetails(editingQuotation.show_bank_details);
-      }
-      if (typeof editingQuotation.show_commercial_terms === 'boolean') {
-        setShowCommercialTerms(editingQuotation.show_commercial_terms);
-      }
-      if (typeof editingQuotation.show_company_seal === 'boolean') {
-        setShowCompanySeal(editingQuotation.show_company_seal);
-      }
-      if (editingQuotation.theme_accent) {
-        setThemeAccent(editingQuotation.theme_accent);
-      }
-      if (editingQuotation.logo_position) {
-        setLogoPosition(editingQuotation.logo_position);
-      }
-      if (typeof editingQuotation.amount_in_words_enabled === 'boolean') {
-        setAmountInWordsEnabled(editingQuotation.amount_in_words_enabled);
-      }
-      if (typeof editingQuotation.customer_acceptance_enabled === 'boolean') {
-        setCustomerAcceptanceEnabled(editingQuotation.customer_acceptance_enabled);
-      }
-      if (editingQuotation.signatory_type) {
-        setSignatoryType(editingQuotation.signatory_type);
-        setSignatoryMode(editingQuotation.signatory_type);
-      }
-      if (editingQuotation.signature_style) {
-        setSignatureStyle(editingQuotation.signature_style);
-      }
-      if (editingQuotation.primary_signatory_name) {
-        setSignatoryName(resolveRepFullName(editingQuotation.primary_signatory_name));
-      } else if (editingQuotation.signatories?.[0]?.name) {
-        setSignatoryName(resolveRepFullName(editingQuotation.signatories[0].name));
-      }
-      if (editingQuotation.primary_signatory_title) {
-        setSignatoryTitle(editingQuotation.primary_signatory_title);
-      } else if (editingQuotation.signatories?.[0]?.designation) {
-        setSignatoryTitle(editingQuotation.signatories[0].designation);
-      }
-      if (editingQuotation.secondary_signatory_name) {
-        setSecondarySignatoryName(editingQuotation.secondary_signatory_name);
-      } else if (editingQuotation.signatories?.[1]?.name) {
-        setSecondarySignatoryName(editingQuotation.signatories[1].name);
-      }
-      if (editingQuotation.secondary_signatory_title) {
-        setSecondarySignatoryTitle(editingQuotation.secondary_signatory_title);
-      } else if (editingQuotation.signatories?.[1]?.designation) {
-        setSecondarySignatoryTitle(editingQuotation.signatories[1].designation);
-      }
-      if (editingQuotation.pageMode) {
-        setPageMode(editingQuotation.pageMode);
-      }
-      const savedBlocks =
-        editingQuotation.layout_blocks ||
-        (editingQuotation as any)?.presentation_preset?.layout_blocks;
-      if (savedBlocks && Array.isArray(savedBlocks) && savedBlocks.length > 0) {
+
+        if (targetQuote.selectedBank || targetQuote.applied_bank_account) {
+          const b: any = targetQuote.selectedBank || targetQuote.applied_bank_account;
+          setCustomBankOverride({
+            bankName: b.bankName || b.bank_name,
+            beneficiaryName: b.beneficiaryName || b.account_name,
+            accountNumber: b.accountNumber || b.account_number,
+            iban: b.iban,
+            swiftCode: b.swiftCode || b.swift_bic,
+            branchName: b.branchName || b.branch_address
+          });
+        } else {
+          setCustomBankOverride(null);
+        }
+      } else {
+        setClientContactPerson(
+          (enquiry as any)?.contact_person_name ||
+            (enquiry as any)?.contact_name ||
+            enquiry?.concerned_person ||
+            ''
+        );
+        setPreparedBy(
+          resolveRepFullName(
+            (enquiry as any)?.assigned_salesperson ||
+              enquiry?.sales_representative ||
+              salespersonName
+          )
+        );
+        setQuotationSubject(enquiry?.subject || profile?.subject || '');
+        setCustomNotes(
+          profile?.default_notes ||
+            'All prices are subject to availability at the time of firm order.'
+        );
         setLayoutBlocks(
-          savedBlocks.map((b: QuotationBlockConfig) => ({
+          (hydrated.layoutBlocks.length > 0
+            ? hydrated.layoutBlocks
+            : DEFAULT_QUOTATION_BLOCKS
+          ).map((b: QuotationBlockConfig) => ({
             ...b,
             enabled: b.enabled ?? b.is_visible ?? true,
             is_visible: b.is_visible ?? b.enabled ?? true,
@@ -920,15 +1002,50 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             padding: b.padding || 'standard'
           }))
         );
+        const initialBreaks: Record<string, boolean> = {};
+        (enquiry?.line_items || []).forEach((item: any, idx: number) => {
+          const key = item.id || `item_${idx}`;
+          if (typeof item.page_break_after === 'boolean') {
+            initialBreaks[key] = item.page_break_after;
+          }
+        });
+        setItemVisibleAttributes({});
+        setItemPageBreaks(initialBreaks);
+        setCustomBankOverride(null);
       }
-      if (Array.isArray(editingQuotation.flyer_attachments)) {
-        setFlyerAttachments(editingQuotation.flyer_attachments);
-      }
-      if (typeof editingQuotation.show_submittals_index === 'boolean') {
-        setShowSubmittalsIndex(editingQuotation.show_submittals_index);
-      }
+    },
+    [enquiry, profile, presets, salespersonName]
+  );
+
+  // Hydrate state when editingQuotation or enquiry.id changes
+  useEffect(() => {
+    hydrateStudioFromQuotation(editingQuotation || null);
+  }, [editingQuotation, enquiry?.id]);
+
+  // Load revision chain for the current enquiry so the In-Studio Revision History Switcher is populated
+  useEffect(() => {
+    let isMounted = true;
+    if (enquiry?.id && activeWorkspaceId) {
+      QuotationRepository.getQuotationsForEnquiry(enquiry.id, activeWorkspaceId)
+        .then((loaded) => {
+          if (!isMounted) return;
+          const merged = [...loaded];
+          if (editingQuotation?.id && !merged.some((q) => q.id === editingQuotation.id)) {
+            merged.push(editingQuotation);
+          }
+          merged.sort((a, b) => (a.revision_number || 1) - (b.revision_number || 1));
+          setEnquiryRevisions(merged);
+        })
+        .catch(() => {});
+    } else if (editingQuotation) {
+      setEnquiryRevisions([editingQuotation]);
+    } else {
+      setEnquiryRevisions([]);
     }
-  }, [editingQuotation]);
+    return () => {
+      isMounted = false;
+    };
+  }, [enquiry?.id, activeWorkspaceId, editingQuotation]);
 
   // Zoom / Preview scale controls
   const [zoomScale, setZoomScale] = useState<number>(0.85);
@@ -1307,9 +1424,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
     ];
 
+    const sourceQuotation = activeSourceQuotation || editingQuotation;
     let baseItems: QuotationLineItem[];
-    if (editingQuotation?.line_items && editingQuotation.line_items.length > 0) {
-      baseItems = editingQuotation.line_items.map((item, idx) => {
+    if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
+      baseItems = sourceQuotation.line_items.map((item, idx) => {
         if (item.attributes && item.attributes.length > 0) return item;
         // Enrich sample items if they match Item 1 or Item 2
         if (
@@ -1353,7 +1471,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         baseItems = rawItems.map((li, idx) => {
           const qty = Number(li.quantity) || 1;
           const uPrice = Number(li.unit_price) || 0;
-          const tPrice = Number(li.total_price) || qty * uPrice;
+          const tPrice =
+            li.total_price !== undefined
+              ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+              : QuotationRepository.roundCurrency(qty * uPrice);
 
           // Extract attributes if available
           const brandAttr = li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value;
@@ -1390,7 +1511,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             model_part_no: modelAttr || undefined,
             country_of_origin: originAttr || undefined,
             availability: li.lead_time_note || 'Ex-Stock / Standard',
-            is_optional: false,
+            is_optional: Boolean((li as any).is_optional),
             attributes: itemAttrs,
             page_break_after: li.page_break_after,
             row_spacer_after_mm: li.row_spacer_after_mm
@@ -1412,7 +1533,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         page_break_after: customPageBreak
       };
     });
-  }, [editingQuotation, enquiry?.line_items, itemVisibleAttributes, itemPageBreaks]);
+  }, [activeSourceQuotation, editingQuotation, enquiry?.line_items, itemVisibleAttributes, itemPageBreaks]);
 
   // Dynamically extract all unique attribute keys present across active line items
   const availableAttributeKeys = useMemo(() => {
@@ -1869,14 +1990,35 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     quotationStatus
   ]);
 
+  // Switch between revisions in-studio (R1 <-> R2) without leaving the modal
+  const handleSelectRevisionInStudio = (targetQuote: Quotation) => {
+    setEnquiryRevisions((prev) =>
+      prev.map((q) => (q.id === liveQuotation.id ? { ...liveQuotation } : q))
+    );
+    hydrateStudioFromQuotation(targetQuote);
+    triggerToast?.(
+      `Switched to Revision R${targetQuote.revision_number || 1} (${targetQuote.status || 'Draft'})`,
+      'info'
+    );
+  };
+
   // One-click deep-clone revision handler (R1 -> R2, etc.)
   const handleCloneAsNextRevision = () => {
-    const cloned = QuotationRepository.cloneQuotationAsNextRevision(liveQuotation);
-    setActiveQuotationId(cloned.id || '');
-    setParentQuotationId(cloned.parent_quotation_id || liveQuotation.id);
-    setRevisionNumber(cloned.revision_number);
-    setFormattedQuoteRefOverride(cloned.formatted_quote_ref);
-    setQuotationStatus('Draft');
+    const cloned = QuotationRepository.cloneQuotationAsNextRevision(
+      liveQuotation,
+      enquiryRevisions
+    );
+    setEnquiryRevisions((prev) => {
+      const withCurrent = prev.some((q) => q.id === liveQuotation.id)
+        ? prev.map((q) => (q.id === liveQuotation.id ? { ...liveQuotation } : q))
+        : [...prev, { ...liveQuotation }];
+      const supersededChain = QuotationRepository.markPreviousRevisionsSuperseded(
+        [...withCurrent, cloned],
+        cloned.id!
+      );
+      return supersededChain.sort((a, b) => (a.revision_number || 1) - (b.revision_number || 1));
+    });
+    hydrateStudioFromQuotation(cloned);
     triggerToast?.(`Cloned as Revision R${cloned.revision_number}`, 'success');
   };
 
@@ -2251,6 +2393,45 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
                 </button>
+
+                {/* In-Studio Revision History Switcher (R1 <-> R2) */}
+                {enquiryRevisions.length > 1 && (
+                  <div className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5">
+                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase mr-1">
+                      Revisions:
+                    </span>
+                    {enquiryRevisions.map((rev) => {
+                      const isCurrent =
+                        rev.id === liveQuotation.id ||
+                        rev.revision_number === liveQuotation.revision_number;
+                      const isSuperseded = rev.status === 'Superseded';
+                      return (
+                        <button
+                          key={rev.id || `rev_${rev.revision_number}`}
+                          type="button"
+                          onClick={() => handleSelectRevisionInStudio(rev)}
+                          title={`Switch to ${rev.formatted_quote_ref} (${rev.status || 'Draft'})`}
+                          className={`px-2 py-0.5 text-[10.5px] font-mono font-bold rounded transition cursor-pointer flex items-center gap-1 ${
+                            isCurrent
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : isSuperseded
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
+                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>R{rev.revision_number || 1}</span>
+                          <span
+                            className={`text-[9px] font-sans font-normal ${
+                              isCurrent ? 'text-indigo-100' : 'text-slate-400'
+                            }`}
+                          >
+                            ({rev.status || 'Draft'})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Client: <span className="font-semibold text-slate-700">{liveQuotation.client_snapshot.entity_name}</span>
@@ -2274,6 +2455,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             </button>
           </div>
         </header>
+
+        {/* Superseded Revision Inspection Banner */}
+        {(quotationStatus || 'Draft') === 'Superseded' && (
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 flex-wrap text-xs text-amber-900 shrink-0 print:hidden">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-950 font-mono font-bold text-[10.5px] uppercase">
+                Superseded Revision R{liveQuotation.revision_number || 1}
+              </span>
+              <span>
+                You are inspecting a historical superseded revision (
+                <strong className="font-mono">{liveQuotation.formatted_quote_ref}</strong>). Saving
+                will update this record, or you can switch to the latest revision or fork a new
+                revision.
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {enquiryRevisions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const latest =
+                      enquiryRevisions.find((r) => r.status !== 'Superseded' && r.status !== 'Rejected') ||
+                      enquiryRevisions[enquiryRevisions.length - 1];
+                    if (latest) handleSelectRevisionInStudio(latest);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-semibold text-[11px] transition cursor-pointer"
+                >
+                  Switch to Latest Revision
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleCloneAsNextRevision}
+                className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] transition cursor-pointer"
+              >
+                ⎘ Clone as New Revision
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Modal Body: Two-Pane Split Layout */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden print:overflow-visible print:block print:w-full">

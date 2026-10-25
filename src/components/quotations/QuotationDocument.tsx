@@ -23,7 +23,13 @@ import {
   QuotationLineItem,
   Attachment
 } from '../../types';
-import { amountToWords, amountToWordsAED, formatAmountInWords } from '../../utils/numberToWords';
+import {
+  amountToWords,
+  amountToWordsAED,
+  amountInWordsAED,
+  formatAmountInWords
+} from '../../utils/numberToWords';
+export { amountToWords, amountToWordsAED, amountInWordsAED, formatAmountInWords };
 import {
   FileText,
   Building2,
@@ -122,6 +128,7 @@ export interface QuotationSheetPartition {
   showContinuationHeader: boolean;
   tableChunk?: QuotationTableChunk;
   isTableContinuationSheet?: boolean;
+  isLastDocumentSheet?: boolean;
 }
 
 export function splitLineItemsIntoChunks(lineItems: QuotationLineItem[] = []): QuotationTableChunk[] {
@@ -229,12 +236,26 @@ export function partitionBlocksIntoSheets(
     }
   });
 
-  const totalSheets = rawSheets.length;
-  return rawSheets.map((s) => ({
-    ...s,
-    totalSheets,
-    pageLabel: `Page ${s.sheetNumber} of ${totalSheets}`
-  }));
+  // Guard against empty page_break sheets (e.g., trailing page_break at the end of layoutBlocks or consecutive page_breaks with zero blocks and zero table items)
+  const sanitizedSheets = rawSheets.filter((sheet, idx) => {
+    if (idx === 0) return true;
+    const hasBlocks = sheet.blocks.length > 0;
+    const hasTableItems = Boolean(sheet.tableChunk && sheet.tableChunk.items.length > 0);
+    return hasBlocks || hasTableItems;
+  });
+
+  const totalSheets = sanitizedSheets.length;
+  return sanitizedSheets.map((s, idx) => {
+    const sheetNumber = idx + 1;
+    const isLast = idx === totalSheets - 1;
+    return {
+      ...s,
+      sheetNumber,
+      totalSheets,
+      pageLabel: `Page ${sheetNumber} of ${totalSheets}`,
+      isLastDocumentSheet: isLast
+    };
+  });
 }
 
 export interface QuotationAnnexSheetDescriptor {
@@ -244,6 +265,7 @@ export interface QuotationAnnexSheetDescriptor {
   headerTitle: string;
   pageLabel: string;
   attachment: Attachment;
+  isLastDocumentSheet: boolean;
 }
 
 export interface QuotationSubmittalIndexEntry {
@@ -276,23 +298,29 @@ export function resolveDocumentPaginationWithAnnexes(
   );
   const totalDocumentPages = partitionedMainSheets.length + annexSheetAttachments.length;
 
-  const mainSheets: QuotationSheetPartition[] = partitionedMainSheets.map((sheet) => ({
-    ...sheet,
-    totalSheets: totalDocumentPages,
-    pageLabel: `Page ${sheet.sheetNumber} of ${totalDocumentPages}`
-  }));
+  const mainSheets: QuotationSheetPartition[] = partitionedMainSheets.map((sheet, idx) => {
+    const isLastMain = idx === partitionedMainSheets.length - 1;
+    return {
+      ...sheet,
+      totalSheets: totalDocumentPages,
+      pageLabel: `Page ${sheet.sheetNumber} of ${totalDocumentPages}`,
+      isLastDocumentSheet: isLastMain && annexSheetAttachments.length === 0
+    };
+  });
 
   const annexSheets: QuotationAnnexSheetDescriptor[] = annexSheetAttachments.map(
     (att, annexIdx) => {
       const sheetNumber = mainSheets.length + annexIdx + 1;
       const annexNumber = annexIdx + 1;
+      const isLastAnnex = annexIdx === annexSheetAttachments.length - 1;
       return {
         annexNumber,
         sheetNumber,
         totalDocumentPages,
         headerTitle: `TECHNICAL ANNEX ${annexNumber}: ${att.name}`,
         pageLabel: `Page ${sheetNumber} of ${totalDocumentPages}`,
-        attachment: att
+        attachment: att,
+        isLastDocumentSheet: isLastAnnex
       };
     }
   );
@@ -2474,7 +2502,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             page-break-after: always !important;
             break-after: page !important;
           }
-          .quotation-page-sheet:last-child {
+          .quotation-page-sheet:last-child,
+          .quotation-page-sheet.quotation-last-sheet {
             page-break-after: auto !important;
             break-after: auto !important;
           }
@@ -2609,7 +2638,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             key={sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`}
             ref={isFirst ? sheetRef : (sheetIdx === 1 ? page2Ref : undefined)}
             className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
-              isVeryLastDocumentSheet ? 'print:break-after-avoid' : 'print:break-after-page'
+              isVeryLastDocumentSheet
+                ? 'quotation-last-sheet print:break-after-avoid'
+                : 'print:break-after-page'
             } print:min-h-[297mm]`}
             style={{ boxSizing: 'border-box' }}
           >
@@ -2703,7 +2734,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           <article
             key={att.id || `annex_sheet_${annexIdx + 1}`}
             className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexPageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:p-[14mm] ${
-              isLastAnnexSheet ? 'print:break-after-avoid' : 'print:break-after-page'
+              isLastAnnexSheet
+                ? 'quotation-last-sheet print:break-after-avoid'
+                : 'print:break-after-page'
             } print:min-h-[297mm]`}
             style={{ boxSizing: 'border-box' }}
           >

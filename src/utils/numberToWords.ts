@@ -81,29 +81,47 @@ export function amountToWords(
     return 'Zero Only';
   }
 
-  const numAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
-  if (isNaN(numAmount) || numAmount === 0) {
+  const numAmount =
+    typeof amount === 'number'
+      ? amount
+      : parseFloat(String(amount).replace(/[^0-9.-]+/g, ''));
+
+  if (!Number.isFinite(numAmount) || numAmount === 0) {
     return 'Zero Only';
   }
 
   const cleanCurrency = (currency || 'AED').toUpperCase().trim();
   const subunit = SUBUNIT_MAP[cleanCurrency] || 'Cents';
 
-  const rounded = Math.round((Math.abs(numAmount) + Number.EPSILON) * 100) / 100;
-  const wholePart = Math.floor(rounded);
-  const decimalPart = Math.round((rounded - wholePart) * 100);
+  const isNegative = numAmount < 0;
+  // Convert to integer subunits (fils/cents) with epsilon guard to eliminate IEEE-754 float drift
+  const totalSubunits = Math.round(Math.abs(numAmount) * 100 + 1e-6);
+  if (totalSubunits === 0) {
+    return 'Zero Only';
+  }
 
+  const wholePart = Math.floor(totalSubunits / 100);
+  const decimalPart = totalSubunits % 100;
+
+  const prefix = isNegative ? 'Minus ' : '';
   const wholeWords = integerToWords(wholePart);
 
   if (decimalPart > 0) {
     const decimalWords = integerToWords(decimalPart);
-    return `${wholeWords} and ${decimalWords} ${subunit} Only`;
+    return `${prefix}${wholeWords} and ${decimalWords} ${subunit} Only`;
   }
 
-  return `${wholeWords} Only`;
+  return `${prefix}${wholeWords} Only`;
 }
 
 export function amountToWordsAED(
+  amount: number | string | null | undefined,
+  currency: string = 'AED'
+): string {
+  return amountToWords(amount, currency);
+}
+
+export function amountInWordsAED(
   amount: number | string | null | undefined,
   currency: string = 'AED'
 ): string {
@@ -116,3 +134,4 @@ export function formatAmountInWords(
 ): string {
   return amountToWords(amount, currencyCode);
 }
+

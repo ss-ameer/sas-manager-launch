@@ -28,18 +28,37 @@ export class QuotationRepository {
    * - 'taxes_extra': Prices are tax-exclusive. Tax is added on top of (subtotal + freight).
    * - 'tax_exempt': No tax applied (tax_amount = 0).
    */
+  public static roundCurrency(val: number): number {
+    if (!Number.isFinite(val)) return 0;
+    return Math.round((val + Math.sign(val || 1) * Number.EPSILON) * 100) / 100;
+  }
+
   public static calculateTotals(
-    lineItems: Array<{ total_price: number; is_optional?: boolean }>,
+    lineItems: Array<{
+      total_price?: number;
+      quantity?: number;
+      unit_price?: number;
+      is_optional?: boolean;
+    }>,
     freightAmount: number = 0,
     taxMode: QuotationTaxMode = 'taxes_extra',
     taxRatePercent: number = 5
   ): TaxCalculationResult {
-    // Only non-optional items contribute to financial totals
-    const subtotal = lineItems
+    // Only non-optional items contribute to financial totals; accumulate in integer subunits (fils) to prevent 0.1 + 0.2 drift
+    const subtotalFils = (lineItems || [])
       .filter((item) => !item.is_optional)
-      .reduce((sum, item) => sum + (Number(item.total_price) || 0), 0);
+      .reduce((sumFils, item) => {
+        const rawLineTotal =
+          item.total_price !== undefined && item.total_price !== null
+            ? Number(item.total_price) || 0
+            : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+        const lineFils = Math.round((rawLineTotal + Math.sign(rawLineTotal || 1) * Number.EPSILON) * 100);
+        return sumFils + lineFils;
+      }, 0);
 
-    const taxableBase = subtotal + (Number(freightAmount) || 0);
+    const subtotal = subtotalFils / 100;
+    const cleanFreight = this.roundCurrency(Number(freightAmount) || 0);
+    const taxableBase = this.roundCurrency(subtotal + cleanFreight);
 
     let taxAmount = 0;
     let grandTotal = taxableBase;
@@ -49,17 +68,17 @@ export class QuotationRepository {
       grandTotal = taxableBase;
     } else if (taxMode === 'tax_calculated') {
       // Inclusive tax: Tax = Base - (Base / (1 + rate / 100))
-      taxAmount = Math.round((taxableBase - taxableBase / (1 + taxRatePercent / 100)) * 100) / 100;
-      grandTotal = Math.round(taxableBase * 100) / 100;
+      taxAmount = this.roundCurrency(taxableBase - taxableBase / (1 + taxRatePercent / 100));
+      grandTotal = this.roundCurrency(taxableBase);
     } else if (taxMode === 'taxes_extra') {
       // Exclusive tax: Tax = Base * (rate / 100)
-      taxAmount = Math.round((taxableBase * (taxRatePercent / 100)) * 100) / 100;
-      grandTotal = Math.round((taxableBase + taxAmount) * 100) / 100;
+      taxAmount = this.roundCurrency(taxableBase * (taxRatePercent / 100));
+      grandTotal = this.roundCurrency(taxableBase + taxAmount);
     }
 
     return {
-      subtotal: Math.round(subtotal * 100) / 100,
-      freight_amount: Math.round((Number(freightAmount) || 0) * 100) / 100,
+      subtotal: this.roundCurrency(subtotal),
+      freight_amount: cleanFreight,
       tax_rate_percent: taxRatePercent,
       tax_amount: taxAmount,
       grand_total: grandTotal
@@ -479,59 +498,55 @@ export class QuotationRepository {
       throw new Error(`Parent quote not found: ${parentQuoteId}`);
     }
 
-    // Mark parent quote as Superseded
+    const wsId =
+      updates?.workspace_id ||
+      updates?.workspaceId ||
+      parent.workspace_id ||
+      parent.workspaceId ||
+      'ws_default';
+
+    let existingRevisions: Quotation[] = [];
+    if (parent.enquiry_id) {
+      try {
+        existingRevisions = await this.getQuotationsForEnquiry(parent.enquiry_id, wsId);
+      } catch (_) {}
+    }
+
+    const clonedBase = this.cloneQuotationAsNextRevision(parent, existingRevisions);
+    const childQuotation: Quotation = {
+      ...clonedBase,
+      ...updates,
+      id: clonedBase.id,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      quote_number: clonedBase.quote_number,
+      revision_number: clonedBase.revision_number,
+      formatted_quote_ref: clonedBase.formatted_quote_ref,
+      status: updates?.status || 'Draft',
+      parent_quote_id: parentQuoteId,
+      parent_quotation_id: parentQuoteId,
+      line_items: updates?.line_items || clonedBase.line_items
+    };
+
+    // Mark parent quote as Superseded with superseded_by_id link
+    const now = new Date().toISOString();
     const updatedParent: Quotation = {
       ...parent,
       status: 'Superseded',
-      updatedAt: new Date().toISOString()
+      superseded_by_id: childQuotation.id,
+      updatedAt: now
     };
 
     try {
       await safeUpdateDoc('quotations', parentQuoteId, {
         status: 'Superseded',
-        updatedAt: updatedParent.updatedAt
+        superseded_by_id: childQuotation.id,
+        updatedAt: now
       });
     } catch (_) {}
 
-    // Parse revision number
-    let currentRevNum = parent.revision_number;
-    if (typeof currentRevNum !== 'number') {
-      const match = (parent.formatted_quote_ref || '').match(/-R(\d+)$/);
-      currentRevNum = match ? parseInt(match[1], 10) : 0;
-    }
-    const newRevisionNumber = currentRevNum + 1;
-    const cleanQuoteNumber = (parent.quote_number || 'QT-0001').replace(/-R\d+$/, '');
-    const newFormattedRef = `${cleanQuoteNumber}-R${newRevisionNumber}`;
-    const newQuoteId = `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const wsId = updates?.workspace_id || updates?.workspaceId || parent.workspace_id || parent.workspaceId;
-
-    // Clone line items non-destructively
-    const clonedLineItems =
-      updates?.line_items ||
-      (parent.line_items
-        ? parent.line_items.map((li, idx) => ({
-            ...li,
-            id: li.id ? `${li.id}_r${newRevisionNumber}` : `item_${idx}_r${newRevisionNumber}`
-          }))
-        : []);
-
-    const childQuotation: Quotation = {
-      ...parent,
-      ...updates,
-      id: newQuoteId,
-      workspace_id: wsId,
-      workspaceId: wsId,
-      quote_number: cleanQuoteNumber,
-      revision_number: newRevisionNumber,
-      formatted_quote_ref: newFormattedRef,
-      status: updates?.status || 'Draft',
-      created_at: new Date().toISOString(),
-      parent_quote_id: parentQuoteId,
-      line_items: clonedLineItems
-    };
-
     try {
-      await safeSetDoc('quotations', newQuoteId, childQuotation);
+      await safeSetDoc('quotations', childQuotation.id!, childQuotation);
     } catch (_) {}
 
     // Update local cache
@@ -539,12 +554,145 @@ export class QuotationRepository {
       const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
       const updated = existing
         .map((q) => (q.id === parentQuoteId ? updatedParent : q))
-        .filter((q) => q.id !== newQuoteId)
+        .filter((q) => q.id !== childQuotation.id)
         .concat(childQuotation);
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
 
     return childQuotation;
+  }
+
+  /**
+   * Pure deterministic helper: Hydrates studio state fields from a Quotation (when editing or switching revisions)
+   * or resets cleanly to profile/preset defaults (when opening a brand-new quotation), preventing any state leakage.
+   */
+  public static hydrateStudioStateFromQuotation(
+    quotation: Quotation | null | undefined,
+    profile?: WorkspaceDocumentProfile | null,
+    defaultPreset?: QuotationPreset | null
+  ) {
+    if (!quotation && defaultPreset) {
+      const fromPreset = this.hydrateFromPresetSnapshot(defaultPreset);
+      return {
+        activeQuotationId: '',
+        parentQuotationId: undefined,
+        revisionNumber: 1,
+        formattedQuoteRefOverride: '',
+        quotationStatus: 'Draft' as Quotation['status'],
+        visibleColumns: { ...fromPreset.visibleColumns },
+        layoutBlocks: fromPreset.layoutBlocks.map((b) => ({ ...b })),
+        flyerAttachments: fromPreset.flyerAttachments.map((a) => ({ ...a })),
+        showSubmittalsIndex: fromPreset.showSubmittalsIndex,
+        tableDensity: fromPreset.tableDensity,
+        fontSizeScale: fromPreset.fontSizeScale,
+        blockStyle: fromPreset.blockStyle,
+        globalCardRadius: fromPreset.globalCardRadius,
+        cardsOrder: fromPreset.cardsOrder,
+        subjectPlacement: fromPreset.subjectPlacement,
+        selectedBankId:
+          fromPreset.remittanceBankId ||
+          profile?.bank_accounts?.find((b) => b.is_default)?.id ||
+          profile?.bank_accounts?.[0]?.id ||
+          '',
+        taxMode: fromPreset.defaultTaxMode,
+        priceBasis: fromPreset.defaultPriceBasis,
+        paymentTerms: fromPreset.defaultPaymentTerms,
+        validityDays: fromPreset.defaultValidityDays,
+        freightAmount: 0,
+        taxRatePercent: 5
+      };
+    }
+
+    const rawCols = quotation?.visible_columns || (profile as any)?.visible_columns || {};
+    const resolvedUnitPrice =
+      rawCols.showUnitPrice !== undefined
+        ? rawCols.showUnitPrice !== false
+        : rawCols.unit_price !== false;
+
+    const visibleColumns = {
+      brand: rawCols.brand ?? true,
+      model: rawCols.model ?? true,
+      origin: rawCols.origin ?? true,
+      availability: rawCols.availability ?? true,
+      unit_price: resolvedUnitPrice,
+      showUnitPrice: resolvedUnitPrice,
+      showUom: rawCols.showUom !== false,
+      showLineTotal: rawCols.showLineTotal !== false,
+      showItemAttributes: rawCols.showItemAttributes !== false,
+      attributeDisplayFormat: rawCols.attributeDisplayFormat || ('pills' as const),
+      hiddenAttributeKeys: Array.isArray(rawCols.hiddenAttributeKeys)
+        ? [...rawCols.hiddenAttributeKeys]
+        : [],
+      showAmountInWords:
+        rawCols.showAmountInWords ??
+        quotation?.amount_in_words_enabled ??
+        profile?.amount_in_words_enabled ??
+        true
+    };
+
+    const layoutBlocks = Array.isArray(quotation?.layout_blocks)
+      ? quotation!.layout_blocks.map((b) => ({ ...b }))
+      : [];
+
+    const flyerAttachments = Array.isArray(quotation?.flyer_attachments)
+      ? quotation!.flyer_attachments.map((att) => ({ ...att }))
+      : [];
+
+    const showSubmittalsIndex =
+      typeof quotation?.show_submittals_index === 'boolean'
+        ? quotation.show_submittals_index
+        : true;
+
+    const selectedBankId =
+      quotation?.remittanceBankId ||
+      quotation?.remittance_bank_id ||
+      quotation?.applied_bank_account?.id ||
+      quotation?.footer_config?.remittanceBankId ||
+      profile?.bank_accounts?.find((b) => b.is_default)?.id ||
+      profile?.bank_accounts?.[0]?.id ||
+      '';
+
+    return {
+      activeQuotationId: quotation?.id || '',
+      parentQuotationId: quotation?.parent_quotation_id || quotation?.parent_quote_id,
+      revisionNumber: quotation?.revision_number ?? 1,
+      formattedQuoteRefOverride: quotation?.formatted_quote_ref || '',
+      quotationStatus: (quotation?.status || 'Draft') as Quotation['status'],
+      visibleColumns,
+      layoutBlocks,
+      flyerAttachments,
+      showSubmittalsIndex,
+      tableDensity: quotation?.table_density || profile?.table_density || 'comfortable',
+      fontSizeScale:
+        quotation?.fontSizeScale ||
+        quotation?.font_size_scale ||
+        profile?.fontSizeScale ||
+        profile?.font_size_scale ||
+        'standard',
+      blockStyle: quotation?.block_style || 'framed',
+      globalCardRadius:
+        quotation?.globalCardRadius ||
+        quotation?.recipient_config?.globalCardRadius ||
+        profile?.globalCardRadius ||
+        'rounded',
+      cardsOrder:
+        quotation?.cardsOrder ||
+        quotation?.recipient_config?.cardsOrder ||
+        profile?.cardsOrder ||
+        'recipient_first',
+      subjectPlacement:
+        quotation?.subjectPlacement ||
+        quotation?.recipient_config?.subjectPlacement ||
+        profile?.subjectPlacement ||
+        'below_cards',
+      selectedBankId,
+      taxMode: quotation?.tax_mode || 'taxes_extra',
+      priceBasis: quotation?.price_basis || (profile as any)?.default_price_basis || 'Ex-Works',
+      paymentTerms: quotation?.payment_terms || (profile as any)?.default_payment_terms || '100% Advance',
+      validityDays: 30,
+      freightAmount: Number(quotation?.freight_amount) || 0,
+      taxRatePercent: quotation?.tax_rate_percent ?? 5
+    };
   }
 
   /**

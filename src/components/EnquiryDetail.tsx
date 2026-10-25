@@ -3932,22 +3932,85 @@ export default function EnquiryDetail({
             user={user}
             profile={documentProfile}
             editingQuotation={editingQuotation}
+            onEnquirySync={(syncPayload) => {
+              setCurrentEnquiry((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      active_quotation_id: syncPayload.active_quotation_id,
+                      latest_quote_ref: syncPayload.latest_quote_ref,
+                      quote_ref_no: syncPayload.latest_quote_ref,
+                      quoted_amount: syncPayload.quoted_amount,
+                      value_aed: syncPayload.quoted_amount,
+                      quotation_status: syncPayload.quotation_status,
+                      latest_revision_number: syncPayload.latest_revision_number
+                    }
+                  : prev
+              );
+              if (onUpdateEnquiry) {
+                onUpdateEnquiry({
+                  ...currentEnquiry,
+                  active_quotation_id: syncPayload.active_quotation_id,
+                  latest_quote_ref: syncPayload.latest_quote_ref,
+                  quote_ref_no: syncPayload.latest_quote_ref,
+                  quoted_amount: syncPayload.quoted_amount,
+                  value_aed: syncPayload.quoted_amount,
+                  quotation_status: syncPayload.quotation_status,
+                  latest_revision_number: syncPayload.latest_revision_number
+                });
+              }
+            }}
             onQuotationCreated={async (newQuote) => {
-            setQuotations((prev) => [newQuote, ...prev.filter((q) => q.id !== newQuote.id)]);
+            setQuotations((prev) => {
+              const combined = [newQuote, ...prev.filter((q) => q.id !== newQuote.id)];
+              const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
+              if (parentId || combined.length > 1) {
+                return QuotationRepository.markPreviousRevisionsSuperseded(combined, newQuote.id!);
+              }
+              return combined;
+            });
 
             // Deal Value Sync: Sync new quotation total and reference to enquiry
             if (newQuote.grand_total !== undefined && currentEnquiry?.id) {
-              const newTotal = Number(newQuote.grand_total || 0);
+              const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
+              const newTotal = syncPayload.quoted_amount;
               const newRef = newQuote.formatted_quote_ref;
               try {
                 await safeUpdateDoc('enquiries', currentEnquiry.id, {
                   value_aed: newTotal,
+                  quoted_amount: newTotal,
                   quote_ref_no: newRef,
+                  latest_quote_ref: newRef,
+                  active_quotation_id: newQuote.id,
+                  quotation_status: newQuote.status || 'Draft',
+                  latest_revision_number: newQuote.revision_number ?? 1,
                   updated_at: new Date().toISOString()
                 });
-                setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
+                setCurrentEnquiry((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        value_aed: newTotal,
+                        quoted_amount: newTotal,
+                        quote_ref_no: newRef,
+                        latest_quote_ref: newRef,
+                        active_quotation_id: newQuote.id,
+                        quotation_status: newQuote.status || 'Draft',
+                        latest_revision_number: newQuote.revision_number ?? 1
+                      }
+                    : prev
+                );
                 if (onUpdateEnquiry) {
-                  onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
+                  onUpdateEnquiry({
+                    ...currentEnquiry,
+                    value_aed: newTotal,
+                    quoted_amount: newTotal,
+                    quote_ref_no: newRef,
+                    latest_quote_ref: newRef,
+                    active_quotation_id: newQuote.id,
+                    quotation_status: newQuote.status || 'Draft',
+                    latest_revision_number: newQuote.revision_number ?? 1
+                  });
                 }
               } catch (valErr) {
                 console.warn('[EnquiryDetail] Failed updating enquiry deal value from quotation:', valErr);
@@ -3958,15 +4021,17 @@ export default function EnquiryDetail({
               handleStatusTransition('Sent / Pending Client');
 
               // If new revision has a parent quotation, ensure predecessor is updated to Superseded
-              if (newQuote.parent_quote_id) {
+              const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
+              if (parentId) {
                 try {
-                  await QuotationRepository.updateQuotation(newQuote.parent_quote_id, {
-                    status: 'Superseded'
+                  await QuotationRepository.updateQuotation(parentId, {
+                    status: 'Superseded',
+                    superseded_by_id: newQuote.id
                   });
                   setQuotations((prev) =>
                     prev.map((q) =>
-                      q.id === newQuote.parent_quote_id
-                        ? { ...q, status: 'Superseded' as const }
+                      q.id === parentId
+                        ? { ...q, status: 'Superseded' as const, superseded_by_id: newQuote.id }
                         : q
                     )
                   );
