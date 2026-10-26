@@ -1067,9 +1067,11 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   website?: string;
   logo_url?: string;
   stamp_seal_url?: string;
+  company_seal_url?: string;
   signature_image_url?: string;
   accent_color?: string; // Hex color code
   theme_accent?: QuotationThemeAccent;
+  customThemeColor?: string;
   block_style?: 'framed' | 'minimal';
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
@@ -1160,6 +1162,16 @@ export type StudioSelectedSection =
   | string
   | null;
 
+export interface QuotationHeaderFieldItem {
+  id: string; // e.g., 'address_line_1', 'address_line_2', 'city_country', 'phone', 'email', 'website', 'trn', or 'custom_1'
+  label?: string; // e.g., 'Tel:', 'VAT / TRN:', 'Mob:'
+  valueOverride?: string; // Custom text override or custom field value
+  enabled: boolean;
+  zone: 'under_logo' | 'under_name' | 'contact_block' | 'bottom_bar';
+  fontSize?: 'xs' | 'sm' | 'base' | 'lg';
+  fontWeight?: 'normal' | 'medium' | 'bold';
+}
+
 export interface QuotationHeaderConfig {
   alignment?: 'centered' | 'split'; // Centered stack vs Logo Left / Address Right
   showPhone?: boolean;
@@ -1176,6 +1188,11 @@ export interface QuotationHeaderConfig {
   logoSpacing?: 'none' | 'tight' | 'normal' | 'spacious'; // default: 'normal'
   repeatHeaderOnSubsequentPages?: boolean; // default: true (Repeats compact corporate running header on Page 2+)
   showLogoOnContinuationPages?: boolean; // default: true (Renders compact mini-logo in Page 2+ and Annex headers when logo is present)
+  headerFields?: QuotationHeaderFieldItem[];
+  brandHorizontalAlign?: 'left' | 'center' | 'right';
+  brandVerticalAlign?: 'top' | 'middle' | 'bottom';
+  contactHorizontalAlign?: 'left' | 'center' | 'right';
+  contactVerticalAlign?: 'top' | 'middle' | 'bottom';
 }
 
 export interface QuotationFooterConfig {
@@ -1191,6 +1208,24 @@ export interface QuotationFooterConfig {
   remittanceBankId?: string;
   selectedBank?: BankAccountProfile;
   pageMode?: QuotationPageMode;
+  companySealUrl?: string;
+  sealSizePx?: number; // range 60 to 180, default 105
+  sealRotationDeg?: number; // range -35 to 35, default -6
+  sealOffsetX?: number; // range -120 to 120, default 0
+  sealOffsetY?: number; // range -80 to 80, default 0
+  signatureSizePx?: number; // range 32 to 130, default 56
+  signatureRotationDeg?: number; // range -25 to 25, default 0
+  signatureOffsetX?: number; // range -120 to 120, default 0
+  signatureOffsetY?: number; // range -80 to 80, default 0
+  stampSignatureOverlapMode?: 'side_by_side' | 'realistic_overlap' | 'stamp_over_name'; // default 'realistic_overlap'
+  inkMultiplyBlend?: boolean; // default true
+  footerHorizontalAlign?: 'split' | 'left' | 'center' | 'right'; // default 'split'
+  footerVerticalAlign?: 'top' | 'middle' | 'bottom'; // default 'middle'
+  systemTaglineText?: string; // default 'GENERATED VIA MARabi WORKSPACE STUDIO'
+  showSystemTagline?: boolean; // default true
+  showReferenceInFooter?: boolean; // default true
+  showIssueDateInFooter?: boolean; // default true
+  customFooterPills?: string[]; // e.g., ['ISO 9001:2015 Certified', 'Confidential']
 }
 
 export interface QuotationRecipientConfig {
@@ -1263,6 +1298,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
   theme_accent?: QuotationThemeAccent;
+  customThemeColor?: string;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
@@ -1351,6 +1387,7 @@ export interface Quotation extends SoftDeleteFields {
   selected_bank?: BankAccountProfile;
   signatories?: QuotationSignatory[];
   theme_accent?: QuotationThemeAccent;
+  customThemeColor?: string;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
   signatory_mode?: QuotationSignatoryMode;

@@ -30,6 +30,7 @@ import {
   QuotationItemAttribute,
   QuotationLineItem,
   QuotationPageMode,
+  QuotationHeaderFieldItem,
   Attachment,
   EnquiryQuotationSyncPayload
 } from '../../types';
@@ -41,7 +42,9 @@ import {
   DEFAULT_HEADER_CONFIG,
   DEFAULT_RECIPIENT_CONFIG,
   DEFAULT_FOOTER_CONFIG,
-  extractLineItemAttributesAndCleanDescription
+  extractLineItemAttributesAndCleanDescription,
+  resolveHeaderFields,
+  resolveStampSignatureOverlayConfig
 } from './QuotationDocument';
 import {
   X,
@@ -255,6 +258,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [themeAccent, setThemeAccent] = useState<QuotationThemeAccent>(
     editingQuotation?.theme_accent || profile?.theme_accent || 'navy'
   );
+  const [customThemeColor, setCustomThemeColor] = useState<string>(
+    editingQuotation?.customThemeColor ||
+      profile?.customThemeColor ||
+      profile?.accent_color ||
+      ''
+  );
+  const [newCustomFooterPill, setNewCustomFooterPill] = useState<string>('');
   const [logoPosition, setLogoPosition] = useState<QuotationLogoPosition>(
     editingQuotation?.logo_position || profile?.logo_position || 'left'
   );
@@ -277,13 +287,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [companySealUrl, setCompanySealUrl] = useState<string>(
     () =>
       editingQuotation?.company_seal_url ||
+      editingQuotation?.footer_config?.companySealUrl ||
       (editingQuotation as any)?.companySettings?.company_seal_url ||
+      profile?.company_seal_url ||
       profile?.stamp_seal_url ||
       ''
   );
   const [signatureImageUrl, setSignatureImageUrl] = useState<string>(
     () =>
       editingQuotation?.signature_image_url ||
+      editingQuotation?.footer_config?.signatureImageUrl ||
       editingQuotation?.signatories?.[0]?.signature_url ||
       profile?.signature_image_url ||
       ''
@@ -296,9 +309,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (dataUri) {
+    reader.onload = async () => {
+      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (rawDataUri) {
+        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
+          maxWidth: 600,
+          maxHeight: 400,
+          preserveTransparency: true,
+          quality: 0.84
+        });
         setCompanyLogoUrl(dataUri);
         setHeaderConfig((prev) => ({
           ...prev,
@@ -317,11 +336,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (dataUri) {
+    reader.onload = async () => {
+      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (rawDataUri) {
+        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
+          maxWidth: 600,
+          maxHeight: 400,
+          preserveTransparency: true,
+          quality: 0.84
+        });
         setCompanySealUrl(dataUri);
         setShowCompanySeal(true);
+        setFooterConfig((prev) => ({
+          ...prev,
+          companySealUrl: dataUri
+        }));
       }
     };
     reader.readAsDataURL(file);
@@ -332,11 +361,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (dataUri) {
+    reader.onload = async () => {
+      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (rawDataUri) {
+        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
+          maxWidth: 600,
+          maxHeight: 400,
+          preserveTransparency: true,
+          quality: 0.84
+        });
         setSignatureImageUrl(dataUri);
         setSignatureStyle('image');
+        setFooterConfig((prev) => ({
+          ...prev,
+          signatureImageUrl: dataUri
+        }));
       }
     };
     reader.readAsDataURL(file);
@@ -893,6 +932,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       }
       setCompanySealUrl(hydrated.companySealUrl || '');
       setSignatureImageUrl(hydrated.signatureImageUrl || '');
+      if (hydrated.customThemeColor !== undefined) {
+        setCustomThemeColor(hydrated.customThemeColor || '');
+      }
 
       if (targetQuote) {
         setClientContactPerson(
@@ -926,6 +968,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         );
         setShowCompanySeal(targetQuote.show_company_seal ?? profile?.show_company_seal ?? true);
         setThemeAccent(targetQuote.theme_accent || profile?.theme_accent || 'navy');
+        setCustomThemeColor(
+          targetQuote.customThemeColor || profile?.customThemeColor || profile?.accent_color || ''
+        );
         setLogoPosition(targetQuote.logo_position || profile?.logo_position || 'left');
         setAmountInWordsEnabled(
           targetQuote.amount_in_words_enabled ?? profile?.amount_in_words_enabled ?? true
@@ -1165,17 +1210,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     (Array.from(files) as File[]).forEach((file: File, idx: number) => {
       const isImage = file.type.startsWith('image/');
       const reader = new FileReader();
-      reader.onload = () => {
-        const dataUri = typeof reader.result === 'string' ? reader.result : '';
-        if (!dataUri) return;
+      reader.onload = async () => {
+        const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
+        if (!rawDataUri) return;
+        const dataUri = isImage
+          ? await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
+              maxWidth: 1100,
+              maxHeight: 1500,
+              preserveTransparency: false,
+              quality: 0.74
+            })
+          : rawDataUri;
         const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
         const resolvedTitle = cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`;
         const newAtt: Attachment = {
           id: `annex_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
           name: resolvedTitle,
           url: dataUri,
-          type: file.type || (isImage ? 'image/png' : 'application/pdf'),
-          size: file.size,
+          type: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
+          size: dataUri.length,
           uploadedAt: new Date().toISOString(),
           render_as_annex_page: isImage,
           show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: resolvedTitle })
@@ -1280,6 +1333,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             setWorkspaceProfile(loaded);
             if (!editingQuotation && !selectedPresetId) {
               if (loaded.theme_accent) setThemeAccent(loaded.theme_accent);
+              if (loaded.customThemeColor || loaded.accent_color) {
+                setCustomThemeColor(loaded.customThemeColor || loaded.accent_color || '');
+              }
               if (loaded.block_style) setBlockStyle(loaded.block_style);
               if (loaded.globalCardRadius) setGlobalCardRadius(loaded.globalCardRadius);
               if (loaded.fontSizeScale) setFontSizeScale(loaded.fontSizeScale);
@@ -1295,12 +1351,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               if (loaded.secondary_signatory_name) setSecondarySignatoryName(loaded.secondary_signatory_name);
               if (loaded.secondary_signatory_title) setSecondarySignatoryTitle(loaded.secondary_signatory_title);
               if (loaded.logo_url) setCompanyLogoUrl(loaded.logo_url);
-              if (loaded.stamp_seal_url) setCompanySealUrl(loaded.stamp_seal_url);
+              if (loaded.company_seal_url || loaded.stamp_seal_url) {
+                setCompanySealUrl(loaded.company_seal_url || loaded.stamp_seal_url || '');
+              }
               if (loaded.header_config) {
                 setHeaderConfig((prev) => ({
                   ...prev,
                   ...loaded.header_config,
                   logoUrl: loaded.header_config?.logoUrl || loaded.logo_url || prev.logoUrl
+                }));
+              }
+              if (loaded.footer_config) {
+                setFooterConfig((prev) => ({
+                  ...prev,
+                  ...loaded.footer_config
                 }));
               }
             }
@@ -1375,6 +1439,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
     if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
     if (preset.theme_accent) setThemeAccent(preset.theme_accent);
+    if (preset.customThemeColor !== undefined) {
+      setCustomThemeColor(preset.customThemeColor || '');
+    }
     if (typeof preset.amount_in_words_enabled === 'boolean') {
       setAmountInWordsEnabled(preset.amount_in_words_enabled);
     }
@@ -2069,6 +2136,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       show_commercial_terms: showCommercialTerms,
       show_company_seal: showCompanySeal,
       theme_accent: themeAccent,
+      customThemeColor: customThemeColor || undefined,
       logo_position: logoPosition,
       amount_in_words_enabled: amountInWordsEnabled,
       showAmountInWords: amountInWordsEnabled,
@@ -2085,8 +2153,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
       company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
-      company_seal_url: companySealUrl || undefined,
-      signature_image_url: signatureImageUrl || undefined,
+      company_seal_url: companySealUrl || footerConfig.companySealUrl || undefined,
+      signature_image_url: signatureImageUrl || footerConfig.signatureImageUrl || undefined,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
       cardsOrder: cardsOrder,
@@ -2106,7 +2174,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         ...footerConfig,
         pageMode: pageMode,
         remittanceBankId: selectedBankId,
-        selectedBank: activeBankProfile
+        selectedBank: activeBankProfile,
+        ...(companySealUrl ? { companySealUrl } : {}),
+        ...(signatureImageUrl ? { signatureImageUrl } : {})
       },
       visible_columns: visibleColumns,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
@@ -2135,6 +2205,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     showCommercialTerms,
     showCompanySeal,
     themeAccent,
+    customThemeColor,
     logoPosition,
     amountInWordsEnabled,
     customerAcceptanceEnabled,
@@ -2257,6 +2328,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         show_commercial_terms: showCommercialTerms,
         show_company_seal: showCompanySeal,
         theme_accent: themeAccent,
+        customThemeColor: customThemeColor || undefined,
         logo_position: logoPosition,
         amount_in_words_enabled: amountInWordsEnabled,
         showAmountInWords: amountInWordsEnabled,
@@ -2273,8 +2345,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_title: secondarySignatoryTitle,
         signature_style: signatureStyle,
         company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
-        company_seal_url: companySealUrl || undefined,
-        signature_image_url: signatureImageUrl || undefined,
+        company_seal_url: companySealUrl || footerConfig.companySealUrl || undefined,
+        signature_image_url: signatureImageUrl || footerConfig.signatureImageUrl || undefined,
         block_style: blockStyle,
         globalCardRadius: globalCardRadius,
         cardsOrder: cardsOrder,
@@ -2294,7 +2366,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           ...footerConfig,
           pageMode: pageMode,
           remittanceBankId: selectedBankId,
-          selectedBank: activeBankProfile
+          selectedBank: activeBankProfile,
+          ...(companySealUrl ? { companySealUrl } : {}),
+          ...(signatureImageUrl ? { signatureImageUrl } : {})
         },
         visible_columns: visibleColumns as any,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
@@ -2376,6 +2450,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       show_commercial_terms: showCommercialTerms,
       show_company_seal: showCompanySeal,
       theme_accent: themeAccent,
+      customThemeColor: customThemeColor || undefined,
       amount_in_words_enabled: amountInWordsEnabled,
       customer_acceptance_enabled: customerAcceptanceEnabled,
       showBankRemittance: footerConfig.showBankRemittance !== false,
@@ -2389,8 +2464,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       secondary_signatory_title: secondarySignatoryTitle,
       signature_style: signatureStyle,
       company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
-      company_seal_url: companySealUrl || undefined,
-      signature_image_url: signatureImageUrl || undefined,
+      company_seal_url: companySealUrl || footerConfig.companySealUrl || undefined,
+      signature_image_url: signatureImageUrl || footerConfig.signatureImageUrl || undefined,
       logo_position: logoPosition,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
@@ -2420,7 +2495,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         ...footerConfig,
         pageMode: pageMode,
         remittanceBankId: selectedBankId,
-        selectedBank: activeBankProfile
+        selectedBank: activeBankProfile,
+        ...(companySealUrl ? { companySealUrl } : {}),
+        ...(signatureImageUrl ? { signatureImageUrl } : {})
       }
     });
   };
@@ -2526,6 +2603,37 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   return (
     <div className="quotation-modal-container fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-hidden print:hidden">
+      {/* Top-Level Hidden File Inputs (Always mounted regardless of which Left Tab or Right Inspector is open) */}
+      <input
+        ref={logoFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleUploadCompanyLogo}
+        className="hidden"
+      />
+      <input
+        ref={sealFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleUploadCompanySeal}
+        className="hidden"
+      />
+      <input
+        ref={signatureFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleUploadSignatureImage}
+        className="hidden"
+      />
+      <input
+        ref={annexFileInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        multiple
+        onChange={handleUploadAnnexFiles}
+        className="hidden"
+      />
+
       <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Top Bar */}
         <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap shrink-0 print:hidden">
@@ -2750,7 +2858,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                       >
                         <Save className="w-3 h-3" />
-                        <span>💾 Update Preset</span>
+                        <span>Update Preset</span>
                       </button>
 
                       {selectedPreset.is_default ? (
@@ -2759,7 +2867,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
                         >
                           <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                          <span>★ Default</span>
+                          <span>Default</span>
                         </span>
                       ) : (
                         <button
@@ -2770,7 +2878,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                         >
                           <Star className="w-3 h-3" />
-                          <span>⭐ Set Default</span>
+                          <span>Set Default</span>
                         </button>
                       )}
                     </div>
@@ -2783,7 +2891,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       className="px-2 py-1 text-[11px] font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       <Trash2 className="w-3 h-3" />
-                      <span>🗑️ Delete</span>
+                      <span>Delete</span>
                     </button>
                   </div>
                 )}
@@ -2831,20 +2939,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </span>
                     </div>
 
-                    {/* Accent Color Theme: 6 Swatches (Navy, Emerald, Slate, Amber, Crimson, Teal) */}
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1.5">
+                    {/* Accent Color Theme: 6 Swatches + Custom Brand Hex Color Picker */}
+                    <div className="space-y-2.5">
+                      <label className="block text-slate-500 font-medium">
                         Accent Color Theme
                       </label>
                       <div className="grid grid-cols-6 gap-1.5">
                         {(['navy', 'emerald', 'slate', 'amber', 'crimson', 'teal'] as QuotationThemeAccent[]).map((themeKey) => {
                           const t = QUOTATION_THEMES[themeKey] || QUOTATION_THEMES.navy;
-                          const isSelected = themeAccent === themeKey;
+                          const isSelected = themeAccent === themeKey && !customThemeColor;
                           return (
                             <button
                               key={themeKey}
                               type="button"
-                              onClick={() => setThemeAccent(themeKey)}
+                              onClick={() => {
+                                setThemeAccent(themeKey);
+                                setCustomThemeColor('');
+                              }}
                               className={`flex flex-col items-center p-1.5 rounded-lg border text-center transition cursor-pointer ${
                                 isSelected
                                   ? 'border-slate-900 bg-slate-50 ring-2 ring-slate-900/20'
@@ -2861,6 +2972,50 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </button>
                           );
                         })}
+                      </div>
+
+                      {/* Custom Brand Hex Color Picker */}
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200/80">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="color"
+                            value={
+                              /^#([0-9a-fA-F]{6})$/.test(customThemeColor.trim())
+                                ? customThemeColor.trim()
+                                : (QUOTATION_THEMES[themeAccent] || QUOTATION_THEMES.navy).primaryHex
+                            }
+                            onChange={(e) => setCustomThemeColor(e.target.value)}
+                            className="w-7 h-7 rounded-lg border border-slate-300 cursor-pointer bg-white p-0.5 shrink-0"
+                            title="Pick custom corporate brand hex color"
+                          />
+                          <div className="min-w-0">
+                            <span className="text-[10.5px] font-bold text-slate-700 block leading-tight">
+                              Custom Brand Hex Color
+                            </span>
+                            <span className="text-[9.5px] text-slate-400 block truncate">
+                              Drives top bar, table header, card borders &amp; grand total
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <input
+                            type="text"
+                            value={customThemeColor}
+                            onChange={(e) => setCustomThemeColor(e.target.value)}
+                            placeholder="#1e3a8a"
+                            className="w-20 px-2 py-1 rounded-md border border-slate-300 bg-white font-mono text-[10.5px] text-slate-800"
+                          />
+                          {customThemeColor && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomThemeColor('')}
+                              title="Reset to theme swatch"
+                              className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -3626,21 +3781,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                     {/* Company Seal / Stamp Image Uploader & Signature Image Uploader */}
                     <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
-                      <input
-                        ref={sealFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUploadCompanySeal}
-                        className="hidden"
-                      />
-                      <input
-                        ref={signatureFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleUploadSignatureImage}
-                        className="hidden"
-                      />
-
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
                           <Stamp className="w-3.5 h-3.5 text-blue-600" />
@@ -3652,7 +3792,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] flex items-center gap-1 transition cursor-pointer"
                         >
                           <Upload className="w-3 h-3" />
-                          <span>📤 Upload Stamp / Seal Image</span>
+                          <span>Upload Stamp / Seal Image</span>
                         </button>
                       </div>
 
@@ -3670,53 +3810,59 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           </div>
                           <button
                             type="button"
-                            onClick={() => setCompanySealUrl('')}
-                            className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                            onClick={() => {
+                              setCompanySealUrl('');
+                              setFooterConfig((prev) => ({ ...prev, companySealUrl: '' }));
+                            }}
+                            className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
                           >
-                            🗑️ Remove Stamp Image
+                            <Trash2 className="w-3 h-3" />
+                            <span>Remove Stamp</span>
                           </button>
                         </div>
                       )}
 
-                      {signatureStyle === 'image' && (
-                        <div className="pt-2 border-t border-slate-100 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold text-slate-700">
-                              Authorized Signature Image
-                            </span>
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-slate-700">
+                            Authorized Signature Image
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => signatureFileInputRef.current?.click()}
+                            className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <Upload className="w-3 h-3" />
+                            <span>Upload Signature Image</span>
+                          </button>
+                        </div>
+
+                        {signatureImageUrl && (
+                          <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <img
+                                src={signatureImageUrl}
+                                alt="Signature Preview"
+                                className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                              />
+                              <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                                Digital Signature Active
+                              </span>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => signatureFileInputRef.current?.click()}
-                              className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] flex items-center gap-1 transition cursor-pointer"
+                              onClick={() => {
+                                setSignatureImageUrl('');
+                                setFooterConfig((prev) => ({ ...prev, signatureImageUrl: '' }));
+                              }}
+                              className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
                             >
-                              <Upload className="w-3 h-3" />
-                              <span>📤 Upload Signature Image</span>
+                              <Trash2 className="w-3 h-3" />
+                              <span>Remove</span>
                             </button>
                           </div>
-
-                          {signatureImageUrl && (
-                            <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <img
-                                  src={signatureImageUrl}
-                                  alt="Signature Preview"
-                                  className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
-                                />
-                                <span className="text-[10.5px] text-slate-600 font-medium truncate">
-                                  Digital Signature Active
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setSignatureImageUrl('')}
-                                className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
-                              >
-                                🗑️ Remove
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
 
                     {/* Remittance Bank Account Selector + Edit Wire Details inline override */}
@@ -3879,14 +4025,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         <span className="font-semibold text-slate-700 text-[11px]">
                           Add Datasheet / Product Flyer
                         </span>
-                        <input
-                          ref={annexFileInputRef}
-                          type="file"
-                          accept="image/*,.pdf"
-                          multiple
-                          onChange={handleUploadAnnexFiles}
-                          className="hidden"
-                        />
                         <button
                           type="button"
                           onClick={() => annexFileInputRef.current?.click()}
@@ -4305,14 +4443,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               Upload a transparent PNG, SVG, or full-width letterhead banner for this quotation and saved presets.
                             </p>
 
-                            <input
-                              ref={logoFileInputRef}
-                              type="file"
-                              accept="image/*"
-                              onChange={handleUploadCompanyLogo}
-                              className="hidden"
-                            />
-
                             <div className="flex items-center gap-2 pt-0.5">
                               <button
                                 type="button"
@@ -4320,7 +4450,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 className="flex-1 py-2 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
                               >
                                 <Upload className="w-3.5 h-3.5 shrink-0" />
-                                <span>📤 Upload Corporate Logo (PNG / JPG / SVG)</span>
+                                <span>Upload Corporate Logo (PNG / JPG / SVG)</span>
                               </button>
                             </div>
 
@@ -4350,7 +4480,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
                                   >
                                     <Trash2 className="w-3 h-3" />
-                                    <span>🗑️ Remove Custom Logo</span>
+                                    <span>Remove Custom Logo</span>
                                   </button>
                                 </div>
                               </div>
@@ -4716,83 +4846,335 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
-                          {/* 5. Contact & Legal Visibility Toggles */}
-                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                          {/* 5. 2D Brand & Contact Zone Alignment (Horizontal + Vertical) */}
+                          <div className="space-y-2.5 pt-2 border-t border-slate-100">
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                              <Columns className="w-3.5 h-3.5 text-blue-600" />
-                              Contact &amp; Legal Visibility
+                              <AlignLeft className="w-3.5 h-3.5 text-blue-600" />
+                              2D Zone Alignment (Horizontal &amp; Vertical)
                             </label>
-                            <div className="space-y-1.5 pt-0.5">
-                              {[
-                                {
-                                  key: 'showCompanyName' as const,
-                                  label: 'Company Legal Entity Name',
-                                  desc: 'Render corporate name text alongside brand logo',
-                                  checked:
-                                    activeLogoDisplayMode !== 'logo_only' &&
-                                    headerConfig.showCompanyName !== false
-                                },
-                                {
-                                  key: 'showTrn' as const,
-                                  label: 'TRN / Tax Registration',
-                                  desc: 'Official VAT / Tax identification number',
-                                  checked: headerConfig.showTrn !== false
-                                },
-                                {
-                                  key: 'showPhone' as const,
-                                  label: 'Phone Number',
-                                  desc: 'Official contact phone number',
-                                  checked: headerConfig.showPhone !== false
-                                },
-                                {
-                                  key: 'showEmail' as const,
-                                  label: 'Email Address',
-                                  desc: 'Primary corporate quotation inbox',
-                                  checked: headerConfig.showEmail !== false
-                                },
-                                {
-                                  key: 'showWebsite' as const,
-                                  label: 'Website URL',
-                                  desc: 'Corporate domain / online portal',
-                                  checked: headerConfig.showWebsite !== false
-                                }
-                              ].map((item) => (
-                                <div
-                                  key={item.key}
-                                  className={`border rounded-xl p-2 transition-all flex items-center justify-between gap-2 ${
-                                    item.checked
-                                      ? 'bg-white border-slate-200 shadow-2xs'
-                                      : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                                  }`}
-                                >
-                                  <div className="min-w-0 pr-1">
-                                    <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                                      {item.label}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                                      {item.desc}
-                                    </span>
-                                  </div>
-                                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                    <input
-                                      type="checkbox"
-                                      checked={item.checked}
-                                      onChange={(e) => {
-                                        const checked = e.target.checked;
-                                        setHeaderConfig((prev) => ({
-                                          ...prev,
-                                          [item.key]: checked,
-                                          ...(item.key === 'showCompanyName' && checked && prev.logoDisplayMode === 'logo_only'
-                                            ? { logoDisplayMode: 'logo_and_name' }
-                                            : {})
-                                        }));
-                                      }}
-                                      className="sr-only peer"
-                                    />
-                                    <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                                  </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                                <span className="text-[10px] font-bold text-slate-700 block">
+                                  Brand / Logo Zone
+                                </span>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(['left', 'center', 'right'] as const).map((hAlign) => {
+                                    const active = (headerConfig.brandHorizontalAlign || 'left') === hAlign;
+                                    return (
+                                      <button
+                                        key={hAlign}
+                                        type="button"
+                                        onClick={() =>
+                                          setHeaderConfig((prev) => ({
+                                            ...prev,
+                                            brandHorizontalAlign: hAlign
+                                          }))
+                                        }
+                                        className={`py-1 rounded text-[9.5px] font-semibold capitalize cursor-pointer transition ${
+                                          active
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white text-slate-600 border border-slate-200'
+                                        }`}
+                                      >
+                                        {hAlign}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
-                              ))}
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(['top', 'middle', 'bottom'] as const).map((vAlign) => {
+                                    const active = (headerConfig.brandVerticalAlign || 'middle') === vAlign;
+                                    return (
+                                      <button
+                                        key={vAlign}
+                                        type="button"
+                                        onClick={() =>
+                                          setHeaderConfig((prev) => ({
+                                            ...prev,
+                                            brandVerticalAlign: vAlign
+                                          }))
+                                        }
+                                        className={`py-1 rounded text-[9.5px] font-semibold capitalize cursor-pointer transition ${
+                                          active
+                                            ? 'bg-slate-800 text-white'
+                                            : 'bg-white text-slate-600 border border-slate-200'
+                                        }`}
+                                      >
+                                        {vAlign}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                                <span className="text-[10px] font-bold text-slate-700 block">
+                                  Contact / Details Zone
+                                </span>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(['left', 'center', 'right'] as const).map((hAlign) => {
+                                    const active = (headerConfig.contactHorizontalAlign || 'right') === hAlign;
+                                    return (
+                                      <button
+                                        key={hAlign}
+                                        type="button"
+                                        onClick={() =>
+                                          setHeaderConfig((prev) => ({
+                                            ...prev,
+                                            contactHorizontalAlign: hAlign
+                                          }))
+                                        }
+                                        className={`py-1 rounded text-[9.5px] font-semibold capitalize cursor-pointer transition ${
+                                          active
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white text-slate-600 border border-slate-200'
+                                        }`}
+                                      >
+                                        {hAlign}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(['top', 'middle', 'bottom'] as const).map((vAlign) => {
+                                    const active = (headerConfig.contactVerticalAlign || 'top') === vAlign;
+                                    return (
+                                      <button
+                                        key={vAlign}
+                                        type="button"
+                                        onClick={() =>
+                                          setHeaderConfig((prev) => ({
+                                            ...prev,
+                                            contactVerticalAlign: vAlign
+                                          }))
+                                        }
+                                        className={`py-1 rounded text-[9.5px] font-semibold capitalize cursor-pointer transition ${
+                                          active
+                                            ? 'bg-slate-800 text-white'
+                                            : 'bg-white text-slate-600 border border-slate-200'
+                                        }`}
+                                      >
+                                        {vAlign}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 6. Modular Header Field Composer (Inline Text Overrides, Zone Assignment e.g. VAT Below Logo, Reordering & Custom Lines) */}
+                          <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                            <div className="flex items-center justify-between">
+                              <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                                <Columns className="w-3.5 h-3.5 text-blue-600" />
+                                Modular Header Field Composer
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentFields = resolveHeaderFields(
+                                    headerConfig,
+                                    activeProfile,
+                                    liveQuotation.sender_snapshot
+                                  ).allFields;
+                                  const newField: QuotationHeaderFieldItem = {
+                                    id: `custom_${Date.now().toString(36)}`,
+                                    label: 'Mobile',
+                                    valueOverride: '+971 50 000 0000',
+                                    enabled: true,
+                                    zone: 'contact_block',
+                                    fontSize: 'sm',
+                                    fontWeight: 'medium'
+                                  };
+                                  setHeaderConfig((prev) => ({
+                                    ...prev,
+                                    headerFields: [...currentFields, newField]
+                                  }));
+                                }}
+                                className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>+ Add Custom Line</span>
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-slate-500 leading-normal">
+                              Edit text inline, move VAT/TRN directly below the logo, reorder rows, or adjust per-field font size.
+                            </p>
+
+                            <div className="space-y-2 max-h-96 overflow-y-auto pr-0.5">
+                              {(() => {
+                                const resolvedList = resolveHeaderFields(
+                                  headerConfig,
+                                  activeProfile,
+                                  liveQuotation.sender_snapshot
+                                ).allFields;
+                                const updateHeaderFieldList = (nextList: QuotationHeaderFieldItem[]) => {
+                                  const companyItem = nextList.find((f) => f.id === 'company_name');
+                                  const trnItem = nextList.find((f) => f.id === 'trn');
+                                  const phoneItem = nextList.find((f) => f.id === 'phone');
+                                  const emailItem = nextList.find((f) => f.id === 'email');
+                                  const websiteItem = nextList.find((f) => f.id === 'website');
+                                  setHeaderConfig((prev) => ({
+                                    ...prev,
+                                    headerFields: nextList,
+                                    ...(companyItem ? { showCompanyName: companyItem.enabled } : {}),
+                                    ...(trnItem ? { showTrn: trnItem.enabled } : {}),
+                                    ...(phoneItem ? { showPhone: phoneItem.enabled } : {}),
+                                    ...(emailItem ? { showEmail: emailItem.enabled } : {}),
+                                    ...(websiteItem ? { showWebsite: websiteItem.enabled } : {})
+                                  }));
+                                };
+
+                                return resolvedList.map((field, idx) => {
+                                  const isCustom = !['company_name', 'tagline', 'trn', 'address', 'phone', 'email', 'website'].includes(field.id);
+                                  return (
+                                    <div
+                                      key={field.id}
+                                      className={`p-2.5 rounded-xl border space-y-2 transition ${
+                                        field.enabled
+                                          ? 'bg-white border-slate-200 shadow-2xs'
+                                          : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-1.5">
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                          <input
+                                            type="checkbox"
+                                            checked={field.enabled}
+                                            onChange={(e) => {
+                                              const next = resolvedList.map((f, i) =>
+                                                i === idx ? { ...f, enabled: e.target.checked } : f
+                                              );
+                                              updateHeaderFieldList(next);
+                                            }}
+                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={field.label}
+                                            onChange={(e) => {
+                                              const next = resolvedList.map((f, i) =>
+                                                i === idx ? { ...f, label: e.target.value } : f
+                                              );
+                                              updateHeaderFieldList(next);
+                                            }}
+                                            placeholder="Label (optional)"
+                                            className="w-24 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-[10.5px] font-semibold text-slate-700"
+                                          />
+                                          <span className="text-[9.5px] font-mono text-slate-400 truncate">
+                                            ({field.id})
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-0.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            disabled={idx === 0}
+                                            onClick={() => {
+                                              if (idx === 0) return;
+                                              const copy = [...resolvedList];
+                                              const [moved] = copy.splice(idx, 1);
+                                              copy.splice(idx - 1, 0, moved);
+                                              updateHeaderFieldList(copy);
+                                            }}
+                                            className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                            title="Move Field Up"
+                                          >
+                                            <ArrowUp className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={idx === resolvedList.length - 1}
+                                            onClick={() => {
+                                              if (idx === resolvedList.length - 1) return;
+                                              const copy = [...resolvedList];
+                                              const [moved] = copy.splice(idx, 1);
+                                              copy.splice(idx + 1, 0, moved);
+                                              updateHeaderFieldList(copy);
+                                            }}
+                                            className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                            title="Move Field Down"
+                                          >
+                                            <ArrowDown className="w-3 h-3" />
+                                          </button>
+                                          {isCustom && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const next = resolvedList.filter((_, i) => i !== idx);
+                                                updateHeaderFieldList(next);
+                                              }}
+                                              className="p-1 rounded hover:bg-rose-50 text-rose-600 cursor-pointer"
+                                              title="Delete Custom Field"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Inline Value Override Input */}
+                                      <input
+                                        type="text"
+                                        value={field.valueOverride ?? ''}
+                                        onChange={(e) => {
+                                          const next = resolvedList.map((f, i) =>
+                                            i === idx ? { ...f, valueOverride: e.target.value } : f
+                                          );
+                                          updateHeaderFieldList(next);
+                                        }}
+                                        placeholder="Inline text override for this quotation..."
+                                        className="w-full px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] text-slate-800"
+                                      />
+
+                                      {/* Zone Assignment & Font Scale Selectors */}
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <select
+                                          value={field.zone}
+                                          onChange={(e) => {
+                                            const next = resolvedList.map((f, i) =>
+                                              i === idx
+                                                ? { ...f, zone: e.target.value as QuotationHeaderFieldItem['zone'] }
+                                                : f
+                                            );
+                                            updateHeaderFieldList(next);
+                                          }}
+                                          className="col-span-2 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Header Zone Placement"
+                                        >
+                                          <option value="under_logo">Zone: Below Logo</option>
+                                          <option value="under_name">Zone: Below Entity Name</option>
+                                          <option value="contact_block">Zone: Contact Column</option>
+                                          <option value="bottom_bar">Zone: Bottom Strip</option>
+                                        </select>
+
+                                        <select
+                                          value={field.fontSize || 'sm'}
+                                          onChange={(e) => {
+                                            const next = resolvedList.map((f, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...f,
+                                                    fontSize: e.target.value as QuotationHeaderFieldItem['fontSize']
+                                                  }
+                                                : f
+                                            );
+                                            updateHeaderFieldList(next);
+                                          }}
+                                          className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-mono text-slate-700"
+                                          title="Field Font Size"
+                                        >
+                                          <option value="xs">Size: XS</option>
+                                          <option value="sm">Size: SM</option>
+                                          <option value="base">Size: MD</option>
+                                          <option value="lg">Size: LG</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
                             </div>
                           </div>
 
@@ -5836,7 +6218,179 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Custom Micro-Footer Disclaimer Text */}
+                    {/* 2. Footer 2D Alignment & Metadata Pills */}
+                    <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <AlignLeft className="w-3.5 h-3.5 text-blue-600" />
+                        Footer 2D Alignment &amp; Pills
+                      </label>
+                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {(['split', 'left', 'center', 'right'] as const).map((hMode) => {
+                          const isSelected = (footerConfig.footerHorizontalAlign || 'split') === hMode;
+                          return (
+                            <button
+                              key={hMode}
+                              type="button"
+                              onClick={() =>
+                                setFooterConfig((prev) => ({
+                                  ...prev,
+                                  footerHorizontalAlign: hMode
+                                }))
+                              }
+                              className={`py-1.5 rounded-lg text-[10.5px] font-semibold capitalize transition cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-white'
+                              }`}
+                            >
+                              {hMode}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {(['top', 'middle', 'bottom'] as const).map((vMode) => {
+                          const isSelected = (footerConfig.footerVerticalAlign || 'middle') === vMode;
+                          return (
+                            <button
+                              key={vMode}
+                              type="button"
+                              onClick={() =>
+                                setFooterConfig((prev) => ({
+                                  ...prev,
+                                  footerVerticalAlign: vMode
+                                }))
+                              }
+                              className={`py-1 rounded-lg text-[10px] font-semibold capitalize transition cursor-pointer ${
+                                isSelected
+                                  ? 'bg-slate-800 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-white'
+                              }`}
+                            >
+                              Align {vMode}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-1.5 pt-1">
+                        {[
+                          {
+                            key: 'showSystemTagline' as const,
+                            label: 'Show System Tagline',
+                            checked: footerConfig.showSystemTagline !== false
+                          },
+                          {
+                            key: 'showReferenceInFooter' as const,
+                            label: 'Show Quote Ref Pill in Footer',
+                            checked: footerConfig.showReferenceInFooter !== false
+                          },
+                          {
+                            key: 'showIssueDateInFooter' as const,
+                            label: 'Show Issue Date Pill in Footer',
+                            checked: footerConfig.showIssueDateInFooter !== false
+                          }
+                        ].map((fItem) => (
+                          <label
+                            key={fItem.key}
+                            className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 cursor-pointer"
+                          >
+                            <span className="text-[11px] font-medium text-slate-700">{fItem.label}</span>
+                            <input
+                              type="checkbox"
+                              checked={fItem.checked}
+                              onChange={(e) =>
+                                setFooterConfig((prev) => ({
+                                  ...prev,
+                                  [fItem.key]: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      {footerConfig.showSystemTagline !== false && (
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-1">
+                            System Tagline Override
+                          </label>
+                          <input
+                            type="text"
+                            value={footerConfig.systemTaglineText ?? 'Generated via DealFlow Commercial Engine'}
+                            onChange={(e) =>
+                              setFooterConfig((prev) => ({
+                                ...prev,
+                                systemTaglineText: e.target.value
+                              }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                      )}
+
+                      {/* Custom Footer Pills */}
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block text-[10px] font-semibold text-slate-500 uppercase">
+                          Custom Footer Metadata Pills (e.g. ISO 9001:2015)
+                        </label>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={newCustomFooterPill}
+                            onChange={(e) => setNewCustomFooterPill(e.target.value)}
+                            placeholder="Add custom footer badge..."
+                            className="flex-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-800"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const trimmed = newCustomFooterPill.trim();
+                              if (!trimmed) return;
+                              setFooterConfig((prev) => ({
+                                ...prev,
+                                customFooterPills: [...(prev.customFooterPills || []), trimmed]
+                              }));
+                              setNewCustomFooterPill('');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 text-white text-[11px] font-semibold cursor-pointer"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        {Array.isArray(footerConfig.customFooterPills) &&
+                          footerConfig.customFooterPills.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {footerConfig.customFooterPills.map((pill, pIdx) => (
+                                <span
+                                  key={`${pill}_${pIdx}`}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-mono"
+                                >
+                                  <span>{pill}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFooterConfig((prev) => ({
+                                        ...prev,
+                                        customFooterPills: (prev.customFooterPills || []).filter(
+                                          (_, idx) => idx !== pIdx
+                                        )
+                                      }))
+                                    }
+                                    className="text-blue-400 hover:text-rose-600 cursor-pointer"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                      </div>
+                    </div>
+
+                    {/* 3. Custom Micro-Footer Disclaimer Text */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between">
                         <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -6828,7 +7382,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-semibold text-slate-800 text-xs block">
-                                    Show Company Seal Placeholder
+                                    Show Company Seal / Stamp
                                   </span>
                                   <span className="text-[10.5px] text-slate-500">
                                     Render official stamp image or dashed seal box inside signatory card
@@ -6853,7 +7407,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
                                 >
                                   <Upload className="w-3.5 h-3.5" />
-                                  <span>📤 Upload Stamp / Seal Image</span>
+                                  <span>Upload Stamp / Seal Image</span>
                                 </button>
 
                                 {companySealUrl && (
@@ -6865,15 +7419,19 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                         className="h-12 w-12 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
                                       />
                                       <span className="text-[10.5px] text-slate-600 font-medium truncate">
-                                        Stamp Image Uploaded
+                                        Stamp Image Active
                                       </span>
                                     </div>
                                     <button
                                       type="button"
-                                      onClick={() => setCompanySealUrl('')}
-                                      className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                                      onClick={() => {
+                                        setCompanySealUrl('');
+                                        setFooterConfig((prev) => ({ ...prev, companySealUrl: '' }));
+                                      }}
+                                      className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
                                     >
-                                      🗑️ Remove Stamp Image
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove</span>
                                     </button>
                                   </div>
                                 )}
@@ -6894,47 +7452,306 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </select>
                               </div>
 
-                              {signatureStyle === 'image' && (
-                                <div className="space-y-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => signatureFileInputRef.current?.click()}
-                                    className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
-                                  >
-                                    <Upload className="w-3.5 h-3.5" />
-                                    <span>📤 Upload Signature Image</span>
-                                  </button>
+                              <div className="space-y-2">
+                                <button
+                                  type="button"
+                                  onClick={() => signatureFileInputRef.current?.click()}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                                >
+                                  <Upload className="w-3.5 h-3.5" />
+                                  <span>Upload Signature Image</span>
+                                </button>
 
-                                  {signatureImageUrl && (
-                                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200">
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <img
-                                          src={signatureImageUrl}
-                                          alt="Signature Preview"
-                                          className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
-                                        />
-                                        <span className="text-[10.5px] text-slate-600 font-medium truncate">
-                                          Signature Uploaded
-                                        </span>
-                                      </div>
+                                {signatureImageUrl && (
+                                  <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <img
+                                        src={signatureImageUrl}
+                                        alt="Signature Preview"
+                                        className="h-10 w-20 object-contain border border-slate-200 rounded bg-white p-1 shrink-0"
+                                      />
+                                      <span className="text-[10.5px] text-slate-600 font-medium truncate">
+                                        Signature Active
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSignatureImageUrl('');
+                                        setFooterConfig((prev) => ({ ...prev, signatureImageUrl: '' }));
+                                      }}
+                                      className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0 flex items-center gap-1"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* MS Word "In Front of Text" Free-Floating Overlay Controls */}
+                              {(() => {
+                                const overlay = resolveStampSignatureOverlayConfig(footerConfig);
+                                return (
+                                  <div className="pt-2.5 border-t border-slate-200 space-y-2.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                                        <Layers className="w-3.5 h-3.5 text-blue-600" />
+                                        &ldquo;In Front of Text&rdquo; Overlay Controls
+                                      </span>
                                       <button
                                         type="button"
-                                        onClick={() => setSignatureImageUrl('')}
-                                        className="px-2 py-1 rounded-md text-[10px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition cursor-pointer shrink-0"
+                                        onClick={() =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            stampSignatureOverlapMode: 'side_by_side',
+                                            sealSizePx: 96,
+                                            sealRotationDeg: 0,
+                                            sealOffsetX: 0,
+                                            sealOffsetY: 0,
+                                            signatureSizePx: 56,
+                                            signatureRotationDeg: 0,
+                                            signatureOffsetX: 0,
+                                            signatureOffsetY: 0,
+                                            inkMultiplyBlend: true
+                                          }))
+                                        }
+                                        className="text-[10px] text-blue-600 hover:underline font-semibold cursor-pointer"
                                       >
-                                        🗑️ Remove
+                                        Reset Position
                                       </button>
                                     </div>
-                                  )}
-                                </div>
-                              )}
+
+                                    {/* Overlap Preset Selector */}
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[
+                                        { id: 'side_by_side' as const, label: 'Side-by-Side' },
+                                        { id: 'realistic_overlap' as const, label: 'Overlap Seal' },
+                                        { id: 'stamp_over_name' as const, label: 'Over Name' }
+                                      ].map((mode) => {
+                                        const active = overlay.stampSignatureOverlapMode === mode.id;
+                                        return (
+                                          <button
+                                            key={mode.id}
+                                            type="button"
+                                            onClick={() =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                stampSignatureOverlapMode: mode.id
+                                              }))
+                                            }
+                                            className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                                              active
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            {mode.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Stamp Size, Rotation & X/Y Nudge */}
+                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                      <div className="flex justify-between text-[10px] font-semibold text-slate-700">
+                                        <span>Stamp Size &amp; Angle</span>
+                                        <span className="font-mono text-blue-700">
+                                          {overlay.sealSizePx}px • {overlay.sealRotationDeg}°
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">Size (60–180px)</span>
+                                          <input
+                                            type="range"
+                                            min={60}
+                                            max={180}
+                                            step={4}
+                                            value={overlay.sealSizePx}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                sealSizePx: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">Tilt (-35° to +35°)</span>
+                                          <input
+                                            type="range"
+                                            min={-35}
+                                            max={35}
+                                            step={1}
+                                            value={overlay.sealRotationDeg}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                sealRotationDeg: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">
+                                            Stamp X ({overlay.sealOffsetX}px)
+                                          </span>
+                                          <input
+                                            type="range"
+                                            min={-120}
+                                            max={120}
+                                            step={4}
+                                            value={overlay.sealOffsetX}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                sealOffsetX: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">
+                                            Stamp Y ({overlay.sealOffsetY}px)
+                                          </span>
+                                          <input
+                                            type="range"
+                                            min={-80}
+                                            max={80}
+                                            step={4}
+                                            value={overlay.sealOffsetY}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                sealOffsetY: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Signature Size, Rotation & X/Y Nudge */}
+                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                      <div className="flex justify-between text-[10px] font-semibold text-slate-700">
+                                        <span>Signature Size &amp; Angle</span>
+                                        <span className="font-mono text-blue-700">
+                                          {overlay.signatureSizePx}px • {overlay.signatureRotationDeg}°
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">Height (32–130px)</span>
+                                          <input
+                                            type="range"
+                                            min={32}
+                                            max={130}
+                                            step={2}
+                                            value={overlay.signatureSizePx}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatureSizePx: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">Tilt (-25° to +25°)</span>
+                                          <input
+                                            type="range"
+                                            min={-25}
+                                            max={25}
+                                            step={1}
+                                            value={overlay.signatureRotationDeg}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatureRotationDeg: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">
+                                            Sig X ({overlay.signatureOffsetX}px)
+                                          </span>
+                                          <input
+                                            type="range"
+                                            min={-120}
+                                            max={120}
+                                            step={4}
+                                            value={overlay.signatureOffsetX}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatureOffsetX: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                        <div>
+                                          <span className="text-[9px] text-slate-400 block">
+                                            Sig Y ({overlay.signatureOffsetY}px)
+                                          </span>
+                                          <input
+                                            type="range"
+                                            min={-80}
+                                            max={80}
+                                            step={4}
+                                            value={overlay.signatureOffsetY}
+                                            onChange={(e) =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatureOffsetY: Number(e.target.value)
+                                              }))
+                                            }
+                                            className="w-full accent-blue-600 cursor-pointer"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Realistic Ink Multiply Blend Toggle */}
+                                    <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                      <span className="text-[10.5px] font-medium text-slate-700">
+                                        Realistic Wet-Ink Multiply Blend
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={overlay.inkMultiplyBlend}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            inkMultiplyBlend: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                      />
+                                    </label>
+                                  </div>
+                                );
+                              })()}
 
                               <button
                                 type="button"
                                 onClick={() => setActiveLeftTab('content')}
                                 className="w-full py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                               >
-                                <span>📝 Edit Signatory Names in Deal Data</span>
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit Signatory Names in Deal Data</span>
                               </button>
                             </div>
                           )}

@@ -30,6 +30,10 @@ import {
   isSheetOverflowingA4,
   extractLineItemAttributesAndCleanDescription,
   resolveHeaderBrandingConfig,
+  resolveDocumentThemePalette,
+  resolveStampSignatureOverlayConfig,
+  resolveHeaderFields,
+  resolveFooterPresentation,
   amountInWordsAED,
   DEFAULT_QUOTATION_BLOCKS,
   DEFAULT_HEADER_CONFIG,
@@ -2564,6 +2568,210 @@ describe('Suite 19: Settings <-> Quotation Studio Parity, Non-Destructive Saves 
     expect(hydrated.headerConfig.logoDisplayMode).toBe('logo_only');
     expect(hydrated.headerConfig.headerLayoutMode).toBe('centered');
     expect(hydrated.headerConfig.logoHeightPx).toBe(60);
+  });
+});
+
+// ==========================================
+// SUITE 20: FIRESTORE 1MB SAFEGUARD, MODULAR HEADER/FOOTER COMPOSER,
+//           IN-FRONT-OF-TEXT STAMP/SIGNATURE OVERLAY & CUSTOM HEX THEME ENGINE
+// ==========================================
+
+describe('Suite 20: Firestore 1MB Payload Safeguard, Modular Header/Footer Composer, Stamp/Signature Overlay & Custom Hex Theme Engine', () => {
+  it('20a. sanitizePayloadForFirestoreLimit and estimatePayloadBytes keep oversized quotation/preset payloads safely below 900KB without losing primary branding assets', () => {
+    const largeLogoBase64 = 'data:image/png;base64,' + 'A'.repeat(340_000);
+    const largeSealBase64 = 'data:image/png;base64,' + 'B'.repeat(320_000);
+    const largeFlyerBase64 = 'data:image/jpeg;base64,' + 'C'.repeat(420_000);
+
+    // Construct an oversized payload (> 1.19MB) with duplicate logo/seal in nested configs + heavy flyer attachment
+    const oversizedPayload = {
+      id: 'quote_oversized_20a',
+      company_logo_url: largeLogoBase64,
+      company_seal_url: largeSealBase64,
+      header_config: {
+        logoUrl: largeLogoBase64,
+        showLogo: true
+      },
+      footer_config: {
+        companySealUrl: largeSealBase64,
+        showCompanySeal: true
+      },
+      flyer_attachments: [
+        {
+          id: 'flyer_heavy_1',
+          name: 'Heavy High-Res Annex',
+          url: largeFlyerBase64,
+          type: 'image/jpeg',
+          render_as_annex_page: true
+        }
+      ]
+    };
+
+    const rawBytes = QuotationRepository.estimatePayloadBytes(oversizedPayload);
+    expect(rawBytes > 1_048_576).toBe(true);
+
+    const sanitized = QuotationRepository.sanitizePayloadForFirestoreLimit(oversizedPayload, 880_000);
+    const sanitizedBytes = QuotationRepository.estimatePayloadBytes(sanitized);
+
+    // Must be safely below Firestore 1MB limit (< 880,000 bytes)
+    expect(sanitizedBytes <= 880_000).toBe(true);
+    // Primary top-level logo & seal are preserved while duplicate nested copies were deduplicated
+    expect(Boolean(sanitized.company_logo_url)).toBe(true);
+    expect(Boolean(sanitized.company_seal_url)).toBe(true);
+  });
+
+  it('20b. resolveHeaderFields supports custom text overrides, custom added fields, zone assignment (under_logo, under_name, contact_block, bottom_bar), and 2D alignment', () => {
+    const profile = {
+      id: 'prof_20b',
+      profile_name: 'Default Profile',
+      legal_entity_name: 'Nirvana Water Treatment LLC',
+      trn: '100998877660003',
+      address_line_1: 'TechnoPark Plot 44, Jebel Ali',
+      city: 'Dubai',
+      country: 'UAE',
+      phone: '+971 4 800 1234',
+      email: 'tenders@nirvanawater.ae',
+      website: 'www.nirvanawater.ae',
+      bank_accounts: []
+    };
+
+    // Custom header configuration moving TRN/VAT directly under logo and adding ISO certification to bottom_bar
+    const headerConfig: QuotationHeaderConfig = {
+      logoUrl: 'data:image/png;base64,LOGO_20B',
+      showLogo: true,
+      brandHorizontalAlign: 'center',
+      brandVerticalAlign: 'middle',
+      contactHorizontalAlign: 'right',
+      contactVerticalAlign: 'bottom',
+      headerFields: [
+        {
+          id: 'trn',
+          label: 'VAT Reg',
+          valueOverride: 'TRN-AE-100998877660003',
+          enabled: true,
+          zone: 'under_logo',
+          fontSize: 'sm',
+          fontWeight: 'bold'
+        },
+        {
+          id: 'tagline',
+          label: '',
+          valueOverride: 'Engineered Water & Wastewater Solutions',
+          enabled: true,
+          zone: 'under_name',
+          fontSize: 'xs',
+          fontWeight: 'medium'
+        },
+        {
+          id: 'phone',
+          label: 'Tel',
+          valueOverride: '+971 4 800 9999',
+          enabled: true,
+          zone: 'contact_block',
+          fontSize: 'xs',
+          fontWeight: 'medium'
+        },
+        {
+          id: 'custom_iso',
+          label: 'Certifications',
+          valueOverride: 'ISO 9001:2015 • ISO 14001 • OHSAS 18001',
+          enabled: true,
+          zone: 'bottom_bar',
+          fontSize: 'xs',
+          fontWeight: 'bold'
+        }
+      ]
+    };
+
+    const resolved = resolveHeaderFields(headerConfig, profile);
+
+    expect(resolved.brandHorizontalAlign).toBe('center');
+    expect(resolved.brandVerticalAlign).toBe('middle');
+    expect(resolved.contactHorizontalAlign).toBe('right');
+    expect(resolved.contactVerticalAlign).toBe('bottom');
+
+    expect(resolved.underLogo.length).toBe(1);
+    expect(resolved.underLogo[0].id).toBe('trn');
+    expect(resolved.underLogo[0].resolvedValue).toBe('TRN-AE-100998877660003');
+
+    expect(resolved.underName.length).toBe(1);
+    expect(resolved.underName[0].resolvedValue).toBe('Engineered Water & Wastewater Solutions');
+
+    expect(resolved.contactBlock.length).toBe(1);
+    expect(resolved.contactBlock[0].resolvedValue).toBe('+971 4 800 9999');
+
+    expect(resolved.bottomBar.length).toBe(1);
+    expect(resolved.bottomBar[0].id).toBe('custom_iso');
+    expect(resolved.bottomBar[0].resolvedValue).toBe('ISO 9001:2015 • ISO 14001 • OHSAS 18001');
+  });
+
+  it('20c. resolveStampSignatureOverlayConfig resolves MS Word In-Front-Of-Text stamp & signature size, rotation, X/Y offset, realistic_overlap, and inkMultiplyBlend', () => {
+    const defaultOverlay = resolveStampSignatureOverlayConfig({});
+    expect(defaultOverlay.sealSizePx).toBe(105);
+    expect(defaultOverlay.sealRotationDeg).toBe(-6);
+    expect(defaultOverlay.sealOffsetX).toBe(0);
+    expect(defaultOverlay.sealOffsetY).toBe(0);
+    expect(defaultOverlay.signatureSizePx).toBe(56);
+    expect(defaultOverlay.signatureRotationDeg).toBe(0);
+    expect(defaultOverlay.stampSignatureOverlapMode).toBe('realistic_overlap');
+    expect(defaultOverlay.inkMultiplyBlend).toBe(true);
+
+    // Custom free-floating coordinates & clamped bounds
+    const customOverlay = resolveStampSignatureOverlayConfig({
+      sealSizePx: 145,
+      sealRotationDeg: -14,
+      sealOffsetX: -28,
+      sealOffsetY: 12,
+      signatureSizePx: 78,
+      signatureRotationDeg: 6,
+      signatureOffsetX: 18,
+      signatureOffsetY: -10,
+      stampSignatureOverlapMode: 'stamp_over_name',
+      inkMultiplyBlend: false
+    });
+
+    expect(customOverlay.sealSizePx).toBe(145);
+    expect(customOverlay.sealRotationDeg).toBe(-14);
+    expect(customOverlay.sealOffsetX).toBe(-28);
+    expect(customOverlay.sealOffsetY).toBe(12);
+    expect(customOverlay.signatureSizePx).toBe(78);
+    expect(customOverlay.signatureRotationDeg).toBe(6);
+    expect(customOverlay.signatureOffsetX).toBe(18);
+    expect(customOverlay.signatureOffsetY).toBe(-10);
+    expect(customOverlay.stampSignatureOverlapMode).toBe('stamp_over_name');
+    expect(customOverlay.inkMultiplyBlend).toBe(false);
+  });
+
+  it('20d. resolveDocumentThemePalette drives custom hex colors (#0f4c81) and preset themes across letterhead bar, table header, badges, and grand total, plus resolveFooterPresentation', () => {
+    // 1. Preset theme ('emerald')
+    const emeraldPalette = resolveDocumentThemePalette('emerald');
+    expect(emeraldPalette.primaryHex).toBe('#065f46');
+    expect(emeraldPalette.textAccent).toBe('#065f46');
+
+    // 2. Custom brand hex color ('#0F4C81') overrides preset theme and generates harmonized RGBA tints
+    const customHexPalette = resolveDocumentThemePalette('slate', '#0F4C81');
+    expect(customHexPalette.primaryHex).toBe('#0f4c81');
+    expect(customHexPalette.textAccent).toBe('#0f4c81');
+    expect(customHexPalette.tintBg).toBe('rgba(15, 76, 129, 0.06)');
+    expect(customHexPalette.tintStrongBg).toBe('rgba(15, 76, 129, 0.11)');
+    expect(customHexPalette.borderTint).toBe('rgba(15, 76, 129, 0.24)');
+
+    // 3. Modular footer presentation (2D alignment, custom tagline, and custom pills)
+    const footerPres = resolveFooterPresentation({
+      footerHorizontalAlign: 'center',
+      footerVerticalAlign: 'bottom',
+      showSystemTagline: true,
+      systemTaglineText: 'Approved Vendor #99182 • Confidential Commercial Tender',
+      showReferenceInFooter: true,
+      showIssueDateInFooter: false,
+      showPageNumbers: true,
+      customFooterPills: ['ISO 9001:2015', 'DUNS 88-192-001']
+    });
+
+    expect(footerPres.footerHorizontalAlign).toBe('center');
+    expect(footerPres.footerVerticalAlign).toBe('bottom');
+    expect(footerPres.systemTaglineText).toBe('Approved Vendor #99182 • Confidential Commercial Tender');
+    expect(footerPres.showIssueDateInFooter).toBe(false);
+    expect(footerPres.customFooterPills).toEqual(['ISO 9001:2015', 'DUNS 88-192-001']);
   });
 });
 

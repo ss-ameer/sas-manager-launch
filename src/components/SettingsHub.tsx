@@ -722,7 +722,7 @@ export default function SettingsHub({
     },
     {
       id: 'branding' as const,
-      label: 'Document & Quotes',
+      label: 'Documents',
       icon: FileText,
       description: 'Legal company branding, TRN, wire remittance bank accounts, and quotation presets',
       adminOnly: false

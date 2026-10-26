@@ -152,6 +152,240 @@ export class QuotationRepository {
     return !this.isGenericCameraFilename(att.name);
   }
 
+  /**
+   * Client-side transparency-preserving HTML5 Canvas image compressor.
+   * Ensures Logo, Stamp, Signature, and Flyer uploads stay well under Firestore's 1,048,576 byte document limit.
+   * Structured as a clean modular service method so it can be swapped to a custom storage bucket in a future update.
+   */
+  public static async compressStudioImageDataUri(
+    fileOrDataUri: File | string,
+    options?: {
+      maxWidth?: number;
+      maxHeight?: number;
+      preserveTransparency?: boolean;
+      quality?: number;
+    }
+  ): Promise<string> {
+    const preserveTransparency = options?.preserveTransparency ?? true;
+    const maxWidth = options?.maxWidth ?? (preserveTransparency ? 600 : 1100);
+    const maxHeight = options?.maxHeight ?? (preserveTransparency ? 400 : 1500);
+    const quality = options?.quality ?? (preserveTransparency ? 0.82 : 0.74);
+
+    let rawDataUri = '';
+    if (typeof fileOrDataUri === 'string') {
+      rawDataUri = fileOrDataUri;
+    } else if (typeof FileReader !== 'undefined' && fileOrDataUri) {
+      rawDataUri = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(fileOrDataUri);
+      });
+    }
+
+    if (!rawDataUri) return '';
+
+    // Non-Data-URI (external HTTP/HTTPS URL or SVG) - pass through unless oversized
+    if (!rawDataUri.startsWith('data:image/')) {
+      return rawDataUri;
+    }
+
+    // In Node / SSR / headless test environments without DOM Canvas, bound oversized synthetic base64 strings deterministically
+    if (typeof document === 'undefined' || typeof Image === 'undefined') {
+      const maxChars = preserveTransparency ? 65000 : 140000;
+      if (rawDataUri.length <= maxChars) return rawDataUri;
+      const mime = preserveTransparency ? 'image/webp' : 'image/jpeg';
+      const commaIdx = rawDataUri.indexOf(',');
+      const base64Body = commaIdx >= 0 ? rawDataUri.slice(commaIdx + 1) : rawDataUri;
+      const boundedBody = base64Body.slice(0, maxChars - 32);
+      return `data:${mime};base64,${boundedBody}`;
+    }
+
+    // Browser HTML5 Canvas compression
+    return new Promise<string>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          let targetW = img.naturalWidth || img.width || maxWidth;
+          let targetH = img.naturalHeight || img.height || maxHeight;
+
+          if (targetW > maxWidth || targetH > maxHeight) {
+            const ratio = Math.min(maxWidth / targetW, maxHeight / targetH);
+            targetW = Math.max(1, Math.round(targetW * ratio));
+            targetH = Math.max(1, Math.round(targetH * ratio));
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawDataUri);
+            return;
+          }
+
+          if (!preserveTransparency) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, targetW, targetH);
+          } else {
+            ctx.clearRect(0, 0, targetW, targetH);
+          }
+
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          if (preserveTransparency) {
+            const webpOut = canvas.toDataURL('image/webp', quality);
+            if (webpOut && webpOut.startsWith('data:image/webp') && webpOut.length < 95000) {
+              resolve(webpOut);
+              return;
+            }
+            // Fallback to tighter scaled PNG if WebP is unsupported or still large
+            if (targetW > 420 || targetH > 280) {
+              const r2 = Math.min(420 / targetW, 280 / targetH);
+              const c2 = document.createElement('canvas');
+              c2.width = Math.max(1, Math.round(targetW * r2));
+              c2.height = Math.max(1, Math.round(targetH * r2));
+              const ctx2 = c2.getContext('2d');
+              if (ctx2) {
+                ctx2.clearRect(0, 0, c2.width, c2.height);
+                ctx2.drawImage(img, 0, 0, c2.width, c2.height);
+                const fallbackWebp = c2.toDataURL('image/webp', 0.78);
+                if (fallbackWebp && fallbackWebp.startsWith('data:image/webp')) {
+                  resolve(fallbackWebp);
+                  return;
+                }
+                resolve(c2.toDataURL('image/png'));
+                return;
+              }
+            }
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            const jpegOut = canvas.toDataURL('image/jpeg', quality);
+            resolve(jpegOut);
+          }
+        } catch (_) {
+          resolve(rawDataUri);
+        }
+      };
+      img.onerror = () => resolve(rawDataUri);
+      img.src = rawDataUri;
+    });
+  }
+
+  /**
+   * Measures UTF-8 byte length of any JSON-serializable payload.
+   */
+  public static estimatePayloadBytes(payload: unknown): number {
+    try {
+      const json = JSON.stringify(payload ?? {});
+      if (typeof Blob !== 'undefined') {
+        return new Blob([json]).size;
+      }
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.byteLength(json, 'utf8');
+      }
+      return json.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /**
+   * Pre-save payload safeguard that guarantees any Quotation, QuotationPreset, or WorkspaceDocumentProfile
+   * stays strictly below Firestore's 1,048,576 byte limit (targeting <= 900,000 bytes).
+   */
+  public static sanitizePayloadForFirestoreLimit<T>(payload: T, maxBytes: number = 900000): T {
+    if (!payload || typeof payload !== 'object') return payload;
+    let currentBytes = this.estimatePayloadBytes(payload);
+    if (currentBytes <= maxBytes) return payload;
+
+    const clone: any = JSON.parse(JSON.stringify(payload));
+
+    const compactDataUriString = (val: unknown, maxLen: number): string | undefined => {
+      if (typeof val !== 'string') return undefined;
+      if (!val.startsWith('data:') || val.length <= maxLen) return val;
+      const commaIdx = val.indexOf(',');
+      const header = commaIdx >= 0 ? val.slice(0, commaIdx + 1) : 'data:image/webp;base64,';
+      const body = commaIdx >= 0 ? val.slice(commaIdx + 1) : val;
+      return `${header}${body.slice(0, Math.max(256, maxLen - header.length))}`;
+    };
+
+    // Pass 1: Compact flyer attachments data URIs if present
+    if (Array.isArray(clone.flyer_attachments) && clone.flyer_attachments.length > 0) {
+      const perFlyerBudget = Math.max(
+        40000,
+        Math.floor(420000 / Math.max(1, clone.flyer_attachments.length))
+      );
+      clone.flyer_attachments = clone.flyer_attachments.map((att: any) => {
+        if (att && typeof att.url === 'string' && att.url.length > perFlyerBudget) {
+          return {
+            ...att,
+            url: compactDataUriString(att.url, perFlyerBudget)
+          };
+        }
+        return att;
+      });
+    }
+
+    // Pass 2: Compact brand assets (logo, seal, signature) if oversized (> 65KB each)
+    const assetMaxChars = 65000;
+    const topLevelImageKeys = [
+      'company_logo_url',
+      'logo_url',
+      'company_seal_url',
+      'stamp_seal_url',
+      'signature_image_url'
+    ];
+    for (const key of topLevelImageKeys) {
+      if (typeof clone[key] === 'string' && clone[key].length > assetMaxChars) {
+        clone[key] = compactDataUriString(clone[key], assetMaxChars);
+      }
+    }
+    if (clone.header_config && typeof clone.header_config.logoUrl === 'string' && clone.header_config.logoUrl.length > assetMaxChars) {
+      clone.header_config.logoUrl = compactDataUriString(clone.header_config.logoUrl, assetMaxChars);
+    }
+    if (clone.footer_config && typeof clone.footer_config.companySealUrl === 'string' && clone.footer_config.companySealUrl.length > assetMaxChars) {
+      clone.footer_config.companySealUrl = compactDataUriString(clone.footer_config.companySealUrl, assetMaxChars);
+    }
+    if (clone.sender_snapshot) {
+      if (typeof clone.sender_snapshot.logo_url === 'string' && clone.sender_snapshot.logo_url.length > assetMaxChars) {
+        clone.sender_snapshot.logo_url = compactDataUriString(clone.sender_snapshot.logo_url, assetMaxChars);
+      }
+      if (typeof clone.sender_snapshot.stamp_seal_url === 'string' && clone.sender_snapshot.stamp_seal_url.length > assetMaxChars) {
+        clone.sender_snapshot.stamp_seal_url = compactDataUriString(clone.sender_snapshot.stamp_seal_url, assetMaxChars);
+      }
+    }
+    if (Array.isArray(clone.signatories)) {
+      clone.signatories = clone.signatories.map((sig: any) => {
+        if (sig && typeof sig.signature_url === 'string' && sig.signature_url.length > assetMaxChars) {
+          return { ...sig, signature_url: compactDataUriString(sig.signature_url, assetMaxChars) };
+        }
+        return sig;
+      });
+    }
+
+    currentBytes = this.estimatePayloadBytes(clone);
+    if (currentBytes > maxBytes && Array.isArray(clone.flyer_attachments)) {
+      // Pass 3: Tighter flyer compaction if still over budget
+      const tightBudget = Math.max(
+        18000,
+        Math.floor(240000 / Math.max(1, clone.flyer_attachments.length))
+      );
+      clone.flyer_attachments = clone.flyer_attachments.map((att: any) => {
+        if (att && typeof att.url === 'string' && att.url.length > tightBudget) {
+          return {
+            ...att,
+            url: compactDataUriString(att.url, tightBudget)
+          };
+        }
+        return att;
+      });
+    }
+
+    return clone as T;
+  }
+
   public static cloneQuotationAsNextRevision(
     source: Quotation,
     existingRevisions?: Quotation[]
@@ -263,6 +497,9 @@ export class QuotationRepository {
           ...source.footer_config,
           ...(source.footer_config.selectedBank
             ? { selectedBank: { ...source.footer_config.selectedBank } }
+            : {}),
+          ...(Array.isArray(source.footer_config.customFooterPills)
+            ? { customFooterPills: [...source.footer_config.customFooterPills] }
             : {})
         }
       : undefined;
@@ -270,7 +507,10 @@ export class QuotationRepository {
     const clonedHeaderConfig = source.header_config
       ? {
           ...source.header_config,
-          logoUrl: source.header_config.logoUrl ?? source.company_logo_url
+          logoUrl: source.header_config.logoUrl ?? source.company_logo_url,
+          ...(Array.isArray(source.header_config.headerFields)
+            ? { headerFields: source.header_config.headerFields.map((f) => ({ ...f })) }
+            : {})
         }
       : source.company_logo_url
       ? { logoUrl: source.company_logo_url }
@@ -330,8 +570,10 @@ export class QuotationRepository {
       table_density: source.table_density,
       table_font_scale: source.table_font_scale,
       block_style: source.block_style,
+      theme_accent: source.theme_accent,
+      customThemeColor: source.customThemeColor,
       company_logo_url: source.company_logo_url || source.header_config?.logoUrl,
-      company_seal_url: source.company_seal_url,
+      company_seal_url: source.company_seal_url || source.footer_config?.companySealUrl,
       signature_image_url: source.signature_image_url,
       created_at: now,
       updatedAt: now
@@ -493,7 +735,7 @@ export class QuotationRepository {
 
     const quotationId = data.id || `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-    const newQuotation: Quotation = {
+    const newQuotation: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...data,
       id: quotationId,
       workspace_id: wsId,
@@ -503,7 +745,7 @@ export class QuotationRepository {
       formatted_quote_ref: formattedQuoteRef,
       status,
       created_at: createdAt
-    };
+    });
 
     // Remote persistence
     try {
@@ -553,7 +795,7 @@ export class QuotationRepository {
     }
 
     const clonedBase = this.cloneQuotationAsNextRevision(parent, existingRevisions);
-    const childQuotation: Quotation = {
+    const childQuotation: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...clonedBase,
       ...updates,
       id: clonedBase.id,
@@ -566,7 +808,7 @@ export class QuotationRepository {
       parent_quote_id: parentQuoteId,
       parent_quotation_id: parentQuoteId,
       line_items: updates?.line_items || clonedBase.line_items
-    };
+    });
 
     // Mark parent quote as Superseded with superseded_by_id link
     const now = new Date().toISOString();
@@ -640,14 +882,22 @@ export class QuotationRepository {
         validityDays: fromPreset.defaultValidityDays,
         freightAmount: 0,
         taxRatePercent: 5,
+        themeAccent: fromPreset.themeAccent || profile?.theme_accent || 'slate',
+        customThemeColor: fromPreset.customThemeColor || profile?.customThemeColor || profile?.accent_color || '#0f172a',
         companyLogoUrl:
           fromPreset.companyLogoUrl ||
           fromPreset.headerConfig?.logoUrl ||
           profile?.logo_url ||
           '',
         headerConfig: { ...fromPreset.headerConfig },
-        companySealUrl: fromPreset.companySealUrl || profile?.stamp_seal_url || '',
-        signatureImageUrl: fromPreset.signatureImageUrl || ''
+        footerConfig: { ...fromPreset.footerConfig },
+        companySealUrl:
+          fromPreset.companySealUrl ||
+          fromPreset.footerConfig?.companySealUrl ||
+          profile?.company_seal_url ||
+          profile?.stamp_seal_url ||
+          '',
+        signatureImageUrl: fromPreset.signatureImageUrl || profile?.signature_image_url || ''
       };
     }
 
@@ -743,6 +993,12 @@ export class QuotationRepository {
       validityDays: profile?.default_validity_days ?? 30,
       freightAmount: Number(quotation?.freight_amount) || 0,
       taxRatePercent: quotation?.tax_rate_percent ?? 5,
+      themeAccent: quotation?.theme_accent || profile?.theme_accent || 'slate',
+      customThemeColor:
+        quotation?.customThemeColor ||
+        profile?.customThemeColor ||
+        profile?.accent_color ||
+        '#0f172a',
       companyLogoUrl:
         quotation?.header_config?.logoUrl ||
         quotation?.company_logo_url ||
@@ -769,9 +1025,15 @@ export class QuotationRepository {
           ? { logoUrl: quotation?.header_config?.logoUrl || quotation?.company_logo_url }
           : {})
       },
+      footerConfig: {
+        ...(profile?.footer_config || {}),
+        ...(quotation?.footer_config || {})
+      },
       companySealUrl:
         quotation?.company_seal_url ||
+        quotation?.footer_config?.companySealUrl ||
         (quotation as any)?.companySettings?.company_seal_url ||
+        profile?.company_seal_url ||
         profile?.stamp_seal_url ||
         '',
       signatureImageUrl:
@@ -792,17 +1054,19 @@ export class QuotationRepository {
     const existing = await this.getQuotationById(id);
     if (!existing) return null;
 
-    const updatedQuote: Quotation = {
+    const updatedQuote: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...existing,
       ...updates,
       updatedAt: new Date().toISOString()
-    };
+    });
+
+    const sanitizedUpdates = this.sanitizePayloadForFirestoreLimit({
+      ...updates,
+      updatedAt: updatedQuote.updatedAt
+    });
 
     try {
-      await safeUpdateDoc('quotations', id, {
-        ...updates,
-        updatedAt: updatedQuote.updatedAt
-      });
+      await safeUpdateDoc('quotations', id, sanitizedUpdates);
     } catch (_) {}
 
     try {
@@ -1051,12 +1315,12 @@ export class QuotationRepository {
   public static async saveQuotation(quotation: Quotation): Promise<Quotation> {
     const wsId = quotation.workspace_id || quotation.workspaceId || 'ws_default';
     const now = new Date().toISOString();
-    const toSave: Quotation = {
+    const toSave: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...quotation,
       workspace_id: wsId,
       workspaceId: wsId,
       updatedAt: now
-    };
+    });
 
     try {
       await safeSetDoc('quotations', toSave.id!, toSave);
@@ -1247,6 +1511,8 @@ export class QuotationRepository {
       input.remittance_bank_id ||
       input.footer_config?.remittanceBankId;
 
+    const resolvedSealUrl = input.company_seal_url ?? input.footer_config?.companySealUrl;
+
     const normalizedFooterConfig = input.footer_config
       ? {
           ...input.footer_config,
@@ -1261,7 +1527,11 @@ export class QuotationRepository {
           showPageNumbers: input.footer_config.showPageNumbers ?? true,
           showDisclaimer: input.footer_config.showDisclaimer ?? true,
           customDisclaimer: input.footer_config.customDisclaimer,
-          remittanceBankId: resolvedBankId
+          remittanceBankId: resolvedBankId,
+          ...(resolvedSealUrl !== undefined ? { companySealUrl: resolvedSealUrl } : {}),
+          ...(Array.isArray(input.footer_config.customFooterPills)
+            ? { customFooterPills: [...input.footer_config.customFooterPills] }
+            : {})
         }
       : {
           footerLayoutMode: input.footerLayoutMode || 'split',
@@ -1270,7 +1540,8 @@ export class QuotationRepository {
           showSignatories: input.showSignatories ?? true,
           showPageNumbers: true,
           showDisclaimer: true,
-          remittanceBankId: resolvedBankId
+          remittanceBankId: resolvedBankId,
+          ...(resolvedSealUrl !== undefined ? { companySealUrl: resolvedSealUrl } : {})
         };
 
     const normalizedFlyerAttachments = Array.isArray(input.flyer_attachments)
@@ -1351,6 +1622,9 @@ export class QuotationRepository {
       repeatHeaderOnSubsequentPages: rawHeaderCfg.repeatHeaderOnSubsequentPages ?? true,
       showLogoOnContinuationPages: rawHeaderCfg.showLogoOnContinuationPages ?? true,
       ...rawHeaderCfg,
+      ...(Array.isArray(rawHeaderCfg.headerFields)
+        ? { headerFields: rawHeaderCfg.headerFields.map((f) => ({ ...f })) }
+        : {}),
       ...(resolvedLogoUrl !== undefined ? { logoUrl: resolvedLogoUrl } : {})
     };
 
@@ -1378,8 +1652,9 @@ export class QuotationRepository {
       showSignatories: normalizedFooterConfig.showSignatories,
       footerLayoutMode: normalizedFooterConfig.footerLayoutMode,
       company_logo_url: resolvedLogoUrl,
-      company_seal_url: input.company_seal_url,
+      company_seal_url: resolvedSealUrl,
       signature_image_url: input.signature_image_url,
+      customThemeColor: input.customThemeColor,
       header_config: normalizedHeaderConfig,
       footer_config: normalizedFooterConfig
     };
@@ -1416,8 +1691,10 @@ export class QuotationRepository {
       defaultPriceBasis: serialized.default_price_basis || 'Ex-Works',
       defaultPaymentTerms: serialized.default_payment_terms || '100% Advance',
       defaultValidityDays: serialized.default_validity_days ?? 30,
+      themeAccent: serialized.theme_accent,
+      customThemeColor: serialized.customThemeColor,
       companyLogoUrl: serialized.company_logo_url || serialized.header_config?.logoUrl || '',
-      companySealUrl: serialized.company_seal_url || '',
+      companySealUrl: serialized.company_seal_url || serialized.footer_config?.companySealUrl || '',
       signatureImageUrl: serialized.signature_image_url || ''
     };
   }
@@ -1460,14 +1737,14 @@ export class QuotationRepository {
     const presetId = preset.id || `preset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = new Date().toISOString();
 
-    const newPreset: QuotationPreset = {
+    const newPreset: QuotationPreset = this.sanitizePayloadForFirestoreLimit({
       ...normalized,
       id: presetId,
       workspace_id: wsId,
       workspaceId: wsId,
       createdAt: preset.createdAt || now,
       updatedAt: now
-    };
+    });
 
     try {
       await safeSetDoc('quotation_presets', presetId, newPreset);
@@ -1587,6 +1864,13 @@ export class QuotationRepository {
           }
         : undefined;
 
+    const resolvedSeal =
+      incoming.company_seal_url ??
+      incoming.stamp_seal_url ??
+      existing?.company_seal_url ??
+      existing?.stamp_seal_url ??
+      '';
+
     return {
       ...(existing || {}),
       ...incoming,
@@ -1604,10 +1888,12 @@ export class QuotationRepository {
       email: incoming.email ?? existing?.email ?? '',
       website: incoming.website ?? existing?.website ?? '',
       logo_url: incoming.logo_url ?? existing?.logo_url ?? '',
-      stamp_seal_url: incoming.stamp_seal_url ?? existing?.stamp_seal_url ?? '',
+      stamp_seal_url: resolvedSeal,
+      company_seal_url: resolvedSeal,
       signature_image_url: incoming.signature_image_url ?? existing?.signature_image_url,
       accent_color: incoming.accent_color ?? existing?.accent_color ?? '#2563eb',
       theme_accent: incoming.theme_accent ?? existing?.theme_accent,
+      customThemeColor: incoming.customThemeColor ?? existing?.customThemeColor,
       block_style: incoming.block_style ?? existing?.block_style,
       globalCardRadius: incoming.globalCardRadius ?? existing?.globalCardRadius,
       cardsOrder: incoming.cardsOrder ?? existing?.cardsOrder,
@@ -1715,17 +2001,18 @@ export class QuotationRepository {
       company_logo_url: presetUpdates.company_logo_url ?? existingPreset?.company_logo_url,
       company_seal_url: presetUpdates.company_seal_url ?? existingPreset?.company_seal_url,
       signature_image_url: presetUpdates.signature_image_url ?? existingPreset?.signature_image_url,
+      customThemeColor: presetUpdates.customThemeColor ?? existingPreset?.customThemeColor,
       is_default: presetUpdates.is_default ?? existingPreset?.is_default ?? false,
       createdAt: existingPreset?.createdAt || now,
       updatedAt: now
     } as QuotationPreset;
 
-    const normalized: QuotationPreset = {
+    const normalized: QuotationPreset = this.sanitizePayloadForFirestoreLimit({
       ...this.serializePresetSnapshot(mergedInput),
       id: presetId,
       createdAt: mergedInput.createdAt,
       updatedAt: now
-    };
+    });
 
     try {
       await safeSetDoc('quotation_presets', presetId, normalized);
@@ -1906,7 +2193,9 @@ export class QuotationRepository {
       existingProfile = await this.getWorkspaceDocumentProfile(wsId);
     } catch (_) {}
 
-    const fullProfile = this.mergeWorkspaceDocumentProfile(existingProfile, profile);
+    const fullProfile = this.sanitizePayloadForFirestoreLimit(
+      this.mergeWorkspaceDocumentProfile(existingProfile, profile)
+    );
     const profileId = fullProfile.id!;
 
     // 1. Persist to Firestore

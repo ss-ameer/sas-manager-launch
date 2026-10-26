@@ -455,6 +455,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
   // Phase-3 Studio Parity Profile Defaults
   const [themeAccent, setThemeAccent] = useState<ThemeAccentKey>('navy');
   const [accentColor, setAccentColor] = useState<string>('#0f172a');
+  const [customThemeColor, setCustomThemeColor] = useState<string>('');
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>('framed');
   const [globalCardRadius, setGlobalCardRadius] = useState<'rounded' | 'sharp'>('rounded');
   const [fontSizeScale, setFontSizeScale] = useState<'compact' | 'standard' | 'large'>('standard');
@@ -573,13 +574,14 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           setEmail(prof.email || '');
           setWebsite(prof.website || '');
           setLogoUrl(prof.logo_url || prof.header_config?.logoUrl || '');
-          setStampSealUrl(prof.stamp_seal_url || '');
+          setStampSealUrl(prof.company_seal_url || prof.stamp_seal_url || '');
           setSignatureImageUrl(prof.signature_image_url || '');
 
           const loadedTheme = (prof.theme_accent as ThemeAccentKey) || 'navy';
           setThemeAccent(loadedTheme);
           const matchingSwatch = THEME_ACCENT_SWATCHES.find((s) => s.key === loadedTheme);
-          setAccentColor(prof.accent_color || matchingSwatch?.hex || '#0f172a');
+          setAccentColor(prof.customThemeColor || prof.accent_color || matchingSwatch?.hex || '#0f172a');
+          setCustomThemeColor(prof.customThemeColor || '');
 
           setBlockStyle(prof.block_style || 'framed');
           setGlobalCardRadius(prof.globalCardRadius || 'rounded');
@@ -670,8 +672,10 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
       website,
       logo_url: logoUrl,
       stamp_seal_url: stampSealUrl,
+      company_seal_url: stampSealUrl,
       signature_image_url: signatureImageUrl,
-      accent_color: accentColor,
+      accent_color: customThemeColor || accentColor,
+      customThemeColor: customThemeColor || undefined,
       theme_accent: themeAccent,
       block_style: blockStyle,
       globalCardRadius,
@@ -697,7 +701,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     return payload;
   };
 
-  // Native File Upload Handlers
+  // Native File Upload Handlers (with automatic transparency-preserving HTML5 Canvas compression)
   const handleFileUpload = (
     e: React.ChangeEvent<HTMLInputElement>,
     target: 'logo' | 'seal' | 'signature'
@@ -705,9 +709,15 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (!dataUri) return;
+    reader.onload = async () => {
+      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
+      if (!rawDataUri) return;
+      const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
+        maxWidth: 600,
+        maxHeight: 400,
+        preserveTransparency: true,
+        quality: 0.84
+      });
       if (target === 'logo') {
         setLogoUrl(dataUri);
         if (logoDisplayMode === 'no_logo') setLogoDisplayMode('logo_and_name');
@@ -1128,6 +1138,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     stampSealUrl,
     signatureImageUrl,
     accentColor,
+    customThemeColor,
     themeAccent,
     blockStyle,
     globalCardRadius,
@@ -1316,6 +1327,8 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
       customer_acceptance_enabled:
         activeSandboxPreset?.customer_acceptance_enabled ?? customerAcceptanceEnabled,
       theme_accent: resolvedThemeAccent,
+      customThemeColor:
+        activeSandboxPreset?.customThemeColor || customThemeColor || undefined,
       block_style: resolvedBlockStyle,
       globalCardRadius: resolvedCardRadius,
       fontSizeScale: resolvedFontScale,
@@ -1360,6 +1373,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     sandboxScenario,
     signatoryType,
     themeAccent,
+    customThemeColor,
     blockStyle,
     globalCardRadius,
     fontSizeScale,
@@ -1836,14 +1850,14 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             </h4>
 
             <div className="space-y-5">
-              {/* 7 Corporate Theme Swatches */}
-              <div>
-                <label className="block text-xs text-slate-600 font-bold mb-2">
+              {/* 7 Corporate Theme Swatches + Custom Brand Hex Color Picker */}
+              <div className="space-y-3">
+                <label className="block text-xs text-slate-600 font-bold">
                   Corporate Theme Accent Palette (Synchronized with Quotation Studio)
                 </label>
                 <div className="flex flex-wrap items-center gap-2.5">
                   {THEME_ACCENT_SWATCHES.map((swatch) => {
-                    const isSelected = themeAccent === swatch.key;
+                    const isSelected = themeAccent === swatch.key && !customThemeColor;
                     return (
                       <button
                         key={swatch.key}
@@ -1852,6 +1866,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                         onClick={() => {
                           setThemeAccent(swatch.key);
                           setAccentColor(swatch.hex);
+                          setCustomThemeColor('');
                         }}
                         className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
                           isSelected
@@ -1868,6 +1883,58 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Custom Brand Hex Color Picker */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="color"
+                      disabled={!isAdmin}
+                      value={
+                        /^#([0-9a-fA-F]{6})$/.test(customThemeColor.trim())
+                          ? customThemeColor.trim()
+                          : accentColor || '#0f172a'
+                      }
+                      onChange={(e) => {
+                        setCustomThemeColor(e.target.value);
+                        setAccentColor(e.target.value);
+                      }}
+                      className="w-8 h-8 rounded-lg border border-slate-300 cursor-pointer bg-white p-0.5 shrink-0"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        Custom Brand Hex Color Override
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Drives top letterhead bar, table header, card borders &amp; grand total across all quotations
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      disabled={!isAdmin}
+                      value={customThemeColor}
+                      onChange={(e) => {
+                        setCustomThemeColor(e.target.value);
+                        if (/^#([0-9a-fA-F]{6})$/.test(e.target.value.trim())) {
+                          setAccentColor(e.target.value.trim());
+                        }
+                      }}
+                      placeholder="#1e3a8a"
+                      className="w-28 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono bg-white text-slate-800"
+                    />
+                    {customThemeColor && isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomThemeColor('')}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-600 cursor-pointer"
+                      >
+                        Reset to Swatch
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2708,7 +2775,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                         {p.is_default && (
                           <span className="px-2 py-0.5 bg-purple-600 text-white text-[10px] font-extrabold rounded-md flex items-center gap-1">
                             <Star className="w-2.5 h-2.5 fill-current" />
-                            <span>★ DEFAULT</span>
+                            <span>DEFAULT</span>
                           </span>
                         )}
                         {p.layout_blocks && p.layout_blocks.length > 0 && (
@@ -2835,7 +2902,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-extrabold rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
-            <span>🎨 Open Full Quotation Studio Sandbox</span>
+            <span>Open Full Quotation Studio Sandbox</span>
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -2946,7 +3013,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Dummy Item</span>
+                  <span>Add Dummy Item</span>
                 </button>
                 <button
                   type="button"
@@ -2954,7 +3021,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Custom Item</span>
+                  <span>Add Custom Item</span>
                 </button>
                 <button
                   type="button"
@@ -2962,7 +3029,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                 >
                   <Shuffle className="w-3.5 h-3.5" />
-                  <span>🎲 Randomize Prices</span>
+                  <span>Randomize Prices</span>
                 </button>
                 <button
                   type="button"
@@ -2970,7 +3037,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>↺ Reset Dummy Items</span>
+                  <span>Reset Dummy Items</span>
                 </button>
               </div>
             </div>
