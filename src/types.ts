@@ -966,10 +966,10 @@ export type QuotationTaxMode = 'tax_calculated' | 'taxes_extra' | 'tax_exempt';
 export type QuotationSignatoryMode = 'single' | 'dual' | 'stamp_only' | 'none';
 
 export type QuotationThemeAccent = 'navy' | 'emerald' | 'blue' | 'crimson' | 'slate' | 'amber' | 'teal';
-export type QuotationSignatureStyle = 'script' | 'line' | 'image';
+export type QuotationSignatureStyle = 'script' | 'line' | 'line_only' | 'image';
 export type QuotationLogoPosition = 'left' | 'center' | 'right';
-export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact';
-export type QuotationTableDensity = 'compact' | 'comfortable';
+export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact' | 'centered' | 'minimal';
+export type QuotationTableDensity = 'compact' | 'comfortable' | 'standard' | 'spacious';
 export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
 export type QuotationPageMode = 'auto' | '1-page' | '2-page';
@@ -986,12 +986,17 @@ export interface QuotationLineItem {
   item_name: string;
   description: string;
   quantity: number;
-  unit: string;
+  unit?: string;
+  uom?: string;
   unit_price: number;
-  total_price: number;
+  total_price?: number;
+  line_total?: number;
   brand_make?: string;
+  brand?: string;
   model_part_no?: string;
+  model?: string;
   country_of_origin?: string;
+  origin?: string;
   availability?: string;
   is_optional?: boolean;
   attributes?: QuotationItemAttribute[];
@@ -1017,8 +1022,10 @@ export interface BankAccountProfile {
   // Aliases for compatibility
   bank_name?: string;
   account_name?: string;
+  account_title?: string;
   account_number?: string;
   swift_bic?: string;
+  swift_code?: string;
   branch_address?: string;
   is_default?: boolean;
 }
@@ -1026,10 +1033,12 @@ export interface BankAccountProfile {
 export interface DocumentProfileBankAccount {
   id?: string;
   bank_name: string;
-  account_name: string;
+  account_name?: string;
+  account_title?: string;
   account_number: string;
   iban?: string;
   swift_bic?: string;
+  swift_code?: string;
   branch_address?: string;
   currency?: string;
   is_default?: boolean;
@@ -1058,11 +1067,13 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   website?: string;
   logo_url?: string;
   stamp_seal_url?: string;
+  signature_image_url?: string;
   accent_color?: string; // Hex color code
   theme_accent?: QuotationThemeAccent;
+  block_style?: 'framed' | 'minimal';
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
-  signatory_type?: 'single' | 'dual';
+  signatory_type?: QuotationSignatoryMode;
   primary_signatory_name?: string;
   primary_signatory_title?: string;
   secondary_signatory_name?: string;
@@ -1087,6 +1098,12 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
+  visible_columns?: QuotationPresetColumns;
+  default_tax_mode?: QuotationTaxMode;
+  default_price_basis?: string;
+  default_payment_terms?: string;
+  default_validity_days?: number;
+  default_notes?: string;
   subject?: string;
   globalCardRadius?: 'rounded' | 'sharp';
   cardsOrder?: 'recipient_first' | 'offer_first';
@@ -1164,6 +1181,7 @@ export interface QuotationHeaderConfig {
 export interface QuotationFooterConfig {
   showPageNumbers?: boolean; // default: true
   showDisclaimer?: boolean; // default: true
+  showSystemGeneratedNotice?: boolean;
   customDisclaimer?: string;
   showBankRemittance?: boolean; // default: true
   showCustomerAcceptance?: boolean; // default: true
@@ -1177,7 +1195,10 @@ export interface QuotationFooterConfig {
 
 export interface QuotationRecipientConfig {
   style?: 'framed' | 'minimal'; // Bordered box vs clean text divider
-  layout?: 'split' | 'stacked'; // 50/50 side-by-side vs full-width stacked
+  layout?: 'split' | 'stacked' | 'side_by_side'; // 50/50 side-by-side vs full-width stacked
+  showSubmittedTo?: boolean;
+  showCustomerTrn?: boolean;
+  showOfferMeta?: boolean;
   showAttention?: boolean;
   showSalesRep?: boolean;
   showValidity?: boolean;
@@ -1256,7 +1277,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   showCustomerAcceptance?: boolean;
   showSignatories?: boolean;
   footerLayoutMode?: 'split' | 'stacked' | 'seller_only';
-  signatory_type?: 'single' | 'dual';
+  signatory_type?: QuotationSignatoryMode;
   primary_signatory_name?: string;
   primary_signatory_title?: string;
   secondary_signatory_name?: string;
@@ -1271,6 +1292,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
+  custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
   deleted_at?: string | null;
@@ -1287,6 +1309,8 @@ export interface QuotationPartySnapshot {
   city?: string;
   country?: string;
   trn?: string;
+  logo_url?: string;
+  stamp_seal_url?: string;
   client_contact_person?: string;
   client_trn?: string;
   client_phone?: string;
@@ -1329,7 +1353,9 @@ export interface Quotation extends SoftDeleteFields {
   theme_accent?: QuotationThemeAccent;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
-  signatory_type?: 'single' | 'dual';
+  signatory_mode?: QuotationSignatoryMode;
+  signatory_type?: QuotationSignatoryMode;
+  validity_days?: number;
   primary_signatory_name?: string;
   primary_signatory_title?: string;
   secondary_signatory_name?: string;

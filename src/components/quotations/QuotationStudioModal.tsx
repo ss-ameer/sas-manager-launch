@@ -285,6 +285,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     () =>
       editingQuotation?.signature_image_url ||
       editingQuotation?.signatories?.[0]?.signature_url ||
+      profile?.signature_image_url ||
       ''
   );
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -342,7 +343,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     e.target.value = '';
   };
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
-    editingQuotation?.block_style || (editingQuotation as any)?.presentation_preset?.block_style || 'framed'
+    editingQuotation?.block_style ||
+      (editingQuotation as any)?.presentation_preset?.block_style ||
+      profile?.block_style ||
+      'framed'
   );
   const [globalCardRadius, setGlobalCardRadius] = useState<'rounded' | 'sharp'>(
     editingQuotation?.globalCardRadius ||
@@ -792,10 +796,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       const b: any = editingQuotation.selectedBank || editingQuotation.applied_bank_account;
       return {
         bankName: b.bankName || b.bank_name,
-        beneficiaryName: b.beneficiaryName || b.account_name,
+        beneficiaryName: b.beneficiaryName || b.account_name || b.account_title,
         accountNumber: b.accountNumber || b.account_number,
         iban: b.iban,
-        swiftCode: b.swiftCode || b.swift_bic,
+        swiftCode: b.swiftCode || b.swift_bic || b.swift_code,
         branchName: b.branchName || b.branch_address
       };
     }
@@ -1035,10 +1039,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           const b: any = targetQuote.selectedBank || targetQuote.applied_bank_account;
           setCustomBankOverride({
             bankName: b.bankName || b.bank_name,
-            beneficiaryName: b.beneficiaryName || b.account_name,
+            beneficiaryName: b.beneficiaryName || b.account_name || b.account_title,
             accountNumber: b.accountNumber || b.account_number,
             iban: b.iban,
-            swiftCode: b.swiftCode || b.swift_bic,
+            swiftCode: b.swiftCode || b.swift_bic || b.swift_code,
             branchName: b.branchName || b.branch_address
           });
         } else {
@@ -1274,6 +1278,32 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           if (!isMounted) return;
           if (loaded) {
             setWorkspaceProfile(loaded);
+            if (!editingQuotation && !selectedPresetId) {
+              if (loaded.theme_accent) setThemeAccent(loaded.theme_accent);
+              if (loaded.block_style) setBlockStyle(loaded.block_style);
+              if (loaded.globalCardRadius) setGlobalCardRadius(loaded.globalCardRadius);
+              if (loaded.fontSizeScale) setFontSizeScale(loaded.fontSizeScale);
+              if (loaded.table_density) setTableDensity(loaded.table_density);
+              if (loaded.signatory_type) {
+                setSignatoryType(loaded.signatory_type);
+                setSignatoryMode(loaded.signatory_type);
+              }
+              if (loaded.signature_style) setSignatureStyle(loaded.signature_style);
+              if (loaded.signature_image_url) setSignatureImageUrl(loaded.signature_image_url);
+              if (loaded.primary_signatory_name) setSignatoryName(loaded.primary_signatory_name);
+              if (loaded.primary_signatory_title) setSignatoryTitle(loaded.primary_signatory_title);
+              if (loaded.secondary_signatory_name) setSecondarySignatoryName(loaded.secondary_signatory_name);
+              if (loaded.secondary_signatory_title) setSecondarySignatoryTitle(loaded.secondary_signatory_title);
+              if (loaded.logo_url) setCompanyLogoUrl(loaded.logo_url);
+              if (loaded.stamp_seal_url) setCompanySealUrl(loaded.stamp_seal_url);
+              if (loaded.header_config) {
+                setHeaderConfig((prev) => ({
+                  ...prev,
+                  ...loaded.header_config,
+                  logoUrl: loaded.header_config?.logoUrl || loaded.logo_url || prev.logoUrl
+                }));
+              }
+            }
           }
         })
         .catch((err) => {
@@ -1283,10 +1313,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, editingQuotation, selectedPresetId]);
 
-  // Resolved active document profile prioritizing prop then hydrated repository profile
-  const activeProfile = profile || workspaceProfile;
+  // Resolved active document profile prioritizing freshly fetched workspaceProfile then prop fallback
+  const activeProfile = workspaceProfile || profile;
 
   // Set default bank if profile exists and no explicit bank was already selected by draft/preset
   useEffect(() => {
@@ -1781,38 +1811,59 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   // Dynamic Bank Profile Registry from workspace document profile
   const bankRegistry: BankAccountProfile[] = useMemo(() => {
     const list: any[] = activeProfile?.bank_accounts || profile?.bank_accounts || [];
-    const accounts: BankAccountProfile[] = list.map((b, idx) => ({
-      id: b.id || `bank-${idx}`,
-      bankName: b.bankName || b.bank_name || 'Corporate Bank',
-      beneficiaryName: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
-      accountNumber: b.accountNumber || b.account_number || '',
-      iban: b.iban || '',
-      swiftCode: b.swiftCode || b.swift_bic || '',
-      branchName: b.branchName || b.branch_address || '',
-      currency: b.currency || 'AED',
-      isDefault: b.isDefault ?? b.is_default ?? false,
-      bank_name: b.bankName || b.bank_name || 'Corporate Bank',
-      account_name: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
-      account_number: b.accountNumber || b.account_number || '',
-      swift_bic: b.swiftCode || b.swift_bic || ''
-    }));
+    const accounts: BankAccountProfile[] = list.map((b, idx) => {
+      const bankName = b.bankName || b.bank_name || 'Corporate Bank';
+      const beneficiaryName =
+        b.beneficiaryName || b.account_name || b.account_title || activeProfile?.legal_entity_name || '';
+      const accountNumber = b.accountNumber || b.account_number || '';
+      const iban = b.iban || '';
+      const swiftCode = b.swiftCode || b.swift_bic || b.swift_code || '';
+      const branchName = b.branchName || b.branch_address || '';
+      return {
+        id: b.id || `bank-${idx}`,
+        bankName,
+        beneficiaryName,
+        accountNumber,
+        iban,
+        swiftCode,
+        branchName,
+        currency: b.currency || 'AED',
+        isDefault: b.isDefault ?? b.is_default ?? false,
+        bank_name: bankName,
+        account_name: beneficiaryName,
+        account_title: beneficiaryName,
+        account_number: accountNumber,
+        swift_bic: swiftCode,
+        swift_code: swiftCode,
+        branch_address: branchName
+      };
+    });
 
     if (accounts.length === 0 && editingQuotation?.applied_bank_account) {
       const b: any = editingQuotation.applied_bank_account;
+      const bankName = b.bankName || b.bank_name || 'Corporate Bank';
+      const beneficiaryName =
+        b.beneficiaryName || b.account_name || b.account_title || activeProfile?.legal_entity_name || '';
+      const accountNumber = b.accountNumber || b.account_number || '';
+      const swiftCode = b.swiftCode || b.swift_bic || b.swift_code || '';
+      const branchName = b.branchName || b.branch_address || '';
       accounts.push({
         id: b.id || 'quote-bank-applied',
-        bankName: b.bankName || b.bank_name || 'Corporate Bank',
-        beneficiaryName: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
-        accountNumber: b.accountNumber || b.account_number || '',
+        bankName,
+        beneficiaryName,
+        accountNumber,
         iban: b.iban || '',
-        swiftCode: b.swiftCode || b.swift_bic || '',
-        branchName: b.branchName || b.branch_address || '',
+        swiftCode,
+        branchName,
         currency: b.currency || 'AED',
         isDefault: true,
-        bank_name: b.bankName || b.bank_name || 'Corporate Bank',
-        account_name: b.beneficiaryName || b.account_name || activeProfile?.legal_entity_name || '',
-        account_number: b.accountNumber || b.account_number || '',
-        swift_bic: b.swiftCode || b.swift_bic || ''
+        bank_name: bankName,
+        account_name: beneficiaryName,
+        account_title: beneficiaryName,
+        account_number: accountNumber,
+        swift_bic: swiftCode,
+        swift_code: swiftCode,
+        branch_address: branchName
       });
     }
 
@@ -1831,10 +1882,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     const bName = customBankOverride?.bankName ?? (base?.bankName || base?.bank_name || 'Corporate Bank');
     const bBeneficiary =
       customBankOverride?.beneficiaryName ??
-      (base?.beneficiaryName || base?.account_name || activeProfile?.legal_entity_name || '');
+      (base?.beneficiaryName || base?.account_name || base?.account_title || activeProfile?.legal_entity_name || '');
     const bAcctNo = customBankOverride?.accountNumber ?? (base?.accountNumber || base?.account_number || '');
     const bIban = customBankOverride?.iban ?? (base?.iban || '');
-    const bSwift = customBankOverride?.swiftCode ?? (base?.swiftCode || base?.swift_bic || '');
+    const bSwift = customBankOverride?.swiftCode ?? (base?.swiftCode || base?.swift_bic || base?.swift_code || '');
     const bBranch = customBankOverride?.branchName ?? (base?.branchName || base?.branch_address || '');
     const bCurr = base?.currency || 'AED';
 
@@ -1844,11 +1895,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       bank_name: bName,
       beneficiaryName: bBeneficiary,
       account_name: bBeneficiary,
+      account_title: bBeneficiary,
       accountNumber: bAcctNo,
       account_number: bAcctNo,
       iban: bIban,
       swiftCode: bSwift,
       swift_bic: bSwift,
+      swift_code: bSwift,
       branchName: bBranch,
       branch_address: bBranch,
       currency: bCurr,

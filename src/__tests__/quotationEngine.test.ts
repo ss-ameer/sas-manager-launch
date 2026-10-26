@@ -2402,6 +2402,172 @@ describe('Suite 18: Complete Corporate Logo & Letterhead Engine', () => {
 });
 
 // ==========================================
+// SUITE 19: SETTINGS -> STUDIO PARITY, NON-DESTRUCTIVE SAVES & BANK FIELD NORMALIZATION
+// ==========================================
+
+describe('Suite 19: Settings <-> Quotation Studio Parity, Non-Destructive Saves & Bank Normalization', () => {
+  it('19a. mergeWorkspaceDocumentProfile preserves extended Phase-3 Studio defaults when saving in Settings', () => {
+    const existingStudioProfile = {
+      id: 'prof_ws_19',
+      workspace_id: 'ws_19',
+      workspaceId: 'ws_19',
+      profile_name: 'Corporate Profile',
+      legal_entity_name: 'Nirvana Water Treatment LLC',
+      trn: '100234567800003',
+      address_line_1: 'Al Quoz Ind 3',
+      city: 'Dubai',
+      country: 'UAE',
+      logo_url: 'data:image/png;base64,LOGO_19',
+      stamp_seal_url: 'data:image/png;base64,SEAL_19',
+      signature_image_url: 'data:image/png;base64,SIGN_19',
+      theme_accent: 'emerald' as const,
+      block_style: 'minimal' as const,
+      globalCardRadius: 'sharp' as const,
+      fontSizeScale: 'large' as const,
+      table_density: 'compact' as const,
+      signatory_type: 'dual' as const,
+      signature_style: 'image' as const,
+      primary_signatory_name: 'Eng. Khalid Al Rostamani',
+      primary_signatory_title: 'Commercial Director',
+      secondary_signatory_name: 'Tariq Al Mazrouei',
+      secondary_signatory_title: 'Managing Partner',
+      header_config: {
+        logoUrl: 'data:image/png;base64,LOGO_19',
+        showLogo: true,
+        logoDisplayMode: 'logo_only' as const,
+        headerLayoutMode: 'split_right' as const,
+        logoHeightPx: 68,
+        showLogoOnContinuationPages: true
+      },
+      bank_accounts: [
+        {
+          id: 'bank_19_1',
+          bank_name: 'Emirates NBD',
+          account_title: 'Nirvana Water Treatment LLC',
+          account_number: '1015566778801',
+          iban: 'AE070260001015566778801',
+          swift_code: 'EBILAEADXXX',
+          branch_address: 'Jebel Ali Branch, Dubai',
+          currency: 'AED',
+          is_default: true
+        }
+      ]
+    };
+
+    // Simulate a partial update from Settings updating only phone and address_line_2
+    const merged = QuotationRepository.mergeWorkspaceDocumentProfile(existingStudioProfile, {
+      workspace_id: 'ws_19',
+      profile_name: 'Corporate Profile',
+      legal_entity_name: 'Nirvana Water Treatment LLC',
+      address_line_1: 'Al Quoz Ind 3',
+      address_line_2: 'P.O. Box 99812',
+      phone: '+971 4 882 9900',
+      bank_accounts: existingStudioProfile.bank_accounts
+    });
+
+    expect(merged.address_line_2).toBe('P.O. Box 99812');
+    expect(merged.phone).toBe('+971 4 882 9900');
+    expect(merged.theme_accent).toBe('emerald');
+    expect(merged.block_style).toBe('minimal');
+    expect(merged.globalCardRadius).toBe('sharp');
+    expect(merged.fontSizeScale).toBe('large');
+    expect(merged.table_density).toBe('compact');
+    expect(merged.signatory_type).toBe('dual');
+    expect(merged.signature_style).toBe('image');
+    expect(merged.signature_image_url).toBe('data:image/png;base64,SIGN_19');
+    expect(merged.primary_signatory_name).toBe('Eng. Khalid Al Rostamani');
+    expect(merged.secondary_signatory_name).toBe('Tariq Al Mazrouei');
+    expect(merged.header_config?.logoDisplayMode).toBe('logo_only');
+    expect(merged.header_config?.headerLayoutMode).toBe('split_right');
+    expect(merged.header_config?.logoHeightPx).toBe(68);
+  });
+
+  it('19b. Bank account normalization synchronizes account_title / account_name / beneficiaryName, swift_code / swift_bic / swiftCode, and branch_address / branchName', () => {
+    const rawSettingsBank = {
+      id: 'bank_norm_1',
+      bank_name: 'First Abu Dhabi Bank (FAB)',
+      account_title: 'AquaTech Engineering LLC',
+      account_number: '4001122334455',
+      iban: 'AE910350004001122334455',
+      swift_code: 'NBADAEAAXXX',
+      branch_address: 'Khalifa Street Corporate Branch, Abu Dhabi',
+      currency: 'AED',
+      is_default: true
+    };
+
+    const normalized = QuotationRepository.normalizeBankAccount(rawSettingsBank);
+
+    expect(normalized.bank_name).toBe('First Abu Dhabi Bank (FAB)');
+    expect(normalized.bankName).toBe('First Abu Dhabi Bank (FAB)');
+    expect(normalized.account_title).toBe('AquaTech Engineering LLC');
+    expect(normalized.account_name).toBe('AquaTech Engineering LLC');
+    expect(normalized.beneficiaryName).toBe('AquaTech Engineering LLC');
+    expect(normalized.account_number).toBe('4001122334455');
+    expect(normalized.accountNumber).toBe('4001122334455');
+    expect(normalized.swift_code).toBe('NBADAEAAXXX');
+    expect(normalized.swift_bic).toBe('NBADAEAAXXX');
+    expect(normalized.swiftCode).toBe('NBADAEAAXXX');
+    expect(normalized.branch_address).toBe('Khalifa Street Corporate Branch, Abu Dhabi');
+    expect(normalized.branchName).toBe('Khalifa Street Corporate Branch, Abu Dhabi');
+    expect(normalized.is_default).toBe(true);
+    expect(normalized.isDefault).toBe(true);
+  });
+
+  it('19c. Studio hydration inherits WorkspaceDocumentProfile Phase-3 styling & signatory defaults when no preset or existing quotation overrides them', () => {
+    const richProfile = {
+      id: 'prof_19c',
+      profile_name: 'Executive Profile',
+      legal_entity_name: 'Gulf Water Systems LLC',
+      address_line_1: 'DIC Phase 2',
+      logo_url: 'data:image/png;base64,PROF_LOGO_19C',
+      stamp_seal_url: 'data:image/png;base64,PROF_SEAL_19C',
+      signature_image_url: 'data:image/png;base64,PROF_SIGN_19C',
+      theme_accent: 'teal' as const,
+      block_style: 'minimal' as const,
+      globalCardRadius: 'sharp' as const,
+      fontSizeScale: 'compact' as const,
+      table_density: 'spacious' as const,
+      default_tax_mode: 'tax_calculated' as const,
+      default_price_basis: 'CIF Jebel Ali Port',
+      default_payment_terms: '60 Days Irrevocable LC',
+      default_validity_days: 45,
+      header_config: {
+        logoUrl: 'data:image/png;base64,PROF_LOGO_19C',
+        logoDisplayMode: 'logo_only' as const,
+        headerLayoutMode: 'centered' as const,
+        logoHeightPx: 60
+      },
+      bank_accounts: [
+        {
+          id: 'bank_19c',
+          bank_name: 'Mashreq Bank',
+          account_title: 'Gulf Water Systems LLC',
+          account_number: '0190098877',
+          swift_code: 'BOMLAEAD',
+          is_default: true
+        }
+      ]
+    };
+
+    const hydrated = QuotationRepository.hydrateStudioStateFromQuotation(null, richProfile, null);
+    expect(hydrated.blockStyle).toBe('minimal');
+    expect(hydrated.globalCardRadius).toBe('sharp');
+    expect(hydrated.fontSizeScale).toBe('compact');
+    expect(hydrated.tableDensity).toBe('spacious');
+    expect(hydrated.companyLogoUrl).toBe('data:image/png;base64,PROF_LOGO_19C');
+    expect(hydrated.companySealUrl).toBe('data:image/png;base64,PROF_SEAL_19C');
+    expect(hydrated.signatureImageUrl).toBe('data:image/png;base64,PROF_SIGN_19C');
+    expect(hydrated.taxMode).toBe('tax_calculated');
+    expect(hydrated.priceBasis).toBe('CIF Jebel Ali Port');
+    expect(hydrated.paymentTerms).toBe('60 Days Irrevocable LC');
+    expect(hydrated.selectedBankId).toBe('bank_19c');
+    expect(hydrated.headerConfig.logoDisplayMode).toBe('logo_only');
+    expect(hydrated.headerConfig.headerLayoutMode).toBe('centered');
+    expect(hydrated.headerConfig.logoHeightPx).toBe(60);
+  });
+});
+
+// ==========================================
 // TEST REPORT SUMMARY
 // ==========================================
 
@@ -2424,3 +2590,4 @@ if (failedCount > 0) {
 if (typeof process !== 'undefined' && process.exit) {
   process.exit(0);
 }
+

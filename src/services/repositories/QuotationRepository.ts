@@ -3,11 +3,22 @@ import {
   QuotationPreset,
   QuotationTaxMode,
   WorkspaceDocumentProfile,
-  EnquiryQuotationSyncPayload
+  DocumentProfileBankAccount,
+  BankAccountProfile,
+  EnquiryQuotationSyncPayload,
+  QuotationBlockConfig
 } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc } from 'firebase/firestore';
+
+export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
+  { id: 'terms', type: 'terms', title: 'Commercial Terms & Conditions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 1 },
+  { id: 'totals', type: 'totals', title: 'Financial Summary', is_visible: true, enabled: true, placement: 'right', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 2 },
+  { id: 'remittance', type: 'remittance', title: 'Bank Remittance Instructions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 3 },
+  { id: 'acceptance', type: 'acceptance', title: 'Customer Acceptance & Sign-Off', is_visible: true, enabled: true, placement: 'right', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 4 },
+  { id: 'signatory', type: 'signatory', title: 'Authorized Signatory & Seal', is_visible: true, enabled: true, placement: 'full', width: '100', style: 'framed', fontScale: 'standard', padding: 'standard', order: 5 }
+];
 
 export interface TaxCalculationResult {
   subtotal: number;
@@ -709,7 +720,7 @@ export class QuotationRepository {
         profile?.fontSizeScale ||
         profile?.font_size_scale ||
         'standard',
-      blockStyle: quotation?.block_style || 'framed',
+      blockStyle: quotation?.block_style || profile?.block_style || 'framed',
       globalCardRadius:
         quotation?.globalCardRadius ||
         quotation?.recipient_config?.globalCardRadius ||
@@ -726,10 +737,10 @@ export class QuotationRepository {
         profile?.subjectPlacement ||
         'below_cards',
       selectedBankId,
-      taxMode: quotation?.tax_mode || 'taxes_extra',
-      priceBasis: quotation?.price_basis || (profile as any)?.default_price_basis || 'Ex-Works',
-      paymentTerms: quotation?.payment_terms || (profile as any)?.default_payment_terms || '100% Advance',
-      validityDays: 30,
+      taxMode: quotation?.tax_mode || profile?.default_tax_mode || 'taxes_extra',
+      priceBasis: quotation?.price_basis || profile?.default_price_basis || 'Ex-Works',
+      paymentTerms: quotation?.payment_terms || profile?.default_payment_terms || '100% Advance',
+      validityDays: profile?.default_validity_days ?? 30,
       freightAmount: Number(quotation?.freight_amount) || 0,
       taxRatePercent: quotation?.tax_rate_percent ?? 5,
       companyLogoUrl:
@@ -766,6 +777,7 @@ export class QuotationRepository {
       signatureImageUrl:
         quotation?.signature_image_url ||
         quotation?.signatories?.[0]?.signature_url ||
+        profile?.signature_image_url ||
         ''
     };
   }
@@ -1471,12 +1483,170 @@ export class QuotationRepository {
   }
 
   /**
-   * Overwrites an existing quotation preset in-place without duplicating preset IDs.
+   * Normalizes bank account field aliases (account_title / account_name / beneficiaryName,
+   * swift_code / swift_bic / swiftCode, branch_address / branchName) so Settings and Studio
+   * read and write with 100% fidelity.
+   */
+  public static normalizeBankAccount(
+    raw: Partial<DocumentProfileBankAccount & BankAccountProfile> & Record<string, any>,
+    fallbackEntityName: string = ''
+  ): DocumentProfileBankAccount & BankAccountProfile {
+    const id = raw.id || `bank_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const bankName = (raw.bankName || raw.bank_name || '').trim();
+    const beneficiaryName = (
+      raw.beneficiaryName ||
+      raw.account_name ||
+      raw.account_title ||
+      fallbackEntityName ||
+      ''
+    ).trim();
+    const accountNumber = (raw.accountNumber || raw.account_number || '').trim();
+    const iban = (raw.iban || '').trim();
+    const swiftCode = (raw.swiftCode || raw.swift_bic || raw.swift_code || '').trim();
+    const branchName = (raw.branchName || raw.branch_address || '').trim();
+    const currency = (raw.currency || 'AED').trim();
+    const isDefault = Boolean(raw.isDefault ?? raw.is_default ?? false);
+
+    return {
+      ...raw,
+      id,
+      bankName,
+      bank_name: bankName,
+      beneficiaryName,
+      account_name: beneficiaryName,
+      account_title: beneficiaryName,
+      accountNumber,
+      account_number: accountNumber,
+      iban,
+      swiftCode,
+      swift_bic: swiftCode,
+      swift_code: swiftCode,
+      branchName,
+      branch_address: branchName,
+      currency,
+      isDefault,
+      is_default: isDefault
+    };
+  }
+
+  /**
+   * Pure helper: Non-destructively merges incoming profile changes onto an existing
+   * WorkspaceDocumentProfile so extended Studio default fields (theme_accent, primary_signatory_name,
+   * signature_image_url, header_config, recipient_config, footer_config, block_style, etc.) are never lost.
+   */
+  public static mergeWorkspaceDocumentProfile(
+    existing: Partial<WorkspaceDocumentProfile> | null | undefined,
+    incoming: Partial<WorkspaceDocumentProfile> & { workspace_id?: string; workspaceId?: string }
+  ): WorkspaceDocumentProfile {
+    const wsId =
+      incoming.workspace_id ||
+      incoming.workspaceId ||
+      existing?.workspace_id ||
+      existing?.workspaceId ||
+      'ws_default';
+    const profileId = incoming.id || existing?.id || `docprof_${wsId}`;
+    const now = new Date().toISOString();
+
+    const legalEntityName =
+      incoming.legal_entity_name !== undefined
+        ? incoming.legal_entity_name
+        : existing?.legal_entity_name || '';
+
+    const rawBanks =
+      incoming.bank_accounts !== undefined
+        ? incoming.bank_accounts
+        : existing?.bank_accounts || [];
+    const normalizedBanks = Array.isArray(rawBanks)
+      ? rawBanks.map((b) => this.normalizeBankAccount(b as any, legalEntityName))
+      : [];
+
+    const mergedHeaderConfig =
+      existing?.header_config || incoming.header_config
+        ? {
+            ...(existing?.header_config || {}),
+            ...(incoming.header_config || {}),
+            ...(incoming.logo_url !== undefined
+              ? { logoUrl: incoming.header_config?.logoUrl ?? incoming.logo_url }
+              : {})
+          }
+        : undefined;
+
+    const mergedRecipientConfig =
+      existing?.recipient_config || incoming.recipient_config
+        ? {
+            ...(existing?.recipient_config || {}),
+            ...(incoming.recipient_config || {})
+          }
+        : undefined;
+
+    const mergedFooterConfig =
+      existing?.footer_config || incoming.footer_config
+        ? {
+            ...(existing?.footer_config || {}),
+            ...(incoming.footer_config || {})
+          }
+        : undefined;
+
+    return {
+      ...(existing || {}),
+      ...incoming,
+      id: profileId,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      profile_name: incoming.profile_name ?? existing?.profile_name ?? 'Standard Legal Profile',
+      legal_entity_name: legalEntityName,
+      trn: incoming.trn ?? existing?.trn ?? '',
+      address_line_1: incoming.address_line_1 ?? existing?.address_line_1 ?? '',
+      address_line_2: incoming.address_line_2 ?? existing?.address_line_2 ?? '',
+      city: incoming.city ?? existing?.city ?? '',
+      country: incoming.country ?? existing?.country ?? '',
+      phone: incoming.phone ?? existing?.phone ?? '',
+      email: incoming.email ?? existing?.email ?? '',
+      website: incoming.website ?? existing?.website ?? '',
+      logo_url: incoming.logo_url ?? existing?.logo_url ?? '',
+      stamp_seal_url: incoming.stamp_seal_url ?? existing?.stamp_seal_url ?? '',
+      signature_image_url: incoming.signature_image_url ?? existing?.signature_image_url,
+      accent_color: incoming.accent_color ?? existing?.accent_color ?? '#2563eb',
+      theme_accent: incoming.theme_accent ?? existing?.theme_accent,
+      block_style: incoming.block_style ?? existing?.block_style,
+      globalCardRadius: incoming.globalCardRadius ?? existing?.globalCardRadius,
+      cardsOrder: incoming.cardsOrder ?? existing?.cardsOrder,
+      subjectPlacement: incoming.subjectPlacement ?? existing?.subjectPlacement,
+      table_density: incoming.table_density ?? existing?.table_density,
+      table_font_scale: incoming.table_font_scale ?? existing?.table_font_scale,
+      fontSizeScale: incoming.fontSizeScale ?? incoming.font_size_scale ?? existing?.fontSizeScale ?? existing?.font_size_scale,
+      font_size_scale: incoming.font_size_scale ?? incoming.fontSizeScale ?? existing?.font_size_scale ?? existing?.fontSizeScale,
+      signatory_type: incoming.signatory_type ?? existing?.signatory_type,
+      primary_signatory_name: incoming.primary_signatory_name ?? existing?.primary_signatory_name,
+      primary_signatory_title: incoming.primary_signatory_title ?? existing?.primary_signatory_title,
+      secondary_signatory_name: incoming.secondary_signatory_name ?? existing?.secondary_signatory_name,
+      secondary_signatory_title: incoming.secondary_signatory_title ?? existing?.secondary_signatory_title,
+      signature_style: incoming.signature_style ?? existing?.signature_style,
+      ...(mergedHeaderConfig ? { header_config: mergedHeaderConfig } : {}),
+      ...(mergedRecipientConfig ? { recipient_config: mergedRecipientConfig } : {}),
+      ...(mergedFooterConfig ? { footer_config: mergedFooterConfig } : {}),
+      bank_accounts: normalizedBanks,
+      is_default: incoming.is_default ?? existing?.is_default ?? true,
+      createdAt: incoming.createdAt || existing?.createdAt || now,
+      updatedAt: now
+    };
+  }
+
+  /**
+   * Overwrites an existing quotation preset in-place without duplicating preset IDs or losing
+   * Studio layout fields (layout_blocks, header_config, recipient_config, footer_config, logos, seals, etc.).
+   * Supports both updatePreset(presetId, updates) and updatePreset(workspaceId, presetId, updates).
    */
   public static async updatePreset(
-    presetId: string,
-    presetUpdates: Partial<QuotationPreset>
+    arg1: string,
+    arg2: Partial<QuotationPreset> | string,
+    arg3?: Partial<QuotationPreset>
   ): Promise<QuotationPreset> {
+    const isThreeArgCall = typeof arg2 === 'string';
+    const explicitWorkspaceId = isThreeArgCall ? arg1 : undefined;
+    const presetId = isThreeArgCall ? (arg2 as string) : arg1;
+    const presetUpdates: Partial<QuotationPreset> = (isThreeArgCall ? arg3 : arg2) || {};
+
     const now = new Date().toISOString();
     let existingPreset: QuotationPreset | undefined;
 
@@ -1485,11 +1655,29 @@ export class QuotationRepository {
       existingPreset = existingList.find((p) => p.id === presetId);
     } catch (_) {}
 
+    if (!existingPreset && explicitWorkspaceId) {
+      try {
+        const wsPresets = await this.getPresets(explicitWorkspaceId);
+        existingPreset = wsPresets.find((p) => p.id === presetId);
+      } catch (_) {}
+    }
+
+    const mergedVisibleColumns = {
+      brand: true,
+      model: true,
+      origin: true,
+      availability: true,
+      unit_price: true,
+      ...(existingPreset?.visible_columns || {}),
+      ...(presetUpdates.visible_columns || {})
+    };
+
     const mergedInput = {
       ...(existingPreset || {}),
       ...presetUpdates,
       id: presetId,
       workspace_id:
+        explicitWorkspaceId ||
         presetUpdates.workspace_id ||
         presetUpdates.workspaceId ||
         existingPreset?.workspace_id ||
@@ -1500,15 +1688,33 @@ export class QuotationRepository {
       default_validity_days:
         presetUpdates.default_validity_days ?? existingPreset?.default_validity_days ?? 30,
       signatory_mode: presetUpdates.signatory_mode || existingPreset?.signatory_mode || 'single',
-      visible_columns:
-        presetUpdates.visible_columns ||
-        existingPreset?.visible_columns || {
-          brand: true,
-          model: true,
-          origin: true,
-          availability: true,
-          unit_price: true
-        },
+      visible_columns: mergedVisibleColumns,
+      header_config:
+        existingPreset?.header_config || presetUpdates.header_config
+          ? {
+              ...(existingPreset?.header_config || {}),
+              ...(presetUpdates.header_config || {})
+            }
+          : undefined,
+      recipient_config:
+        existingPreset?.recipient_config || presetUpdates.recipient_config
+          ? {
+              ...(existingPreset?.recipient_config || {}),
+              ...(presetUpdates.recipient_config || {})
+            }
+          : undefined,
+      footer_config:
+        existingPreset?.footer_config || presetUpdates.footer_config
+          ? {
+              ...(existingPreset?.footer_config || {}),
+              ...(presetUpdates.footer_config || {})
+            }
+          : undefined,
+      layout_blocks: presetUpdates.layout_blocks ?? existingPreset?.layout_blocks,
+      flyer_attachments: presetUpdates.flyer_attachments ?? existingPreset?.flyer_attachments,
+      company_logo_url: presetUpdates.company_logo_url ?? existingPreset?.company_logo_url,
+      company_seal_url: presetUpdates.company_seal_url ?? existingPreset?.company_seal_url,
+      signature_image_url: presetUpdates.signature_image_url ?? existingPreset?.signature_image_url,
       is_default: presetUpdates.is_default ?? existingPreset?.is_default ?? false,
       createdAt: existingPreset?.createdAt || now,
       updatedAt: now
@@ -1661,12 +1867,12 @@ export class QuotationRepository {
           const data = d.data() as any;
           const itemWsId = data.workspace_id || data.workspaceId;
           if (itemWsId === workspaceId && !data.is_deleted) {
-            found = {
+            found = this.mergeWorkspaceDocumentProfile(null, {
               id: d.id,
               ...data,
               workspace_id: workspaceId,
               workspaceId: workspaceId
-            };
+            });
           }
         });
         if (found) return found;
@@ -1681,44 +1887,27 @@ export class QuotationRepository {
         const itemWsId = p.workspace_id || p.workspaceId;
         return itemWsId === workspaceId && !p.is_deleted;
       });
-      if (cached) return cached;
+      if (cached) return this.mergeWorkspaceDocumentProfile(null, cached);
     } catch (_) {}
 
     return null;
   }
 
   /**
-   * Saves or updates the document profile for a workspace.
+   * Saves or updates the document profile for a workspace, merging non-destructively with any
+   * existing profile fields so extended Studio default settings are never lost.
    */
   public static async saveWorkspaceDocumentProfile(
     profile: Partial<WorkspaceDocumentProfile> & { workspace_id: string }
   ): Promise<WorkspaceDocumentProfile> {
     const wsId = profile.workspace_id || profile.workspaceId || 'ws_default';
-    const profileId = profile.id || `docprof_${wsId}`;
-    const now = new Date().toISOString();
+    let existingProfile: WorkspaceDocumentProfile | null = null;
+    try {
+      existingProfile = await this.getWorkspaceDocumentProfile(wsId);
+    } catch (_) {}
 
-    const fullProfile: WorkspaceDocumentProfile = {
-      id: profileId,
-      workspace_id: wsId,
-      workspaceId: wsId,
-      profile_name: profile.profile_name || 'Standard Legal Profile',
-      legal_entity_name: profile.legal_entity_name || '',
-      trn: profile.trn || '',
-      address_line_1: profile.address_line_1 || '',
-      address_line_2: profile.address_line_2 || '',
-      city: profile.city || '',
-      country: profile.country || '',
-      phone: profile.phone || '',
-      email: profile.email || '',
-      website: profile.website || '',
-      logo_url: profile.logo_url || '',
-      stamp_seal_url: profile.stamp_seal_url || '',
-      accent_color: profile.accent_color || '#2563eb',
-      bank_accounts: profile.bank_accounts || [],
-      is_default: profile.is_default ?? true,
-      createdAt: profile.createdAt || now,
-      updatedAt: now
-    };
+    const fullProfile = this.mergeWorkspaceDocumentProfile(existingProfile, profile);
+    const profileId = fullProfile.id!;
 
     // 1. Persist to Firestore
     try {

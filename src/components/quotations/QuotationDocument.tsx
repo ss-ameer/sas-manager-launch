@@ -1195,8 +1195,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const amountInWordsEnabled = showAmountInWords;
   const customerAcceptanceEnabled =
     quotation.customer_acceptance_enabled ?? profile?.customer_acceptance_enabled ?? true;
-  const signatoryType: 'single' | 'dual' =
+  const signatoryType: 'single' | 'dual' | 'stamp_only' | 'none' =
     quotation.signatory_type ||
+    quotation.signatory_mode ||
     profile?.signatory_type ||
     (quotation.signatories && quotation.signatories.length > 1 ? 'dual' : 'single');
   const signatureStyle: QuotationSignatureStyle =
@@ -1305,10 +1306,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     const bName = (rawBank.bankName || rawBank.bank_name || '').trim();
     const bAcctNo = (rawBank.accountNumber || rawBank.account_number || '').trim();
     const bIban = (rawBank.iban || '').trim();
-    const bSwift = (rawBank.swiftCode || rawBank.swift_bic || '').trim();
+    const bSwift = (rawBank.swiftCode || rawBank.swift_bic || rawBank.swift_code || '').trim();
+    const bBranch = (rawBank.branchName || rawBank.branch_address || '').trim();
     const bBeneficiary = (
       rawBank.beneficiaryName ||
       rawBank.account_name ||
+      rawBank.account_title ||
       profile?.legal_entity_name ||
       (profile as any)?.company_legal_name ||
       senderEntityName ||
@@ -1323,6 +1326,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       accountNumber: bAcctNo,
       iban: bIban,
       swiftCode: bSwift,
+      branchName: bBranch,
       currency: rawBank.currency || currency || 'AED'
     };
   }, [rawBank, profile, senderEntityName, currency]);
@@ -1894,6 +1898,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   </span>
                 </p>
               ) : null}
+              {resolvedBank.branchName ? (
+                <p>
+                  <span className="text-slate-500">Branch:</span>{' '}
+                  <span className="font-medium text-slate-800">
+                    {resolvedBank.branchName}
+                  </span>
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
@@ -1953,7 +1965,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <div className="flex gap-4 justify-end">
               {resolvedSignatories.map((sig, sIdx) => {
                 const resolvedSignatureImgUrl =
-                  (sIdx === 0 ? quotation.signature_image_url : undefined) ||
+                  (sIdx === 0 ? quotation.signature_image_url || profile?.signature_image_url : undefined) ||
                   sig.signature_url ||
                   '';
                 return (
