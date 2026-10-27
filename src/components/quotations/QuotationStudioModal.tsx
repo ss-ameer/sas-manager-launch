@@ -32,9 +32,13 @@ import {
   QuotationPageMode,
   QuotationHeaderFieldItem,
   Attachment,
-  EnquiryQuotationSyncPayload
+  EnquiryQuotationSyncPayload,
+  Product
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
+import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
+import { db } from '../../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   QuotationDocument,
   QUOTATION_THEMES,
@@ -225,6 +229,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     showItemAttributes: true,
     attributeDisplayFormat: 'pills',
     hiddenAttributeKeys: [],
+    showLineItemImages: false,
+    lineItemImageLayout: 'inline',
+    lineItemImageSize: 'md',
     ...(profile?.visible_columns || {}),
     ...((editingQuotation as any)?.visible_columns || {})
   }));
@@ -317,81 +324,78 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const sealFileInputRef = useRef<HTMLInputElement | null>(null);
   const signatureFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleUploadCompanyLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadCompanyLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (rawDataUri) {
-        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
-          maxWidth: 600,
-          maxHeight: 400,
-          preserveTransparency: true,
-          quality: 0.84
-        });
-        setCompanyLogoUrl(dataUri);
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'branding/logos', activeWorkspace, {
+        maxWidth: 600,
+        maxHeight: 400,
+        quality: 0.85,
+        preserveTransparency: true
+      });
+      if (uploaded.url) {
+        setCompanyLogoUrl(uploaded.url);
         setHeaderConfig((prev) => ({
           ...prev,
-          logoUrl: dataUri,
+          logoUrl: uploaded.url,
           showLogo: true,
           logoDisplayMode:
             prev.logoDisplayMode === 'no_logo' ? 'logo_and_name' : prev.logoDisplayMode || 'logo_and_name'
         }));
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err) {
+      console.warn('[QuotationStudioModal] Logo upload fallback:', err);
+    }
   };
 
-  const handleUploadCompanySeal = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadCompanySeal = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (rawDataUri) {
-        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
-          maxWidth: 600,
-          maxHeight: 400,
-          preserveTransparency: true,
-          quality: 0.84
-        });
-        setCompanySealUrl(dataUri);
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'branding/stamps', activeWorkspace, {
+        maxWidth: 600,
+        maxHeight: 400,
+        quality: 0.85,
+        preserveTransparency: true
+      });
+      if (uploaded.url) {
+        setCompanySealUrl(uploaded.url);
         setShowCompanySeal(true);
         setFooterConfig((prev) => ({
           ...prev,
-          companySealUrl: dataUri
+          companySealUrl: uploaded.url
         }));
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err) {
+      console.warn('[QuotationStudioModal] Seal upload fallback:', err);
+    }
   };
 
-  const handleUploadSignatureImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadSignatureImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
-      if (rawDataUri) {
-        const dataUri = await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
-          maxWidth: 600,
-          maxHeight: 400,
-          preserveTransparency: true,
-          quality: 0.84
-        });
-        setSignatureImageUrl(dataUri);
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'branding/signatures', activeWorkspace, {
+        maxWidth: 600,
+        maxHeight: 400,
+        quality: 0.85,
+        preserveTransparency: true
+      });
+      if (uploaded.url) {
+        setSignatureImageUrl(uploaded.url);
         setSignatureStyle('image');
         setFooterConfig((prev) => ({
           ...prev,
-          signatureImageUrl: dataUri
+          signatureImageUrl: uploaded.url
         }));
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err) {
+      console.warn('[QuotationStudioModal] Signature upload fallback:', err);
+    }
   };
   const [blockStyle, setBlockStyle] = useState<'framed' | 'minimal'>(
     editingQuotation?.block_style ||
@@ -769,6 +773,58 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     });
     return initialMap;
   });
+
+  // Per-item product image URL override mapping: itemId -> string
+  const [itemImageOverrides, setItemImageOverrides] = useState<Record<string, string>>({});
+  // Per-item technical datasheet inclusion toggle mapping: itemId -> boolean
+  const [itemDatasheetToggles, setItemDatasheetToggles] = useState<Record<string, boolean>>({});
+  // Workspace catalog products for automatic image/datasheet/stock lookup
+  const [workspaceProducts, setWorkspaceProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!activeWorkspaceId) return;
+    getDocs(query(collection(db, 'products'), where('workspaceId', '==', activeWorkspaceId)))
+      .then((snap) => {
+        if (!isMounted) return;
+        const loaded: Product[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data() as Product;
+          if (!data.is_deleted) {
+            loaded.push({ ...data, id: docSnap.id });
+          }
+        });
+        setWorkspaceProducts(loaded);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [activeWorkspaceId]);
+
+  const handleUploadLineItemImage = async (itemKey: string, file?: File) => {
+    if (!file) return;
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'products/images', activeWorkspace, {
+        maxWidth: 800,
+        maxHeight: 800,
+        quality: 0.84,
+        preserveTransparency: true
+      });
+      if (uploaded.url) {
+        setItemImageOverrides((prev) => ({
+          ...prev,
+          [itemKey]: uploaded.url
+        }));
+        setVisibleColumns((prev) => ({
+          ...prev,
+          showLineItemImages: true
+        }));
+      }
+    } catch (err) {
+      console.warn('[QuotationStudioModal] Line item image upload failed:', err);
+    }
+  };
 
   // Helper to check if a value is strictly an uppercase initial abbreviation (2-3 chars, e.g. "SS", "PV", "ANR")
   // Legitimate 3-letter names (e.g. "Ali", "Dan", "Tom", "Roy", "Guy", "Amy", "Joy") contain lowercase letters,
@@ -1323,31 +1379,31 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [newAttachmentUrl, setNewAttachmentUrl] = useState<string>('');
   const annexFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleUploadAnnexFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadAnnexFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    (Array.from(files) as File[]).forEach((file: File, idx: number) => {
+    const fileList = Array.from(files) as File[];
+    e.target.value = '';
+    for (let idx = 0; idx < fileList.length; idx++) {
+      const file = fileList[idx];
       const isImage = file.type.startsWith('image/');
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const rawDataUri = typeof reader.result === 'string' ? reader.result : '';
-        if (!rawDataUri) return;
-        const dataUri = isImage
-          ? await QuotationRepository.compressStudioImageDataUri(rawDataUri, {
-              maxWidth: 1100,
-              maxHeight: 1500,
-              preserveTransparency: false,
-              quality: 0.74
-            })
-          : rawDataUri;
+      try {
+        const uploaded = await uploadWorkspaceMediaAsset(file, 'quotations/annexes', activeWorkspace, {
+          maxWidth: 1200,
+          maxHeight: 1600,
+          quality: 0.78,
+          preserveTransparency: false
+        });
+        if (!uploaded.url) continue;
         const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
         const resolvedTitle = cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`;
         const newAtt: Attachment = {
           id: `annex_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
           name: resolvedTitle,
-          url: dataUri,
+          url: uploaded.url,
+          storagePath: uploaded.storagePath,
           type: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
-          size: dataUri.length,
+          size: uploaded.size || file.size,
           uploadedAt: new Date().toISOString(),
           page_placement: isImage ? 'annex_after' : 'index_only',
           render_as_annex_page: isImage,
@@ -1356,10 +1412,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: resolvedTitle })
         };
         setFlyerAttachments((prev) => [...prev, newAtt]);
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
+      } catch (err) {
+        console.warn('[QuotationStudioModal] Annex upload error:', err);
+      }
+    }
   };
 
   const handleAddAttachmentByUrl = () => {
@@ -1827,12 +1883,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
           // Extract attributes if available
           const brandAttr =
+            li.brand_make ||
             li.attributes?.find((a) => a.key.toLowerCase().includes('brand'))?.value ||
             extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('brand'))?.value;
           const modelAttr =
+            li.model_part_no ||
             li.attributes?.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value ||
             extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('model') || a.key.toLowerCase().includes('part'))?.value;
           const originAttr =
+            li.country_of_origin ||
             li.attributes?.find((a) => a.key.toLowerCase().includes('origin'))?.value ||
             extractedSpecsAttrs.find((a) => a.key.toLowerCase().includes('origin'))?.value;
 
@@ -1850,6 +1909,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
           return {
             id: li.id || `item_${idx}`,
+            product_id: li.product_id,
+            sku: li.sku,
             item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
             description: cleanDescription,
             quantity: qty,
@@ -1859,9 +1920,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             brand_make: brandAttr || undefined,
             model_part_no: modelAttr || undefined,
             country_of_origin: originAttr || undefined,
+            hs_code: li.hs_code || undefined,
             availability: li.lead_time_note || 'Ex-Stock / Standard',
             is_optional: Boolean((li as any).is_optional),
             attributes: itemAttrs,
+            image_url: li.image_url,
+            datasheet_attachment: li.datasheet_attachment,
+            include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
             page_break_after: li.page_break_after,
             row_spacer_after_mm: li.row_spacer_after_mm
           };
@@ -1871,18 +1936,55 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
     return baseItems.map((item, idx) => {
       const itemKey = item.id || `item_${idx}`;
+      const matchedCatalogProduct = workspaceProducts.find(
+        (p) =>
+          (item.product_id && p.id === item.product_id) ||
+          (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+          (item.item_name &&
+            (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+      );
+
       const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
       const customPageBreak =
         itemPageBreaks[itemKey] !== undefined
           ? itemPageBreaks[itemKey]
           : Boolean(item.page_break_after);
+      const resolvedImageUrl =
+        itemImageOverrides[itemKey] !== undefined
+          ? itemImageOverrides[itemKey]
+          : item.image_url || matchedCatalogProduct?.image_url;
+      const resolvedDatasheet =
+        item.datasheet_attachment || matchedCatalogProduct?.datasheet_attachment;
+      const resolvedIncludeDatasheet =
+        itemDatasheetToggles[itemKey] !== undefined
+          ? itemDatasheetToggles[itemKey]
+          : item.include_datasheet_in_quote !== false;
+
       return {
         ...item,
+        product_id: item.product_id || matchedCatalogProduct?.id,
+        sku: item.sku || matchedCatalogProduct?.sku,
+        brand_make: item.brand_make || matchedCatalogProduct?.brand_make,
+        model_part_no: item.model_part_no || matchedCatalogProduct?.model_part_no,
+        country_of_origin: item.country_of_origin || matchedCatalogProduct?.country_of_origin,
+        hs_code: item.hs_code || matchedCatalogProduct?.hs_code,
+        image_url: resolvedImageUrl,
+        datasheet_attachment: resolvedDatasheet,
+        include_datasheet_in_quote: resolvedIncludeDatasheet,
         visible_attributes: customVisible,
         page_break_after: customPageBreak
       };
     });
-  }, [activeSourceQuotation, editingQuotation, enquiry?.line_items, itemVisibleAttributes, itemPageBreaks]);
+  }, [
+    activeSourceQuotation,
+    editingQuotation,
+    enquiry?.line_items,
+    itemVisibleAttributes,
+    itemPageBreaks,
+    itemImageOverrides,
+    itemDatasheetToggles,
+    workspaceProducts
+  ]);
 
   // Dynamically extract all unique attribute keys present across active line items
   const availableAttributeKeys = useMemo(() => {
@@ -7382,6 +7484,245 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </label>
                           </div>
                         ))}
+                      </div>
+                    </div>
+
+                    {/* Product Images & Technical Datasheets Section */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                          Product Images &amp; Datasheets
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {quotationLineItems.filter((it) => Boolean(it.image_url)).length}/{quotationLineItems.length} Photos
+                        </span>
+                      </div>
+
+                      {/* Master Toggle: Show Product Images */}
+                      <div
+                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                          visibleColumns.showLineItemImages
+                            ? 'bg-blue-50/60 border-blue-200 shadow-2xs'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                            Show Product Images on Quote
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            Render catalog photos in line items table
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(visibleColumns.showLineItemImages)}
+                            onChange={(e) =>
+                              setVisibleColumns((prev) => ({
+                                ...prev,
+                                showLineItemImages: e.target.checked
+                              }))
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+
+                      {visibleColumns.showLineItemImages && (
+                        <div className="space-y-2 pt-0.5">
+                          {/* Layout Mode: Inline Thumbnail vs Dedicated Column */}
+                          <div>
+                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
+                              Image Placement Mode
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                {
+                                  id: 'inline' as const,
+                                  label: 'Inline Thumbnail',
+                                  desc: 'Beside item title & specs'
+                                },
+                                {
+                                  id: 'column' as const,
+                                  label: 'Dedicated Column',
+                                  desc: 'Separate Image column'
+                                }
+                              ].map((mode) => {
+                                const isSel = (visibleColumns.lineItemImageLayout || 'inline') === mode.id;
+                                return (
+                                  <button
+                                    key={mode.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        lineItemImageLayout: mode.id
+                                      }))
+                                    }
+                                    className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                                      isSel
+                                        ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                                    }`}
+                                  >
+                                    <span className={`text-[11px] font-semibold block ${isSel ? 'text-blue-700' : 'text-slate-800'}`}>
+                                      {mode.label}
+                                    </span>
+                                    <span className="text-[9.5px] text-slate-400 block mt-0.5">{mode.desc}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Image Size Control */}
+                          <div>
+                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
+                              Product Image Size
+                            </label>
+                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                              {[
+                                { id: 'sm' as const, label: 'Small', px: '36px' },
+                                { id: 'md' as const, label: 'Medium', px: '50px' },
+                                { id: 'lg' as const, label: 'Large', px: '68px' }
+                              ].map((sz) => {
+                                const isSel = (visibleColumns.lineItemImageSize || 'md') === sz.id;
+                                return (
+                                  <button
+                                    key={sz.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        lineItemImageSize: sz.id
+                                      }))
+                                    }
+                                    className={`py-1.5 rounded-lg text-[10.5px] font-semibold transition cursor-pointer ${
+                                      isSel
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'text-slate-600 hover:bg-white'
+                                    }`}
+                                  >
+                                    {sz.label} ({sz.px})
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Per-Item Image Upload, Datasheet Annex Toggle & Live Stock Badges */}
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5 pt-1">
+                        {quotationLineItems.map((item, idx) => {
+                          const itemKey = item.id || `item_${idx}`;
+                          const matchedProd = workspaceProducts.find(
+                            (p) =>
+                              (item.product_id && p.id === item.product_id) ||
+                              (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+                              (item.item_name &&
+                                (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+                          );
+                          const isTracked = Boolean(matchedProd?.is_inventoried);
+                          const currentStock = Number(matchedProd?.current_stock || 0);
+                          const reorderLvl = Number(matchedProd?.reorder_level || 0);
+
+                          return (
+                            <div
+                              key={itemKey}
+                              className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {item.image_url ? (
+                                    <img
+                                      src={item.image_url}
+                                      alt={item.item_name}
+                                      className="w-8 h-8 rounded border border-slate-200 bg-white object-contain p-0.5 shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded border border-dashed border-slate-300 bg-white flex items-center justify-center text-slate-400 shrink-0">
+                                      <ImageIcon className="w-3.5 h-3.5" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
+                                      #{idx + 1} {item.item_name}
+                                    </span>
+                                    {isTracked && (
+                                      <span
+                                        className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
+                                          currentStock <= 0
+                                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                            : reorderLvl > 0 && currentStock <= reorderLvl
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        }`}
+                                      >
+                                        {currentStock <= 0
+                                          ? 'Out of Stock (0)'
+                                          : `In Stock: ${currentStock} ${matchedProd?.uom || item.unit || 'pcs'}`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <label className="px-2 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-slate-200 text-[10px] font-semibold cursor-pointer transition">
+                                    {item.image_url ? 'Change' : '+ Photo'}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        e.target.value = '';
+                                        if (f) handleUploadLineItemImage(itemKey, f);
+                                      }}
+                                    />
+                                  </label>
+                                  {item.image_url && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setItemImageOverrides((prev) => ({
+                                          ...prev,
+                                          [itemKey]: ''
+                                        }))
+                                      }
+                                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                      title="Remove item image"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {item.datasheet_attachment && item.datasheet_attachment.url && (
+                                <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-indigo-50/70 border border-indigo-200/80 cursor-pointer">
+                                  <span className="text-[10px] font-medium text-indigo-900 truncate pr-2">
+                                    📎 Annex Datasheet: {item.datasheet_attachment.name}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={item.include_datasheet_in_quote !== false}
+                                    onChange={(e) =>
+                                      setItemDatasheetToggles((prev) => ({
+                                        ...prev,
+                                        [itemKey]: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                  />
+                                </label>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 

@@ -1,4 +1,4 @@
-import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project, GrnReceiptData } from '../types';
+import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project, GrnReceiptData, StockAdjustmentData } from '../types';
 import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
@@ -454,8 +454,9 @@ export async function processStockGrn(
     const unitCost = Number(data.unit_cost) || 0;
     const totalCost = unitCost * qty;
 
-    // Build update payload for the product document
+    // Build update payload for the product document (auto-enable stock tracking on GRN)
     const updatePayload: Partial<Product> & { updatedAt: string } = {
+      is_inventoried: true,
       stock_on_hand: newOnHand,
       updatedAt: nowIso
     };
@@ -511,6 +512,117 @@ export async function processStockGrn(
       previousOnHand: 0,
       newOnHand: 0,
       error: err?.message || 'Failed to process stock receipt'
+    };
+  }
+}
+
+/**
+ * Processes a manual Stock Adjustment (Opening Stock, Physical Recount, Write-Off / Damage, or Manual Addition).
+ * Automatically enables `is_inventoried: true` on the product and logs an immutable `ADJUSTMENT` record.
+ */
+export async function processStockAdjustment(
+  data: StockAdjustmentData,
+  user?: UserProfile | any
+): Promise<GrnResult> {
+  const wsId = data.workspace_id || 'default';
+  const userUid = user?.uid || user?.id || 'system';
+  const userName = user?.username || user?.full_name || user?.email || 'System';
+  const nowIso = new Date().toISOString();
+
+  try {
+    const prodRef = doc(db, 'products', data.product_id);
+    const prodSnap = await getDoc(prodRef);
+
+    let previousOnHand = 0;
+    let prodData: Partial<Product> = {};
+
+    if (prodSnap.exists()) {
+      prodData = prodSnap.data() as Product;
+      previousOnHand = Number(prodData.stock_on_hand) || 0;
+    }
+
+    const inputQty = Number(data.target_or_delta_qty);
+    if (isNaN(inputQty) || inputQty < 0) {
+      throw new Error('Please enter a valid non-negative quantity.');
+    }
+
+    let newOnHand = previousOnHand;
+    let deltaQty = 0;
+
+    if (data.adjustment_mode === 'OPENING_STOCK' || data.adjustment_mode === 'RECOUNT') {
+      newOnHand = inputQty;
+      deltaQty = newOnHand - previousOnHand;
+    } else if (data.adjustment_mode === 'WRITE_OFF') {
+      if (inputQty <= 0) throw new Error('Write-off quantity must be greater than zero.');
+      newOnHand = Math.max(0, previousOnHand - inputQty);
+      deltaQty = newOnHand - previousOnHand;
+    } else if (data.adjustment_mode === 'ADDITION') {
+      if (inputQty <= 0) throw new Error('Addition quantity must be greater than zero.');
+      newOnHand = previousOnHand + inputQty;
+      deltaQty = inputQty;
+    }
+
+    const updatePayload: Partial<Product> & { updatedAt: string } = {
+      is_inventoried: true,
+      stock_on_hand: newOnHand,
+      updatedAt: nowIso
+    };
+
+    if (data.storage_location && data.storage_location.trim()) {
+      updatePayload.storage_location = data.storage_location.trim();
+    }
+
+    if (typeof data.unit_cost === 'number' && data.unit_cost > 0) {
+      updatePayload.cost_price = data.unit_cost;
+    }
+
+    await safeUpdateDoc('products', data.product_id, updatePayload);
+
+    const modeLabels: Record<string, string> = {
+      OPENING_STOCK: 'Opening Stock Balance',
+      RECOUNT: 'Physical Cycle Recount',
+      WRITE_OFF: 'Damage / Write-Off Deduction',
+      ADDITION: 'Manual Stock Addition'
+    };
+
+    const refNum = data.reference_number?.trim() || `ADJ-${nowIso.slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const reasonText = data.reason_notes?.trim()
+      ? `${modeLabels[data.adjustment_mode] || 'Stock Adjustment'}: ${data.reason_notes.trim()}`
+      : `${modeLabels[data.adjustment_mode] || 'Stock Adjustment'} (${previousOnHand} → ${newOnHand})`;
+
+    const movement: StockMovement = {
+      workspace_id: wsId,
+      product_id: data.product_id,
+      product_name: data.product_name || prodData?.name || prodData?.description || 'Product',
+      movement_type: 'ADJUSTMENT',
+      quantity: deltaQty,
+      previous_on_hand: previousOnHand,
+      new_on_hand: newOnHand,
+      reference_type: 'MANUAL',
+      reference_number: refNum,
+      reason_notes: reasonText,
+      created_at: nowIso,
+      created_by_uid: userUid,
+      created_by_name: userName,
+      unit_cost: data.unit_cost
+    };
+
+    const docRef = await safeAddDoc('stock_movements', movement);
+
+    return {
+      success: true,
+      movementId: docRef?.id,
+      previousOnHand,
+      newOnHand,
+      movement
+    };
+  } catch (err: any) {
+    console.error('[processStockAdjustment] Failed adjusting stock:', err);
+    return {
+      success: false,
+      previousOnHand: 0,
+      newOnHand: 0,
+      error: err?.message || 'Failed to process stock adjustment'
     };
   }
 }

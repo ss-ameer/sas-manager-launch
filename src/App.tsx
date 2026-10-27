@@ -1710,9 +1710,9 @@ export default function App() {
       />
 
       {/* Main Panel Area */}
-      <main className="flex-1 h-screen overflow-y-auto flex flex-col">
+      <main className="flex-1 h-screen overflow-hidden flex flex-col">
         {/* Top Header Bar with Cloud Sync Hub */}
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs shrink-0">
+        <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between z-30 shadow-xs shrink-0">
           <div className="flex items-center space-x-2">
             <button
               type="button"
@@ -1795,7 +1795,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1">
+        <div className="flex-1 overflow-y-auto flex flex-col">
           {currentTab === 'call_log' && (
             <CallLogManager
               activeWorkspace={activeWorkspace}

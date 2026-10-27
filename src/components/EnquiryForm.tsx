@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
-import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage, deleteFromSupabaseStorage, deleteAttachmentBlob, dataUrlToFile } from '../services/attachmentStorage';
+import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage, deleteFromSupabaseStorage, deleteAttachmentBlob, dataUrlToFile, uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -278,6 +278,16 @@ interface CatalogItem {
   id?: string;
   name?: string;
   sku?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  country_of_origin?: string;
+  hs_code?: string;
+  image_url?: string;
+  datasheet_attachment?: Attachment;
+  is_inventoried?: boolean;
+  stock_on_hand?: number;
+  stock_reserved?: number;
+  reorder_level?: number;
   product_type: ProductType;
   description: string;
   unit: UnitType;
@@ -523,29 +533,54 @@ export default function EnquiryForm({
   const [catalogCategory, setCatalogCategory] = useState('All');
 
   const combinedCatalog = React.useMemo(() => {
-    return (products || []).map((p) => {
-      const defaultLeadTime = (p as any).lead_time_note?.trim()
-        ? (p as any).lead_time_note
-        : (p.is_inventoried && (p.stock_on_hand || 0) > 0 ? 'Ex-Stock' : '');
-      return {
-        id: p.id,
-        name: p.name || p.product_type,
-        sku: p.sku || '',
-        product_type: p.product_type,
-        description: p.description,
-        unit: p.unit,
-        unit_price_aed: p.unit_price,
-        lead_time_note: defaultLeadTime,
-        attributes: p.attributes || [],
-      };
-    });
+    return (products || [])
+      .filter((p) => !p.is_deleted)
+      .map((p) => {
+        const defaultLeadTime =
+          p.default_availability?.trim() ||
+          ((p as any).lead_time_note?.trim()
+            ? (p as any).lead_time_note
+            : p.is_inventoried && (p.stock_on_hand || 0) - (p.stock_reserved || 0) > 0
+            ? 'Ex-Stock'
+            : '');
+        return {
+          id: p.id,
+          name: p.name || p.product_type,
+          sku: p.sku || '',
+          brand_make: p.brand_make || '',
+          model_part_no: p.model_part_no || '',
+          country_of_origin: p.country_of_origin || '',
+          hs_code: p.hs_code || '',
+          image_url: p.image_url || '',
+          datasheet_attachment: p.datasheet_attachment,
+          is_inventoried: p.is_inventoried,
+          stock_on_hand: p.stock_on_hand,
+          stock_reserved: p.stock_reserved,
+          reorder_level: p.reorder_level,
+          product_type: p.product_type,
+          description: p.description,
+          unit: p.unit,
+          unit_price_aed: p.unit_price,
+          lead_time_note: defaultLeadTime,
+          attributes: p.attributes || [],
+        };
+      });
   }, [products]);
 
   const filteredCatalog = React.useMemo(() => {
+    const q = catalogSearch.toLowerCase().trim();
     return combinedCatalog.filter((item) => {
-      const matchesSearch = (item.name || '').toLowerCase().includes(catalogSearch.toLowerCase()) ||
-                            item.description.toLowerCase().includes(catalogSearch.toLowerCase());
-      const matchesCategory = catalogCategory === 'All' || item.product_type === catalogCategory || (catalogCategory === 'Filter Media' && item.product_type === 'Sand Media');
+      const matchesSearch =
+        !q ||
+        (item.name || '').toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
+        (item.sku || '').toLowerCase().includes(q) ||
+        (item.brand_make || '').toLowerCase().includes(q) ||
+        (item.model_part_no || '').toLowerCase().includes(q);
+      const matchesCategory =
+        catalogCategory === 'All' ||
+        item.product_type === catalogCategory ||
+        (catalogCategory === 'Filter Media' && item.product_type === 'Sand Media');
       return matchesSearch && matchesCategory;
     });
   }, [combinedCatalog, catalogSearch, catalogCategory]);
@@ -1340,6 +1375,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           unit: item.unit || current.unit,
           unit_price: current.unit_price > 0 ? current.unit_price : price,
           total_price: (current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : price),
+          brand_make: item.brand_make || current.brand_make,
+          model_part_no: item.model_part_no || current.model_part_no,
+          country_of_origin: item.country_of_origin || current.country_of_origin,
+          hs_code: item.hs_code || current.hs_code,
+          image_url: item.image_url || current.image_url,
+          datasheet_attachment: item.datasheet_attachment || current.datasheet_attachment,
+          include_datasheet_in_quote:
+            item.datasheet_attachment || current.datasheet_attachment
+              ? current.include_datasheet_in_quote !== false
+              : undefined,
           lead_time_note: current.lead_time_note && !current.lead_time_note.startsWith('SKU:')
             ? current.lead_time_note
             : (item.lead_time_note || ''),
@@ -1360,6 +1405,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         unit: item.unit,
         unit_price: price,
         total_price: price,
+        brand_make: item.brand_make || undefined,
+        model_part_no: item.model_part_no || undefined,
+        country_of_origin: item.country_of_origin || undefined,
+        hs_code: item.hs_code || undefined,
+        image_url: item.image_url || undefined,
+        datasheet_attachment: item.datasheet_attachment || undefined,
+        include_datasheet_in_quote: item.datasheet_attachment ? true : undefined,
         lead_time_note: item.lead_time_note || '',
         option: 'Default / Included',
         attributes: item.attributes || []
@@ -1441,8 +1493,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       item.product_type = 'Service / Charge';
     } else if (field === 'product_type') {
       item.product_type = val;
-      const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES[val] || [];
-      item.attributes = suggestions.map(key => ({ key, value: '' }));
+      const existingFilled = (item.attributes || []).filter((a) => a.value && a.value.trim() !== '');
+      if (existingFilled.length === 0) {
+        const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES[val] || [];
+        item.attributes = suggestions.map((key) => ({ key, value: '' }));
+      }
     } else {
       item[field] = val as any;
     }
@@ -4677,17 +4732,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                           const matchedProduct = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
                           if (matchedProduct) {
+                            const availStock = (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
+                            const isLow = Boolean(matchedProduct.is_inventoried) && availStock <= (matchedProduct.reorder_level || 0);
                             return (
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                   <Package className="w-3 h-3 text-emerald-600"/>
                                   <span>Linked: {matchedProduct.name} {matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}</span>
-                                  {matchedProduct.is_inventoried && (
-                                    <span className="font-mono text-[10px] ml-1 text-emerald-800 dark:text-emerald-200">
-                                      (On-Hand: {matchedProduct.stock_on_hand || 0} | Res: {matchedProduct.stock_reserved || 0})
-                                    </span>
-                                  )}
                                 </span>
+                                {matchedProduct.is_inventoried ? (
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                                      isLow
+                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    }`}
+                                  >
+                                    <span>Avail: {availStock} {matchedProduct.unit}</span>
+                                    {(matchedProduct.stock_reserved || 0) > 0 && (
+                                      <span>(Res: {matchedProduct.stock_reserved})</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200">
+                                    {matchedProduct.default_availability || 'Order / Non-Stock'}
+                                  </span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleUnlinkCatalogItem(index)}
@@ -4933,6 +5003,123 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </select>
                       </div>
                     </div>
+
+                    {/* Tier 3B: Brand/Make, Model/Part No, Country of Origin, Product Image & Datasheet */}
+                    {!isServiceOrFee && (() => {
+                      const matchedProd = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
+                      const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
+                      const effectiveDatasheet = item.datasheet_attachment || matchedProd?.datasheet_attachment;
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                          <div className="sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              Brand / Make
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Hydranautics, FIP"
+                              value={item.brand_make ?? matchedProd?.brand_make ?? ''}
+                              onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              Model / Part No.
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. SWC5-LD"
+                              value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
+                              onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              Origin
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. USA, UAE"
+                              value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
+                              onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                            />
+                          </div>
+                          <div className="sm:col-span-4 flex flex-col justify-end">
+                            <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 px-2.5">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {effectiveImageUrl ? (
+                                  <img
+                                    src={effectiveImageUrl}
+                                    alt="Item"
+                                    className="w-7 h-7 rounded object-contain bg-white border border-slate-200 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="w-7 h-7 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                    <Package className="w-3.5 h-3.5" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <label className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer block truncate">
+                                    {effectiveImageUrl ? 'Change Photo' : '+ Product Photo'}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      onChange={async (e) => {
+                                        const f = e.target.files?.[0];
+                                        e.target.value = '';
+                                        if (!f) return;
+                                        try {
+                                          const up = await uploadWorkspaceMediaAsset(
+                                            f,
+                                            'products/images',
+                                            activeWorkspace?.settings || activeWorkspace,
+                                            { compressImage: true, maxDimension: 650, quality: 0.84 }
+                                          );
+                                          handleLineItemChange(index, 'image_url', up.url);
+                                          if (triggerToast) triggerToast('Line item photo uploaded.', 'success');
+                                        } catch (err: any) {
+                                          if (triggerToast) triggerToast('Photo upload failed.', 'error');
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                  {effectiveDatasheet && (
+                                    <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-medium cursor-pointer truncate">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.include_datasheet_in_quote !== false}
+                                        onChange={(e) =>
+                                          handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
+                                        }
+                                        className="w-3 h-3 rounded text-indigo-600"
+                                      />
+                                      <span className="truncate" title={effectiveDatasheet.name}>
+                                        Annex Datasheet
+                                      </span>
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                              {effectiveImageUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLineItemChange(index, 'image_url', '')}
+                                  className="text-slate-400 hover:text-rose-500 p-0.5"
+                                  title="Clear item photo"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Specification Attributes section */}
                     {!isServiceOrFee && (
@@ -6373,23 +6560,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-700 focus:outline-none focus:border-blue-500"
                 >
                   <option value="All">All Categories</option>
-                  {[
-                    'FRP Tanks',
-                    'FRP Vessels',
-                    'Pressure Vessels',
-                    'RO Membranes',
-                    'RO Housing',
-                    'Cartridge Filters',
-                    'Dosing Pumps',
-                    'MBBR Media',
-                    'Filter Media',
-                    'Tube Settler Media',
-                    'Chemicals',
-                    'Valves',
-                    'Frames/Fabrication',
-                    'Various',
-                    'Other'
-                  ].map((cat) => (
+                  {sortedCategories.map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -6403,38 +6574,88 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   {filteredCatalog.map((item) => {
                     const priceAed = Number(item.unit_price_aed) || 0;
                     const convertedPrice = formCurrency === 'USD' ? priceAed / 3.6725 : priceAed;
+                    const availStock = (item.stock_on_hand || 0) - (item.stock_reserved || 0);
+                    const isLowStock = Boolean(item.is_inventoried) && availStock <= (item.reorder_level || 0);
                     return (
                       <div
-                        key={item.name}
+                        key={item.id || item.name}
                         className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-blue-300 hover:shadow-md transition duration-150 flex flex-col justify-between"
                       >
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-mono uppercase font-bold">
-                                {item.product_type}
-                              </span>
-                              <h4 className="text-sm font-bold text-slate-900 mt-1 font-sans">{item.name}</h4>
+                        <div className="space-y-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3 min-w-0">
+                              {item.image_url ? (
+                                <img
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                  <Package className="w-5 h-5" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-mono uppercase font-bold whitespace-nowrap">
+                                    {item.product_type}
+                                  </span>
+                                  {item.is_inventoried ? (
+                                    <span
+                                      className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
+                                        isLowStock
+                                          ? 'bg-amber-100 text-amber-800'
+                                          : 'bg-emerald-100 text-emerald-800'
+                                      }`}
+                                    >
+                                      Avail: {availStock} {item.unit}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-mono bg-slate-100 text-slate-600">
+                                      {item.lead_time_note || 'Order / Non-Stock'}
+                                    </span>
+                                  )}
+                                  {item.datasheet_attachment?.url && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                      Datasheet
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="text-sm font-bold text-slate-900 mt-1 font-sans truncate" title={item.name}>
+                                  {item.name}
+                                </h4>
+                                {(item.brand_make || item.model_part_no || item.sku) && (
+                                  <div className="text-[10px] font-mono text-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                                    {item.brand_make && <span>{item.brand_make}</span>}
+                                    {item.model_part_no && <span>• {item.model_part_no}</span>}
+                                    {item.sku && <span>• SKU: {item.sku}</span>}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="text-right font-mono">
-                              <span className="text-xs text-slate-400 block">Prefilled Unit Price</span>
+                            <div className="text-right font-mono shrink-0">
+                              <span className="text-[10px] text-slate-400 block">Unit Price</span>
                               <span className="text-sm font-bold text-emerald-600 block">
-                                {formCurrency} {Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {priceAed > 0
+                                  ? `${formCurrency} ${Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : 'On Request'}
                               </span>
                             </div>
                           </div>
 
-                          <p className="text-xs text-slate-500 font-sans line-clamp-3">
+                          <p className="text-xs text-slate-500 font-sans line-clamp-2">
                             {item.description}
                           </p>
 
                           <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-slate-100 font-mono text-slate-400">
                             <div>
                               <span className="font-semibold text-slate-500">Unit:</span> {item.unit}
+                              {item.country_of_origin ? ` • Origin: ${item.country_of_origin}` : ''}
                             </div>
                             {item.lead_time_note && (
-                              <div className="truncate">
-                                <span className="font-semibold text-slate-500">Delivery:</span> {item.lead_time_note}
+                              <div className="truncate text-right">
+                                <span className="font-semibold text-slate-500">Lead Time:</span> {item.lead_time_note}
                               </div>
                             )}
                           </div>
@@ -6443,10 +6664,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <button
                           type="button"
                           onClick={() => handleAddCatalogItem(item)}
-                          className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center space-x-1"
+                          className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Add to Proposal</span>
+                          <span>{linkingLineIndex !== null ? 'Link & Populate Line Item' : 'Add to Proposal'}</span>
                         </button>
                       </div>
                     );

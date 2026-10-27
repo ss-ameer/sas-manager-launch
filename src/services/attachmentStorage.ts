@@ -65,7 +65,12 @@ export async function deleteFromSupabaseStorage(
     const prefixIdx = fileUrl.indexOf(prefix);
     if (prefixIdx !== -1) {
       filePath = fileUrl.substring(prefixIdx + prefix.length);
-    } else if (fileUrl.startsWith('enquiries/')) {
+    } else if (
+      fileUrl.startsWith('enquiries/') ||
+      fileUrl.startsWith('products/') ||
+      fileUrl.startsWith('branding/') ||
+      fileUrl.startsWith('quotations/')
+    ) {
       filePath = fileUrl;
     } else {
       // Check if URL contains bucket name followed by slash
@@ -116,20 +121,139 @@ export function getAttachmentStorageKey(att: Partial<Attachment>, index: number 
 }
 
 /**
+ * Compresses an image File client-side to a clean Data URL (preserving PNG transparency for logos/stamps/signatures, or WebP/JPEG for product photos).
+ */
+export function compressImageToDataUrl(
+  file: File,
+  maxDimension: number = 700,
+  quality: number = 0.82
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) return reject(new Error('Failed to read image file'));
+      // SVG files do not need raster canvas re-encoding
+      if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+        return resolve(rawDataUrl);
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let width = img.width || 400;
+          let height = img.height || 400;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(rawDataUrl);
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          // Preserve transparency for PNG/WebP/GIF; use JPEG for opaque photos
+          const isTransparentFormat =
+            file.type === 'image/png' ||
+            file.type === 'image/webp' ||
+            file.type === 'image/gif';
+          const outMime = isTransparentFormat ? 'image/webp' : 'image/jpeg';
+          let compressed = canvas.toDataURL(outMime, quality);
+          // Fallback to PNG if browser doesn't encode WebP smaller
+          if (isTransparentFormat && (!compressed.startsWith('data:image/webp') || compressed.length > rawDataUrl.length)) {
+            const pngUrl = canvas.toDataURL('image/png');
+            if (pngUrl.length <= rawDataUrl.length || width < img.width) {
+              compressed = pngUrl;
+            }
+          }
+          resolve(compressed);
+        } catch {
+          resolve(rawDataUrl);
+        }
+      };
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Compresses an image File client-side and returns both the compressed File and its Data URL.
+ */
+export async function compressImageFile(
+  file: File,
+  maxDimension: number = 700,
+  quality: number = 0.82
+): Promise<{ file: File; dataUrl: string }> {
+  const dataUrl = await compressImageToDataUrl(file, maxDimension, quality);
+  const ext = dataUrl.startsWith('data:image/webp')
+    ? '.webp'
+    : dataUrl.startsWith('data:image/png')
+    ? '.png'
+    : dataUrl.startsWith('data:image/svg')
+    ? '.svg'
+    : '.jpg';
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  const compressedFile = dataUrlToFile(dataUrl, `${baseName}${ext}`);
+  return { file: compressedFile, dataUrl };
+}
+
+/**
+ * Resolves active Supabase Storage config from a workspace or settings object.
+ */
+export function resolveWorkspaceStorageConfig(
+  workspaceOrSettings?: WorkspaceStorageSettings | null
+): StorageConfig | null {
+  if (!workspaceOrSettings) return null;
+  const candidate: StorageConfig | undefined =
+    workspaceOrSettings.storage ||
+    ((workspaceOrSettings as any).settings?.storage) ||
+    (workspaceOrSettings.supabaseUrl ? (workspaceOrSettings as StorageConfig) : undefined) ||
+    ((workspaceOrSettings as any).settings?.supabaseUrl ? ((workspaceOrSettings as any).settings as StorageConfig) : undefined);
+
+  if (
+    candidate &&
+    candidate.enabled !== false &&
+    candidate.supabaseUrl?.trim() &&
+    candidate.supabaseAnonKey?.trim() &&
+    candidate.bucket?.trim()
+  ) {
+    return {
+      supabaseUrl: candidate.supabaseUrl.trim(),
+      supabaseAnonKey: candidate.supabaseAnonKey.trim(),
+      bucket: candidate.bucket.trim(),
+      enabled: true,
+      provider: 'supabase'
+    };
+  }
+  return null;
+}
+
+/**
  * Uploads a file directly to Supabase Storage via REST API and returns a persistent public HTTPS URL.
  */
 export function uploadToSupabaseStorage(
   file: File,
   storageConfig?: StorageConfig | null,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  folder: string = 'enquiries'
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!storageConfig?.supabaseUrl || !storageConfig?.supabaseAnonKey || !storageConfig?.bucket) {
       return reject(new Error('Incomplete Supabase storage configuration. Check Project URL, Key, and Bucket.'));
     }
 
+    const cleanFolder = (folder || 'enquiries').replace(/^\/+|\/+$/g, '');
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = `enquiries/${Date.now()}_${cleanFileName}`;
+    const filePath = `${cleanFolder}/${Date.now()}_${cleanFileName}`;
     const baseUrl = storageConfig.supabaseUrl.trim().replace(/\/+$/, '');
     const bucket = storageConfig.bucket.trim();
     const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${filePath}`;
@@ -174,6 +298,94 @@ export function uploadToSupabaseStorage(
 
     xhr.send(file);
   });
+}
+
+/**
+ * Unified helper to upload Product Catalog Images, Product Datasheets, and Quotation Studio Branding Assets
+ * to the workspace's Custom Supabase Storage Bucket, with client-side image compression and automatic fallback
+ * when offline or unconfigured.
+ */
+export async function uploadWorkspaceMediaAsset(
+  file: File,
+  folder: string,
+  workspaceOrSettings?: WorkspaceStorageSettings | null,
+  options?: {
+    compressImage?: boolean;
+    maxDimension?: number;
+    quality?: number;
+    onProgress?: (percent: number) => void;
+  }
+): Promise<{
+  url: string;
+  isLocal: boolean;
+  storageProvider: 'supabase' | 'local';
+  size: number;
+  type: string;
+  name: string;
+  storageKey?: string;
+}> {
+  const isImage = file.type.startsWith('image/');
+  let targetFile = file;
+  let fallbackDataUrl = '';
+
+  if (isImage && options?.compressImage !== false) {
+    const compressed = await compressImageFile(
+      file,
+      options?.maxDimension ?? 700,
+      options?.quality ?? 0.82
+    );
+    targetFile = compressed.file;
+    fallbackDataUrl = compressed.dataUrl;
+  }
+
+  const storageConfig = resolveWorkspaceStorageConfig(workspaceOrSettings);
+  if (storageConfig) {
+    try {
+      const cloudUrl = await uploadToSupabaseStorage(
+        targetFile,
+        storageConfig,
+        options?.onProgress,
+        folder
+      );
+      return {
+        url: cloudUrl,
+        isLocal: false,
+        storageProvider: 'supabase',
+        size: targetFile.size,
+        type: targetFile.type || file.type,
+        name: file.name
+      };
+    } catch (err) {
+      console.warn(`[uploadWorkspaceMediaAsset] Cloud bucket upload failed for ${folder}, falling back to local storage:`, err);
+    }
+  }
+
+  // Fallback when bucket is unconfigured or unreachable
+  if (!fallbackDataUrl) {
+    fallbackDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string) || '');
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(targetFile);
+    });
+  }
+
+  const storageKey = `blob_${folder.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  try {
+    await saveAttachmentBlob(storageKey, fallbackDataUrl);
+  } catch (_) {}
+
+  if (options?.onProgress) options.onProgress(100);
+
+  return {
+    url: fallbackDataUrl,
+    isLocal: true,
+    storageProvider: 'local',
+    size: targetFile.size,
+    type: targetFile.type || file.type,
+    name: file.name,
+    storageKey
+  };
 }
 
 /**

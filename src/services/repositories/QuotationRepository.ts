@@ -913,6 +913,7 @@ export class QuotationRepository {
         : rawCols.unit_price !== false;
 
     const visibleColumns = {
+      ...rawCols,
       brand: rawCols.brand ?? true,
       model: rawCols.model ?? true,
       origin: rawCols.origin ?? true,
@@ -930,7 +931,10 @@ export class QuotationRepository {
         rawCols.showAmountInWords ??
         quotation?.amount_in_words_enabled ??
         profile?.amount_in_words_enabled ??
-        true
+        true,
+      showLineItemImages: Boolean(rawCols.showLineItemImages),
+      lineItemImageLayout: rawCols.lineItemImageLayout === 'column' ? ('column' as const) : ('inline' as const),
+      lineItemImageSize: (rawCols.lineItemImageSize || 'md') as 'sm' | 'md' | 'lg'
     };
 
     const layoutBlocks = Array.isArray(quotation?.layout_blocks)
@@ -1490,7 +1494,10 @@ export class QuotationRepository {
       hiddenAttributeKeys: Array.isArray(rawCols.hiddenAttributeKeys)
         ? [...rawCols.hiddenAttributeKeys]
         : [],
-      showAmountInWords: resolvedAmountInWords
+      showAmountInWords: resolvedAmountInWords,
+      showLineItemImages: Boolean(rawCols.showLineItemImages),
+      lineItemImageLayout: rawCols.lineItemImageLayout === 'column' ? ('column' as const) : ('inline' as const),
+      lineItemImageSize: (rawCols.lineItemImageSize || 'md') as 'sm' | 'md' | 'lg'
     };
 
     const normalizedBlocks = Array.isArray(input.layout_blocks)

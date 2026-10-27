@@ -164,12 +164,18 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
 
   if (activeTab === 'all' || activeTab === 'products') {
     deletedProducts.forEach((p) => {
+      const subParts = [
+        p.sku ? `SKU: ${p.sku}` : null,
+        p.brand_make ? `Brand: ${p.brand_make}` : null,
+        p.product_type ? `Category: ${p.product_type}` : null,
+        p.name && p.description && p.name !== p.description ? p.description : null
+      ].filter(Boolean);
       items.push({
         id: p.id || '',
         type: 'product',
         typeLabel: 'Product',
-        title: p.description,
-        subTitle: p.product_type ? `Category: ${p.product_type}` : undefined,
+        title: p.name || p.description || 'Catalog Product',
+        subTitle: subParts.length > 0 ? subParts.join(' • ') : undefined,
         deletedAt: p.deleted_at,
         deletedByName: p.deleted_by_name || 'Unknown',
         rawItem: p

@@ -360,6 +360,13 @@ export interface LineItem {
   unit_price: number;
   total_price: number;
   lead_time_note?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  country_of_origin?: string;
+  hs_code?: string;
+  image_url?: string;
+  datasheet_attachment?: Attachment;
+  include_datasheet_in_quote?: boolean;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
   page_break_after?: boolean;
@@ -408,6 +415,20 @@ export interface GrnReceiptData {
   storage_location?: string;
   update_cost_price: boolean;
   notes?: string;
+}
+
+export type StockAdjustmentMode = 'OPENING_STOCK' | 'RECOUNT' | 'WRITE_OFF' | 'ADDITION';
+
+export interface StockAdjustmentData {
+  workspace_id: string;
+  product_id: string;
+  product_name: string;
+  adjustment_mode: StockAdjustmentMode;
+  target_or_delta_qty: number;
+  reason_notes: string;
+  reference_number?: string;
+  storage_location?: string;
+  unit_cost?: number;
 }
 
 export interface ProjectMilestone {
@@ -726,7 +747,13 @@ export interface Product extends SoftDeleteFields {
   unit: UnitType;
   unit_price?: number;
   sku?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  default_availability?: string;
+  image_url?: string;
+  datasheet_attachment?: Attachment;
   createdAt?: string;
+  updatedAt?: string;
   attributes?: ProductAttribute[];
   is_inventoried?: boolean;
   stock_on_hand?: number;
@@ -1002,6 +1029,7 @@ export interface QuotationItemAttribute {
 
 export interface QuotationLineItem {
   id?: string;
+  product_id?: string;
   item_name: string;
   description: string;
   quantity: number;
@@ -1016,7 +1044,11 @@ export interface QuotationLineItem {
   model?: string;
   country_of_origin?: string;
   origin?: string;
+  hs_code?: string;
   availability?: string;
+  image_url?: string;
+  datasheet_attachment?: Attachment;
+  include_datasheet_in_quote?: boolean;
   is_optional?: boolean;
   attributes?: QuotationItemAttribute[];
   technical_attributes?: QuotationItemAttribute[] | Record<string, string>;
@@ -1151,6 +1183,9 @@ export interface QuotationPresetColumns {
   attributeDisplayFormat?: 'pills' | 'inline_text';
   hiddenAttributeKeys?: string[];
   showAmountInWords?: boolean;
+  showLineItemImages?: boolean;
+  lineItemImageLayout?: 'column' | 'inline';
+  lineItemImageSize?: 'sm' | 'md' | 'lg';
 }
 
 export type QuotationColumnConfig = QuotationPresetColumns;

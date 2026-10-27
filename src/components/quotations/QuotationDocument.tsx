@@ -621,7 +621,37 @@ export function resolveDocumentPaginationWithAnnexes(
   submittalsIndexEntries: QuotationSubmittalIndexEntry[];
 } {
   const partitionedMainSheets = partitionBlocksIntoSheets(blocks, lineItems);
-  const allAttachments = (flyerAttachments || []).filter((att) => att && Boolean(att.url));
+  const rawFlyers = (flyerAttachments || []).filter((att) => att && Boolean(att.url));
+  const seenUrls = new Set<string>(rawFlyers.map((a) => a.url));
+  const autoDatasheetAttachments: Attachment[] = [];
+
+  (lineItems || []).forEach((item, idx) => {
+    if (
+      item &&
+      item.include_datasheet_in_quote !== false &&
+      item.datasheet_attachment &&
+      item.datasheet_attachment.url &&
+      !seenUrls.has(item.datasheet_attachment.url)
+    ) {
+      seenUrls.add(item.datasheet_attachment.url);
+      autoDatasheetAttachments.push({
+        ...item.datasheet_attachment,
+        id: item.datasheet_attachment.id || `line_datasheet_${item.id || idx + 1}`,
+        name:
+          item.datasheet_attachment.name ||
+          `${item.item_name || `Item ${idx + 1}`} - Technical Datasheet`,
+        custom_title:
+          item.datasheet_attachment.custom_title ||
+          `${item.item_name || `Item ${idx + 1}`} — ${
+            item.datasheet_attachment.name || 'Technical Datasheet'
+          }`,
+        page_placement: item.datasheet_attachment.page_placement || 'annex_after',
+        render_as_annex_page: item.datasheet_attachment.render_as_annex_page !== false
+      });
+    }
+  });
+
+  const allAttachments = [...rawFlyers, ...autoDatasheetAttachments];
 
   const coverSheetAttachments = allAttachments.filter(
     (att) => att.page_placement === 'cover_before' && Boolean(att.url)
@@ -750,8 +780,13 @@ export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns):
   showUom: boolean;
   showLineTotal: boolean;
   showItemAttributes: boolean;
+  showLineItemImages: boolean;
+  lineItemImageLayout: 'column' | 'inline';
+  lineItemImageSize: 'sm' | 'md' | 'lg';
+  showImageColumn: boolean;
   widths: {
     sl: string;
+    image: string;
     description: string;
     qty: string;
     uom: string;
@@ -766,24 +801,47 @@ export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns):
   const showUom = cfg.showUom !== false;
   const showLineTotal = cfg.showLineTotal !== false;
   const showItemAttributes = cfg.showItemAttributes !== false;
+  const showLineItemImages = Boolean(cfg.showLineItemImages);
+  const lineItemImageLayout: 'column' | 'inline' =
+    cfg.lineItemImageLayout === 'column' ? 'column' : 'inline';
+  const lineItemImageSize: 'sm' | 'md' | 'lg' = cfg.lineItemImageSize || 'md';
+  const showImageColumn = showLineItemImages && lineItemImageLayout === 'column';
 
   const slWidth = 5;
+  const imageWidth = showImageColumn
+    ? lineItemImageSize === 'lg'
+      ? 11
+      : lineItemImageSize === 'sm'
+      ? 7
+      : 9
+    : 0;
   const qtyWidth = 7;
   const uomWidth = showUom ? 10 : 0;
   const unitPriceWidth = showUnitPrice ? 12 : 0;
   const lineTotalWidth = showLineTotal ? 14 : 0;
-  const descriptionWidth = 100 - (slWidth + qtyWidth + uomWidth + unitPriceWidth + lineTotalWidth);
+  const descriptionWidth =
+    100 - (slWidth + imageWidth + qtyWidth + uomWidth + unitPriceWidth + lineTotalWidth);
 
   const activeColumnCount =
-    2 + (showUom ? 1 : 0) + 1 + (showUnitPrice ? 1 : 0) + (showLineTotal ? 1 : 0);
+    2 +
+    (showImageColumn ? 1 : 0) +
+    (showUom ? 1 : 0) +
+    1 +
+    (showUnitPrice ? 1 : 0) +
+    (showLineTotal ? 1 : 0);
 
   return {
     showUnitPrice,
     showUom,
     showLineTotal,
     showItemAttributes,
+    showLineItemImages,
+    lineItemImageLayout,
+    lineItemImageSize,
+    showImageColumn,
     widths: {
       sl: `${slWidth}%`,
+      image: `${imageWidth}%`,
       description: `${descriptionWidth}%`,
       qty: `${qtyWidth}%`,
       uom: `${uomWidth}%`,
@@ -2171,6 +2229,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showUom = tableColLayout.showUom;
   const showLineTotal = tableColLayout.showLineTotal;
   const showItemAttributes = tableColLayout.showItemAttributes;
+  const showLineItemImages = tableColLayout.showLineItemImages;
+  const lineItemImageLayout = tableColLayout.lineItemImageLayout;
+  const lineItemImageSize = tableColLayout.lineItemImageSize;
+  const showImageColumn = tableColLayout.showImageColumn;
+  const lineItemImagePx =
+    lineItemImageSize === 'lg' ? 68 : lineItemImageSize === 'sm' ? 36 : 50;
   const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'pills';
   const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
 
@@ -5026,6 +5090,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           >
             <colgroup>
               <col style={{ width: tableColLayout.widths.sl }} />
+              {showImageColumn && <col style={{ width: tableColLayout.widths.image }} />}
               <col style={{ width: tableColLayout.widths.description }} />
               <col style={{ width: tableColLayout.widths.qty }} />
               {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
@@ -5083,6 +5148,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     >
                       #
                     </th>
+                    {showImageColumn && (
+                      <th
+                        className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                        style={{ color: thTextColor }}
+                      >
+                        Image
+                      </th>
+                    )}
                     <th
                       className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-left`}
                       style={{ color: thTextColor }}
@@ -5141,15 +5214,52 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
                           {itemNumber}
                         </td>
-                        <td className={`${tdPad} px-2.5 align-top break-words`}>
-                          <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
-                            <span>{item.item_name || 'Standard Line Item'}</span>
-                            {item.is_optional && (
-                              <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
-                                Optional
-                              </span>
+                        {showImageColumn && (
+                          <td className={`${tdPad} px-1.5 text-center align-top`}>
+                            {item.image_url ? (
+                              <div
+                                className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
+                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                              >
+                                <img
+                                  src={item.image_url}
+                                  alt={item.item_name || `Item ${itemNumber}`}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                className="mx-auto rounded border border-dashed border-slate-200 bg-slate-50/60 flex items-center justify-center text-[8px] font-mono text-slate-400"
+                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                              >
+                                —
+                              </div>
                             )}
-                          </div>
+                          </td>
+                        )}
+                        <td className={`${tdPad} px-2.5 align-top break-words`}>
+                          <div className={showLineItemImages && lineItemImageLayout === 'inline' && item.image_url ? 'flex items-start gap-2.5' : ''}>
+                            {showLineItemImages && lineItemImageLayout === 'inline' && item.image_url && (
+                              <div
+                                className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
+                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                              >
+                                <img
+                                  src={item.image_url}
+                                  alt={item.item_name || `Item ${itemNumber}`}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
+                                <span>{item.item_name || 'Standard Line Item'}</span>
+                                {item.is_optional && (
+                                  <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
+                                    Optional
+                                  </span>
+                                )}
+                              </div>
                           {(() => {
                             const { cleanDescription, extractedSpecsAttrs } =
                               extractLineItemAttributesAndCleanDescription(item);
@@ -5294,6 +5404,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                               </>
                             );
                           })()}
+                            </div>
+                          </div>
                         </td>
                         <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                           {item.quantity}
