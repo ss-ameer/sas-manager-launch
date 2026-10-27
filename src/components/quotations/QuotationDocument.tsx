@@ -236,6 +236,27 @@ export function partitionBlocksIntoSheets(
     });
   }
 
+  // If the last line item has page_break_after === true, split the closing blocks onto a new continuation sheet after the table
+  const hasBreakAfterLastLineItem =
+    Array.isArray(lineItems) &&
+    lineItems.length > 0 &&
+    lineItems[lineItems.length - 1]?.page_break_after === true;
+
+  if (hasBreakAfterLastLineItem && activeBlocks.length > 0) {
+    rawSheets.push({
+      sheetNumber: rawSheets.length + 1,
+      blocks: [],
+      showContinuationHeader: true,
+      tableChunk: {
+        items: [],
+        startIndex: lineItems!.length,
+        isContinuation: true,
+        splitFromItemNumber: lineItems!.length
+      },
+      isTableContinuationSheet: true
+    });
+  }
+
   // Process closing layoutBlocks after the final table chunk
   activeBlocks.forEach((b) => {
     const bType =
@@ -247,13 +268,26 @@ export function partitionBlocksIntoSheets(
         : b.id);
 
     if (bType === 'page_break') {
-      rawSheets.push({
-        sheetNumber: rawSheets.length + 1,
-        blocks: [],
-        pageBreakBlock: b,
-        showContinuationHeader: b.show_continuation_header !== false,
-        isTableContinuationSheet: false
-      });
+      const currentSheet = rawSheets[rawSheets.length - 1];
+      const isCurrentSheetEmptyContinuation =
+        rawSheets.length > 1 &&
+        currentSheet.blocks.length === 0 &&
+        (!currentSheet.tableChunk || currentSheet.tableChunk.items.length === 0) &&
+        !currentSheet.pageBreakBlock;
+
+      if (isCurrentSheetEmptyContinuation) {
+        currentSheet.pageBreakBlock = b;
+        currentSheet.showContinuationHeader = b.show_continuation_header !== false;
+        currentSheet.isTableContinuationSheet = false;
+      } else {
+        rawSheets.push({
+          sheetNumber: rawSheets.length + 1,
+          blocks: [],
+          pageBreakBlock: b,
+          showContinuationHeader: b.show_continuation_header !== false,
+          isTableContinuationSheet: false
+        });
+      }
     } else {
       rawSheets[rawSheets.length - 1].blocks.push(b);
     }
@@ -1574,7 +1608,7 @@ export interface QuotationDocumentProps {
   selectedBlockId?: StudioSelectedSection;
   selectedSection?: StudioSelectedSection;
   onSelectBlock?: (id: StudioSelectedSection) => void;
-  onSelectSection?: (section: StudioSelectedSection) => void;
+  onSelectSection?: (section: StudioSelectedSection, subTarget?: string) => void;
   onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
   showPageBreakGuides?: boolean;
 }
@@ -2857,21 +2891,41 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           )}
           <div className="flex items-center gap-5 shrink-0 overflow-visible relative">
-            {/* Official Stamp / Seal (MS Word "In Front of Text" Free-Floating Overlay) */}
+            {/* Official Stamp / Seal (MS Word "In Front of Text" Free-Floating Overlay — Zero-Footprint Anchor Box) */}
             {resolvedShowCompanySeal && (
-              <div className="company-seal-box flex flex-col items-center overflow-visible relative z-20">
+              <div
+                onClick={
+                  isInteractive
+                    ? (e) => {
+                        e.stopPropagation();
+                        if (onSelectSection) {
+                          onSelectSection('signatory', 'stamp');
+                        } else if (onSelectBlock) {
+                          onSelectBlock('signatory');
+                        }
+                      }
+                    : undefined
+                }
+                title={isInteractive ? 'Click to inspect & adjust Company Stamp / Seal' : undefined}
+                className={`company-seal-box w-16 h-14 shrink-0 flex flex-col items-center justify-center overflow-visible relative z-20 ${
+                  isInteractive ? 'cursor-pointer' : ''
+                }`}
+              >
                 {resolvedCompanySealUrl ? (
                   <img
                     src={resolvedCompanySealUrl}
                     alt="Company Seal"
                     style={{
+                      position: 'absolute',
                       height: `${stampSigOverlay.sealSizePx}px`,
                       width: 'auto',
-                      maxWidth: `${Math.round(stampSigOverlay.sealSizePx * 1.5)}px`,
+                      maxWidth: 'none',
                       transform: stampSigOverlay.sealTransformStyle,
                       mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
                     }}
-                    className="object-contain mx-auto opacity-95 pointer-events-none select-none z-20"
+                    className={`object-contain mx-auto opacity-95 select-none z-20 ${
+                      isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
+                    }`}
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                     }}
@@ -2908,19 +2962,40 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                 return (
                   <div key={sIdx} className="text-center min-w-[120px] overflow-visible relative">
-                    <div className="h-14 flex items-end justify-center mb-1 overflow-visible relative">
+                    <div
+                      onClick={
+                        isInteractive
+                          ? (e) => {
+                              e.stopPropagation();
+                              if (onSelectSection) {
+                                onSelectSection('signatory', 'signature');
+                              } else if (onSelectBlock) {
+                                onSelectBlock('signatory');
+                              }
+                            }
+                          : undefined
+                      }
+                      title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
+                      className={`h-14 w-28 mx-auto flex items-end justify-center mb-1 overflow-visible relative ${
+                        isInteractive ? 'cursor-pointer' : ''
+                      }`}
+                    >
                       {useUploadedSignatureImage ? (
                         <img
                           src={resolvedSignatureImgUrl}
                           alt="Authorized Signature"
                           style={{
+                            position: 'absolute',
+                            bottom: '2px',
                             height: `${stampSigOverlay.signatureSizePx}px`,
                             width: 'auto',
-                            maxWidth: `${Math.round(stampSigOverlay.signatureSizePx * 2.4)}px`,
+                            maxWidth: 'none',
                             transform: stampSigOverlay.signatureTransformStyle,
                             mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
                           }}
-                          className="object-contain mx-auto pointer-events-none select-none z-20"
+                          className={`object-contain mx-auto select-none z-20 ${
+                            isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
+                          }`}
                         />
                       ) : signatureStyle === 'script' ? (
                         <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
@@ -3307,12 +3382,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : brandVerticalAlign === 'bottom'
         ? 'items-end'
         : 'items-start';
+    const brandColumnVJustifyClass =
+      brandVerticalAlign === 'middle'
+        ? 'justify-center'
+        : brandVerticalAlign === 'bottom'
+        ? 'justify-end'
+        : 'justify-start';
     const brandHAlignClass =
       brandHorizontalAlign === 'center'
         ? 'text-center items-center'
         : brandHorizontalAlign === 'right'
         ? 'text-right items-end'
         : 'text-left items-start';
+    const brandRowJustifyClass =
+      brandHorizontalAlign === 'center'
+        ? 'justify-center'
+        : brandHorizontalAlign === 'right'
+        ? isSplitRight
+          ? 'justify-start'
+          : 'justify-end'
+        : isSplitRight
+        ? 'justify-end'
+        : 'justify-start';
 
     const contactVAlignClass =
       contactVerticalAlign === 'middle'
@@ -3329,7 +3420,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     const renderFieldIcon = (iconName?: string) => {
       if (!showHeaderIcons || !iconName || iconName === 'none') return null;
-      const cls = 'w-3 h-3 text-slate-400 shrink-0 mt-[2px]';
+      const cls = 'w-3 h-3 text-slate-400 shrink-0';
       switch (iconName) {
         case 'map-pin':
           return <MapPin className={cls} />;
@@ -3360,21 +3451,38 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       return (
         <span
           key={field.id}
-          className={`${inlineMode ? 'inline-flex items-center' : 'flex items-start'} gap-1.5 ${field.fontSizeClass} ${field.fontWeightClass} text-slate-600 print:text-black leading-snug break-words whitespace-normal max-w-full`}
+          onClick={
+            isInteractive && !isContinuationRepeat
+              ? (e) => {
+                  e.stopPropagation();
+                  if (onSelectSection) {
+                    onSelectSection('header', `field:${field.id}`);
+                  } else if (onSelectBlock) {
+                    onSelectBlock('header' as any);
+                  }
+                }
+              : undefined
+          }
+          title={isInteractive && !isContinuationRepeat ? `Click to configure ${field.label || field.id} in Header Inspector` : undefined}
+          className={`${inlineMode ? 'inline-flex items-center' : 'block'} ${field.fontSizeClass} ${field.fontWeightClass} text-slate-600 print:text-black leading-snug break-words whitespace-normal max-w-full ${
+            isInteractive && !isContinuationRepeat ? 'cursor-pointer hover:text-slate-900 rounded-xs transition-colors' : ''
+          }`}
         >
-          {iconNode}
-          <span className="min-w-0 break-words whitespace-normal">
-            {field.label ? (
-              <span className="text-slate-500 font-medium mr-1">{field.label}</span>
-            ) : null}
-            <span className={field.id === 'trn' ? 'font-mono text-slate-800' : 'text-slate-700'}>
-              <EditableCanvasText
-                value={field.resolvedValue}
-                fieldKey={`header_field:${field.id}`}
-                canEdit={canEditCanvasInline && isHeaderSelected && !isContinuationRepeat}
-                onCommit={onInlineFieldEdit}
-              />
+          {iconNode && (
+            <span className="inline-flex items-center align-[-2px] mr-1.5 shrink-0">
+              {iconNode}
             </span>
+          )}
+          {field.label ? (
+            <span className="text-slate-500 font-medium mr-1">{field.label}</span>
+          ) : null}
+          <span className={field.id === 'trn' ? 'font-mono text-slate-800' : 'text-slate-700'}>
+            <EditableCanvasText
+              value={field.resolvedValue}
+              fieldKey={`header_field:${field.id}`}
+              canEdit={canEditCanvasInline && isHeaderSelected && !isContinuationRepeat}
+              onCommit={onInlineFieldEdit}
+            />
           </span>
         </span>
       );
@@ -3385,6 +3493,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       ...resolvedHeaderFieldsMap.underName,
       ...resolvedHeaderFieldsMap.contactBlock,
       ...resolvedHeaderFieldsMap.bottomBar
+    ];
+
+    const stackedBrandFieldsWhenLogoOnly = [
+      ...resolvedHeaderFieldsMap.underLogo,
+      ...resolvedHeaderFieldsMap.underName
     ];
 
     return (
@@ -3429,7 +3542,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             style={{ width: '100%', maxWidth: '100%' }}
           >
             {showLogo && (
-              <div className={`w-full flex flex-col items-center justify-center ${logoWrapperPaddingClass}`}>
+              <div
+                onClick={
+                  isInteractive && !isContinuationRepeat
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectSection?.('header', 'logo');
+                      }
+                    : undefined
+                }
+                title={isInteractive && !isContinuationRepeat ? 'Click to adjust Corporate Logo in Header Inspector' : undefined}
+                className={`w-full flex flex-col items-center justify-center ${logoWrapperPaddingClass}`}
+              >
                 {activeLogoUrl && !logoLoadFailed ? (
                   <img
                     src={activeLogoUrl}
@@ -3497,62 +3621,129 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           /* Split Classic (Logo Left / Contacts Right) or Split Reversed (Contacts Left / Logo Right) via 12-Col Grid */
           <>
             <div
-              className="grid grid-cols-12 gap-4 w-full items-start"
+              className="grid grid-cols-12 gap-4 w-full items-stretch"
               style={{ width: '100%', maxWidth: '100%' }}
             >
               {/* Brand Lockup Zone (col-span-7) */}
-              <div
-                className={`${
-                  isSplitRight
-                    ? 'col-span-7 col-start-6 row-start-1 flex-row-reverse justify-start'
-                    : 'col-span-7 col-start-1 row-start-1 flex-row'
-                } min-w-0 flex ${brandVAlignClass} ${logoGapClass}`}
-              >
-                {showLogo && (
-                  <div className={`flex flex-col items-start shrink-0 ${logoWrapperPaddingClass}`}>
-                    {activeLogoUrl && !logoLoadFailed ? (
-                      <img
-                        src={activeLogoUrl}
-                        alt={senderEntityName}
-                        style={{
-                          height: `${logoHeight}px`,
-                          maxWidth: `${logoMaxWidthPx || 260}px`
-                        }}
-                        className="w-auto object-contain shrink-0"
-                        onError={() => setLogoLoadFailed(true)}
-                      />
-                    ) : (
-                      <div
-                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
-                        style={{
-                          backgroundColor: accentColor,
-                          width: `${Math.max(40, logoHeight)}px`,
-                          height: `${Math.max(40, logoHeight)}px`
-                        }}
-                      >
-                        <Building2 className="w-6 h-6" />
-                      </div>
-                    )}
-                    {resolvedHeaderFieldsMap.underLogo.length > 0 && (
-                      <div className="flex flex-col gap-0.5 mt-1">
-                        {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className={`min-w-0 flex flex-col ${brandHAlignClass}`}>
-                  {showCompanyName && (
-                    <h1 className={`${typoScale.h1} font-bold tracking-tight text-slate-900 leading-tight break-words`}>
-                      {senderEntityName}
-                    </h1>
+              {!showCompanyName ? (
+                /* Logo-Only Mode: Stack underLogo + underName fields directly below the logo & align logo box via Brand Zone 2D controls */
+                <div
+                  className={`${
+                    isSplitRight
+                      ? 'col-span-7 col-start-6 row-start-1'
+                      : 'col-span-7 col-start-1 row-start-1'
+                  } min-w-0 h-full flex flex-col ${brandColumnVJustifyClass} ${brandHAlignClass}`}
+                >
+                  {showLogo && (
+                    <div
+                      onClick={
+                        isInteractive && !isContinuationRepeat
+                          ? (e) => {
+                              e.stopPropagation();
+                              onSelectSection?.('header', 'logo');
+                            }
+                          : undefined
+                      }
+                      title={isInteractive && !isContinuationRepeat ? 'Click to adjust Corporate Logo in Header Inspector' : undefined}
+                      className={`flex flex-col ${brandHAlignClass} shrink-0 ${logoWrapperPaddingClass}`}
+                    >
+                      {activeLogoUrl && !logoLoadFailed ? (
+                        <img
+                          src={activeLogoUrl}
+                          alt={senderEntityName}
+                          style={{
+                            height: `${logoHeight}px`,
+                            maxWidth: `${logoMaxWidthPx || 260}px`
+                          }}
+                          className="w-auto object-contain shrink-0"
+                          onError={() => setLogoLoadFailed(true)}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                          style={{
+                            backgroundColor: accentColor,
+                            width: `${Math.max(40, logoHeight)}px`,
+                            height: `${Math.max(40, logoHeight)}px`
+                          }}
+                        >
+                          <Building2 className="w-6 h-6" />
+                        </div>
+                      )}
+                    </div>
                   )}
-                  {resolvedHeaderFieldsMap.underName.length > 0 && (
-                    <div className={`flex flex-col gap-0.5 ${showCompanyName ? 'mt-0.5' : 'mt-0'} ${brandHAlignClass}`}>
-                      {resolvedHeaderFieldsMap.underName.map((f) => renderFieldItemNode(f))}
+                  {stackedBrandFieldsWhenLogoOnly.length > 0 && (
+                    <div className={`flex flex-col gap-0.5 mt-1 ${brandHAlignClass}`}>
+                      {stackedBrandFieldsWhenLogoOnly.map((f) => renderFieldItemNode(f))}
                     </div>
                   )}
                 </div>
-              </div>
+              ) : (
+                /* Logo + Company Name Lockup Mode */
+                <div
+                  className={`${
+                    isSplitRight
+                      ? 'col-span-7 col-start-6 row-start-1 flex-row-reverse'
+                      : 'col-span-7 col-start-1 row-start-1 flex-row'
+                  } min-w-0 h-full flex ${brandRowJustifyClass} ${brandVAlignClass} ${logoGapClass}`}
+                >
+                  {showLogo && (
+                    <div
+                      onClick={
+                        isInteractive && !isContinuationRepeat
+                          ? (e) => {
+                              e.stopPropagation();
+                              onSelectSection?.('header', 'logo');
+                            }
+                          : undefined
+                      }
+                      title={isInteractive && !isContinuationRepeat ? 'Click to adjust Corporate Logo in Header Inspector' : undefined}
+                      className={`flex flex-col ${brandHAlignClass} shrink-0 ${logoWrapperPaddingClass}`}
+                    >
+                      {activeLogoUrl && !logoLoadFailed ? (
+                        <img
+                          src={activeLogoUrl}
+                          alt={senderEntityName}
+                          style={{
+                            height: `${logoHeight}px`,
+                            maxWidth: `${logoMaxWidthPx || 260}px`
+                          }}
+                          className="w-auto object-contain shrink-0"
+                          onError={() => setLogoLoadFailed(true)}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                          style={{
+                            backgroundColor: accentColor,
+                            width: `${Math.max(40, logoHeight)}px`,
+                            height: `${Math.max(40, logoHeight)}px`
+                          }}
+                        >
+                          <Building2 className="w-6 h-6" />
+                        </div>
+                      )}
+                      {resolvedHeaderFieldsMap.underLogo.length > 0 && (
+                        <div className={`flex flex-col gap-0.5 mt-1 ${brandHAlignClass}`}>
+                          {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className={`min-w-0 flex flex-col ${brandHAlignClass}`}>
+                    {showCompanyName && (
+                      <h1 className={`${typoScale.h1} font-bold tracking-tight text-slate-900 leading-tight break-words`}>
+                        {senderEntityName}
+                      </h1>
+                    )}
+                    {resolvedHeaderFieldsMap.underName.length > 0 && (
+                      <div className={`flex flex-col gap-0.5 ${showCompanyName ? 'mt-0.5' : 'mt-0'} ${brandHAlignClass}`}>
+                        {resolvedHeaderFieldsMap.underName.map((f) => renderFieldItemNode(f))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Contact Block Zone (col-span-5) */}
               <div
@@ -3560,7 +3751,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   isSplitRight
                     ? 'col-span-5 col-start-1 row-start-1 pl-1'
                     : 'col-span-5 col-start-8 row-start-1 pr-1.5'
-                } min-w-0 flex flex-col space-y-0.5 box-border max-w-full ${contactVAlignClass} ${contactHAlignClass}`}
+                } min-w-0 h-full flex flex-col space-y-0.5 box-border max-w-full ${contactVAlignClass} ${contactHAlignClass}`}
               >
                 {resolvedHeaderFieldsMap.contactBlock.map((f) => renderFieldItemNode(f))}
               </div>
@@ -4716,6 +4907,40 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </React.Fragment>
         );
       })}
+
+      {/* Interactive Studio Guide for Trailing Page Break(s) Appended Below the Last Block */}
+      {isInteractive &&
+        showPageBreakGuides !== false &&
+        (() => {
+          const activeList = resolvedBlocks.filter(
+            (b) => b.enabled !== false && b.is_visible !== false
+          );
+          const lastActive = activeList[activeList.length - 1];
+          const isLastTrailingBreak =
+            lastActive &&
+            (lastActive.type === 'page_break' || lastActive.id?.startsWith('break_'));
+          if (!isLastTrailingBreak) return null;
+          const isTrailingSelected = activeSelectedSection === lastActive.id;
+          return (
+            <div
+              onClick={() => {
+                onSelectSection
+                  ? onSelectSection(lastActive.id)
+                  : onSelectBlock?.(lastActive.id);
+              }}
+              className={`quotation-canvas-guide w-[210mm] max-w-[210mm] -mt-4 mb-6 px-3.5 py-2 rounded-xl border border-dashed flex items-center justify-between text-[10.5px] font-mono cursor-pointer transition shadow-xs print:hidden ${
+                isTrailingSelected
+                  ? 'bg-amber-100 border-amber-500 text-amber-950 ring-2 ring-amber-400/60'
+                  : 'bg-amber-50/95 hover:bg-amber-100/90 border-amber-400 text-amber-900'
+              }`}
+            >
+              <span className="font-semibold flex items-center gap-1.5">
+                ✂ Page Break (Below Last Section — Move Up in Left Panel to Split Blocks onto Next Page)
+              </span>
+              <span className="text-[9.5px] font-bold underline">Inspect Page Break</span>
+            </div>
+          );
+        })()}
 
       {/* ========================================================
           FULL-PAGE A4 TECHNICAL ANNEX SHEETS

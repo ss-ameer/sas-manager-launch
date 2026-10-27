@@ -3202,7 +3202,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
 
           {/* Row 3: Live A4 QuotationDocument Canvas */}
           <div className="bg-slate-800/95 rounded-2xl p-4 sm:p-6 overflow-x-auto border border-slate-700 shadow-inner">
-            <div className="flex items-center justify-between mb-4 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 text-xs text-slate-300">
               <div className="flex items-center gap-2">
                 <Eye className="w-4 h-4 text-indigo-400" />
                 <span className="font-bold text-white">Live A4 Document Render Preview</span>
@@ -3210,13 +3210,66 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   — Reflecting {sandboxPresetId === '__unsaved_profile__' ? 'Unsaved Profile Form State' : `Preset "${activeSandboxPreset?.preset_name}"`}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsFullStudioSandboxOpen(true)}
-                className="text-indigo-300 hover:text-white font-bold underline cursor-pointer"
-              >
-                Open in Interactive 3-Pane Studio →
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={savingProfile}
+                  onClick={async () => {
+                    await handleSaveProfile();
+                    const targetPreset =
+                      activeSandboxPreset || presets.find((p) => p.is_default) || presets[0];
+                    if (targetPreset?.id) {
+                      try {
+                        const updatedPreset = await QuotationRepository.updatePreset(
+                          targetPreset.id,
+                          {
+                            ...targetPreset,
+                            theme_accent: themeAccent,
+                            customThemeColor: customThemeColor || undefined,
+                            block_style: blockStyle,
+                            globalCardRadius,
+                            fontSizeScale,
+                            table_density: tableDensity,
+                            signatory_type: signatoryType,
+                            signature_style: signatureStyle,
+                            primary_signatory_name: primarySignatoryName,
+                            primary_signatory_title: primarySignatoryTitle,
+                            secondary_signatory_name: secondarySignatoryName,
+                            secondary_signatory_title: secondarySignatoryTitle,
+                            show_company_seal: showCompanySeal,
+                            customer_acceptance_enabled: customerAcceptanceEnabled,
+                            amount_in_words_enabled: amountInWordsEnabled,
+                            company_logo_url: logoUrl || undefined,
+                            company_seal_url: stampSealUrl || undefined,
+                            signature_image_url: signatureImageUrl || undefined,
+                            header_config: liveSandboxProfile.header_config
+                          }
+                        );
+                        setPresets((prev) =>
+                          QuotationRepository.applyPresetUpdateInList(prev, updatedPreset)
+                        );
+                      } catch (err) {
+                        console.warn('Preset sync notice:', err);
+                      }
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>
+                    {activeSandboxPreset
+                      ? `Save Changes to Profile & "${activeSandboxPreset.preset_name}"`
+                      : 'Save Changes to Profile'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFullStudioSandboxOpen(true)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs transition cursor-pointer shadow-sm"
+                >
+                  Open in Interactive 3-Pane Studio →
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-center">
@@ -3224,7 +3277,18 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 <QuotationDocument
                   quotation={sandboxQuotation}
                   profile={liveSandboxProfile}
-                  interactive={false}
+                  onSelectSection={() => setIsFullStudioSandboxOpen(true)}
+                  onInlineFieldEdit={(fieldKey, nextValue) => {
+                    if (fieldKey === 'primary_signatory_name') setPrimarySignatoryName(nextValue);
+                    else if (fieldKey === 'primary_signatory_title') setPrimarySignatoryTitle(nextValue);
+                    else if (fieldKey === 'secondary_signatory_name') setSecondarySignatoryName(nextValue);
+                    else if (fieldKey === 'secondary_signatory_title') setSecondarySignatoryTitle(nextValue);
+                    else if (fieldKey === 'header_field:trn') setTrn(nextValue);
+                    else if (fieldKey === 'header_field:phone') setPhone(nextValue);
+                    else if (fieldKey === 'header_field:email') setEmail(nextValue);
+                    else if (fieldKey === 'header_field:website') setWebsite(nextValue);
+                    else if (fieldKey === 'header_field:address') setAddressLine1(nextValue);
+                  }}
                 />
               </div>
             </div>
@@ -3242,12 +3306,76 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           profile={liveSandboxProfile}
           activeWorkspaceId={workspaceId}
           user={user}
+          isSandboxMode={true}
+          initialPresetId={
+            sandboxPresetId !== '__unsaved_profile__' ? sandboxPresetId : undefined
+          }
           salespersonName={primarySignatoryName || user?.displayName || 'Commercial Director'}
           triggerToast={triggerToast}
-          onSaved={() => {
-            QuotationRepository.getPresets(workspaceId)
-              .then((refreshed) => setPresets(refreshed))
-              .catch(() => {});
+          onProfileAndPresetSaved={(savedProfile, savedPreset) => {
+            setRawProfileSnapshot(savedProfile);
+            if (savedProfile.id) setProfileId(savedProfile.id);
+            if (savedProfile.legal_entity_name) setLegalEntityName(savedProfile.legal_entity_name);
+            if (savedProfile.tax_registration_number !== undefined) {
+              setTrn(savedProfile.tax_registration_number || '');
+            }
+            if (savedProfile.address_line_1 !== undefined) setAddressLine1(savedProfile.address_line_1 || '');
+            if (savedProfile.address_line_2 !== undefined) setAddressLine2(savedProfile.address_line_2 || '');
+            if (savedProfile.city !== undefined) setCity(savedProfile.city || '');
+            if (savedProfile.country !== undefined) setCountry(savedProfile.country || '');
+            if (savedProfile.phone !== undefined) setPhone(savedProfile.phone || '');
+            if (savedProfile.email !== undefined) setEmail(savedProfile.email || '');
+            if (savedProfile.website !== undefined) setWebsite(savedProfile.website || '');
+            if (savedProfile.logo_url !== undefined) setLogoUrl(savedProfile.logo_url || '');
+            if (savedProfile.company_seal_url !== undefined || savedProfile.stamp_seal_url !== undefined) {
+              setStampSealUrl(savedProfile.company_seal_url || savedProfile.stamp_seal_url || '');
+            }
+            if (savedProfile.signature_image_url !== undefined) {
+              setSignatureImageUrl(savedProfile.signature_image_url || '');
+            }
+            if (savedProfile.theme_accent) setThemeAccent(savedProfile.theme_accent as ThemeAccentKey);
+            if (savedProfile.customThemeColor !== undefined) {
+              setCustomThemeColor(savedProfile.customThemeColor || '');
+            }
+            if (savedProfile.block_style) setBlockStyle(savedProfile.block_style);
+            if (savedProfile.globalCardRadius) setGlobalCardRadius(savedProfile.globalCardRadius);
+            if (savedProfile.fontSizeScale) setFontSizeScale(savedProfile.fontSizeScale);
+            if (savedProfile.table_density) setTableDensity(savedProfile.table_density);
+            if (savedProfile.header_config?.logoDisplayMode) {
+              setLogoDisplayMode(savedProfile.header_config.logoDisplayMode);
+            }
+            if (savedProfile.header_config?.headerLayoutMode) {
+              setHeaderLayoutMode(savedProfile.header_config.headerLayoutMode);
+            }
+            if (savedProfile.header_config?.logoHeightPx) {
+              setLogoHeightPx(savedProfile.header_config.logoHeightPx);
+            }
+            if (savedProfile.header_config?.showLogoOnContinuationPages !== undefined) {
+              setShowLogoOnContinuationPages(savedProfile.header_config.showLogoOnContinuationPages);
+            }
+            if (savedProfile.signatory_type) setSignatoryType(savedProfile.signatory_type);
+            if (savedProfile.signature_style) setSignatureStyle(savedProfile.signature_style);
+            if (savedProfile.primary_signatory_name) setPrimarySignatoryName(savedProfile.primary_signatory_name);
+            if (savedProfile.primary_signatory_title) setPrimarySignatoryTitle(savedProfile.primary_signatory_title);
+            if (savedProfile.secondary_signatory_name) setSecondarySignatoryName(savedProfile.secondary_signatory_name);
+            if (savedProfile.secondary_signatory_title) setSecondarySignatoryTitle(savedProfile.secondary_signatory_title);
+            if (savedProfile.show_company_seal !== undefined) setShowCompanySeal(savedProfile.show_company_seal);
+            if (savedProfile.customer_acceptance_enabled !== undefined) {
+              setCustomerAcceptanceEnabled(savedProfile.customer_acceptance_enabled);
+            }
+            if (savedProfile.amount_in_words_enabled !== undefined) {
+              setAmountInWordsEnabled(savedProfile.amount_in_words_enabled);
+            }
+            if (savedPreset) {
+              setPresets((prev) =>
+                QuotationRepository.applyPresetUpdateInList(prev, savedPreset)
+              );
+              if (savedPreset.id) setSandboxPresetId(savedPreset.id);
+            } else {
+              QuotationRepository.getPresets(workspaceId)
+                .then((refreshed) => setPresets(refreshed))
+                .catch(() => {});
+            }
           }}
         />
       )}

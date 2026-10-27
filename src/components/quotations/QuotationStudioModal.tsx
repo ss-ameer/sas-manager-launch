@@ -107,6 +107,12 @@ export interface QuotationStudioModalProps {
   user: UserProfile;
   profile?: WorkspaceDocumentProfile | null;
   editingQuotation?: Quotation | null;
+  isSandboxMode?: boolean;
+  initialPresetId?: string;
+  onProfileAndPresetSaved?: (
+    savedProfile: WorkspaceDocumentProfile,
+    savedPreset?: QuotationPreset
+  ) => void;
   onQuotationCreated?: (quotation: Quotation) => void;
   onEnquirySync?: (syncPayload: EnquiryQuotationSyncPayload) => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -168,15 +174,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   user,
   profile,
   editingQuotation,
+  isSandboxMode = false,
+  initialPresetId,
+  onProfileAndPresetSaved,
   onQuotationCreated,
   onEnquirySync,
   triggerToast
 }) => {
   if (!isOpen) return null;
 
+  const isEffectiveSandbox =
+    Boolean(isSandboxMode) || editingQuotation?.id === 'sandbox_preview_quotation';
+
   // Presets and loading states
   const [presets, setPresets] = useState<QuotationPreset[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(initialPresetId || '');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Active Quotation Revision & Lifecycle Status State
@@ -505,7 +517,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     });
   };
 
-  const handleAddPageBreak = () => {
+  const handleAddPageBreak = (insertBeforeBlockId?: string | React.MouseEvent) => {
     const newId = `break_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const newBlock: QuotationBlockConfig = {
       id: newId,
@@ -517,11 +529,22 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       style: 'minimal',
       show_continuation_header: true
     };
-    setLayoutBlocks((prev) => [...prev, newBlock]);
+    const targetId = typeof insertBeforeBlockId === 'string' ? insertBeforeBlockId : undefined;
+    setLayoutBlocks((prev) => {
+      if (targetId) {
+        const idx = prev.findIndex((b) => b.id === targetId);
+        if (idx !== -1) {
+          const next = [...prev];
+          next.splice(idx, 0, newBlock);
+          return next;
+        }
+      }
+      return [...prev, newBlock];
+    });
     setSelectedSection(newId);
   };
 
-  const handleAddSpacer = () => {
+  const handleAddSpacer = (insertBeforeBlockId?: string | React.MouseEvent) => {
     const newId = `spacer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const newBlock: QuotationBlockConfig = {
       id: newId,
@@ -534,7 +557,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       placement: 'full',
       style: 'minimal'
     };
-    setLayoutBlocks((prev) => [...prev, newBlock]);
+    const targetId = typeof insertBeforeBlockId === 'string' ? insertBeforeBlockId : undefined;
+    setLayoutBlocks((prev) => {
+      if (targetId) {
+        const idx = prev.findIndex((b) => b.id === targetId);
+        if (idx !== -1) {
+          const next = [...prev];
+          next.splice(idx, 0, newBlock);
+          return next;
+        }
+      }
+      return [...prev, newBlock];
+    });
     setSelectedSection(newId);
   };
 
@@ -605,6 +639,42 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Retractable Right-Side Contextual Block & Section Inspector selection
   const [selectedSection, setSelectedSection] = useState<StudioSelectedSection>(null);
+  const [inspectorSubTarget, setInspectorSubTarget] = useState<string | null>(null);
+  const [highlightedInspectorTarget, setHighlightedInspectorTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!inspectorSubTarget) return;
+    const parts = inspectorSubTarget.split('::');
+    const targetKey = parts[0];
+    if (!targetKey) return;
+
+    setHighlightedInspectorTarget(targetKey);
+    const scrollTimer = window.setTimeout(() => {
+      const el = document.getElementById(`inspector-target-${targetKey}`);
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 60);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedInspectorTarget((prev) => (prev === targetKey ? null : prev));
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [inspectorSubTarget, selectedSection]);
+
+  const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
+    setSelectedSection(section);
+    if (subTarget) {
+      setInspectorSubTarget(`${subTarget}::${Date.now()}`);
+    } else {
+      setInspectorSubTarget(null);
+    }
+  };
+
   const selectedBlockId =
     selectedSection &&
     selectedSection !== 'items_table' &&
@@ -1355,10 +1425,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       .then((loadedPresets) => {
         if (!isMounted) return;
         setPresets(loadedPresets);
-        if (loadedPresets.length > 0 && !editingQuotation) {
+        if (initialPresetId && loadedPresets.some((p) => p.id === initialPresetId)) {
+          setSelectedPresetId(initialPresetId);
+        } else if (loadedPresets.length > 0 && !editingQuotation) {
           const defaultPreset =
             loadedPresets.find((p) => p.is_default) || loadedPresets[0];
           applyPreset(defaultPreset);
+        } else if (loadedPresets.length > 0 && isEffectiveSandbox && !selectedPresetId) {
+          const defaultPreset =
+            loadedPresets.find((p) => p.is_default) || loadedPresets[0];
+          if (defaultPreset?.id) {
+            setSelectedPresetId(defaultPreset.id);
+          }
         }
       })
       .catch((err) => {
@@ -1367,7 +1445,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId, editingQuotation]);
+  }, [activeWorkspaceId, editingQuotation, initialPresetId]);
 
   // Hydrated workspace document profile state
   const [workspaceProfile, setWorkspaceProfile] = useState<WorkspaceDocumentProfile | null>(profile || null);
@@ -2700,6 +2778,156 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
+  // Save current Studio configuration directly to the Active Workspace Document Profile AND Active/Default Preset
+  const handleSaveToActiveProfileAndPreset = async (closeAfterSave = false) => {
+    if (isSaving || isSavingPreset) return;
+    setIsSavingPreset(true);
+    try {
+      const resolvedLogoUrl = companyLogoUrl || headerConfig.logoUrl || activeProfile?.logo_url || '';
+      const resolvedSealUrl =
+        companySealUrl ||
+        footerConfig.companySealUrl ||
+        activeProfile?.company_seal_url ||
+        activeProfile?.stamp_seal_url ||
+        '';
+      const resolvedSigUrl =
+        signatureImageUrl ||
+        footerConfig.signatureImageUrl ||
+        activeProfile?.signature_image_url ||
+        '';
+
+      const updatedProfilePayload: WorkspaceDocumentProfile = {
+        ...(activeProfile || {}),
+        id: activeProfile?.id || `doc_prof_${activeWorkspaceId}`,
+        workspace_id: activeWorkspaceId,
+        legal_entity_name:
+          senderOverride?.legal_entity_name ||
+          activeProfile?.legal_entity_name ||
+          activeWorkspace?.name ||
+          'Corporate Entity',
+        short_brand_name: activeProfile?.short_brand_name || activeWorkspace?.name || '',
+        logo_url: resolvedLogoUrl,
+        company_seal_url: resolvedSealUrl,
+        stamp_seal_url: resolvedSealUrl,
+        signature_image_url: resolvedSigUrl,
+        tax_registration_label:
+          senderOverride?.tax_registration_label ||
+          activeProfile?.tax_registration_label ||
+          'TRN / VAT Reg',
+        tax_registration_number:
+          senderOverride?.tax_registration_number ??
+          activeProfile?.tax_registration_number ??
+          '',
+        address_line_1:
+          senderOverride?.address_line_1 ?? activeProfile?.address_line_1 ?? '',
+        address_line_2:
+          senderOverride?.address_line_2 ?? activeProfile?.address_line_2 ?? '',
+        city: senderOverride?.city ?? activeProfile?.city ?? '',
+        country: senderOverride?.country ?? activeProfile?.country ?? 'UAE',
+        phone: senderOverride?.phone ?? activeProfile?.phone ?? '',
+        email: senderOverride?.email ?? activeProfile?.email ?? '',
+        website: senderOverride?.website ?? activeProfile?.website ?? '',
+        accent_color: customThemeColor || activeProfile?.accent_color || '#1e293b',
+        theme_accent: themeAccent,
+        customThemeColor: customThemeColor || undefined,
+        block_style: blockStyle,
+        globalCardRadius: globalCardRadius,
+        cardsOrder: cardsOrder,
+        subjectPlacement: subjectPlacement,
+        header_layout: headerLayout,
+        logo_position: logoPosition,
+        table_density: tableDensity,
+        table_font_scale: tableFontScale,
+        fontSizeScale: fontSizeScale,
+        font_size_scale: fontSizeScale,
+        show_bank_details: showBankDetails,
+        show_commercial_terms: showCommercialTerms,
+        show_company_seal: showCompanySeal,
+        amount_in_words_enabled: amountInWordsEnabled,
+        showAmountInWords: amountInWordsEnabled,
+        customer_acceptance_enabled: customerAcceptanceEnabled,
+        signatory_type: signatoryType,
+        signature_style: signatureStyle,
+        primary_signatory_name: signatoryName,
+        primary_signatory_title: signatoryTitle,
+        secondary_signatory_name: secondarySignatoryName,
+        secondary_signatory_title: secondarySignatoryTitle,
+        default_notes: customNotes,
+        bank_accounts: activeProfile?.bank_accounts || [],
+        header_config: {
+          ...headerConfig,
+          logoUrl: resolvedLogoUrl
+        },
+        recipient_config: {
+          ...recipientConfig,
+          globalCardRadius,
+          cardsOrder,
+          subjectPlacement
+        },
+        footer_config: {
+          ...footerConfig,
+          pageMode,
+          remittanceBankId: selectedBankId,
+          ...(resolvedSealUrl ? { companySealUrl: resolvedSealUrl } : {}),
+          ...(resolvedSigUrl ? { signatureImageUrl: resolvedSigUrl } : {})
+        },
+        layout_blocks: layoutBlocks,
+        visible_columns: {
+          ...visibleColumns,
+          unit_price: visibleColumns.showUnitPrice !== false,
+          showUnitPrice: visibleColumns.showUnitPrice !== false,
+          showUom: visibleColumns.showUom !== false,
+          showLineTotal: visibleColumns.showLineTotal !== false,
+          showItemAttributes: visibleColumns.showItemAttributes !== false,
+          showAmountInWords: amountInWordsEnabled
+        },
+        updated_at: new Date().toISOString()
+      };
+
+      const savedProfile = await QuotationRepository.saveWorkspaceDocumentProfile(
+        updatedProfilePayload
+      );
+      setWorkspaceProfile(savedProfile);
+
+      // Also update the active or default preset if one exists
+      const targetPreset =
+        selectedPreset || presets.find((p) => p.is_default) || presets[0];
+      let savedPreset: QuotationPreset | undefined = undefined;
+      if (targetPreset && targetPreset.id) {
+        const presetPayload = buildCurrentPresetPayload(
+          targetPreset.preset_name,
+          targetPreset.is_default
+        );
+        savedPreset = await QuotationRepository.updatePreset(targetPreset.id, {
+          ...presetPayload,
+          id: targetPreset.id,
+          createdAt: targetPreset.createdAt
+        });
+        setPresets((prev) =>
+          QuotationRepository.applyPresetUpdateInList(prev, savedPreset!)
+        );
+      }
+
+      onProfileAndPresetSaved?.(savedProfile, savedPreset);
+
+      triggerToast?.(
+        savedPreset
+          ? `Saved changes to Workspace Profile & "${savedPreset.preset_name}" preset!`
+          : 'Saved changes to Workspace Document Profile!',
+        'success'
+      );
+
+      if (closeAfterSave) {
+        onClose();
+      }
+    } catch (err) {
+      console.error('[QuotationStudioModal] Error saving to active profile & preset:', err);
+      triggerToast?.('Failed to save changes to profile & preset.', 'error');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
   // Mark currently selected preset as the workspace default
   const handleSetDefaultPreset = async () => {
     if (!selectedPresetId || !selectedPreset) return;
@@ -2987,55 +3215,63 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                   </select>
                 </div>
 
-                {/* Quick-Action Lifecycle Controls when a custom preset is selected */}
-                {selectedPreset && (
-                  <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        disabled={isSavingPreset}
-                        onClick={handleUpdatePreset}
-                        title="Overwrite this preset with current studio settings"
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                      >
-                        <Save className="w-3 h-3" />
-                        <span>Update Preset</span>
-                      </button>
+                {/* Quick-Action Lifecycle Controls for Active Profile & Preset */}
+                <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={isSavingPreset}
+                      onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                      title="Save current branding, header/footer layout, stamp/signature overlays, and blocks to Workspace Profile & Active Preset"
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                    >
+                      <Save className="w-3 h-3" />
+                      <span>
+                        {selectedPreset
+                          ? `Save to Profile & "${selectedPreset.preset_name}"`
+                          : 'Save to Workspace Profile'}
+                      </span>
+                    </button>
 
-                      {selectedPreset.is_default ? (
-                        <span
-                          title="This preset automatically hydrates new quotations"
-                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
-                        >
-                          <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                          <span>Default</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isSavingPreset}
-                          onClick={handleSetDefaultPreset}
-                          title="Set as default preset for new quotations in this workspace"
-                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                        >
-                          <Star className="w-3 h-3" />
-                          <span>Set Default</span>
-                        </button>
-                      )}
-                    </div>
+                    {selectedPreset && (
+                      <>
+                        {selectedPreset.is_default ? (
+                          <span
+                            title="This preset automatically hydrates new quotations"
+                            className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
+                          >
+                            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                            <span>Default</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isSavingPreset}
+                            onClick={handleSetDefaultPreset}
+                            title="Set as default preset for new quotations in this workspace"
+                            className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <Star className="w-3 h-3" />
+                            <span>Set Default</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
 
+                  {selectedPreset && (
                     <button
                       type="button"
                       disabled={isSavingPreset}
                       onClick={handleDeletePreset}
                       title="Delete selected custom preset"
-                      className="px-2 py-1 text-[11px] font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       <Trash2 className="w-3 h-3" />
                       <span>Delete</span>
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {/* 2-Tab Segmented Switcher */}
@@ -4411,33 +4647,57 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                disabled={isSaving}
+                disabled={isSaving || isSavingPreset}
                 className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-xs rounded-xl transition cursor-pointer"
               >
-                Cancel
+                {isEffectiveSandbox ? 'Close' : 'Cancel'}
               </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
-                  disabled={isSaving}
-                  className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 text-slate-500" />
-                  <span>{quotationStatus && quotationStatus !== 'Draft' ? `Save (${quotationStatus})` : 'Save Draft'}</span>
-                </button>
+              {isEffectiveSandbox ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                    disabled={isSavingPreset}
+                    className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Save Changes</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleSaveQuotation('Sent')}
-                  disabled={isSaving}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Issue Quotation</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(true)}
+                    disabled={isSavingPreset}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Save &amp; Done</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
+                    disabled={isSaving}
+                    className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{quotationStatus && quotationStatus !== 'Draft' ? `Save (${quotationStatus})` : 'Save Draft'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation('Sent')}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Issue Quotation</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -4574,8 +4834,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     layoutBlocks={layoutBlocks}
                     selectedSection={selectedSection}
                     selectedBlockId={selectedBlockId}
-                    onSelectSection={(sec) => setSelectedSection(sec)}
-                    onSelectBlock={(id) => setSelectedSection(id)}
+                    onSelectSection={handleCanvasSelectSection}
+                    onSelectBlock={(id) => handleCanvasSelectSection(id)}
                     onInlineFieldEdit={handleInlineFieldEdit}
                     showPageBreakGuides={showPageBreakGuides}
                   />
@@ -4635,7 +4895,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       return (
                         <>
                           {/* 1. Corporate Logo Uploader & Preview Card */}
-                          <div className="space-y-2">
+                          <div
+                            id="inspector-target-logo"
+                            className={`space-y-2 rounded-xl transition-all duration-300 ${
+                              highlightedInspectorTarget === 'logo'
+                                ? 'ring-2 ring-blue-500 bg-blue-50/40 p-2 -mx-2'
+                                : ''
+                            }`}
+                          >
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                               <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
                               Corporate Logo &amp; Letterhead Graphic
@@ -5053,9 +5320,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               <AlignLeft className="w-3.5 h-3.5 text-blue-600" />
                               Header Content Alignment
                             </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
-                                <span className="text-[10px] font-bold text-slate-700 block">
+                            <div className="grid grid-cols-1 gap-2.5">
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                                <span className="text-[10.5px] font-bold text-slate-700 block">
                                   Brand / Logo Zone
                                 </span>
                                 <div className="grid grid-cols-3 gap-1">
@@ -5108,8 +5375,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </div>
                               </div>
 
-                              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
-                                <span className="text-[10px] font-bold text-slate-700 block">
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                                <span className="text-[10.5px] font-bold text-slate-700 block">
                                   Contact / Details Zone
                                 </span>
                                 <div className="grid grid-cols-3 gap-1">
@@ -5266,8 +5533,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   return (
                                     <div
                                       key={field.id}
-                                      className={`p-2.5 rounded-xl border space-y-2 transition ${
-                                        field.enabled
+                                      id={`inspector-target-field:${field.id}`}
+                                      className={`p-2.5 rounded-xl border space-y-2 transition-all duration-300 ${
+                                        highlightedInspectorTarget === `field:${field.id}`
+                                          ? 'ring-2 ring-blue-500 bg-blue-50/50 border-blue-400 shadow-sm'
+                                          : field.enabled
                                           ? 'bg-white border-slate-200 shadow-2xs'
                                           : 'bg-slate-50/70 border-slate-200/60 opacity-60'
                                       }`}
@@ -6915,18 +7185,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           Line-Item Row Page Breaks
                         </span>
                         <span className="text-[10px] font-mono text-slate-400">
-                          {quotationLineItems.slice(0, -1).filter((it) => it.page_break_after).length} Active
+                          {quotationLineItems.filter((it) => it.page_break_after).length} Active
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Split long quotation tables cleanly onto a new A4 sheet after any line item row with repeated column headers and continuous item numbering.
+                        Split long quotation tables cleanly onto a new A4 sheet after any line item row (or after the last item to push closing blocks onto a new sheet).
                       </p>
 
                       <div className="space-y-2 pt-1 max-h-60 overflow-y-auto pr-1">
                         {quotationLineItems.map((item, idx) => {
                           const itemKey = item.id || `item_${idx}`;
                           const isLastItem = idx === quotationLineItems.length - 1;
-                          const hasBreakAfter = Boolean(item.page_break_after) && !isLastItem;
+                          const hasBreakAfter = Boolean(item.page_break_after);
 
                           return (
                             <div
@@ -6946,28 +7216,26 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     {item.item_name}
                                   </span>
                                 </div>
-                                {!isLastItem ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                                      hasBreakAfter
-                                        ? 'bg-amber-600 text-white shadow-2xs'
-                                        : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
-                                    }`}
-                                  >
-                                    <Scissors className="w-3 h-3" />
-                                    <span>✂ Page Break After Item</span>
-                                  </button>
-                                ) : (
-                                  <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
-                                    Last Item
-                                  </span>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                    hasBreakAfter
+                                      ? 'bg-amber-600 text-white shadow-2xs'
+                                      : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                  }`}
+                                >
+                                  <Scissors className="w-3 h-3" />
+                                  <span>{isLastItem ? '✂ Break After Table' : '✂ Page Break After Item'}</span>
+                                </button>
                               </div>
                               {hasBreakAfter && (
                                 <div className="px-2 py-1 rounded-md bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
-                                  <span>📄 Splits to Next Page After Item #{idx + 1}</span>
+                                  <span>
+                                    {isLastItem
+                                      ? `📄 Splits Closing Blocks to Next Page After Item #${idx + 1}`
+                                      : `📄 Splits Table to Next Page After Item #${idx + 1}`}
+                                  </span>
                                   <span className="text-[9px] text-amber-700">Sheet Break</span>
                                 </div>
                               )}
@@ -7889,7 +8157,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     </div>
 
                                     {/* Stamp Size, Rotation & X/Y Nudge */}
-                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <div
+                                      id="inspector-target-stamp"
+                                      className={`p-2 rounded-lg bg-white border space-y-1.5 transition-all duration-300 ${
+                                        highlightedInspectorTarget === 'stamp'
+                                          ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50/40'
+                                          : 'border-slate-200'
+                                      }`}
+                                    >
                                       <div className="flex justify-between text-[10px] font-semibold text-slate-700">
                                         <span>Stamp Size &amp; Angle</span>
                                         <span className="font-mono text-blue-700">
@@ -7975,7 +8250,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     </div>
 
                                     {/* Signature Size, Rotation & X/Y Nudge */}
-                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <div
+                                      id="inspector-target-signature"
+                                      className={`p-2 rounded-lg bg-white border space-y-1.5 transition-all duration-300 ${
+                                        highlightedInspectorTarget === 'signature'
+                                          ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50/40'
+                                          : 'border-slate-200'
+                                      }`}
+                                    >
                                       <div className="flex justify-between text-[10px] font-semibold text-slate-700">
                                         <span>Signature Size &amp; Angle</span>
                                         <span className="font-mono text-blue-700">
@@ -8160,19 +8442,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         <div className="grid grid-cols-2 gap-1.5 pt-1">
                           <button
                             type="button"
-                            onClick={handleAddPageBreak}
+                            onClick={() => handleAddPageBreak(selectedBlock.id)}
+                            title={`Insert a Page Break immediately above ${meta.label}`}
                             className="py-1.5 px-2 rounded-lg border border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-100/70 text-amber-800 font-semibold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
                           >
                             <Scissors className="w-3 h-3 text-amber-600" />
-                            <span>+ Page Break</span>
+                            <span>+ Page Break Above</span>
                           </button>
                           <button
                             type="button"
-                            onClick={handleAddSpacer}
+                            onClick={() => handleAddSpacer(selectedBlock.id)}
+                            title={`Insert a Vertical Spacer immediately above ${meta.label}`}
                             className="py-1.5 px-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
                           >
                             <MoveVertical className="w-3 h-3 text-slate-500" />
-                            <span>+ Spacer</span>
+                            <span>+ Spacer Above</span>
                           </button>
                         </div>
                       </div>

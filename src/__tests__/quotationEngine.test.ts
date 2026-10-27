@@ -3016,6 +3016,105 @@ describe('Suite 21: Global Font Scale, Minimal Zero-Ghost-Borders, Unified Addre
 });
 
 // ==========================================
+// SUITE 22: LAST-ITEM PAGE BREAKS, CONTEXT-AWARE BREAK INSERTION & LOGO-ONLY HEADER STACKING
+// ==========================================
+
+describe('Suite 22: Last-Item Page Breaks, Context-Aware Break Insertion & Logo-Only Header Stacking', () => {
+  it('22a. Toggling page_break_after on the final line item splits closing blocks onto a fresh continuation sheet after the table', () => {
+    const twoItems: QuotationLineItem[] = [
+      {
+        id: 'sim_1',
+        item_name: 'High-Rejection Brackish Water RO Membrane Element 8"',
+        quantity: 12,
+        uom: 'PCS',
+        unit_price: 1850,
+        line_total: 22200,
+        page_break_after: false
+      },
+      {
+        id: 'sim_2',
+        item_name: 'Vertical Multistage Centrifugal High-Pressure Booster Pump',
+        quantity: 2,
+        uom: 'SET',
+        unit_price: 14600,
+        line_total: 29200,
+        page_break_after: true
+      }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(DEFAULT_QUOTATION_BLOCKS, twoItems);
+    expect(sheets.length).toBe(2);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 2');
+    expect(sheets[0].tableChunk?.items.length).toBe(2);
+    expect(sheets[0].blocks.length).toBe(0);
+
+    expect(sheets[1].pageLabel).toBe('Page 2 of 2');
+    expect(sheets[1].showContinuationHeader).toBe(true);
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual([
+      'terms',
+      'totals',
+      'remittance',
+      'signatory',
+      'acceptance'
+    ]);
+  });
+
+  it('22b. Inserting a page_break block above an inspected closing block (e.g. before signatory) splits that block and subsequent blocks onto Sheet 2', () => {
+    const blocksWithBreakAboveSignatory: QuotationBlockConfig[] = [
+      { id: 'terms', enabled: true },
+      { id: 'totals', enabled: true },
+      { id: 'remittance', enabled: true },
+      {
+        id: 'break_above_sig',
+        type: 'page_break',
+        title: 'Page Break',
+        enabled: true,
+        is_visible: true,
+        show_continuation_header: true
+      },
+      { id: 'signatory', enabled: true },
+      { id: 'acceptance', enabled: true }
+    ];
+
+    const sheets = partitionBlocksIntoSheets(blocksWithBreakAboveSignatory);
+    expect(sheets.length).toBe(2);
+    expect(sheets[0].pageLabel).toBe('Page 1 of 2');
+    expect(sheets[0].blocks.map((b) => b.id)).toEqual(['terms', 'totals', 'remittance']);
+    expect(sheets[1].pageLabel).toBe('Page 2 of 2');
+    expect(sheets[1].pageBreakBlock?.id).toBe('break_above_sig');
+    expect(sheets[1].blocks.map((b) => b.id)).toEqual(['signatory', 'acceptance']);
+  });
+
+  it('22c. Logo-Only mode (logoDisplayMode: logo_only) sets showCompanyName to false while preserving TRN and underName fields for vertical stacking below logo', () => {
+    const branding = resolveHeaderBrandingConfig({
+      logoDisplayMode: 'logo_only',
+      headerLayoutMode: 'split_left',
+      brandHorizontalAlign: 'center',
+      brandVerticalAlign: 'middle'
+    });
+    expect(branding.showLogo).toBe(true);
+    expect(branding.showCompanyName).toBe(false);
+    expect(branding.brandHorizontalAlign).toBe('center');
+    expect(branding.brandVerticalAlign).toBe('middle');
+
+    const fields = resolveHeaderFields(
+      {
+        logoDisplayMode: 'logo_only',
+        showTrn: true
+      },
+      {
+        trn: '100342223300003',
+        address_line_1: 'Building Y, SAIF Zone',
+        city: 'Sharjah',
+        country: 'United Arab Emirates'
+      }
+    );
+    expect(fields.underName.some((f) => f.id === 'trn')).toBe(true);
+    expect(fields.contactBlock.some((f) => f.id === 'address')).toBe(true);
+  });
+});
+
+// ==========================================
 // TEST REPORT SUMMARY
 // ==========================================
 
