@@ -461,6 +461,9 @@ export interface Attachment {
   storageProvider?: 'supabase' | 'local';
   render_as_annex_page?: boolean;
   show_title_on_annex?: boolean;
+  page_placement?: 'cover_before' | 'annex_after' | 'index_only';
+  full_bleed?: boolean;
+  exclude_from_page_count?: boolean;
 }
 
 export type QuotationAnnexAttachment = Attachment;
@@ -1163,13 +1166,15 @@ export type StudioSelectedSection =
   | null;
 
 export interface QuotationHeaderFieldItem {
-  id: string; // e.g., 'address_line_1', 'address_line_2', 'city_country', 'phone', 'email', 'website', 'trn', or 'custom_1'
+  id: string; // e.g., 'address', 'phone', 'email', 'website', 'trn', or 'custom_1'
   label?: string; // e.g., 'Tel:', 'VAT / TRN:', 'Mob:'
   valueOverride?: string; // Custom text override or custom field value
   enabled: boolean;
   zone: 'under_logo' | 'under_name' | 'contact_block' | 'bottom_bar';
   fontSize?: 'xs' | 'sm' | 'base' | 'lg';
   fontWeight?: 'normal' | 'medium' | 'bold';
+  icon?: 'map-pin' | 'phone' | 'smartphone' | 'mail' | 'globe' | 'building' | 'hash' | 'user' | 'shield' | 'none';
+  showIcon?: boolean;
 }
 
 export interface QuotationHeaderConfig {
@@ -1193,6 +1198,14 @@ export interface QuotationHeaderConfig {
   brandVerticalAlign?: 'top' | 'middle' | 'bottom';
   contactHorizontalAlign?: 'left' | 'center' | 'right';
   contactVerticalAlign?: 'top' | 'middle' | 'bottom';
+  showHeaderIcons?: boolean; // default: true (Master toggle for header contact/TRN icons)
+  continuationHeaderMode?: 'compact' | 'full_repeat' | 'logo_only' | 'none';
+  continuationLogoHeightPx?: number; // range 16 to 48, default 22
+  showCompanyNameOnContinuation?: boolean; // default: true
+  showSubjectOnContinuation?: boolean; // default: true
+  showQuoteRefOnContinuation?: boolean; // default: true
+  showPageNumberOnContinuation?: boolean; // default: true
+  showContinuationDivider?: boolean; // default: true
 }
 
 export interface QuotationFooterConfig {

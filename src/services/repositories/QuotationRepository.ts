@@ -473,11 +473,16 @@ export class QuotationRepository {
         }
       : undefined;
 
-    // Deep-clone flyer_attachments preserving show_title_on_annex and render_as_annex_page
+    // Deep-clone flyer_attachments preserving show_title_on_annex, render_as_annex_page, page_placement, full_bleed, and exclude_from_page_count
     const clonedFlyerAttachments = Array.isArray(source.flyer_attachments)
       ? source.flyer_attachments.map((att) => ({
           ...att,
-          show_title_on_annex: this.resolveShowTitleOnAnnex(att)
+          show_title_on_annex: this.resolveShowTitleOnAnnex(att),
+          page_placement:
+            att.page_placement ||
+            (att.render_as_annex_page === false ? 'index_only' : 'annex_after'),
+          full_bleed: Boolean(att.full_bleed),
+          exclude_from_page_count: Boolean(att.exclude_from_page_count)
         }))
       : undefined;
 
@@ -935,7 +940,12 @@ export class QuotationRepository {
     const flyerAttachments = Array.isArray(quotation?.flyer_attachments)
       ? quotation!.flyer_attachments.map((att) => ({
           ...att,
-          show_title_on_annex: this.resolveShowTitleOnAnnex(att)
+          show_title_on_annex: this.resolveShowTitleOnAnnex(att),
+          page_placement:
+            att.page_placement ||
+            (att.render_as_annex_page === false ? 'index_only' : 'annex_after'),
+          full_bleed: Boolean(att.full_bleed),
+          exclude_from_page_count: Boolean(att.exclude_from_page_count)
         }))
       : [];
 
@@ -1560,14 +1570,20 @@ export class QuotationRepository {
                 ? att.render_as_annex_page
                 : !isNonImageDoc;
             const showTitleOnAnnex = this.resolveShowTitleOnAnnex(att);
+            const resolvedPlacement =
+              att.page_placement ||
+              (renderAsAnnex ? 'annex_after' : 'index_only');
             return {
               ...att,
               id: att.id || `annex_${idx + 1}`,
               name: att.name !== undefined ? att.name : `Technical Annex ${idx + 1}`,
               url: att.url,
               type: att.type || 'image',
-              render_as_annex_page: renderAsAnnex,
-              show_title_on_annex: showTitleOnAnnex
+              render_as_annex_page: resolvedPlacement !== 'index_only',
+              show_title_on_annex: showTitleOnAnnex,
+              page_placement: resolvedPlacement,
+              full_bleed: Boolean(att.full_bleed),
+              exclude_from_page_count: Boolean(att.exclude_from_page_count)
             };
           })
       : [];

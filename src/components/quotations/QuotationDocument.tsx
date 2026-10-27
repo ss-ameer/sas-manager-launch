@@ -38,6 +38,10 @@ import {
   Clock,
   Mail,
   Phone,
+  Smartphone,
+  MapPin,
+  Hash,
+  User,
   Globe,
   CheckCircle2,
   AlertCircle,
@@ -277,6 +281,17 @@ export function partitionBlocksIntoSheets(
   });
 }
 
+export interface QuotationCoverSheetDescriptor {
+  coverNumber: number;
+  sheetNumber?: number;
+  totalDocumentPages: number;
+  attachment: Attachment;
+  fullBleed: boolean;
+  excludedFromPageCount: boolean;
+  pageLabel: string;
+  isLastDocumentSheet: boolean;
+}
+
 export interface QuotationAnnexSheetDescriptor {
   annexNumber: number;
   sheetNumber: number;
@@ -284,6 +299,7 @@ export interface QuotationAnnexSheetDescriptor {
   headerTitle: string;
   pageLabel: string;
   attachment: Attachment;
+  fullBleed?: boolean;
   isLastDocumentSheet: boolean;
 }
 
@@ -293,6 +309,7 @@ export interface QuotationSubmittalIndexEntry {
   name: string;
   url: string;
   renderAsAnnexPage: boolean;
+  pagePlacement?: 'cover_before' | 'annex_after' | 'index_only';
   annexPageNumber?: number;
   badgeLabel: string;
 }
@@ -454,7 +471,7 @@ export function resolveTopCardsLayout(
     placement: 'left' | 'full' | 'right'
   ) => {
     if (style === 'minimal') {
-      return 'border-t border-slate-200/90 rounded-none bg-transparent print:bg-transparent print:border-slate-300 pt-2 pb-1 px-1 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid';
+      return 'border-0 rounded-none bg-transparent print:bg-transparent shadow-none pt-1 pb-1 px-0.5 h-full flex flex-col justify-between break-inside-avoid page-break-inside-avoid';
     }
     const radiusClass = radius === 'sharp' ? 'rounded-none' : 'rounded-lg';
     const padClass = placement === 'full' ? 'py-2 px-3' : 'p-3';
@@ -551,6 +568,8 @@ export function resolveDocumentPaginationWithAnnexes(
   flyerAttachments?: Attachment[],
   showSubmittalsIndex: boolean = true
 ): {
+  coverSheetAttachments: Attachment[];
+  coverSheets: QuotationCoverSheetDescriptor[];
   mainSheets: QuotationSheetPartition[];
   annexSheetAttachments: Attachment[];
   annexSheets: QuotationAnnexSheetDescriptor[];
@@ -560,24 +579,65 @@ export function resolveDocumentPaginationWithAnnexes(
 } {
   const partitionedMainSheets = partitionBlocksIntoSheets(blocks, lineItems);
   const allAttachments = (flyerAttachments || []).filter((att) => att && Boolean(att.url));
-  const annexSheetAttachments = allAttachments.filter(
-    (att) => att.render_as_annex_page !== false && Boolean(att.url)
+
+  const coverSheetAttachments = allAttachments.filter(
+    (att) => att.page_placement === 'cover_before' && Boolean(att.url)
   );
-  const totalDocumentPages = partitionedMainSheets.length + annexSheetAttachments.length;
+  const annexSheetAttachments = allAttachments.filter((att) => {
+    if (!Boolean(att.url)) return false;
+    if (att.page_placement === 'cover_before' || att.page_placement === 'index_only') {
+      return false;
+    }
+    if (att.page_placement === 'annex_after') return true;
+    return att.render_as_annex_page !== false;
+  });
+
+  const countedCoverCount = coverSheetAttachments.filter(
+    (att) => !Boolean(att.exclude_from_page_count)
+  ).length;
+
+  const totalDocumentPages =
+    countedCoverCount + partitionedMainSheets.length + annexSheetAttachments.length;
+
+  let runningCountedCover = 0;
+  const coverSheets: QuotationCoverSheetDescriptor[] = coverSheetAttachments.map(
+    (att, coverIdx) => {
+      const excluded = Boolean(att.exclude_from_page_count);
+      let sheetNumber: number | undefined = undefined;
+      if (!excluded) {
+        runningCountedCover++;
+        sheetNumber = runningCountedCover;
+      }
+      return {
+        coverNumber: coverIdx + 1,
+        sheetNumber,
+        totalDocumentPages,
+        attachment: att,
+        fullBleed: Boolean(att.full_bleed),
+        excludedFromPageCount: excluded,
+        pageLabel: excluded
+          ? 'Cover Page'
+          : `Page ${sheetNumber} of ${totalDocumentPages}`,
+        isLastDocumentSheet: false
+      };
+    }
+  );
 
   const mainSheets: QuotationSheetPartition[] = partitionedMainSheets.map((sheet, idx) => {
     const isLastMain = idx === partitionedMainSheets.length - 1;
+    const effectiveSheetNumber = countedCoverCount + sheet.sheetNumber;
     return {
       ...sheet,
+      sheetNumber: effectiveSheetNumber,
       totalSheets: totalDocumentPages,
-      pageLabel: `Page ${sheet.sheetNumber} of ${totalDocumentPages}`,
+      pageLabel: `Page ${effectiveSheetNumber} of ${totalDocumentPages}`,
       isLastDocumentSheet: isLastMain && annexSheetAttachments.length === 0
     };
   });
 
   const annexSheets: QuotationAnnexSheetDescriptor[] = annexSheetAttachments.map(
     (att, annexIdx) => {
-      const sheetNumber = mainSheets.length + annexIdx + 1;
+      const sheetNumber = countedCoverCount + mainSheets.length + annexIdx + 1;
       const annexNumber = annexIdx + 1;
       const isLastAnnex = annexIdx === annexSheetAttachments.length - 1;
       return {
@@ -587,33 +647,52 @@ export function resolveDocumentPaginationWithAnnexes(
         headerTitle: resolveAnnexHeaderTitle(att, annexNumber),
         pageLabel: `Page ${sheetNumber} of ${totalDocumentPages}`,
         attachment: att,
+        fullBleed: Boolean(att.full_bleed),
         isLastDocumentSheet: isLastAnnex
       };
     }
   );
 
   let runningAnnexCounter = 0;
+  let runningCoverIndexCounter = 0;
   const submittalsIndexEntries: QuotationSubmittalIndexEntry[] = allAttachments.map(
     (att, idx) => {
-      const isAnnex = att.render_as_annex_page !== false && Boolean(att.url);
+      const placement: 'cover_before' | 'annex_after' | 'index_only' =
+        att.page_placement ||
+        (att.render_as_annex_page === false ? 'index_only' : 'annex_after');
+      const isAnnex = placement === 'annex_after' && Boolean(att.url);
+      const isCover = placement === 'cover_before' && Boolean(att.url);
       let annexPageNumber: number | undefined = undefined;
-      if (isAnnex) {
+      let badgeLabel = 'Enclosed Document';
+
+      if (isCover) {
+        runningCoverIndexCounter++;
+        badgeLabel =
+          coverSheets[runningCoverIndexCounter - 1]?.excludedFromPageCount
+            ? 'Cover Page'
+            : `Cover (Page ${coverSheets[runningCoverIndexCounter - 1]?.sheetNumber || 1})`;
+      } else if (isAnnex) {
         runningAnnexCounter++;
-        annexPageNumber = mainSheets.length + runningAnnexCounter;
+        annexPageNumber = countedCoverCount + mainSheets.length + runningAnnexCounter;
+        badgeLabel = `Annex Page ${annexPageNumber}`;
       }
+
       return {
         indexNumber: idx + 1,
         id: att.id || `submittal_${idx + 1}`,
         name: att.name || `Technical Submittal ${idx + 1}`,
         url: att.url,
-        renderAsAnnexPage: isAnnex,
+        renderAsAnnexPage: isAnnex || isCover,
+        pagePlacement: placement,
         annexPageNumber,
-        badgeLabel: isAnnex ? `Annex Page ${annexPageNumber}` : 'Enclosed Document'
+        badgeLabel
       };
     }
   );
 
   return {
+    coverSheetAttachments,
+    coverSheets,
     mainSheets,
     annexSheetAttachments,
     annexSheets,
@@ -751,11 +830,19 @@ export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   showWebsite: true,
   showTrn: true,
   showCompanyName: true,
+  showHeaderIcons: true,
   logoSpacing: 'normal',
   logoHeightPx: 48,
   logoMaxWidthPx: 260,
   repeatHeaderOnSubsequentPages: true,
-  showLogoOnContinuationPages: true
+  showLogoOnContinuationPages: true,
+  continuationHeaderMode: 'compact',
+  continuationLogoHeightPx: 22,
+  showCompanyNameOnContinuation: true,
+  showSubjectOnContinuation: true,
+  showQuoteRefOnContinuation: true,
+  showPageNumberOnContinuation: true,
+  showContinuationDivider: true
 };
 
 export interface ResolvedHeaderBrandingConfig {
@@ -764,6 +851,7 @@ export interface ResolvedHeaderBrandingConfig {
   headerLayoutMode: 'split_left' | 'split_right' | 'centered' | 'banner';
   showLogo: boolean;
   showCompanyName: boolean;
+  showHeaderIcons: boolean;
   logoHeightPx: number;
   logoMaxWidthPx: number;
   bannerMaxHeightPx: number;
@@ -771,6 +859,13 @@ export interface ResolvedHeaderBrandingConfig {
   repeatHeaderOnSubsequentPages: boolean;
   showLogoOnContinuationPages: boolean;
   includeMiniLogoOnContinuation: boolean;
+  continuationHeaderMode: 'compact' | 'full_repeat' | 'logo_only' | 'none';
+  continuationLogoHeightPx: number;
+  showCompanyNameOnContinuation: boolean;
+  showSubjectOnContinuation: boolean;
+  showQuoteRefOnContinuation: boolean;
+  showPageNumberOnContinuation: boolean;
+  showContinuationDivider: boolean;
   brandHorizontalAlign: 'left' | 'center' | 'right';
   brandVerticalAlign: 'top' | 'middle' | 'bottom';
   contactHorizontalAlign: 'left' | 'center' | 'right';
@@ -780,7 +875,7 @@ export interface ResolvedHeaderBrandingConfig {
 /**
  * Pure deterministic resolver for the Corporate Logo & Letterhead Engine.
  * Resolves logo source priority (headerConfig.logoUrl -> quotation.company_logo_url -> profile.logo_url -> ''),
- * 4-way display mode, 4-way layout mode, aspect-ratio dimensions, 2D alignment, and Page 2+ mini-logo eligibility.
+ * 4-way display mode, 4-way layout mode, aspect-ratio dimensions, 2D alignment, and Page 2+ running header options.
  */
 export function resolveHeaderBrandingConfig(
   headerConfig?: QuotationHeaderConfig | null,
@@ -835,6 +930,7 @@ export function resolveHeaderBrandingConfig(
   const showLogo = merged.showLogo !== false && logoDisplayMode !== 'no_logo';
   const showCompanyName =
     logoDisplayMode !== 'logo_only' && merged.showCompanyName !== false;
+  const showHeaderIcons = merged.showHeaderIcons !== false;
 
   const rawHeight = typeof merged.logoHeightPx === 'number' ? merged.logoHeightPx : 48;
   const logoHeightPx = Math.min(110, Math.max(28, rawHeight));
@@ -856,14 +952,37 @@ export function resolveHeaderBrandingConfig(
   const bannerMaxHeightPx = Math.max(logoHeightPx, 80);
   const logoSpacing = merged.logoSpacing || 'normal';
 
+  const rawContinuationMode = merged.continuationHeaderMode;
   const repeatHeaderOnSubsequentPages =
-    merged.repeatHeaderOnSubsequentPages !== false &&
-    quotation?.repeatHeaderOnSubsequentPages !== false &&
-    profile?.repeatHeaderOnSubsequentPages !== false;
+    rawContinuationMode === 'none'
+      ? false
+      : merged.repeatHeaderOnSubsequentPages !== false &&
+        quotation?.repeatHeaderOnSubsequentPages !== false &&
+        profile?.repeatHeaderOnSubsequentPages !== false;
 
-  const showLogoOnContinuationPages = merged.showLogoOnContinuationPages !== false;
+  const continuationHeaderMode: 'compact' | 'full_repeat' | 'logo_only' | 'none' =
+    !repeatHeaderOnSubsequentPages
+      ? 'none'
+      : rawContinuationMode || 'compact';
+
+  const rawContLogoHeight =
+    typeof merged.continuationLogoHeightPx === 'number'
+      ? merged.continuationLogoHeightPx
+      : 22;
+  const continuationLogoHeightPx = Math.min(48, Math.max(16, rawContLogoHeight));
+
+  const showLogoOnContinuationPages =
+    continuationHeaderMode === 'logo_only'
+      ? true
+      : merged.showLogoOnContinuationPages !== false;
   const includeMiniLogoOnContinuation =
     Boolean(activeLogoUrl) && showLogo && showLogoOnContinuationPages;
+
+  const showCompanyNameOnContinuation = merged.showCompanyNameOnContinuation !== false;
+  const showSubjectOnContinuation = merged.showSubjectOnContinuation !== false;
+  const showQuoteRefOnContinuation = merged.showQuoteRefOnContinuation !== false;
+  const showPageNumberOnContinuation = merged.showPageNumberOnContinuation !== false;
+  const showContinuationDivider = merged.showContinuationDivider !== false;
 
   const brandHorizontalAlign: 'left' | 'center' | 'right' =
     merged.brandHorizontalAlign ||
@@ -891,6 +1010,7 @@ export function resolveHeaderBrandingConfig(
     headerLayoutMode,
     showLogo,
     showCompanyName,
+    showHeaderIcons,
     logoHeightPx,
     logoMaxWidthPx,
     bannerMaxHeightPx,
@@ -898,6 +1018,13 @@ export function resolveHeaderBrandingConfig(
     repeatHeaderOnSubsequentPages,
     showLogoOnContinuationPages,
     includeMiniLogoOnContinuation,
+    continuationHeaderMode,
+    continuationLogoHeightPx,
+    showCompanyNameOnContinuation,
+    showSubjectOnContinuation,
+    showQuoteRefOnContinuation,
+    showPageNumberOnContinuation,
+    showContinuationDivider,
     brandHorizontalAlign,
     brandVerticalAlign,
     contactHorizontalAlign,
@@ -1085,7 +1212,8 @@ export function resolveHeaderFields(
     email?: string;
     website?: string;
     trn?: string;
-  } | null
+  } | null,
+  fontSizeScale: QuotationFontSizeScale = 'standard'
 ): {
   allFields: ResolvedHeaderFieldRenderItem[];
   underLogo: ResolvedHeaderFieldRenderItem[];
@@ -1096,6 +1224,7 @@ export function resolveHeaderFields(
   brandVerticalAlign: 'top' | 'middle' | 'bottom';
   contactHorizontalAlign: 'left' | 'center' | 'right';
   contactVerticalAlign: 'top' | 'middle' | 'bottom';
+  showHeaderIcons: boolean;
 } {
   const cfg = headerConfig || {};
   const s = {
@@ -1104,11 +1233,17 @@ export function resolveHeaderFields(
   };
 
   const cityCountry = [s.city, s.country].filter(Boolean).join(', ');
+  const combinedParts = [s.address_line_1, s.address_line_2, cityCountry]
+    .map((p) => (p || '').trim())
+    .filter(Boolean);
+  const unifiedAddress =
+    combinedParts.length > 0 ? combinedParts.join(', ') : (s.address || '').trim();
   const fallbackFullAddress =
     !s.address_line_1 && !s.address_line_2 && !cityCountry ? s.address || '' : '';
 
   const defaultValuesById: Record<string, string> = {
     trn: s.trn || '',
+    address: unifiedAddress,
     address_line_1: s.address_line_1 || fallbackFullAddress || '',
     address_line_2: s.address_line_2 || '',
     city_country: cityCountry,
@@ -1119,6 +1254,7 @@ export function resolveHeaderFields(
 
   const defaultLabelsById: Record<string, string> = {
     trn: 'TRN / VAT Reg:',
+    address: '',
     address_line_1: '',
     address_line_2: '',
     city_country: '',
@@ -1127,10 +1263,72 @@ export function resolveHeaderFields(
     website: 'Web:'
   };
 
+  const defaultIconsById: Record<string, QuotationHeaderFieldItem['icon']> = {
+    trn: 'hash',
+    address: 'map-pin',
+    address_line_1: 'map-pin',
+    address_line_2: 'map-pin',
+    city_country: 'map-pin',
+    phone: 'phone',
+    email: 'mail',
+    website: 'globe'
+  };
+
   const hasCustomHeaderFields = Array.isArray(cfg.headerFields) && cfg.headerFields.length > 0;
 
+  // Migrate/collapse legacy 3-part address_line_1 / address_line_2 / city_country into unified 'address' if no 'address' field exists yet
+  const normalizedCustomFields = (() => {
+    if (!hasCustomHeaderFields) return [];
+    const list = cfg.headerFields!;
+    const hasLegacyAddressParts = list.some(
+      (f) => f.id === 'address_line_1' || f.id === 'address_line_2' || f.id === 'city_country'
+    );
+    const hasUnifiedAddress = list.some((f) => f.id === 'address');
+    if (!hasLegacyAddressParts) return list;
+
+    const legacyParts = list.filter(
+      (f) => f.id === 'address_line_1' || f.id === 'address_line_2' || f.id === 'city_country'
+    );
+    const anyLegacyEnabled = legacyParts.some((f) => f.enabled !== false);
+    const firstLegacy = legacyParts[0];
+    const customOverrideParts = legacyParts
+      .map((f) =>
+        f.valueOverride !== undefined && f.valueOverride.trim() !== ''
+          ? f.valueOverride.trim()
+          : (defaultValuesById[f.id] || '').trim()
+      )
+      .filter(Boolean);
+    const hasAnyExplicitOverride = legacyParts.some(
+      (f) => f.valueOverride !== undefined && f.valueOverride.trim() !== ''
+    );
+
+    const out: QuotationHeaderFieldItem[] = [];
+    let insertedAddress = hasUnifiedAddress;
+    for (const f of list) {
+      if (f.id === 'address_line_1' || f.id === 'address_line_2' || f.id === 'city_country') {
+        if (!insertedAddress) {
+          insertedAddress = true;
+          out.push({
+            id: 'address',
+            label: firstLegacy?.label ?? '',
+            valueOverride: hasAnyExplicitOverride ? customOverrideParts.join(', ') : undefined,
+            enabled: anyLegacyEnabled,
+            zone: firstLegacy?.zone || 'contact_block',
+            fontSize: firstLegacy?.fontSize || 'xs',
+            fontWeight: firstLegacy?.fontWeight || 'normal',
+            icon: firstLegacy?.icon || 'map-pin',
+            showIcon: firstLegacy?.showIcon ?? true
+          });
+        }
+      } else {
+        out.push(f);
+      }
+    }
+    return out;
+  })();
+
   const rawItems: QuotationHeaderFieldItem[] = hasCustomHeaderFields
-    ? cfg.headerFields!
+    ? normalizedCustomFields
     : [
         {
           id: 'trn',
@@ -1138,31 +1336,19 @@ export function resolveHeaderFields(
           enabled: cfg.showTrn !== false && Boolean(defaultValuesById.trn),
           zone: 'under_name',
           fontSize: 'xs',
-          fontWeight: 'bold'
+          fontWeight: 'bold',
+          icon: 'hash',
+          showIcon: false
         },
         {
-          id: 'address_line_1',
+          id: 'address',
           label: '',
-          enabled: Boolean(defaultValuesById.address_line_1),
+          enabled: Boolean(defaultValuesById.address),
           zone: 'contact_block',
           fontSize: 'xs',
-          fontWeight: 'normal'
-        },
-        {
-          id: 'address_line_2',
-          label: '',
-          enabled: Boolean(defaultValuesById.address_line_2),
-          zone: 'contact_block',
-          fontSize: 'xs',
-          fontWeight: 'normal'
-        },
-        {
-          id: 'city_country',
-          label: '',
-          enabled: Boolean(defaultValuesById.city_country),
-          zone: 'contact_block',
-          fontSize: 'xs',
-          fontWeight: 'normal'
+          fontWeight: 'normal',
+          icon: 'map-pin',
+          showIcon: true
         },
         {
           id: 'phone',
@@ -1170,7 +1356,9 @@ export function resolveHeaderFields(
           enabled: cfg.showPhone !== false && Boolean(defaultValuesById.phone),
           zone: 'contact_block',
           fontSize: 'xs',
-          fontWeight: 'normal'
+          fontWeight: 'normal',
+          icon: 'phone',
+          showIcon: true
         },
         {
           id: 'email',
@@ -1178,7 +1366,9 @@ export function resolveHeaderFields(
           enabled: cfg.showEmail !== false && Boolean(defaultValuesById.email),
           zone: 'contact_block',
           fontSize: 'xs',
-          fontWeight: 'normal'
+          fontWeight: 'normal',
+          icon: 'mail',
+          showIcon: true
         },
         {
           id: 'website',
@@ -1186,16 +1376,39 @@ export function resolveHeaderFields(
           enabled: cfg.showWebsite !== false && Boolean(defaultValuesById.website),
           zone: 'contact_block',
           fontSize: 'xs',
-          fontWeight: 'normal'
+          fontWeight: 'normal',
+          icon: 'globe',
+          showIcon: true
         }
       ];
 
-  const fontSizeMap: Record<string, string> = {
-    xs: 'text-[9.5px] print:text-[8.5px]',
-    sm: 'text-[10.5px] print:text-[9.5px]',
-    base: 'text-xs print:text-[10.5px]',
-    lg: 'text-sm print:text-xs'
+  const fontSizeMapByScale: Record<QuotationFontSizeScale, Record<string, string>> = {
+    compact: {
+      xs: 'text-[8.5px] print:text-[8px]',
+      sm: 'text-[9.5px] print:text-[8.5px]',
+      base: 'text-[10.5px] print:text-[9.5px]',
+      lg: 'text-xs print:text-[10.5px]'
+    },
+    standard: {
+      xs: 'text-[9.5px] print:text-[8.5px]',
+      sm: 'text-[10.5px] print:text-[9.5px]',
+      base: 'text-xs print:text-[10.5px]',
+      lg: 'text-sm print:text-xs'
+    },
+    comfortable: {
+      xs: 'text-[10.5px] print:text-[9.5px]',
+      sm: 'text-[11.5px] print:text-[10.5px]',
+      base: 'text-[13px] print:text-[11.5px]',
+      lg: 'text-base print:text-sm'
+    },
+    large: {
+      xs: 'text-[11.5px] print:text-[10.5px]',
+      sm: 'text-[12.5px] print:text-[11.5px]',
+      base: 'text-sm print:text-xs',
+      lg: 'text-lg print:text-base'
+    }
   };
+  const fontSizeMap = fontSizeMapByScale[fontSizeScale] || fontSizeMapByScale.standard;
 
   const fontWeightMap: Record<string, string> = {
     normal: 'font-normal',
@@ -1218,8 +1431,22 @@ export function resolveHeaderFields(
       if (item.id === 'trn' && cfg.showTrn === false) effectiveEnabled = false;
     }
 
+    const resolvedIcon: QuotationHeaderFieldItem['icon'] =
+      item.icon ||
+      defaultIconsById[item.id] ||
+      (item.id.startsWith('custom_mob') ? 'smartphone' : 'none');
+
+    const resolvedShowIcon =
+      item.showIcon !== undefined
+        ? Boolean(item.showIcon)
+        : item.id === 'trn'
+        ? false
+        : resolvedIcon !== 'none';
+
     return {
       ...item,
+      icon: resolvedIcon,
+      showIcon: resolvedShowIcon,
       label: item.label !== undefined ? item.label : (defaultLabelsById[item.id] ?? ''),
       enabled: effectiveEnabled,
       resolvedValue,
@@ -1239,7 +1466,8 @@ export function resolveHeaderFields(
     brandHorizontalAlign: cfg.brandHorizontalAlign || 'left',
     brandVerticalAlign: cfg.brandVerticalAlign || 'top',
     contactHorizontalAlign: cfg.contactHorizontalAlign || 'right',
-    contactVerticalAlign: cfg.contactVerticalAlign || 'top'
+    contactVerticalAlign: cfg.contactVerticalAlign || 'top',
+    showHeaderIcons: cfg.showHeaderIcons !== false
   };
 }
 
@@ -1347,8 +1575,111 @@ export interface QuotationDocumentProps {
   selectedSection?: StudioSelectedSection;
   onSelectBlock?: (id: StudioSelectedSection) => void;
   onSelectSection?: (section: StudioSelectedSection) => void;
+  onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
   showPageBreakGuides?: boolean;
 }
+
+interface EditableCanvasTextProps {
+  value: string;
+  fieldKey: string;
+  canEdit: boolean;
+  onCommit?: (fieldKey: string, nextValue: string) => void;
+  className?: string;
+  multiline?: boolean;
+  placeholder?: string;
+}
+
+const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
+  value,
+  fieldKey,
+  canEdit,
+  onCommit,
+  className = '',
+  multiline = false,
+  placeholder = 'Click to edit...'
+}) => {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(value || '');
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value || '');
+    }
+  }, [value, editing]);
+
+  if (!canEdit || !onCommit) {
+    return <span className={className}>{value}</span>;
+  }
+
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      if (draft !== (value || '')) {
+        onCommit(fieldKey, draft);
+      }
+    };
+    if (multiline) {
+      return (
+        <textarea
+          autoFocus
+          value={draft}
+          rows={2}
+          placeholder={placeholder}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setDraft(value || '');
+              setEditing(false);
+            } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          className={`bg-white text-slate-900 border border-blue-500 rounded px-1.5 py-0.5 outline-none ring-2 ring-blue-300/60 w-full max-w-full font-sans print:hidden ${className}`}
+        />
+      );
+    }
+    return (
+      <input
+        type="text"
+        autoFocus
+        value={draft}
+        placeholder={placeholder}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.stopPropagation();
+            setDraft(value || '');
+            setEditing(false);
+          }
+        }}
+        className={`bg-white text-slate-900 border border-blue-500 rounded px-1 py-0 outline-none ring-2 ring-blue-300/60 min-w-[90px] max-w-full print:hidden ${className}`}
+      />
+    );
+  }
+
+  return (
+    <span
+      title="Click to edit text directly on page"
+      onClick={(e) => {
+        e.stopPropagation();
+        setDraft(value || '');
+        setEditing(true);
+      }}
+      className={`cursor-text border-b border-dashed border-blue-400/70 hover:bg-blue-50/70 hover:border-blue-600 rounded-xs px-0.5 -mx-0.5 transition-colors print:border-none print:bg-transparent print:p-0 print:m-0 ${className}`}
+    >
+      {value || <span className="text-slate-400 italic print:hidden">{placeholder}</span>}
+    </span>
+  );
+};
 
 export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   quotation,
@@ -1380,6 +1711,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   selectedSection,
   onSelectBlock,
   onSelectSection,
+  onInlineFieldEdit,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
@@ -1515,31 +1847,47 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     switch (fontSizeScale) {
       case 'compact':
         return {
-          body: 'text-[8.5px] print:text-[8px]',
+          h1: 'text-lg sm:text-xl print:text-lg',
+          quoteRef: 'text-sm sm:text-base print:text-sm',
+          entityTitle: 'text-xs print:text-[11px]',
           heading: 'text-[9.5px] print:text-[9px]',
+          body: 'text-[8.5px] print:text-[8px]',
           sub: 'text-[8px] print:text-[7.5px]',
+          micro: 'text-[7.5px] print:text-[7px]',
           rawBase: '8.5px'
         };
       case 'comfortable':
         return {
-          body: 'text-[10.5px] print:text-[10px]',
+          h1: 'text-2xl sm:text-[26px] print:text-2xl',
+          quoteRef: 'text-lg sm:text-xl print:text-lg',
+          entityTitle: 'text-base print:text-sm',
           heading: 'text-[11.5px] print:text-[11px]',
+          body: 'text-[10.5px] print:text-[10px]',
           sub: 'text-[9.5px] print:text-[9px]',
+          micro: 'text-[9px] print:text-[8.5px]',
           rawBase: '10.5px'
         };
       case 'large':
         return {
-          body: 'text-[11.5px] print:text-[11px]',
+          h1: 'text-2xl sm:text-3xl print:text-[26px]',
+          quoteRef: 'text-xl sm:text-2xl print:text-xl',
+          entityTitle: 'text-lg print:text-base',
           heading: 'text-[12.5px] print:text-[12px]',
+          body: 'text-[11.5px] print:text-[11px]',
           sub: 'text-[10.5px] print:text-[10px]',
+          micro: 'text-[9.5px] print:text-[9px]',
           rawBase: '11.5px'
         };
       case 'standard':
       default:
         return {
-          body: 'text-[9.5px] print:text-[9px]',
+          h1: 'text-xl sm:text-2xl print:text-xl',
+          quoteRef: 'text-base sm:text-lg print:text-base',
+          entityTitle: 'text-sm print:text-xs',
           heading: 'text-[10.5px] print:text-[10px]',
+          body: 'text-[9.5px] print:text-[9px]',
           sub: 'text-[8.5px] print:text-[8px]',
+          micro: 'text-[8px] print:text-[7.5px]',
           rawBase: '9.5px'
         };
     }
@@ -1560,6 +1908,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const isTableSelected = activeSelectedSection === 'items_table';
   const isFooterSelected = activeSelectedSection === 'footer';
   const isInteractive = Boolean(onSelectSection || onSelectBlock);
+  const canEditCanvasInline = Boolean(isInteractive && onInlineFieldEdit);
 
   const resolvedHeaderConfig: QuotationHeaderConfig = {
     ...DEFAULT_HEADER_CONFIG,
@@ -1867,38 +2216,81 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
   const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
-    if (!repeatHeaderOnSubsequentPages) return null;
+    if (!repeatHeaderOnSubsequentPages || headerBranding.continuationHeaderMode === 'none') {
+      return null;
+    }
     const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
-    const subjectText = quotation.subject?.trim();
+    const subjectText = (quotation.subject || enquiry?.subject || '').trim();
+    const contLogoHeight = headerBranding.continuationLogoHeightPx || 20;
+    const dividerClass = headerBranding.showContinuationDivider
+      ? 'border-b border-slate-200 pb-1.5'
+      : 'pb-1';
+
+    if (headerBranding.continuationHeaderMode === 'logo_only') {
+      return (
+        <div
+          className={`compact-running-header flex justify-between items-center ${dividerClass} mb-3 w-full bg-white ${extraClass}`}
+          style={{ minHeight: `${Math.max(24, contLogoHeight + 6)}px` }}
+        >
+          <div className="flex items-center">
+            {headerBranding.activeLogoUrl && !logoLoadFailed && (
+              <img
+                src={headerBranding.activeLogoUrl}
+                alt={senderEntityName || ''}
+                style={{ height: `${contLogoHeight}px`, maxWidth: '160px' }}
+                className="w-auto object-contain shrink-0"
+                onError={() => setLogoLoadFailed(true)}
+              />
+            )}
+          </div>
+          {headerBranding.showPageNumberOnContinuation && (
+            <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
+              Page {pageNumber} of {total}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const rightTokens: string[] = [formatDate(quotation.created_at)];
+    if (headerBranding.showQuoteRefOnContinuation) {
+      rightTokens.push(quoteRef);
+    }
+    if (headerBranding.showPageNumberOnContinuation) {
+      rightTokens.push(`Page ${pageNumber} of ${total}`);
+    }
 
     return (
       <div
-        className={`compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-3 w-full bg-white ${extraClass}`}
-        style={{ height: '26px' }}
+        className={`compact-running-header flex justify-between items-center ${dividerClass} mb-3 w-full bg-white ${extraClass}`}
+        style={{ minHeight: `${Math.max(26, contLogoHeight + 6)}px` }}
       >
         {/* Left: Mini Logo + Company Legal/Short Name */}
-        <div className="flex items-center min-w-0 max-w-[36%]">
+        <div className="flex items-center min-w-0 max-w-[38%]">
           {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
             <img
               src={headerBranding.activeLogoUrl}
               alt=""
-              className="h-5 w-auto max-w-[110px] object-contain mr-2 shrink-0"
+              style={{ height: `${contLogoHeight}px`, maxWidth: '130px' }}
+              className="w-auto object-contain mr-2 shrink-0"
               onError={() => setLogoLoadFailed(true)}
             />
           )}
-          <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate">
-            {senderEntityName || 'Company'}
-          </div>
+          {headerBranding.showCompanyNameOnContinuation && (
+            <div className={`${typoScale.sub} font-bold text-slate-800 tracking-tight uppercase truncate`}>
+              {senderEntityName || 'Company'}
+            </div>
+          )}
         </div>
 
-        {/* Middle: Project Subject & Quotation Ref No */}
-        <div className="text-[8.5px] print:text-[7.5px] text-slate-600 font-medium truncate max-w-[260px] text-center px-2">
-          {subjectText ? `${subjectText} • ` : ''}{quoteRef}
+        {/* Middle: Project Subject (no duplicate quoteRef here) */}
+        <div className={`${typoScale.sub} text-slate-600 font-medium truncate max-w-[260px] text-center px-2`}>
+          {headerBranding.showSubjectOnContinuation && subjectText ? subjectText : ''}
         </div>
 
-        {/* Right: Date & Document Ref indicator */}
-        <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
-          {formatDate(quotation.created_at)} • {quoteRef} • Page {pageNumber} of {total}
+        {/* Right: Date, Quote Ref & Page indicator */}
+        <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
+          {rightTokens.join(' • ')}
         </div>
       </div>
     );
@@ -1949,7 +2341,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     }
     if (footerPresentation.showPageNumbers) {
       metaTokens.push(
-        <span key="page" className="font-mono text-[9px] text-slate-500">
+        <span key="page" className={`font-mono ${typoScale.sub} text-slate-500`}>
           Page {pageNumber} of {totalPages}
         </span>
       );
@@ -1964,7 +2356,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     return (
       <footer
-        className={`document-print-footer quotation-page-footer mt-auto pt-2 border-t border-slate-200 bg-white text-xs break-inside-avoid page-break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative z-10 group transition-all duration-150 rounded-lg quotation-structural-section ${
+        className={`document-print-footer quotation-page-footer mt-auto pt-2 border-t border-slate-200 bg-white ${typoScale.sub} break-inside-avoid page-break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative z-10 group transition-all duration-150 rounded-lg quotation-structural-section ${
           isInteractive ? 'cursor-pointer' : ''
         } ${
           isFooterSelected
@@ -2006,7 +2398,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </div>
         )}
         <div
-          className={`${layoutClass} text-[9.5px] text-slate-400 w-full print:text-[8.5px]`}
+          className={`${layoutClass} ${typoScale.sub} text-slate-400 w-full`}
           style={{ width: '100%', maxWidth: '100%' }}
         >
           {metaTokens.length > 0 && (
@@ -2029,7 +2421,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           )}
           {footerPresentation.showDisclaimer && (
             <span className="mt-1 sm:mt-0 italic">
-              {footerPresentation.customDisclaimer}
+              <EditableCanvasText
+                value={footerPresentation.customDisclaimer}
+                fieldKey="footer_disclaimer"
+                canEdit={canEditCanvasInline && isFooterSelected}
+                onCommit={onInlineFieldEdit}
+                placeholder="Enter footer disclaimer..."
+              />
             </span>
           )}
         </div>
@@ -2037,7 +2435,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  // Partition active layoutBlocks + lineItems + flyer_attachments into discrete A4 main & annex sheets
+  // Partition active layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
   const paginationWithAnnexes = React.useMemo(() => {
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
@@ -2071,6 +2469,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     customerAcceptanceEnabled
   ]);
 
+  const coverSheets = paginationWithAnnexes.coverSheets;
   const sheetPartitions = paginationWithAnnexes.mainSheets;
   const annexSheetAttachments = paginationWithAnnexes.annexSheetAttachments;
   const annexSheets = paginationWithAnnexes.annexSheets;
@@ -2131,13 +2530,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       >
         <div className="flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-2">
           <span
-            className="text-[9.5px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+            className={`${typoScale.heading} font-bold uppercase tracking-wider flex items-center gap-1.5`}
             style={{ color: accentColor }}
           >
             <FileText className="w-3 h-3 shrink-0" />
             <span>Attached Technical Submittals &amp; Enclosures</span>
           </span>
-          <span className="text-[8.5px] font-mono text-slate-500">
+          <span className={`${typoScale.sub} font-mono text-slate-500`}>
             {paginationWithAnnexes.submittalsIndexEntries.length}{' '}
             {paginationWithAnnexes.submittalsIndexEntries.length === 1 ? 'Document' : 'Documents'}
           </span>
@@ -2146,10 +2545,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           {paginationWithAnnexes.submittalsIndexEntries.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white border border-slate-200/80 print:border-slate-300 text-[9.5px]"
+              className={`flex items-center justify-between gap-2 px-2 py-1 rounded bg-white border border-slate-200/80 print:border-slate-300 ${typoScale.body}`}
             >
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="w-4 h-4 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[8.5px] flex items-center justify-center shrink-0">
+                <span className={`w-4 h-4 rounded bg-slate-100 text-slate-700 font-mono font-bold ${typoScale.sub} flex items-center justify-center shrink-0`}>
                   {entry.indexNumber}
                 </span>
                 <span className="font-medium text-slate-800 truncate" title={entry.name}>
@@ -2157,7 +2556,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </span>
               </div>
               <span
-                className={`px-1.5 py-0.5 rounded font-mono text-[8px] font-semibold shrink-0 border ${
+                className={`px-1.5 py-0.5 rounded font-mono ${typoScale.micro} font-semibold shrink-0 border ${
                   entry.renderAsAnnexPage
                     ? 'bg-blue-50 text-blue-700 border-blue-200 print:bg-transparent print:text-slate-800 print:border-slate-400'
                     : 'bg-slate-100 text-slate-600 border-slate-200 print:bg-transparent print:text-slate-700 print:border-slate-300'
@@ -2176,6 +2575,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
   // ========================================================
   const renderBlocksGrid = (blocksForSheet: QuotationBlockConfig[] = resolvedBlocks) => {
+    const isTermsBlockSelected = activeSelectedSection === 'terms';
     const renderTermsBlock = () => {
       const priceBasis = quotation.price_basis?.trim();
       const paymentTerms = quotation.payment_terms?.trim();
@@ -2229,13 +2629,27 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {priceBasis && (
                 <p className="flex justify-between">
                   <span className="font-semibold text-slate-500">Price Basis:</span>
-                  <span className="text-slate-800 font-medium">{priceBasis}</span>
+                  <span className="text-slate-800 font-medium">
+                    <EditableCanvasText
+                      value={priceBasis}
+                      fieldKey="price_basis"
+                      canEdit={canEditCanvasInline && isTermsBlockSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </span>
                 </p>
               )}
               {paymentTerms && (
                 <p className="flex justify-between">
                   <span className="font-semibold text-slate-500">Payment Terms:</span>
-                  <span className="text-slate-800 font-medium">{paymentTerms}</span>
+                  <span className="text-slate-800 font-medium">
+                    <EditableCanvasText
+                      value={paymentTerms}
+                      fieldKey="payment_terms"
+                      canEdit={canEditCanvasInline && isTermsBlockSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </span>
                 </p>
               )}
               {validityText && (
@@ -2245,12 +2659,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </p>
               )}
               {customNotes && (
-                <div className={`whitespace-pre-line text-slate-600 text-xs ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
-                  {customNotes}
+                <div className={`whitespace-pre-line text-slate-600 text-[var(--block-base)] ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
+                  <EditableCanvasText
+                    value={customNotes}
+                    fieldKey="custom_notes"
+                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    onCommit={onInlineFieldEdit}
+                    multiline
+                  />
                 </div>
               )}
               {!hasAnyContent && (
-                <p className="text-slate-400 italic text-[10px] py-1">
+                <p className="text-slate-400 italic text-[calc(var(--block-base)*0.95)] py-1">
                   No commercial terms specified.
                 </p>
               )}
@@ -2260,79 +2680,82 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
-    const renderTotalsBlock = () => (
-      <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        <div className="space-y-1.5 w-full">
-          <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
-            <span>Subtotal:</span>
-            <span className="font-mono font-semibold text-slate-800">
-              {formatCurrency(quotation.subtotal)}
-            </span>
-          </div>
-
-          {Number(quotation.freight_amount) > 0 && (
-            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
-              <span>Freight / Logistics:</span>
+    const renderTotalsBlock = (isMinimalBlock = false) => {
+      const rowBorderClass = isMinimalBlock ? '' : 'border-t border-slate-100';
+      return (
+        <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div className="space-y-1.5 w-full">
+            <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
+              <span>Subtotal:</span>
               <span className="font-mono font-semibold text-slate-800">
-                {formatCurrency(quotation.freight_amount)}
+                {formatCurrency(quotation.subtotal)}
               </span>
             </div>
-          )}
 
-          {/* Tax Mode Display */}
-          {quotation.tax_mode === 'tax_calculated' && (
-            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 text-[var(--block-base)]">
-              <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {formatCurrency(quotation.tax_amount)}
-              </span>
-            </div>
-          )}
+            {Number(quotation.freight_amount) > 0 && (
+              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}>
+                <span>Freight / Logistics:</span>
+                <span className="font-mono font-semibold text-slate-800">
+                  {formatCurrency(quotation.freight_amount)}
+                </span>
+              </div>
+            )}
 
-          {quotation.tax_mode === 'taxes_extra' && (
-            <div className="py-0.5 border-t border-slate-100 text-slate-600 space-y-0.5 text-[var(--block-base)]">
-              <div className="flex justify-between">
+            {/* Tax Mode Display */}
+            {quotation.tax_mode === 'tax_calculated' && (
+              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}>
                 <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
                 <span className="font-mono font-semibold text-slate-800">
                   {formatCurrency(quotation.tax_amount)}
                 </span>
               </div>
-              <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
-                * Taxes EXTRA to client account as applicable
-              </p>
-            </div>
-          )}
+            )}
 
-          {quotation.tax_mode === 'tax_exempt' && (
-            <div className="flex justify-between text-slate-600 py-0.5 border-t border-slate-100 items-center text-[var(--block-base)]">
-              <span>Tax Status:</span>
-              <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                Tax Exempt (0%)
+            {quotation.tax_mode === 'taxes_extra' && (
+              <div className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}>
+                <div className="flex justify-between">
+                  <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    {formatCurrency(quotation.tax_amount)}
+                  </span>
+                </div>
+                <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
+                  * Taxes EXTRA to client account as applicable
+                </p>
+              </div>
+            )}
+
+            {quotation.tax_mode === 'tax_exempt' && (
+              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}>
+                <span>Tax Status:</span>
+                <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                  Tax Exempt (0%)
+                </span>
+              </div>
+            )}
+
+            {/* Grand Total */}
+            <div
+              className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
+              style={{ borderColor: themePalette.primaryHex }}
+            >
+              <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
+              <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: themePalette.textAccent }}>
+                {formatCurrency(quotation.grand_total)}
               </span>
             </div>
+          </div>
+
+          {/* Amount in Words */}
+          {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
+            <div className={`text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic ${rowBorderClass} pt-1.5 mt-1.5 break-words`}>
+              <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
+              <span className="not-italic">{amountToWords(quotation.grand_total, currency)}</span>
+            </div>
           )}
-
-          {/* Grand Total */}
-          <div
-            className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
-            style={{ borderColor: themePalette.primaryHex }}
-          >
-            <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
-            <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: themePalette.textAccent }}>
-              {formatCurrency(quotation.grand_total)}
-            </span>
-          </div>
         </div>
-
-        {/* Amount in Words */}
-        {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
-          <div className="text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic border-t border-slate-100 pt-1.5 mt-1.5 break-words">
-            <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
-            <span className="not-italic">{amountToWords(quotation.grand_total, currency)}</span>
-          </div>
-        )}
-      </div>
-    );
+      );
+    };
 
     const renderRemittanceBlock = () => (
       <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
@@ -2407,6 +2830,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
     const resolvedCompanySealUrl = stampSigOverlay.activeSealUrl;
 
+    const isSignatoryBlockSelected =
+      activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
+
     const renderSignatoryBlock = () => (
       <div
         className="signatory-card overflow-visible relative break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full"
@@ -2453,7 +2879,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 ) : (
                   <>
                     <div className="company-seal-placeholder h-14 w-14 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
-                      <span className="text-[7.5px] font-mono uppercase tracking-wider text-slate-400 leading-tight">
+                      <span className={`${typoScale.micro} font-mono uppercase tracking-wider text-slate-400 leading-tight`}>
                         Official Seal
                       </span>
                     </div>
@@ -2477,6 +2903,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 const useUploadedSignatureImage =
                   Boolean(resolvedSignatureImgUrl) &&
                   (signatureStyle === 'image' || Boolean(quotation.signature_image_url));
+                const nameFieldKey = sIdx === 0 ? 'primary_signatory_name' : 'secondary_signatory_name';
+                const titleFieldKey = sIdx === 0 ? 'primary_signatory_title' : 'secondary_signatory_title';
 
                 return (
                   <div key={sIdx} className="text-center min-w-[120px] overflow-visible relative">
@@ -2508,10 +2936,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     </div>
                     <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
                     <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">
-                      {sig.name}
+                      <EditableCanvasText
+                        value={sig.name}
+                        fieldKey={nameFieldKey}
+                        canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
                     </p>
                     <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">
-                      {sig.title}
+                      <EditableCanvasText
+                        value={sig.title}
+                        fieldKey={titleFieldKey}
+                        canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
                     </p>
                   </div>
                 );
@@ -2737,7 +3175,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
                   const isMinimalBlock = b.style === 'minimal';
                   const padClass = isMinimalBlock
-                    ? 'pt-2 pb-1 px-1'
+                    ? 'pt-1 pb-1 px-0.5'
                     : b.padding === 'compact'
                     ? 'p-2'
                     : 'p-3';
@@ -2753,7 +3191,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   const cardStyleClass = [
                     padClass,
                     isMinimalBlock
-                      ? 'rounded-none border-t border-slate-200/90 bg-transparent print:bg-transparent print:border-slate-300'
+                      ? 'rounded-none border-0 bg-transparent print:bg-transparent shadow-none'
                       : `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} border border-slate-200 bg-slate-50/50`,
                     'h-full flex flex-col justify-between transition-all duration-150',
                     isSignatorySlot ? 'overflow-visible relative' : '',
@@ -2790,7 +3228,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         }}
                       >
                         {(bType === 'terms' || b.id === 'terms') && renderTermsBlock()}
-                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock()}
+                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock(isMinimalBlock)}
                         {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock()}
                         {isSignatorySlot && renderSignatoryBlock()}
                         {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b.placement)}
@@ -2806,7 +3244,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  const renderTopSection = () => {
+  const renderHeaderBrandingElement = (isContinuationRepeat = false) => {
     const {
       activeLogoUrl,
       logoDisplayMode,
@@ -2820,42 +3258,48 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       brandHorizontalAlign,
       brandVerticalAlign,
       contactHorizontalAlign,
-      contactVerticalAlign
+      contactVerticalAlign,
+      showHeaderIcons
     } = headerBranding;
     const isBannerHeader =
       headerLayoutMode === 'banner' || logoDisplayMode === 'full_banner';
     const isCenteredHeader = headerLayoutMode === 'centered';
     const isSplitRight = headerLayoutMode === 'split_right';
 
-    const resolvedHeaderFieldsMap = resolveHeaderFields(resolvedHeaderConfig, {
-      address_line_1: profile?.address_line_1,
-      address_line_2: profile?.address_line_2,
-      city: profile?.city,
-      country: profile?.country,
-      address: senderAddress,
-      phone: senderPhone,
-      email: senderEmail,
-      website: senderWebsite,
-      trn: senderTrn
-    });
+    const resolvedHeaderFieldsMap = resolveHeaderFields(
+      resolvedHeaderConfig,
+      {
+        address_line_1: profile?.address_line_1,
+        address_line_2: profile?.address_line_2,
+        city: profile?.city,
+        country: profile?.country,
+        address: senderAddress,
+        phone: senderPhone,
+        email: senderEmail,
+        website: senderWebsite,
+        trn: senderTrn
+      },
+      undefined,
+      fontSizeScale
+    );
 
-    // Explicit Logo Breathing Room mapped to BOTH logo/name gap AND header bottom padding
-    const logoSpacingClass =
+    // Logo Padding applied directly to the Logo wrapper container, keeping <header> bottom rhythm constant
+    const logoWrapperPaddingClass =
       logoSpacing === 'none'
-        ? 'pb-1.5 mb-2'
+        ? 'p-0'
         : logoSpacing === 'tight'
-        ? 'pb-2.5 mb-2.5'
+        ? 'p-1'
         : logoSpacing === 'spacious'
-        ? 'pb-5 mb-4'
-        : 'pb-3.5 mb-3';
+        ? 'p-3.5'
+        : 'p-2';
     const logoGapClass =
       logoSpacing === 'none'
         ? 'gap-1.5'
         : logoSpacing === 'tight'
         ? 'gap-2.5'
         : logoSpacing === 'spacious'
-        ? 'gap-6'
-        : 'gap-4';
+        ? 'gap-5'
+        : 'gap-3.5';
 
     const brandVAlignClass =
       brandVerticalAlign === 'middle'
@@ -2883,32 +3327,258 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         ? 'text-left items-start'
         : 'text-right items-end';
 
+    const renderFieldIcon = (iconName?: string) => {
+      if (!showHeaderIcons || !iconName || iconName === 'none') return null;
+      const cls = 'w-3 h-3 text-slate-400 shrink-0 mt-[2px]';
+      switch (iconName) {
+        case 'map-pin':
+          return <MapPin className={cls} />;
+        case 'phone':
+          return <Phone className={cls} />;
+        case 'smartphone':
+          return <Smartphone className={cls} />;
+        case 'mail':
+          return <Mail className={cls} />;
+        case 'globe':
+          return <Globe className={cls} />;
+        case 'building':
+          return <Building2 className={cls} />;
+        case 'hash':
+          return <Hash className={cls} />;
+        case 'user':
+          return <User className={cls} />;
+        case 'shield':
+          return <ShieldCheck className={cls} />;
+        default:
+          return null;
+      }
+    };
+
     const renderFieldItemNode = (field: ResolvedHeaderFieldRenderItem, inlineMode = false) => {
-      const iconNode =
-        field.id === 'phone' || field.id.startsWith('custom_mob') ? (
-          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-        ) : field.id === 'email' ? (
-          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-        ) : field.id === 'website' ? (
-          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
-        ) : null;
+      const iconNode = field.showIcon ? renderFieldIcon(field.icon) : null;
 
       return (
         <span
           key={field.id}
-          className={`${inlineMode ? 'inline-flex' : 'flex'} items-center gap-1 ${field.fontSizeClass} ${field.fontWeightClass} text-slate-600 print:text-black leading-snug break-words max-w-full`}
+          className={`${inlineMode ? 'inline-flex items-center' : 'flex items-start'} gap-1.5 ${field.fontSizeClass} ${field.fontWeightClass} text-slate-600 print:text-black leading-snug break-words whitespace-normal max-w-full`}
         >
           {iconNode}
-          {field.label ? (
-            <span className="text-slate-500 font-medium mr-0.5">{field.label}</span>
-          ) : null}
-          <span className={field.id === 'trn' ? 'font-mono text-slate-800' : 'text-slate-700'}>
-            {field.resolvedValue}
+          <span className="min-w-0 break-words whitespace-normal">
+            {field.label ? (
+              <span className="text-slate-500 font-medium mr-1">{field.label}</span>
+            ) : null}
+            <span className={field.id === 'trn' ? 'font-mono text-slate-800' : 'text-slate-700'}>
+              <EditableCanvasText
+                value={field.resolvedValue}
+                fieldKey={`header_field:${field.id}`}
+                canEdit={canEditCanvasInline && isHeaderSelected && !isContinuationRepeat}
+                onCommit={onInlineFieldEdit}
+              />
+            </span>
           </span>
         </span>
       );
     };
 
+    const allStackedHeaderFields = [
+      ...resolvedHeaderFieldsMap.underLogo,
+      ...resolvedHeaderFieldsMap.underName,
+      ...resolvedHeaderFieldsMap.contactBlock,
+      ...resolvedHeaderFieldsMap.bottomBar
+    ];
+
+    return (
+      <header
+        className={`quotation-header-branding border-b border-slate-200 pb-3 mb-3 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section px-1 box-border ${
+          isInteractive && !isContinuationRepeat ? 'cursor-pointer' : ''
+        } ${
+          isHeaderSelected && !isContinuationRepeat
+            ? 'ring-2 ring-inset ring-blue-500 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
+            : isInteractive && !isContinuationRepeat
+            ? 'hover:ring-1 hover:ring-inset hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
+            : ''
+        }`}
+        onClick={
+          isInteractive && !isContinuationRepeat
+            ? (e) => {
+                e.stopPropagation();
+                if (onSelectSection) {
+                  onSelectSection('header');
+                } else if (onSelectBlock) {
+                  onSelectBlock('header' as any);
+                }
+              }
+            : undefined
+        }
+        style={{ width: '100%', maxWidth: '100%' }}
+      >
+        {isInteractive && !isContinuationRepeat && (
+          <div
+            className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              isHeaderSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            }`}
+          >
+            Header &amp; Branding
+          </div>
+        )}
+
+        {isBannerHeader || isCenteredHeader ? (
+          /* Full Letterhead Banner Mode OR Centered Executive Stack */
+          <div
+            className="flex flex-col items-center text-center space-y-1.5 w-full"
+            style={{ width: '100%', maxWidth: '100%' }}
+          >
+            {showLogo && (
+              <div className={`w-full flex flex-col items-center justify-center ${logoWrapperPaddingClass}`}>
+                {activeLogoUrl && !logoLoadFailed ? (
+                  <img
+                    src={activeLogoUrl}
+                    alt={senderEntityName}
+                    style={
+                      isBannerHeader
+                        ? {
+                            maxHeight: `${bannerMaxHeightPx}px`,
+                            maxWidth: `${logoMaxWidthPx || 700}px`
+                          }
+                        : {
+                            height: `${logoHeight}px`,
+                            maxWidth: `${logoMaxWidthPx || 260}px`
+                          }
+                    }
+                    className={
+                      isBannerHeader
+                        ? 'w-full h-auto object-contain mx-auto'
+                        : 'w-auto object-contain shrink-0 mx-auto'
+                    }
+                    onError={() => setLogoLoadFailed(true)}
+                  />
+                ) : (
+                  <div
+                    className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
+                    style={{
+                      backgroundColor: accentColor,
+                      width: `${Math.max(40, logoHeight)}px`,
+                      height: `${Math.max(40, logoHeight)}px`
+                    }}
+                  >
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                )}
+                {resolvedHeaderFieldsMap.underLogo.length > 0 && (
+                  <div className="flex flex-col items-center gap-0.5 mt-1">
+                    {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f, true))}
+                  </div>
+                )}
+              </div>
+            )}
+            {showCompanyName && (
+              <h1 className={`${typoScale.h1} font-bold tracking-tight text-slate-900 leading-tight`}>
+                {senderEntityName}
+              </h1>
+            )}
+            {allStackedHeaderFields.filter((f) => f.zone !== 'under_logo').length > 0 && (
+              <div className={`flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 ${typoScale.body} text-slate-500 pt-0.5 leading-relaxed`}>
+                {allStackedHeaderFields
+                  .filter((f) => f.zone !== 'under_logo')
+                  .map((f, idx, arr) => (
+                    <span key={f.id} className="inline-flex items-center gap-2">
+                      {renderFieldItemNode(f, true)}
+                      {idx < arr.length - 1 && (
+                        <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">
+                          •
+                        </span>
+                      )}
+                    </span>
+                  ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Split Classic (Logo Left / Contacts Right) or Split Reversed (Contacts Left / Logo Right) via 12-Col Grid */
+          <>
+            <div
+              className="grid grid-cols-12 gap-4 w-full items-start"
+              style={{ width: '100%', maxWidth: '100%' }}
+            >
+              {/* Brand Lockup Zone (col-span-7) */}
+              <div
+                className={`${
+                  isSplitRight
+                    ? 'col-span-7 col-start-6 row-start-1 flex-row-reverse justify-start'
+                    : 'col-span-7 col-start-1 row-start-1 flex-row'
+                } min-w-0 flex ${brandVAlignClass} ${logoGapClass}`}
+              >
+                {showLogo && (
+                  <div className={`flex flex-col items-start shrink-0 ${logoWrapperPaddingClass}`}>
+                    {activeLogoUrl && !logoLoadFailed ? (
+                      <img
+                        src={activeLogoUrl}
+                        alt={senderEntityName}
+                        style={{
+                          height: `${logoHeight}px`,
+                          maxWidth: `${logoMaxWidthPx || 260}px`
+                        }}
+                        className="w-auto object-contain shrink-0"
+                        onError={() => setLogoLoadFailed(true)}
+                      />
+                    ) : (
+                      <div
+                        className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
+                        style={{
+                          backgroundColor: accentColor,
+                          width: `${Math.max(40, logoHeight)}px`,
+                          height: `${Math.max(40, logoHeight)}px`
+                        }}
+                      >
+                        <Building2 className="w-6 h-6" />
+                      </div>
+                    )}
+                    {resolvedHeaderFieldsMap.underLogo.length > 0 && (
+                      <div className="flex flex-col gap-0.5 mt-1">
+                        {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className={`min-w-0 flex flex-col ${brandHAlignClass}`}>
+                  {showCompanyName && (
+                    <h1 className={`${typoScale.h1} font-bold tracking-tight text-slate-900 leading-tight break-words`}>
+                      {senderEntityName}
+                    </h1>
+                  )}
+                  {resolvedHeaderFieldsMap.underName.length > 0 && (
+                    <div className={`flex flex-col gap-0.5 ${showCompanyName ? 'mt-0.5' : 'mt-0'} ${brandHAlignClass}`}>
+                      {resolvedHeaderFieldsMap.underName.map((f) => renderFieldItemNode(f))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Contact Block Zone (col-span-5) */}
+              <div
+                className={`${
+                  isSplitRight
+                    ? 'col-span-5 col-start-1 row-start-1 pl-1'
+                    : 'col-span-5 col-start-8 row-start-1 pr-1.5'
+                } min-w-0 flex flex-col space-y-0.5 box-border max-w-full ${contactVAlignClass} ${contactHAlignClass}`}
+              >
+                {resolvedHeaderFieldsMap.contactBlock.map((f) => renderFieldItemNode(f))}
+              </div>
+            </div>
+
+            {/* Optional Full-Width Bottom Header Bar Zone */}
+            {resolvedHeaderFieldsMap.bottomBar.length > 0 && (
+              <div className="w-full pt-2 mt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                {resolvedHeaderFieldsMap.bottomBar.map((f) => renderFieldItemNode(f, true))}
+              </div>
+            )}
+          </>
+        )}
+      </header>
+    );
+  };
+
+  const renderTopSection = () => {
     const resolvedGlobalRadius =
       propGlobalCardRadius ||
       quotation.globalCardRadius ||
@@ -2952,27 +3622,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
         return null;
       }
+      const isSubjectSelected = activeSelectedSection === 'subject';
       return (
         <div
-          className={`mb-3 px-3 py-1.5 ${
+          className={`mb-3 ${
             isMinimal
-              ? 'border-y border-slate-200/90 bg-transparent rounded-none'
-              : `border border-slate-200 ${globalRadiusClass}`
-          } text-xs font-medium text-slate-800 relative group transition-all duration-150 print:bg-transparent print:border-slate-300 ${
+              ? 'border-0 border-l-2 bg-transparent rounded-none pl-2.5 py-1'
+              : `px-3 py-1.5 border border-slate-200 ${globalRadiusClass}`
+          } ${typoScale.heading} font-medium text-slate-800 relative group transition-all duration-150 print:bg-transparent ${
             isInteractive ? 'cursor-pointer hover:border-slate-400' : ''
           } ${
-            activeSelectedSection === 'subject'
+            isSubjectSelected
               ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
               : ''
           }`}
           style={
-            !isMinimal
+            isMinimal
               ? {
+                  borderLeftColor: themePalette.primaryHex
+                }
+              : {
                   backgroundColor: themePalette.tintBg,
                   borderLeftWidth: '3px',
                   borderLeftColor: themePalette.primaryHex
                 }
-              : undefined
           }
           onClick={isInteractive ? (e) => {
             e.stopPropagation();
@@ -2980,8 +3653,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           } : undefined}
         >
           {isInteractive && (
-            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-              activeSelectedSection === 'subject' ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+            <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+              isSubjectSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
             }`}>
               Subject Banner
             </div>
@@ -2989,7 +3662,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           <span className="font-semibold mr-1.5" style={{ color: themePalette.textAccent }}>
             Subject:
           </span>
-          <span className="text-slate-800 font-semibold">{quotation.subject || enquiry?.subject}</span>
+          <span className="text-slate-800 font-semibold">
+            <EditableCanvasText
+              value={quotation.subject || enquiry?.subject || ''}
+              fieldKey="subject"
+              canEdit={canEditCanvasInline && isSubjectSelected}
+              onCommit={onInlineFieldEdit}
+              placeholder="Enter quotation subject..."
+            />
+          </span>
         </div>
       );
     };
@@ -3014,7 +3695,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         style={{ width: '100%', maxWidth: '100%' }}
       >
         {isInteractive && (
-          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
             isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
           }`}>
             Submitted To
@@ -3024,32 +3705,59 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           /* Compact 100% Full-Width Horizontal Strip Layout */
           <div>
             <div
-              className="text-[10px] uppercase tracking-wider font-extrabold mb-1"
+              className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
               style={{ color: themePalette.textAccent }}
             >
               Submitted To / Attention To
             </div>
             <div className="flex flex-row items-baseline justify-between gap-4">
               <div className="min-w-0">
-                <span className="text-sm font-bold text-slate-900 mr-2">{clientEntityName}</span>
+                <span className={`${typoScale.entityTitle} font-bold text-slate-900 mr-2`}>
+                  <EditableCanvasText
+                    value={clientEntityName}
+                    fieldKey="client_name"
+                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
+                </span>
                 {showAttention && (
-                  <span className="text-xs text-slate-700 font-medium">
+                  <span className={`${typoScale.body} text-slate-700 font-medium`}>
                     • Attn:{' '}
                     <span className="text-slate-900 font-semibold">
-                      {clientContactPerson || 'Procurement / Commercial Dept.'}
+                      <EditableCanvasText
+                        value={clientContactPerson || 'Procurement / Commercial Dept.'}
+                        fieldKey="client_contact_person"
+                        canEdit={canEditCanvasInline && isRecipientSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
                     </span>
                   </span>
                 )}
-                <p className="text-xs text-slate-600 mt-0.5">{clientAddress}</p>
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                  <EditableCanvasText
+                    value={clientAddress}
+                    fieldKey="client_address"
+                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
+                </p>
               </div>
-              <div className="text-right shrink-0 text-xs text-slate-600 space-y-0.5">
+              <div className={`text-right shrink-0 ${typoScale.body} text-slate-600 space-y-0.5`}>
                 <p>
-                  <span className="text-[10px] text-slate-500 font-medium">
-                    TRN: <span className="text-slate-700 font-mono">{clientTrn || 'Not Registered'}</span>
+                  <span className={`${typoScale.sub} text-slate-500 font-medium`}>
+                    TRN:{' '}
+                    <span className="text-slate-700 font-mono">
+                      <EditableCanvasText
+                        value={clientTrn || 'Not Registered'}
+                        fieldKey="client_trn"
+                        canEdit={canEditCanvasInline && isRecipientSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
+                    </span>
                   </span>
                 </p>
                 {(clientPhone || clientEmail) && (
-                  <p className="text-slate-500 text-[11px]">
+                  <p className={`text-slate-500 ${typoScale.sub}`}>
                     {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
                   </p>
                 )}
@@ -3061,32 +3769,57 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           <>
             <div>
               <div
-                className="text-[10px] uppercase tracking-wider font-extrabold mb-1"
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
                 style={{ color: themePalette.textAccent }}
               >
                 Submitted To / Attention To
               </div>
-              <h3 className="text-sm font-bold text-slate-900">
-                {clientEntityName}
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                <EditableCanvasText
+                  value={clientEntityName}
+                  fieldKey="client_name"
+                  canEdit={canEditCanvasInline && isRecipientSelected}
+                  onCommit={onInlineFieldEdit}
+                />
               </h3>
               {showAttention && (
-                <p className="text-xs text-slate-700 font-medium mt-0.5">
+                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
                   Attn:{' '}
                   <span className="text-slate-900 font-semibold">
-                    {clientContactPerson || 'Procurement / Commercial Dept.'}
+                    <EditableCanvasText
+                      value={clientContactPerson || 'Procurement / Commercial Dept.'}
+                      fieldKey="client_contact_person"
+                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
                   </span>
                 </p>
               )}
-              <p className="text-xs text-slate-600 mt-0.5">
-                {clientAddress}
+              <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                <EditableCanvasText
+                  value={clientAddress}
+                  fieldKey="client_address"
+                  canEdit={canEditCanvasInline && isRecipientSelected}
+                  onCommit={onInlineFieldEdit}
+                />
               </p>
             </div>
-            <div className="text-xs text-slate-600 space-y-0.5 pt-1.5 mt-1.5 border-t border-slate-200/60">
+            <div className={`${typoScale.body} text-slate-600 space-y-0.5 ${isMinimal ? 'pt-1 mt-1' : 'pt-1.5 mt-1.5 border-t border-slate-200/60'}`}>
               <p>
-                <span className="text-[10px] text-slate-500 font-medium">TRN: <span className="text-slate-700">{clientTrn || 'Not Registered'}</span></span>
+                <span className={`${typoScale.sub} text-slate-500 font-medium`}>
+                  TRN:{' '}
+                  <span className="text-slate-700">
+                    <EditableCanvasText
+                      value={clientTrn || 'Not Registered'}
+                      fieldKey="client_trn"
+                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </span>
+                </span>
               </p>
               {(clientPhone || clientEmail) && (
-                <p className="text-slate-500 text-[11px]">
+                <p className={`text-slate-500 ${typoScale.sub}`}>
                   {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
                 </p>
               )}
@@ -3116,7 +3849,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         style={{ width: '100%', maxWidth: '100%' }}
       >
         {isInteractive && (
-          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
             isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
           }`}>
             Commercial Offer
@@ -3125,52 +3858,57 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         {isOfferFullWidth ? (
           /* Compact 100% Full-Width 4-Column Horizontal Metadata Strip */
           <div>
-            <div className="pb-1.5 border-b border-slate-200/60 flex items-center justify-between gap-2">
+            <div className={`${isMinimal ? 'pb-1' : 'pb-1.5 border-b border-slate-200/60'} flex items-center justify-between gap-2`}>
               <span
-                className="text-[10px] uppercase tracking-wider font-extrabold"
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
                 style={{ color: themePalette.textAccent }}
               >
                 Commercial Offer
               </span>
               <div className="flex items-center gap-2">
-                <span className="text-sm sm:text-base font-mono font-bold text-slate-900">
+                <span className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
                   {quotation.formatted_quote_ref || quotation.quote_number}
                 </span>
-                <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
+                <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
                   Rev {quotation.revision_number || 1}
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-3 pt-1.5 text-xs items-center">
+            <div className={`grid grid-cols-4 gap-3 pt-1.5 ${typoScale.body} items-center`}>
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase block">Date</span>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
                 <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
               </div>
               {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' ? (
                 <div>
-                  <span className="text-slate-400 text-[9.5px] uppercase block">Valid Until</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
                   <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
                 </div>
               ) : showEnquiryRef && enquiryRef ? (
                 <div>
-                  <span className="text-slate-400 text-[9.5px] uppercase block">Enquiry Ref</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Enquiry Ref</span>
                   <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
                 </div>
               ) : (
                 <div>
-                  <span className="text-slate-400 text-[9.5px] uppercase block">Validity</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Validity</span>
                   <span className="font-semibold text-slate-800">Standard</span>
                 </div>
               )}
               <div>
-                <span className="text-slate-400 text-[9.5px] uppercase block">Prepared By</span>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
                 <span className="font-semibold text-slate-800 truncate block">
-                  {showSalesRep && resolvedSalesRep ? resolvedSalesRep : 'Authorized Rep'}
+                  <EditableCanvasText
+                    value={showSalesRep && resolvedSalesRep ? resolvedSalesRep : 'Authorized Rep'}
+                    fieldKey="prepared_by"
+                    canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-slate-400 text-[9.5px] uppercase block">Status</span>
-                <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Status</span>
+                <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
                   {String(quotation.status || 'Draft').toUpperCase()}
                 </span>
               </div>
@@ -3180,50 +3918,57 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           /* Standard 50% Half-Width Vertical Card Layout */
           <>
             <div>
-              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+              <div className={`${isMinimal ? 'pb-0.5' : 'pb-1 border-b border-slate-200/60'} flex items-center justify-between gap-2`}>
                 <span
-                  className="text-[10px] uppercase tracking-wider font-extrabold"
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
                   style={{ color: themePalette.textAccent }}
                 >
                   Commercial Offer
                 </span>
-                <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
+                <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
                   Rev {quotation.revision_number || 1}
                 </span>
               </div>
               <div className="py-1.5 text-center">
-                <div className="text-base sm:text-lg font-mono font-bold text-slate-900">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
                   {quotation.formatted_quote_ref || quotation.quote_number}
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-200/60 text-xs">
+            <div className={`grid grid-cols-2 gap-1.5 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.body}`}>
               <div>
-                <span className="text-slate-400 text-[10px] uppercase block">Date</span>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
                 <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
               </div>
               {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
                 <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Valid Until</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
                   <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
                 </div>
               )}
               {showSalesRep && resolvedSalesRep && (
                 <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Prepared By</span>
-                  <span className="font-semibold text-slate-800 truncate block">{resolvedSalesRep}</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
+                  <span className="font-semibold text-slate-800 truncate block">
+                    <EditableCanvasText
+                      value={resolvedSalesRep}
+                      fieldKey="prepared_by"
+                      canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </span>
                 </div>
               )}
               {showEnquiryRef && enquiryRef && (
                 <div>
-                  <span className="text-slate-400 text-[10px] uppercase block">Enquiry Ref</span>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Enquiry Ref</span>
                   <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
                 </div>
               )}
               <div className="col-span-2 pt-0.5 flex items-center justify-between">
-                <span className="text-slate-400 text-[10px] uppercase">Status</span>
-                <span className="font-bold text-slate-700 uppercase tracking-wider text-[10.5px]">
+                <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Status</span>
+                <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
                   {String(quotation.status || 'Draft').toUpperCase()}
                 </span>
               </div>
@@ -3233,196 +3978,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       </div>
     );
 
-    const allStackedHeaderFields = [
-      ...resolvedHeaderFieldsMap.underLogo,
-      ...resolvedHeaderFieldsMap.underName,
-      ...resolvedHeaderFieldsMap.contactBlock,
-      ...resolvedHeaderFieldsMap.bottomBar
-    ];
-
     return (
       <>
-        <header
-          className={`quotation-header-branding border-b border-slate-200 ${logoSpacingClass} w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section px-1 box-border ${
-            isInteractive ? 'cursor-pointer' : ''
-          } ${
-            isHeaderSelected
-              ? 'ring-2 ring-inset ring-blue-500 shadow-sm print:ring-0 !print:ring-0 print:outline-none !print:outline-none print:shadow-none !print:shadow-none'
-              : isInteractive
-              ? 'hover:ring-1 hover:ring-inset hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
-              : ''
-          }`}
-          onClick={isInteractive ? (e) => {
-            e.stopPropagation();
-            if (onSelectSection) {
-              onSelectSection('header');
-            } else if (onSelectBlock) {
-              onSelectBlock('header' as any);
-            }
-          } : undefined}
-          style={{ width: '100%', maxWidth: '100%' }}
-        >
-          {isInteractive && (
-            <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-              isHeaderSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-            }`}>
-              Header &amp; Branding
-            </div>
-          )}
-
-          {isBannerHeader || isCenteredHeader ? (
-            /* Full Letterhead Banner Mode OR Centered Executive Stack */
-            <div
-              className={`flex flex-col items-center text-center space-y-1.5 w-full`}
-              style={{ width: '100%', maxWidth: '100%' }}
-            >
-              {showLogo && (
-                <div className="w-full pb-1 flex flex-col items-center justify-center">
-                  {activeLogoUrl && !logoLoadFailed ? (
-                    <img
-                      src={activeLogoUrl}
-                      alt={senderEntityName}
-                      style={
-                        isBannerHeader
-                          ? {
-                              maxHeight: `${bannerMaxHeightPx}px`,
-                              maxWidth: `${logoMaxWidthPx || 700}px`
-                            }
-                          : {
-                              height: `${logoHeight}px`,
-                              maxWidth: `${logoMaxWidthPx || 260}px`
-                            }
-                      }
-                      className={
-                        isBannerHeader
-                          ? 'w-full h-auto object-contain mx-auto'
-                          : 'w-auto object-contain shrink-0 mx-auto'
-                      }
-                      onError={() => setLogoLoadFailed(true)}
-                    />
-                  ) : (
-                    <div
-                      className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm"
-                      style={{
-                        backgroundColor: accentColor,
-                        width: `${Math.max(40, logoHeight)}px`,
-                        height: `${Math.max(40, logoHeight)}px`
-                      }}
-                    >
-                      <Building2 className="w-6 h-6" />
-                    </div>
-                  )}
-                  {resolvedHeaderFieldsMap.underLogo.length > 0 && (
-                    <div className="flex flex-col items-center gap-0.5 mt-1">
-                      {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f, true))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {showCompanyName && (
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                  {senderEntityName}
-                </h1>
-              )}
-              {allStackedHeaderFields.filter((f) => f.zone !== 'under_logo').length > 0 && (
-                <div className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 pt-0.5 leading-relaxed">
-                  {allStackedHeaderFields
-                    .filter((f) => f.zone !== 'under_logo')
-                    .map((f, idx, arr) => (
-                      <span key={f.id} className="inline-flex items-center gap-2 whitespace-nowrap">
-                        {renderFieldItemNode(f, true)}
-                        {idx < arr.length - 1 && (
-                          <span className="text-slate-300 font-bold select-none shrink-0" aria-hidden="true">
-                            •
-                          </span>
-                        )}
-                      </span>
-                    ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            /* Split Classic (Logo Left / Contacts Right) or Split Reversed (Contacts Left / Logo Right) */
-            <>
-              <div
-                className={`flex flex-row justify-between ${brandVAlignClass} gap-4 w-full ${
-                  isSplitRight ? 'flex-row-reverse' : ''
-                }`}
-                style={{ width: '100%', maxWidth: '100%' }}
-              >
-                {/* Brand Lockup Zone (Logo + Under-Logo Fields + Company Name + Under-Name Fields) */}
-                <div
-                  className={`${
-                    isSplitRight
-                      ? 'w-[54%] flex-row-reverse justify-start'
-                      : 'w-[55%] flex-row'
-                  } flex-shrink-0 flex ${brandVAlignClass} ${logoGapClass}`}
-                >
-                  {showLogo && (
-                    <div className="flex flex-col items-start shrink-0">
-                      {activeLogoUrl && !logoLoadFailed ? (
-                        <img
-                          src={activeLogoUrl}
-                          alt={senderEntityName}
-                          style={{
-                            height: `${logoHeight}px`,
-                            maxWidth: `${logoMaxWidthPx || 260}px`
-                          }}
-                          className="w-auto object-contain shrink-0"
-                          onError={() => setLogoLoadFailed(true)}
-                        />
-                      ) : (
-                        <div
-                          className="rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm shrink-0"
-                          style={{
-                            backgroundColor: accentColor,
-                            width: `${Math.max(40, logoHeight)}px`,
-                            height: `${Math.max(40, logoHeight)}px`
-                          }}
-                        >
-                          <Building2 className="w-6 h-6" />
-                        </div>
-                      )}
-                      {resolvedHeaderFieldsMap.underLogo.length > 0 && (
-                        <div className="flex flex-col gap-0.5 mt-1">
-                          {resolvedHeaderFieldsMap.underLogo.map((f) => renderFieldItemNode(f))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className={`min-w-0 flex flex-col ${brandHAlignClass}`}>
-                    {showCompanyName && (
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
-                        {senderEntityName}
-                      </h1>
-                    )}
-                    {resolvedHeaderFieldsMap.underName.length > 0 && (
-                      <div className={`flex flex-col gap-0.5 ${showCompanyName ? 'mt-0.5' : 'mt-0'} ${brandHAlignClass}`}>
-                        {resolvedHeaderFieldsMap.underName.map((f) => renderFieldItemNode(f))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right/Left Contact Block Zone (Protected from border clipping with pr-1.5 & max-w-full) */}
-                <div
-                  className={`${
-                    isSplitRight ? 'w-[44%] pl-1' : 'w-[43%] pr-1.5'
-                  } flex-shrink-0 flex flex-col space-y-0.5 box-border max-w-full overflow-hidden ${contactVAlignClass} ${contactHAlignClass}`}
-                >
-                  {resolvedHeaderFieldsMap.contactBlock.map((f) => renderFieldItemNode(f))}
-                </div>
-              </div>
-
-              {/* Optional Full-Width Bottom Header Bar Zone */}
-              {resolvedHeaderFieldsMap.bottomBar.length > 0 && (
-                <div className="w-full pt-2 mt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  {resolvedHeaderFieldsMap.bottomBar.map((f) => renderFieldItemNode(f, true))}
-                </div>
-              )}
-            </>
-          )}
-        </header>
+        {renderHeaderBrandingElement(false)}
 
         {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
         <div
@@ -3495,7 +4053,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         style={{ width: '100%', maxWidth: '100%' }}
       >
         {isInteractive && !isContinuation && (
-          <div className={`absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
             isTableSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
           }`}>
             {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
@@ -3504,7 +4062,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         <div
           className={`${
             isMinimal
-              ? 'border-y border-slate-200/90 rounded-none'
+              ? 'border-b border-slate-200/80 rounded-none'
               : `${resolvedTableRadiusClass} border border-slate-200`
           } overflow-hidden w-full`}
           style={{ width: '100%', maxWidth: '100%' }}
@@ -3533,26 +4091,26 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 }}
               >
                 <th
-                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
+                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
                   style={{ color: themePalette.textAccent }}
                 >
                   #
                 </th>
                 <th
-                  className={`${thPad} px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-left`}
+                  className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-left`}
                   style={{ color: themePalette.textAccent }}
                 >
                   Description &amp; Technical Specifications
                 </th>
                 <th
-                  className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center font-mono whitespace-nowrap`}
+                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center font-mono whitespace-nowrap`}
                   style={{ color: themePalette.textAccent }}
                 >
                   Qty
                 </th>
                 {showUom && (
                   <th
-                    className={`${thPad} px-1.5 py-2 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
+                    className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
                     style={{ color: themePalette.textAccent }}
                   >
                     UOM
@@ -3560,7 +4118,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 )}
                 {showUnitPrice && (
                   <th
-                    className={`${thPad} pl-2 pr-3.5 py-2 text-[10px] font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-right whitespace-nowrap`}
+                    className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-right whitespace-nowrap`}
                     style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: themePalette.textAccent }}
                   >
                     Unit Price
@@ -3568,7 +4126,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 )}
                 {showLineTotal && (
                   <th
-                    className={`${thPad} pl-3 pr-4 py-2 text-[10px] font-bold uppercase tracking-wider text-right whitespace-nowrap`}
+                    className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
                     style={{ paddingRight: '16px', color: themePalette.textAccent }}
                   >
                     Total ({currency})
@@ -3598,7 +4156,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
                             <span>{item.item_name || 'Standard Line Item'}</span>
                             {item.is_optional && (
-                              <span className="px-1.5 py-0.5 text-[9px] uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0">
+                              <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
                                 Optional
                               </span>
                             )}
@@ -3723,7 +4281,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                                   if (attributeDisplayFormat === 'inline_text') {
                                     return (
-                                      <div className="text-[9px] print:text-[8.5px] text-slate-600 mt-1 leading-normal">
+                                      <div className={`${typoScale.sub} text-slate-600 mt-1 leading-normal`}>
                                         <span className="font-semibold text-slate-700">Specs: </span>
                                         {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
                                       </div>
@@ -3735,7 +4293,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                       {visibleAttrs.map((attr, aIdx) => (
                                         <span
                                           key={aIdx}
-                                          className="inline-flex items-center text-[8.5px] print:text-[8px] font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight"
+                                          className={`inline-flex items-center ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
                                         >
                                           <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
                                           <span>{attr.value}</span>
@@ -3752,7 +4310,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           {item.quantity}
                         </td>
                         {showUom && (
-                          <td className="text-[9.5px] font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top">
+                          <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
                             <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
                               {item.unit || 'pcs'}
                             </span>
@@ -3853,6 +4411,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             background: #ffffff !important;
             page-break-after: always !important;
             break-after: page !important;
+          }
+          .quotation-page-sheet.quotation-full-bleed-sheet {
+            padding: 0 !important;
+            min-height: 297mm !important;
+            height: 297mm !important;
+            overflow: hidden !important;
           }
           .quotation-page-sheet:last-child,
           .quotation-page-sheet.quotation-last-sheet {
@@ -3980,6 +4544,57 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       `}</style>
 
       {/* ========================================================
+          FULL-PAGE A4 COVER SHEETS (BEFORE PAGE 1)
+         ======================================================== */}
+      {coverSheets.map((cover, coverIdx) => {
+        const att = cover.attachment;
+        const isFullBleed = cover.fullBleed;
+        return (
+          <article
+            key={att.id || `cover_sheet_${coverIdx + 1}`}
+            className={`quotation-page-sheet quotation-cover-sheet ${
+              isFullBleed
+                ? 'quotation-full-bleed-sheet p-0 print:p-0 overflow-hidden h-[297mm]'
+                : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
+            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:break-after-page print:min-h-[294mm]`}
+            style={{ boxSizing: 'border-box' }}
+          >
+            {isFullBleed ? (
+              <img
+                src={att.url}
+                alt={att.name || `Cover Page ${coverIdx + 1}`}
+                className="w-[210mm] h-[297mm] object-cover block m-0 p-0"
+              />
+            ) : (
+              <>
+                <div
+                  className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+                  style={{ backgroundColor: accentColor }}
+                />
+                <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
+                  {att.show_title !== false && att.name && (
+                    <div
+                      className={`${typoScale.heading} font-bold uppercase tracking-wider mb-3 text-center`}
+                      style={{ color: accentColor }}
+                    >
+                      {att.name.replace(/\.(png|jpe?g|webp|gif|bmp|svg|pdf)$/i, '')}
+                    </div>
+                  )}
+                  <img
+                    src={att.url}
+                    alt={att.name || `Cover Page ${coverIdx + 1}`}
+                    className="max-h-[245mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
+                  />
+                </div>
+                {!cover.excludeFromPageCount && cover.displayPageNumber !== null &&
+                  renderFooter(cover.displayPageNumber, totalDocumentPages)}
+              </>
+            )}
+          </article>
+        );
+      })}
+
+      {/* ========================================================
           DYNAMIC DISCRETE A4 SHEETS (PARTITIONED BY PAGE BREAKS)
          ======================================================== */}
       {sheetPartitions.map((sheet, sheetIdx) => {
@@ -3989,6 +4604,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         const isContinuation = !isFirst;
         const isBreakSelected = Boolean(sheet.pageBreakBlock && activeSelectedSection === sheet.pageBreakBlock.id);
         const sheetKey = sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`;
+        const displayPageNum = sheet.displayPageNumber || sheetIdx + 1;
 
         return (
           <React.Fragment key={sheetKey}>
@@ -4017,8 +4633,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 >
                   <span className="font-semibold flex items-center gap-1.5">
                     {sheet.isTableContinuationSheet
-                      ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`
-                      : `✂ Page Break • Sheet ${sheet.sheetNumber} of ${totalDocumentPages}`}
+                      ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Page ${displayPageNum} of ${totalDocumentPages}`
+                      : `✂ Page Break • Page ${displayPageNum} of ${totalDocumentPages}`}
                   </span>
                   <span className="text-[9.5px] font-bold underline">
                     {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
@@ -4074,7 +4690,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   <>
                     {sheet.showContinuationHeader && repeatHeaderOnSubsequentPages && (
                       <div className={`quotation-page${sheet.sheetNumber}-continuation-header w-full mb-3`}>
-                        {renderCompactRunningHeader(sheet.sheetNumber, totalDocumentPages)}
+                        {headerBranding.continuationHeaderMode === 'full_repeat'
+                          ? renderHeaderBrandingElement(true)
+                          : renderCompactRunningHeader(displayPageNum, totalDocumentPages)}
                       </div>
                     )}
                     {sheet.tableChunk &&
@@ -4093,7 +4711,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
 
               {/* Sheet Micro-Footer: Strictly in Document Flex Flow */}
-              {renderFooter(sheetIdx + 1, totalDocumentPages)}
+              {renderFooter(displayPageNum, totalDocumentPages)}
             </article>
           </React.Fragment>
         );
@@ -4102,73 +4720,93 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       {/* ========================================================
           FULL-PAGE A4 TECHNICAL ANNEX SHEETS
          ======================================================== */}
-      {annexSheetAttachments.map((att, annexIdx) => {
-        const annexPageNumber = sheetPartitions.length + annexIdx + 1;
-        const isLastAnnexSheet = annexIdx === annexSheetAttachments.length - 1;
+      {annexSheets.map((annexDescriptor, annexIdx) => {
+        const att = annexDescriptor.attachment;
+        const annexPageNumber = annexDescriptor.displayPageNumber;
+        const isLastAnnexSheet = annexIdx === annexSheets.length - 1;
         const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
-        const annexHeaderTitle = resolveAnnexHeaderTitle(att, annexIdx + 1);
+        const annexHeaderTitle = annexDescriptor.headerTitle;
+        const isFullBleed = annexDescriptor.fullBleed;
 
         return (
           <article
             key={att.id || `annex_sheet_${annexIdx + 1}`}
-            className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexPageNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
+            className={`quotation-page-sheet quotation-annex-sheet quotation-page-${annexDescriptor.sheetNumber} ${
+              isFullBleed
+                ? 'quotation-full-bleed-sheet p-0 print:p-0 overflow-hidden h-[297mm]'
+                : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
+            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 ${
               isLastAnnexSheet
                 ? 'quotation-last-sheet print:break-after-avoid'
                 : 'print:break-after-page'
             } print:min-h-[294mm]`}
             style={{ boxSizing: 'border-box' }}
           >
-            {/* Top Accent Stripe */}
-            <div
-              className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-              style={{ backgroundColor: accentColor }}
-            />
-
-            {/* Continuation Running Header for Technical Annex */}
-            <div className="w-full">
-              <div
-                className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
-                style={{ height: '26px' }}
-              >
-                <div className="flex items-center min-w-0 max-w-[34%]">
-                  {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
-                    <img
-                      src={headerBranding.activeLogoUrl}
-                      alt=""
-                      className="h-5 w-auto max-w-[110px] object-contain mr-2 shrink-0"
-                      onError={() => setLogoLoadFailed(true)}
-                    />
-                  )}
-                  <div className="text-[9px] print:text-[8px] font-bold text-slate-800 tracking-tight uppercase truncate">
-                    {senderEntityName || 'Company'}
-                  </div>
-                </div>
-                <div
-                  className="text-[9px] print:text-[8px] font-bold uppercase tracking-wide truncate max-w-[42%] text-center px-2"
-                  style={{ color: accentColor }}
-                >
-                  {annexHeaderTitle}
-                </div>
-                <div className="text-[8px] print:text-[7.5px] text-slate-500 font-mono text-right shrink-0">
-                  {quoteRef} • Page {annexPageNumber} of {totalDocumentPages}
-                </div>
-              </div>
-            </div>
-
-            {/* Bounded Flex-1 Image Viewport */}
-            <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
+            {isFullBleed ? (
               <img
                 src={att.url}
                 alt={att.name || `Technical Annex ${annexIdx + 1}`}
-                className="max-h-[235mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
+                className="w-[210mm] h-[297mm] object-cover block m-0 p-0"
               />
-            </div>
+            ) : (
+              <>
+                {/* Top Accent Stripe */}
+                <div
+                  className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+                  style={{ backgroundColor: accentColor }}
+                />
 
-            {/* Locked Bottom Micro-Footer */}
-            {renderFooter(annexPageNumber, totalDocumentPages)}
+                {/* Continuation Running Header for Technical Annex */}
+                <div className="w-full">
+                  <div
+                    className="compact-running-header flex justify-between items-center border-b border-slate-200 pb-1.5 mb-2 w-full bg-white"
+                    style={{ minHeight: `${Math.max(26, (headerBranding.continuationLogoHeightPx || 20) + 6)}px` }}
+                  >
+                    <div className="flex items-center min-w-0 max-w-[34%]">
+                      {headerBranding.includeMiniLogoOnContinuation && !logoLoadFailed && (
+                        <img
+                          src={headerBranding.activeLogoUrl}
+                          alt=""
+                          style={{ height: `${headerBranding.continuationLogoHeightPx || 20}px`, maxWidth: '110px' }}
+                          className="w-auto object-contain mr-2 shrink-0"
+                          onError={() => setLogoLoadFailed(true)}
+                        />
+                      )}
+                      {headerBranding.showCompanyNameOnContinuation && (
+                        <div className={`${typoScale.sub} font-bold text-slate-800 tracking-tight uppercase truncate`}>
+                          {senderEntityName || 'Company'}
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      className={`${typoScale.sub} font-bold uppercase tracking-wide truncate max-w-[42%] text-center px-2`}
+                      style={{ color: accentColor }}
+                    >
+                      {annexHeaderTitle}
+                    </div>
+                    <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
+                      {quoteRef} • Page {annexPageNumber} of {totalDocumentPages}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bounded Flex-1 Image Viewport */}
+                <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
+                  <img
+                    src={att.url}
+                    alt={att.name || `Technical Annex ${annexIdx + 1}`}
+                    className="max-h-[235mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
+                  />
+                </div>
+
+                {/* Locked Bottom Micro-Footer */}
+                {renderFooter(annexPageNumber, totalDocumentPages)}
+              </>
+            )}
           </article>
         );
       })}
     </div>
   );
 };
+

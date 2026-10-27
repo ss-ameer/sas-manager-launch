@@ -1277,6 +1277,7 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       name: 'Annex A: Submersible Mixer Performance Curve',
       url: 'https://example.com/mixer-curve.png',
       renderAsAnnexPage: true,
+      pagePlacement: 'annex_after',
       annexPageNumber: 2,
       badgeLabel: 'Annex Page 2'
     });
@@ -1286,6 +1287,7 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       name: 'ISO 9001 & CE Compliance Dossier (42-Page PDF)',
       url: 'https://example.com/iso-dossier.pdf',
       renderAsAnnexPage: false,
+      pagePlacement: 'index_only',
       annexPageNumber: undefined,
       badgeLabel: 'Enclosed Document'
     });
@@ -1295,6 +1297,7 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       name: 'Standard O&M Manual Reference Link',
       url: 'https://example.com/om-manual.docx',
       renderAsAnnexPage: false,
+      pagePlacement: 'index_only',
       annexPageNumber: undefined,
       badgeLabel: 'Enclosed Document'
     });
@@ -1354,7 +1357,10 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       type: 'image/png',
       render_as_annex_page: true,
-      show_title_on_annex: true
+      show_title_on_annex: true,
+      page_placement: 'annex_after',
+      full_bleed: false,
+      exclude_from_page_count: false
     });
     expect(hydrated.flyerAttachments[1]).toEqual({
       id: 'preset_flyer_2',
@@ -1362,7 +1368,10 @@ describe('12. Technical Datasheet / Flyer Attachments, Submittals Index & Full-P
       url: 'https://example.com/warranty-cert.pdf',
       type: 'pdf',
       render_as_annex_page: false,
-      show_title_on_annex: true
+      show_title_on_annex: true,
+      page_placement: 'index_only',
+      full_bleed: false,
+      exclude_from_page_count: false
     });
     expect(hydrated.showSubmittalsIndex).toBe(true);
   });
@@ -1948,7 +1957,7 @@ describe('Suite 16: Top Cards Unification, Company Seal / Signature Persistence 
     expect(minimalSharpLayout.offerStyle).toBe('minimal');
     expect(minimalSharpLayout.recipientRadius).toBe('sharp');
     expect(minimalSharpLayout.offerRadius).toBe('sharp');
-    expect(minimalSharpLayout.recipientCardClassName.includes('border-t border-slate-200/90')).toBe(true);
+    expect(minimalSharpLayout.recipientCardClassName.includes('border-0')).toBe(true);
     expect(minimalSharpLayout.recipientCardClassName.includes('bg-transparent')).toBe(true);
     expect(minimalSharpLayout.recipientCardClassName.includes('rounded-none')).toBe(true);
     expect(minimalSharpLayout.cardsOrder).toBe('offer_first');
@@ -2142,10 +2151,10 @@ describe('Suite 17: Top Cards 3-Way Placement, Minimal Rhythm, Specs Deduplicati
     );
     expect(minimalGlobal.recipientStyle).toBe('minimal');
     expect(minimalGlobal.offerStyle).toBe('minimal');
-    expect(minimalGlobal.recipientCardClassName.includes('border-t border-slate-200/90')).toBe(true);
-    expect(minimalGlobal.recipientCardClassName.includes('pt-2 pb-1 px-1')).toBe(true);
-    expect(minimalGlobal.offerCardClassName.includes('border-t border-slate-200/90')).toBe(true);
-    expect(minimalGlobal.offerCardClassName.includes('pt-2 pb-1 px-1')).toBe(true);
+    expect(minimalGlobal.recipientCardClassName.includes('border-0')).toBe(true);
+    expect(minimalGlobal.recipientCardClassName.includes('pt-1 pb-1 px-0.5')).toBe(true);
+    expect(minimalGlobal.offerCardClassName.includes('border-0')).toBe(true);
+    expect(minimalGlobal.offerCardClassName.includes('pt-1 pb-1 px-0.5')).toBe(true);
   });
 
   it('17b. Minimal block style compact vertical rhythm and clean technical specification extraction without duplicate Specs lines', () => {
@@ -2772,6 +2781,237 @@ describe('Suite 20: Firestore 1MB Payload Safeguard, Modular Header/Footer Compo
     expect(footerPres.systemTaglineText).toBe('Approved Vendor #99182 • Confidential Commercial Tender');
     expect(footerPres.showIssueDateInFooter).toBe(false);
     expect(footerPres.customFooterPills).toEqual(['ISO 9001:2015', 'DUNS 88-192-001']);
+  });
+});
+
+// ==========================================
+// SUITE 21: GLOBAL FONT SCALE, MINIMAL ZERO-GHOST-BORDERS, UNIFIED ADDRESS WITH MAP-PIN,
+//           COVER PAGES (FULL-BLEED & PAGE COUNT EXCLUSION) & PAGE 2+ RUNNING HEADER MODES
+// ==========================================
+
+describe('Suite 21: Global Font Scale, Minimal Zero-Ghost-Borders, Unified Address, Cover Pages & Page 2+ Running Header', () => {
+  it('21a. Minimal presentation style eliminates ghost top borders (border-0) on top cards and resolveHeaderFields scales dynamically with fontSizeScale', () => {
+    const minimalCards = resolveTopCardsLayout({}, 'minimal', 'rounded', 'recipient_first');
+    expect(minimalCards.recipientStyle).toBe('minimal');
+    expect(minimalCards.offerStyle).toBe('minimal');
+    expect(minimalCards.recipientCardClassName.includes('border-0')).toBe(true);
+    expect(minimalCards.recipientCardClassName.includes('border-t')).toBe(false);
+    expect(minimalCards.offerCardClassName.includes('border-0')).toBe(true);
+    expect(minimalCards.offerCardClassName.includes('border-t')).toBe(false);
+
+    // Verify resolveHeaderFields fontSizeMap scales dynamically with global fontSizeScale ('compact' vs 'large')
+    const profile = {
+      id: 'p_21a',
+      profile_name: 'Default',
+      legal_entity_name: 'AquaPure Engineering LLC',
+      trn: '100223344550003',
+      address_line_1: 'Plot 12, TechnoPark',
+      city: 'Dubai',
+      country: 'UAE',
+      phone: '+971 4 888 1111',
+      bank_accounts: []
+    };
+
+    const compactHeader = resolveHeaderFields({}, profile, undefined, 'compact');
+    const largeHeader = resolveHeaderFields({}, profile, undefined, 'large');
+
+    const compactAddress = compactHeader.allFields.find((f) => f.id === 'address');
+    const largeAddress = largeHeader.allFields.find((f) => f.id === 'address');
+    expect(compactAddress?.fontSizeClass).toBe('text-[8.5px] print:text-[8px]');
+    expect(largeAddress?.fontSizeClass).toBe('text-[11.5px] print:text-[10.5px]');
+  });
+
+  it('21b. Unified address field combines address_line_1, address_line_2, city, and country with default map-pin icon and migrates legacy split address fields', () => {
+    const profile = {
+      id: 'p_21b',
+      profile_name: 'Corporate',
+      legal_entity_name: 'Gulf Water Treatment LLC',
+      address_line_1: 'Office 904, Business Bay',
+      address_line_2: 'P.O. Box 44120',
+      city: 'Dubai',
+      country: 'United Arab Emirates',
+      phone: '+971 4 555 0000',
+      email: 'info@gulfwater.ae',
+      website: 'www.gulfwater.ae',
+      bank_accounts: []
+    };
+
+    // 1. Default header fields unify address into a single 'address' item with 'map-pin' icon
+    const defaultResolved = resolveHeaderFields({}, profile);
+    const addrField = defaultResolved.allFields.find((f) => f.id === 'address');
+    expect(Boolean(addrField)).toBe(true);
+    expect(addrField?.resolvedValue).toBe(
+      'Office 904, Business Bay, P.O. Box 44120, Dubai, United Arab Emirates'
+    );
+    expect(addrField?.icon).toBe('map-pin');
+    expect(addrField?.showIcon).toBe(true);
+    expect(defaultResolved.showHeaderIcons).toBe(true);
+
+    // 2. Legacy saved headerFields with 'address_line_1', 'address_line_2', 'city_country' automatically migrate into unified 'address' without duplication
+    const legacyConfig: QuotationHeaderConfig = {
+      headerFields: [
+        { id: 'company_name', label: '', enabled: true, zone: 'under_name' },
+        {
+          id: 'address_line_1',
+          label: '',
+          valueOverride: 'Custom Plot 88',
+          enabled: true,
+          zone: 'contact_block'
+        },
+        {
+          id: 'city_country',
+          label: '',
+          valueOverride: 'Abu Dhabi, UAE',
+          enabled: true,
+          zone: 'contact_block'
+        }
+      ]
+    };
+
+    const migrated = resolveHeaderFields(legacyConfig, profile);
+    const addressItems = migrated.allFields.filter((f) => f.id === 'address');
+    expect(addressItems.length).toBe(1);
+    expect(addressItems[0].resolvedValue).toBe('Custom Plot 88, Abu Dhabi, UAE');
+    expect(addressItems[0].icon).toBe('map-pin');
+  });
+
+  it('21c. Cover Page attachments (page_placement: cover_before, full_bleed, exclude_from_page_count) partition before Page 1 and adjust total page numbering accurately', () => {
+    const attachments: Attachment[] = [
+      {
+        id: 'cov_1',
+        name: 'Executive Proposal Cover',
+        url: 'https://example.com/cover.jpg',
+        type: 'image/jpeg',
+        page_placement: 'cover_before',
+        full_bleed: true,
+        exclude_from_page_count: true,
+        render_as_annex_page: true
+      },
+      {
+        id: 'ann_1',
+        name: 'RO Skid P&ID Drawing',
+        url: 'https://example.com/pid.png',
+        type: 'image/png',
+        page_placement: 'annex_after',
+        full_bleed: false,
+        render_as_annex_page: true,
+        show_title_on_annex: true
+      },
+      {
+        id: 'idx_1',
+        name: 'ISO 9001 Certificate PDF',
+        url: 'https://example.com/iso.pdf',
+        type: 'application/pdf',
+        page_placement: 'index_only',
+        render_as_annex_page: false
+      }
+    ];
+
+    // 1. When cover has exclude_from_page_count = true:
+    // Cover sheet has sheetNumber = undefined (excluded), Main sheet #1 is Page 1, Annex sheet #1 is Page 2, totalDocumentPages = 2
+    const paginationExcludedCover = resolveDocumentPaginationWithAnnexes(
+      DEFAULT_QUOTATION_BLOCKS,
+      [],
+      attachments,
+      true
+    );
+
+    expect(paginationExcludedCover.coverSheets.length).toBe(1);
+    expect(paginationExcludedCover.coverSheets[0].fullBleed).toBe(true);
+    expect(paginationExcludedCover.coverSheets[0].excludedFromPageCount).toBe(true);
+    expect(paginationExcludedCover.coverSheets[0].sheetNumber).toBe(undefined);
+    expect(paginationExcludedCover.mainSheets.length).toBe(1);
+    expect(paginationExcludedCover.mainSheets[0].sheetNumber).toBe(1);
+    expect(paginationExcludedCover.annexSheets.length).toBe(1);
+    expect(paginationExcludedCover.annexSheets[0].sheetNumber).toBe(2);
+    expect(paginationExcludedCover.totalDocumentPages).toBe(2);
+
+    // 2. When cover has exclude_from_page_count = false:
+    // Cover is Page 1, Main sheet #1 is Page 2, Annex sheet #1 is Page 3, totalDocumentPages = 3
+    const attachmentsIncludedCover: Attachment[] = [
+      { ...attachments[0], exclude_from_page_count: false },
+      attachments[1]
+    ];
+    const paginationIncludedCover = resolveDocumentPaginationWithAnnexes(
+      DEFAULT_QUOTATION_BLOCKS,
+      [],
+      attachmentsIncludedCover,
+      true
+    );
+    expect(paginationIncludedCover.coverSheets[0].sheetNumber).toBe(1);
+    expect(paginationIncludedCover.mainSheets[0].sheetNumber).toBe(2);
+    expect(paginationIncludedCover.annexSheets[0].sheetNumber).toBe(3);
+    expect(paginationIncludedCover.totalDocumentPages).toBe(3);
+  });
+
+  it('21d. Page 2+ Running Header modes (compact, full_repeat, logo_only, none), continuationLogoHeightPx, and element toggles persist across revisions and presets', () => {
+    const branding = resolveHeaderBrandingConfig({
+      logoUrl: 'data:image/png;base64,LOGO_21D',
+      continuationHeaderMode: 'logo_only',
+      continuationLogoHeightPx: 32,
+      showCompanyNameOnContinuation: false,
+      showSubjectOnContinuation: false,
+      showQuoteRefOnContinuation: true,
+      showPageNumberOnContinuation: true,
+      showContinuationDivider: false
+    });
+
+    expect(branding.continuationHeaderMode).toBe('logo_only');
+    expect(branding.repeatHeaderOnSubsequentPages).toBe(true);
+    expect(branding.continuationLogoHeightPx).toBe(32);
+    expect(branding.showCompanyNameOnContinuation).toBe(false);
+    expect(branding.showSubjectOnContinuation).toBe(false);
+    expect(branding.showQuoteRefOnContinuation).toBe(true);
+    expect(branding.showPageNumberOnContinuation).toBe(true);
+    expect(branding.showContinuationDivider).toBe(false);
+
+    // Verify revision cloning preserves cover page attachment properties and Page 2+ running header config
+    const r1: Quotation = {
+      id: 'q_21d_r1',
+      workspace_id: 'ws_21',
+      workspaceId: 'ws_21',
+      enquiry_id: 'enq_21',
+      quote_number: 'QT-2026-0210',
+      revision_number: 1,
+      formatted_quote_ref: 'QT-2026-0210-R1',
+      status: 'Sent',
+      client_snapshot: { entity_name: 'DEWA' },
+      sender_snapshot: { entity_name: 'Nirvana Water LLC' },
+      line_items: [],
+      tax_mode: 'taxes_extra',
+      subtotal: 1000,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 50,
+      grand_total: 1050,
+      header_config: {
+        continuationHeaderMode: 'full_repeat',
+        continuationLogoHeightPx: 28,
+        showSubjectOnContinuation: false,
+        showHeaderIcons: true
+      },
+      flyer_attachments: [
+        {
+          id: 'cov_21',
+          name: 'Cover Sheet',
+          url: 'https://example.com/cov.png',
+          type: 'image/png',
+          page_placement: 'cover_before',
+          full_bleed: true,
+          exclude_from_page_count: true,
+          render_as_annex_page: true
+        }
+      ],
+      created_at: '2026-10-26T00:00:00.000Z'
+    };
+
+    const r2 = QuotationRepository.cloneQuotationAsNextRevision(r1);
+    expect(r2.header_config?.continuationHeaderMode).toBe('full_repeat');
+    expect(r2.header_config?.continuationLogoHeightPx).toBe(28);
+    expect(r2.header_config?.showSubjectOnContinuation).toBe(false);
+    expect(r2.flyer_attachments?.[0]?.page_placement).toBe('cover_before');
+    expect(r2.flyer_attachments?.[0]?.full_bleed).toBe(true);
+    expect(r2.flyer_attachments?.[0]?.exclude_from_page_count).toBe(true);
   });
 });
 

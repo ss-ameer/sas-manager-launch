@@ -847,7 +847,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   const [isEditingBankDetails, setIsEditingBankDetails] = useState<boolean>(false);
 
-  // Attention Contact Person inheritance
+  // Attention Contact Person & Client Snapshot overrides
   const [clientContactPerson, setClientContactPerson] = useState<string>(() => {
     return (
       editingQuotation?.client_contact_person ||
@@ -856,6 +856,35 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       (enquiry as any)?.contact_person_name ||
       (enquiry as any)?.contact_name ||
       enquiry?.concerned_person ||
+      ''
+    );
+  });
+
+  const [clientNameOverride, setClientNameOverride] = useState<string>(() => {
+    return (
+      editingQuotation?.client_snapshot?.entity_name ||
+      enquiry?.company_name ||
+      enquiry?.client_company ||
+      ''
+    );
+  });
+
+  const [clientAddressOverride, setClientAddressOverride] = useState<string>(() => {
+    return (
+      editingQuotation?.client_address ||
+      editingQuotation?.client_snapshot?.client_address ||
+      editingQuotation?.client_snapshot?.address ||
+      enquiry?.project_location ||
+      enquiry?.country ||
+      ''
+    );
+  });
+
+  const [clientTrnOverride, setClientTrnOverride] = useState<string>(() => {
+    return (
+      editingQuotation?.client_trn ||
+      editingQuotation?.client_snapshot?.client_trn ||
+      editingQuotation?.client_snapshot?.trn ||
       ''
     );
   });
@@ -943,6 +972,26 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             targetQuote.client_snapshot?.contact_person ||
             (enquiry as any)?.contact_person_name ||
             enquiry?.concerned_person ||
+            ''
+        );
+        setClientNameOverride(
+          targetQuote.client_snapshot?.entity_name ||
+            enquiry?.company_name ||
+            enquiry?.client_company ||
+            ''
+        );
+        setClientAddressOverride(
+          targetQuote.client_address ||
+            targetQuote.client_snapshot?.client_address ||
+            targetQuote.client_snapshot?.address ||
+            enquiry?.project_location ||
+            enquiry?.country ||
+            ''
+        );
+        setClientTrnOverride(
+          targetQuote.client_trn ||
+            targetQuote.client_snapshot?.client_trn ||
+            targetQuote.client_snapshot?.trn ||
             ''
         );
         setPreparedBy(
@@ -1230,7 +1279,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           type: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
           size: dataUri.length,
           uploadedAt: new Date().toISOString(),
+          page_placement: isImage ? 'annex_after' : 'index_only',
           render_as_annex_page: isImage,
+          full_bleed: false,
+          exclude_from_page_count: false,
           show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: resolvedTitle })
         };
         setFlyerAttachments((prev) => [...prev, newAtt]);
@@ -1260,7 +1312,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       url: trimmedUrl,
       type: isPdfOrDoc ? 'pdf' : 'image',
       uploadedAt: new Date().toISOString(),
+      page_placement: !isPdfOrDoc ? 'annex_after' : 'index_only',
       render_as_annex_page: !isPdfOrDoc,
+      full_bleed: false,
+      exclude_from_page_count: false,
       show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: trimmedTitle })
     };
     setFlyerAttachments((prev) => [...prev, newAtt]);
@@ -2081,12 +2136,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       parent_quotation_id: parentQuotationId,
       status: quotationStatus || 'Draft',
       client_snapshot: {
-        entity_name: enquiry.company_name || enquiry.client_company || 'Valued Client',
+        entity_name:
+          clientNameOverride || enquiry.company_name || enquiry.client_company || 'Valued Client',
         contact_person: clientContactPerson || enquiry.concerned_person || undefined,
-        address: enquiry.project_location || enquiry.country || undefined,
-        trn: undefined
+        client_contact_person: clientContactPerson || enquiry.concerned_person || undefined,
+        address:
+          clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
+        client_address:
+          clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
+        trn: clientTrnOverride || undefined,
+        client_trn: clientTrnOverride || undefined
       },
       client_contact_person: clientContactPerson || undefined,
+      client_address: clientAddressOverride || undefined,
+      client_trn: clientTrnOverride || undefined,
       prepared_by: preparedBy || signatoryName,
       subject: quotationSubject,
       sender_snapshot: {
@@ -2230,6 +2293,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     footerConfig,
     visibleColumns,
     clientContactPerson,
+    clientNameOverride,
+    clientAddressOverride,
+    clientTrnOverride,
     preparedBy,
     quotationSubject,
     pageMode,
@@ -2239,6 +2305,81 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     formattedQuoteRefOverride,
     quotationStatus
   ]);
+
+  // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
+  const handleInlineFieldEdit = useCallback(
+    (fieldKey: string, nextValue: string) => {
+      if (fieldKey.startsWith('header_field:')) {
+        const targetId = fieldKey.replace('header_field:', '');
+        setHeaderConfig((prev) => {
+          const currentFields = resolveHeaderFields(
+            prev,
+            activeProfile,
+            liveQuotation.sender_snapshot
+          ).allFields;
+          const updatedFields = currentFields.map((f) =>
+            f.id === targetId ? { ...f, valueOverride: nextValue } : f
+          );
+          return {
+            ...prev,
+            headerFields: updatedFields
+          };
+        });
+        return;
+      }
+
+      switch (fieldKey) {
+        case 'subject':
+          setQuotationSubject(nextValue);
+          break;
+        case 'client_name':
+          setClientNameOverride(nextValue);
+          break;
+        case 'client_contact_person':
+          setClientContactPerson(nextValue);
+          break;
+        case 'client_address':
+          setClientAddressOverride(nextValue);
+          break;
+        case 'client_trn':
+          setClientTrnOverride(nextValue);
+          break;
+        case 'prepared_by':
+          setPreparedBy(nextValue);
+          break;
+        case 'price_basis':
+          setPriceBasis(nextValue);
+          break;
+        case 'payment_terms':
+          setPaymentTerms(nextValue);
+          break;
+        case 'custom_notes':
+          setCustomNotes(nextValue);
+          break;
+        case 'primary_signatory_name':
+          setSignatoryName(nextValue);
+          break;
+        case 'primary_signatory_title':
+          setSignatoryTitle(nextValue);
+          break;
+        case 'secondary_signatory_name':
+          setSecondarySignatoryName(nextValue);
+          break;
+        case 'secondary_signatory_title':
+          setSecondarySignatoryTitle(nextValue);
+          break;
+        case 'footer_disclaimer':
+          setFooterConfig((prev) => ({
+            ...prev,
+            customDisclaimerText: nextValue
+          }));
+          break;
+        default:
+          break;
+      }
+    },
+    [activeProfile, liveQuotation.sender_snapshot]
+  );
 
   // Switch between revisions in-studio (R1 <-> R2) without leaving the modal
   const handleSelectRevisionInStudio = (targetQuote: Quotation) => {
@@ -2990,7 +3131,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           />
                           <div className="min-w-0">
                             <span className="text-[10.5px] font-bold text-slate-700 block leading-tight">
-                              Custom Brand Hex Color
+                              Custom Brand Color
                             </span>
                             <span className="text-[9.5px] text-slate-400 block truncate">
                               Drives top bar, table header, card borders &amp; grand total
@@ -3019,12 +3160,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Global Font Size Scale */}
+                    {/* Document Font Size */}
                     <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-slate-600 font-medium flex items-center gap-1.5">
                           <Type className="w-3.5 h-3.5 text-slate-400" />
-                          Global Font Size Scale
+                          Document Font Size
                         </label>
                         <span className="text-[10px] font-mono text-slate-400 capitalize">
                           {fontSizeScale}
@@ -3125,10 +3266,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Canvas Page Break Guides: On | Off */}
+                    {/* Show Page Margins & Break Lines: On | Off */}
                     <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
                       <div>
-                        <span className="text-slate-700 font-medium block">Canvas Page Break Guides</span>
+                        <span className="text-slate-700 font-medium block">Show Page Margins &amp; Break Lines</span>
                         <span className="text-[10px] text-slate-400">Visual A4 sheet boundary markers on preview</span>
                       </div>
                       <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 rounded-lg border border-slate-200">
@@ -3158,13 +3299,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Card 2: Unified Document Outline (Single Reorderable & Inspectable Tree) */}
+                  {/* Card 2: Document Sections & Page Order */}
                   <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-4 text-xs shadow-2xs">
                     <div className="flex items-center justify-between">
                       <div>
                         <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                           <Layers className="w-3.5 h-3.5 text-blue-600" />
-                          Unified Document Outline
+                          Document Sections &amp; Page Order
                         </span>
                         <p className="text-[10px] text-slate-400 mt-0.5">
                           Click any section to inspect &amp; customize in the Right Panel
@@ -3395,11 +3536,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Reorderable Closing Sequence (layoutBlocks) */}
+                    {/* Bottom Sections (Drag or Reorder) (layoutBlocks) */}
                     <div className="pt-3 border-t border-slate-100 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400">
-                          Reorderable Closing Sequence
+                          Bottom Sections (Drag or Reorder)
                         </span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
                           {layoutBlocks.filter((b) => b.enabled !== false && b.is_visible !== false).length} of {layoutBlocks.length} Active
@@ -3992,12 +4133,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Card 4: Technical Annexures & Flyers */}
+                  {/* Card 4: Attachments, Cover Pages & Technical Annexes */}
                   <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3.5 text-xs shadow-2xs">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                         <Paperclip className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Technical Annexures &amp; Flyers</span>
+                        <span>Attachments, Cover Pages &amp; Technical Annexes</span>
                       </span>
                       {flyerAttachments.length > 0 && (
                         <span className="px-1.5 py-0.5 text-[10px] font-mono rounded-full bg-blue-100 text-blue-700 font-semibold">
@@ -4015,7 +4156,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-slate-700 font-medium text-[11px]">
-                        Show Technical Submittals Index on Quotation
+                        Show Attached Files List on Quote
                       </span>
                     </label>
 
@@ -4023,7 +4164,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     <div className="space-y-2 pt-1 border-t border-slate-100">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-700 text-[11px]">
-                          Add Datasheet / Product Flyer
+                          Add Cover Page, Datasheet or Flyer
                         </span>
                         <button
                           type="button"
@@ -4040,7 +4181,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           type="text"
                           value={newAttachmentTitle}
                           onChange={(e) => setNewAttachmentTitle(e.target.value)}
-                          placeholder="Display Title (e.g., Annex A: Disk Diffuser Datasheet)"
+                          placeholder="Display Title (e.g., Executive Cover Page or Annex A: Datasheet)"
                           className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-xs bg-white text-slate-800"
                         />
                         <div className="flex gap-1.5">
@@ -4067,16 +4208,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     {flyerAttachments.length > 0 ? (
                       <div className="space-y-2 pt-1 border-t border-slate-100">
                         <div className="flex items-center justify-between text-[10.5px] text-slate-500">
-                          <span className="font-semibold text-slate-700">Attached Submittals ({flyerAttachments.length})</span>
+                          <span className="font-semibold text-slate-700">Attached Files ({flyerAttachments.length})</span>
                           <span className="font-mono">
-                            {flyerAttachments.filter((a) => a.render_as_annex_page !== false && a.url).length} A4 Annex Sheet(s)
+                            {flyerAttachments.filter((a) => (a.page_placement || (a.render_as_annex_page === false ? 'index_only' : 'annex_after')) !== 'index_only' && a.url).length} A4 Sheet(s)
                           </span>
                         </div>
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5">
                           {flyerAttachments.map((att, idx) => {
                             const attId = att.id || `annex_${idx}`;
-                            const isAnnexPage = att.render_as_annex_page !== false;
+                            const activePlacement: 'cover_before' | 'annex_after' | 'index_only' =
+                              att.page_placement ||
+                              (att.render_as_annex_page === false ? 'index_only' : 'annex_after');
+                            const isRenderedSheet = activePlacement !== 'index_only';
                             const showTitleInHeader = att.show_title_on_annex !== false;
+                            const isFullBleed = Boolean(att.full_bleed);
+                            const isExcludedFromCount = Boolean(att.exclude_from_page_count);
                             const isFirst = idx === 0;
                             const isLast = idx === flyerAttachments.length - 1;
 
@@ -4090,7 +4236,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   {att.url && att.type !== 'pdf' ? (
                                     <img
                                       src={att.url}
-                                      alt={att.name || `Annex ${idx + 1}`}
+                                      alt={att.name || `Attachment ${idx + 1}`}
                                       className="w-10 h-10 object-cover rounded border border-slate-200 bg-white shrink-0"
                                       onError={(e) => {
                                         e.currentTarget.style.display = 'none';
@@ -4144,53 +4290,107 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Show Title in Annex Header Toggle */}
-                                {isAnnexPage && (
-                                  <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
-                                    <span className="text-[10.5px] font-medium text-slate-700">
-                                      Show Title in Annex Header
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={showTitleInHeader}
-                                      onChange={(e) =>
-                                        handleUpdateAttachment(attId, {
-                                          show_title_on_annex: e.target.checked
-                                        })
-                                      }
-                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                    />
-                                  </label>
-                                )}
-
-                                <div className="grid grid-cols-2 gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateAttachment(attId, { render_as_annex_page: true })
+                                {/* 3-Way Page Placement Selector */}
+                                <div className="grid grid-cols-3 gap-1">
+                                  {[
+                                    {
+                                      id: 'cover_before' as const,
+                                      label: '📘 Cover Page',
+                                      sub: 'Before Page 1'
+                                    },
+                                    {
+                                      id: 'annex_after' as const,
+                                      label: '📄 Annex Sheet',
+                                      sub: 'After Quote'
+                                    },
+                                    {
+                                      id: 'index_only' as const,
+                                      label: '📎 List Only',
+                                      sub: 'No A4 Sheet'
                                     }
-                                    className={`py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer ${
-                                      isAnnexPage
-                                        ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <span>📄 Full-Page Annex Sheet</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleUpdateAttachment(attId, { render_as_annex_page: false })
-                                    }
-                                    className={`py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1 transition cursor-pointer ${
-                                      !isAnnexPage
-                                        ? 'border-slate-800 bg-slate-800 text-white shadow-2xs'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <span>📎 Index Reference Only</span>
-                                  </button>
+                                  ].map((opt) => {
+                                    const active = activePlacement === opt.id;
+                                    return (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateAttachment(attId, {
+                                            page_placement: opt.id,
+                                            render_as_annex_page: opt.id !== 'index_only'
+                                          })
+                                        }
+                                        className={`py-1.5 px-1.5 rounded-lg border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                          active
+                                            ? 'border-blue-600 bg-blue-600 text-white shadow-2xs'
+                                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <span className="text-[10px] font-semibold leading-tight">{opt.label}</span>
+                                        <span className={`text-[8.5px] leading-tight mt-0.5 ${active ? 'text-blue-100' : 'text-slate-400'}`}>
+                                          {opt.sub}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
+
+                                {/* Sheet Options: Full-Bleed, Show Title, Exclude Cover from Page Count */}
+                                {isRenderedSheet && (
+                                  <div className="space-y-1 pt-0.5">
+                                    <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
+                                      <span className="text-[10.5px] font-medium text-slate-700">
+                                        Full-Bleed Edge-to-Edge (No Margins)
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={isFullBleed}
+                                        onChange={(e) =>
+                                          handleUpdateAttachment(attId, {
+                                            full_bleed: e.target.checked
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                      />
+                                    </label>
+
+                                    {!isFullBleed && (
+                                      <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
+                                        <span className="text-[10.5px] font-medium text-slate-700">
+                                          Show Title in Sheet Header
+                                        </span>
+                                        <input
+                                          type="checkbox"
+                                          checked={showTitleInHeader}
+                                          onChange={(e) =>
+                                            handleUpdateAttachment(attId, {
+                                              show_title_on_annex: e.target.checked
+                                            })
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                      </label>
+                                    )}
+
+                                    {activePlacement === 'cover_before' && (
+                                      <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
+                                        <span className="text-[10.5px] font-medium text-slate-700">
+                                          Exclude Cover from Page Numbering
+                                        </span>
+                                        <input
+                                          type="checkbox"
+                                          checked={isExcludedFromCount}
+                                          onChange={(e) =>
+                                            handleUpdateAttachment(attId, {
+                                              exclude_from_page_count: e.target.checked
+                                            })
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                      </label>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -4198,7 +4398,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     ) : (
                       <p className="text-[11px] text-slate-400 italic text-center py-2">
-                        No technical flyers or datasheets attached yet.
+                        No cover pages, technical flyers or datasheets attached yet.
                       </p>
                     )}
                   </div>
@@ -4376,6 +4576,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     selectedBlockId={selectedBlockId}
                     onSelectSection={(sec) => setSelectedSection(sec)}
                     onSelectBlock={(id) => setSelectedSection(id)}
+                    onInlineFieldEdit={handleInlineFieldEdit}
                     showPageBreakGuides={showPageBreakGuides}
                   />
                 </div>
@@ -4547,14 +4748,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
-                          {/* 2. 4-Way Logo & Identity Display Mode */}
+                          {/* 2. 4-Way Header Logo Style */}
                           <div className="space-y-2 pt-2 border-t border-slate-100">
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                               <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                              Logo &amp; Identity Display Mode
+                              Header Logo Style
                             </label>
                             <p className="text-[10.5px] text-slate-500 leading-normal">
-                              Choose how your logo lockup and legal entity name combine in the letterhead.
+                              Choose how your logo and company name appear in the header.
                             </p>
                             <div className="grid grid-cols-2 gap-1.5 pt-1">
                               {[
@@ -4565,7 +4766,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 },
                                 {
                                   id: 'logo_only' as const,
-                                  label: 'Wide Logo Lockup Only',
+                                  label: 'Logo Only (Hide Company Name)',
                                   desc: 'Hides duplicate text heading'
                                 },
                                 {
@@ -4811,17 +5012,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               </div>
                             </div>
 
-                            {/* Logo Breathing Room */}
+                            {/* Logo Padding */}
                             <div className="pt-1.5">
                               <label className="block text-[10.5px] font-semibold text-slate-700 mb-1.5">
-                                Logo Breathing Room
+                                Logo Padding
                               </label>
                               <div className="grid grid-cols-4 gap-1.5">
                                 {[
                                   { id: 'none' as const, label: 'None', desc: '0px' },
-                                  { id: 'tight' as const, label: 'Compact', desc: '8px' },
-                                  { id: 'normal' as const, label: 'Normal', desc: '16px' },
-                                  { id: 'spacious' as const, label: 'Spacious', desc: '24px' }
+                                  { id: 'tight' as const, label: 'Compact', desc: '4px' },
+                                  { id: 'normal' as const, label: 'Normal', desc: '8px' },
+                                  { id: 'spacious' as const, label: 'Spacious', desc: '14px' }
                                 ].map((item) => {
                                   const isSelected = (headerConfig.logoSpacing || 'normal') === item.id;
                                   return (
@@ -4846,11 +5047,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
-                          {/* 5. 2D Brand & Contact Zone Alignment (Horizontal + Vertical) */}
+                          {/* 5. Header Content Alignment (Horizontal + Vertical) */}
                           <div className="space-y-2.5 pt-2 border-t border-slate-100">
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                               <AlignLeft className="w-3.5 h-3.5 text-blue-600" />
-                              2D Zone Alignment (Horizontal &amp; Vertical)
+                              Header Content Alignment
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
@@ -4963,12 +5164,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
-                          {/* 6. Modular Header Field Composer (Inline Text Overrides, Zone Assignment e.g. VAT Below Logo, Reordering & Custom Lines) */}
+                          {/* 6. Header Text & Contact Fields */}
                           <div className="space-y-2.5 pt-2 border-t border-slate-100">
                             <div className="flex items-center justify-between">
                               <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
                                 <Columns className="w-3.5 h-3.5 text-blue-600" />
-                                Modular Header Field Composer
+                                Header Text &amp; Contact Fields
                               </label>
                               <button
                                 type="button"
@@ -4985,7 +5186,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     enabled: true,
                                     zone: 'contact_block',
                                     fontSize: 'sm',
-                                    fontWeight: 'medium'
+                                    fontWeight: 'medium',
+                                    icon: 'smartphone',
+                                    showIcon: true
                                   };
                                   setHeaderConfig((prev) => ({
                                     ...prev,
@@ -4999,8 +5202,26 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               </button>
                             </div>
                             <p className="text-[10px] text-slate-500 leading-normal">
-                              Edit text inline, move VAT/TRN directly below the logo, reorder rows, or adjust per-field font size.
+                              Edit text here or click directly on the A4 preview. Move fields below the logo, choose icons, or adjust font size.
                             </p>
+
+                            {/* Master Toggle: Show Field Icons */}
+                            <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 cursor-pointer select-none">
+                              <span className="text-[10.5px] font-semibold text-slate-700">
+                                Show Contact &amp; Address Icons
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={headerConfig.showHeaderIcons !== false}
+                                onChange={(e) =>
+                                  setHeaderConfig((prev) => ({
+                                    ...prev,
+                                    showHeaderIcons: e.target.checked
+                                  }))
+                                }
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                              />
+                            </label>
 
                             <div className="space-y-2 max-h-96 overflow-y-auto pr-0.5">
                               {(() => {
@@ -5026,8 +5247,22 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   }));
                                 };
 
+                                const fieldBadgeMap: Record<string, string> = {
+                                  company_name: 'Company Name',
+                                  tagline: 'Tagline',
+                                  trn: 'TRN / Tax ID',
+                                  address: 'Address',
+                                  phone: 'Phone',
+                                  email: 'Email',
+                                  website: 'Website'
+                                };
+
                                 return resolvedList.map((field, idx) => {
                                   const isCustom = !['company_name', 'tagline', 'trn', 'address', 'phone', 'email', 'website'].includes(field.id);
+                                  const friendlyBadge = fieldBadgeMap[field.id] || 'Custom Line';
+                                  const activeIconVal =
+                                    field.showIcon === false ? 'none' : field.icon || 'none';
+
                                   return (
                                     <div
                                       key={field.id}
@@ -5059,11 +5294,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                               );
                                               updateHeaderFieldList(next);
                                             }}
-                                            placeholder="Label (optional)"
+                                            placeholder="Prefix (optional)"
                                             className="w-24 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-[10.5px] font-semibold text-slate-700"
                                           />
-                                          <span className="text-[9.5px] font-mono text-slate-400 truncate">
-                                            ({field.id})
+                                          <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium truncate">
+                                            {friendlyBadge}
                                           </span>
                                         </div>
 
@@ -5124,11 +5359,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                           );
                                           updateHeaderFieldList(next);
                                         }}
-                                        placeholder="Inline text override for this quotation..."
+                                        placeholder="Text on this quote (or click text on A4 preview)..."
                                         className="w-full px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] text-slate-800"
                                       />
 
-                                      {/* Zone Assignment & Font Scale Selectors */}
+                                      {/* Position, Icon & Font Scale Selectors */}
                                       <div className="grid grid-cols-3 gap-1.5">
                                         <select
                                           value={field.zone}
@@ -5140,13 +5375,43 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                             );
                                             updateHeaderFieldList(next);
                                           }}
-                                          className="col-span-2 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
-                                          title="Header Zone Placement"
+                                          className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Header Position"
                                         >
-                                          <option value="under_logo">Zone: Below Logo</option>
-                                          <option value="under_name">Zone: Below Entity Name</option>
-                                          <option value="contact_block">Zone: Contact Column</option>
-                                          <option value="bottom_bar">Zone: Bottom Strip</option>
+                                          <option value="under_logo">Position: Below Logo</option>
+                                          <option value="under_name">Position: Below Company Name</option>
+                                          <option value="contact_block">Position: Contact Column</option>
+                                          <option value="bottom_bar">Position: Bottom Strip</option>
+                                        </select>
+
+                                        <select
+                                          value={activeIconVal}
+                                          onChange={(e) => {
+                                            const val = e.target.value as NonNullable<QuotationHeaderFieldItem['icon']>;
+                                            const next = resolvedList.map((f, i) =>
+                                              i === idx
+                                                ? {
+                                                    ...f,
+                                                    icon: val,
+                                                    showIcon: val !== 'none'
+                                                  }
+                                                : f
+                                            );
+                                            updateHeaderFieldList(next);
+                                          }}
+                                          className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Field Icon"
+                                        >
+                                          <option value="none">Icon: None</option>
+                                          <option value="map-pin">📍 Location Pin</option>
+                                          <option value="phone">📞 Phone</option>
+                                          <option value="smartphone">📱 Mobile</option>
+                                          <option value="mail">✉️ Email</option>
+                                          <option value="globe">🌐 Website</option>
+                                          <option value="building">🏢 Building</option>
+                                          <option value="hash">#️⃣ Tax / Ref</option>
+                                          <option value="user">👤 Contact</option>
+                                          <option value="shield">🛡️ Certified</option>
                                         </select>
 
                                         <select
@@ -5178,75 +5443,152 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
-                          {/* 6. Page 2+ Continuation Header Controls */}
-                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                          {/* 7. Page 2+ Running Header Controls */}
+                          <div className="space-y-2.5 pt-2 border-t border-slate-100">
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                               <FileText className="w-3.5 h-3.5 text-blue-600" />
-                              Page 2+ Continuation &amp; Annex Headers
+                              Page 2+ Running Header
                             </label>
-                            <div className="space-y-1.5">
-                              <div
-                                className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                                  headerConfig.repeatHeaderOnSubsequentPages !== false
-                                    ? 'bg-white border-slate-200 shadow-2xs'
-                                    : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                                }`}
-                              >
-                                <div className="min-w-0 pr-1">
-                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                                    Repeat Compact Header on Page 2+
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                                    Company name, quote ref &amp; date on continuation sheets
-                                  </span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={headerConfig.repeatHeaderOnSubsequentPages !== false}
-                                    onChange={(e) =>
-                                      setHeaderConfig((prev) => ({
-                                        ...prev,
-                                        repeatHeaderOnSubsequentPages: e.target.checked
-                                      }))
-                                    }
-                                    className="sr-only peer"
-                                  />
-                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                              </div>
+                            <p className="text-[10px] text-slate-500 leading-normal">
+                              Choose how the header appears on continuation pages (Page 2+) and technical annex sheets.
+                            </p>
 
-                              <div
-                                className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                                  headerConfig.showLogoOnContinuationPages !== false
-                                    ? 'bg-white border-slate-200 shadow-2xs'
-                                    : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                                }`}
-                              >
-                                <div className="min-w-0 pr-1">
-                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                                    Include Mini Logo on Page 2+ &amp; Annex Headers
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                                    Render compact h-5 logo mark beside company name
-                                  </span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={headerConfig.showLogoOnContinuationPages !== false}
-                                    onChange={(e) =>
+                            {/* 4-Way Continuation Header Mode */}
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                {
+                                  id: 'compact' as const,
+                                  label: 'Compact Bar',
+                                  desc: 'Slim running header'
+                                },
+                                {
+                                  id: 'full_repeat' as const,
+                                  label: 'Full Repeat',
+                                  desc: 'Full Page 1 letterhead'
+                                },
+                                {
+                                  id: 'logo_only' as const,
+                                  label: 'Logo Only',
+                                  desc: 'Logo mark + page number'
+                                },
+                                {
+                                  id: 'none' as const,
+                                  label: 'Hidden',
+                                  desc: 'No header on Page 2+'
+                                }
+                              ].map((m) => {
+                                const currentMode =
+                                  headerConfig.continuationHeaderMode ||
+                                  (headerConfig.repeatHeaderOnSubsequentPages === false ? 'none' : 'compact');
+                                const isSelected = currentMode === m.id;
+                                return (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() =>
                                       setHeaderConfig((prev) => ({
                                         ...prev,
-                                        showLogoOnContinuationPages: e.target.checked
+                                        continuationHeaderMode: m.id,
+                                        repeatHeaderOnSubsequentPages: m.id !== 'none'
                                       }))
                                     }
-                                    className="sr-only peer"
-                                  />
-                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                              </div>
+                                    className={`py-1.5 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                    }`}
+                                  >
+                                    <span className="text-[11px] font-semibold leading-tight">{m.label}</span>
+                                    <span className="text-[9.5px] text-slate-400 mt-0.5 leading-tight">{m.desc}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
+
+                            {headerConfig.continuationHeaderMode !== 'none' &&
+                              headerConfig.repeatHeaderOnSubsequentPages !== false && (
+                                <div className="space-y-2 pt-1">
+                                  {/* Page 2+ Logo Height Slider */}
+                                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                                    <div className="flex items-center justify-between text-[10.5px]">
+                                      <span className="font-semibold text-slate-700">Page 2+ Logo Size</span>
+                                      <span className="font-mono font-bold text-blue-700">
+                                        {headerConfig.continuationLogoHeightPx || 20}px
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min={14}
+                                      max={40}
+                                      step={2}
+                                      value={headerConfig.continuationLogoHeightPx || 20}
+                                      onChange={(e) =>
+                                        setHeaderConfig((prev) => ({
+                                          ...prev,
+                                          continuationLogoHeightPx: Number(e.target.value) || 20
+                                        }))
+                                      }
+                                      className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
+                                    />
+                                  </div>
+
+                                  {/* Element Visibility Checkboxes */}
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {[
+                                      {
+                                        key: 'showLogoOnContinuationPages' as const,
+                                        label: 'Mini Logo',
+                                        checked: headerConfig.showLogoOnContinuationPages !== false
+                                      },
+                                      {
+                                        key: 'showCompanyNameOnContinuation' as const,
+                                        label: 'Company Name',
+                                        checked: headerConfig.showCompanyNameOnContinuation !== false
+                                      },
+                                      {
+                                        key: 'showSubjectOnContinuation' as const,
+                                        label: 'Project Subject',
+                                        checked: headerConfig.showSubjectOnContinuation !== false
+                                      },
+                                      {
+                                        key: 'showQuoteRefOnContinuation' as const,
+                                        label: 'Quote Ref #',
+                                        checked: headerConfig.showQuoteRefOnContinuation !== false
+                                      },
+                                      {
+                                        key: 'showPageNumberOnContinuation' as const,
+                                        label: 'Page Number',
+                                        checked: headerConfig.showPageNumberOnContinuation !== false
+                                      },
+                                      {
+                                        key: 'showContinuationDivider' as const,
+                                        label: 'Bottom Divider',
+                                        checked: headerConfig.showContinuationDivider !== false
+                                      }
+                                    ].map((item) => (
+                                      <label
+                                        key={item.key}
+                                        className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none"
+                                      >
+                                        <span className="text-[10.5px] font-medium text-slate-700">
+                                          {item.label}
+                                        </span>
+                                        <input
+                                          type="checkbox"
+                                          checked={item.checked}
+                                          onChange={(e) =>
+                                            setHeaderConfig((prev) => ({
+                                              ...prev,
+                                              [item.key]: e.target.checked
+                                            }))
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                           </div>
 
                           {/* Informational Guardrail Card */}
@@ -5562,57 +5904,51 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 3. B2B Corporate Snapshot Overview */}
+                    {/* 3. Client Details on This Quote (Editable Snapshot) */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Building className="w-3.5 h-3.5 text-blue-600" />
-                        Client Corporate Details (Snapshot)
+                        Client Details on This Quote
                       </label>
-                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-2 text-[11px]">
+                      <p className="text-[10px] text-slate-500 leading-normal">
+                        Edit client details below or click directly on the A4 preview card.
+                      </p>
+                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-2.5 text-[11px]">
                         <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Company / Client Name</span>
-                          <span className="font-semibold text-slate-900">
-                            {liveQuotation.client_snapshot?.entity_name || 'Client Name / Unspecified'}
-                          </span>
+                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
+                            Company / Client Name
+                          </label>
+                          <input
+                            type="text"
+                            value={clientNameOverride}
+                            onChange={(e) => setClientNameOverride(e.target.value)}
+                            placeholder="Client Company Name"
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
                         </div>
                         <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Contact Person (Attn)</span>
-                          <span className="text-slate-800">
-                            {liveQuotation.client_contact_person ||
-                              liveQuotation.client_snapshot?.client_contact_person ||
-                              liveQuotation.client_snapshot?.contact_person ||
-                              'Procurement / Commercial Dept.'}
-                          </span>
+                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
+                            Registered Address
+                          </label>
+                          <input
+                            type="text"
+                            value={clientAddressOverride}
+                            onChange={(e) => setClientAddressOverride(e.target.value)}
+                            placeholder="City, Country or P.O. Box"
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
                         </div>
                         <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Registered Address</span>
-                          <span className="text-slate-700">
-                            {liveQuotation.client_address ||
-                              liveQuotation.client_snapshot?.client_address ||
-                              liveQuotation.client_snapshot?.address ||
-                              liveQuotation.client_snapshot?.city ||
-                              'United Arab Emirates'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Tax Registration (TRN)</span>
-                          <span className="font-mono text-slate-800">
-                            {liveQuotation.client_trn ||
-                              liveQuotation.client_snapshot?.client_trn ||
-                              liveQuotation.client_snapshot?.trn ||
-                              'Not Registered'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px] uppercase font-bold block">Communications</span>
-                          <span className="text-slate-700">
-                            {[
-                              liveQuotation.client_phone || liveQuotation.client_snapshot?.client_phone || liveQuotation.client_snapshot?.phone,
-                              liveQuotation.client_email || liveQuotation.client_snapshot?.client_email || liveQuotation.client_snapshot?.email
-                            ]
-                              .filter(Boolean)
-                              .join(' • ') || '—'}
-                          </span>
+                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
+                            Tax Registration (TRN)
+                          </label>
+                          <input
+                            type="text"
+                            value={clientTrnOverride}
+                            onChange={(e) => setClientTrnOverride(e.target.value)}
+                            placeholder="Optional Client TRN"
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
                         </div>
                       </div>
                     </div>
@@ -5621,10 +5957,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
                       <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        CRM Snapshot Isolation
+                        Saved With This Quote Only
                       </div>
                       <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Client contact person, address and TRN are securely snapped to this document version.
+                        Changes to client details here apply only to this quotation version without overwriting your master CRM records.
                       </p>
                     </div>
                   </div>
@@ -6125,7 +6461,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                       <div className="min-w-0">
                         <h4 className="font-bold text-slate-900 text-xs truncate">
-                          Footer &amp; Legal Baseline
+                          Page Footer &amp; Disclaimer
                         </h4>
                         <p className="text-[10px] text-slate-400 font-mono">
                           Structural Section • Legal Watermark
@@ -6218,11 +6554,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Footer 2D Alignment & Metadata Pills */}
+                    {/* 2. Footer Alignment & Badges */}
                     <div className="space-y-2.5 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <AlignLeft className="w-3.5 h-3.5 text-blue-600" />
-                        Footer 2D Alignment &amp; Pills
+                        Footer Alignment &amp; Badges
                       </label>
                       <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                         {(['split', 'left', 'center', 'right'] as const).map((hMode) => {
@@ -6731,12 +7067,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* Granular Attribute Key Filter */}
+                      {/* Show / Hide Specific Specs */}
                       {visibleColumns.showItemAttributes !== false && availableAttributeKeys.length > 0 && (
                         <div className="space-y-2 pt-1 border-t border-slate-100">
                           <div className="flex items-center justify-between">
                             <label className="text-[11px] font-semibold text-slate-700">
-                              Granular Attribute Key Filter
+                              Show / Hide Specific Specs
                             </label>
                             <div className="flex items-center gap-2">
                               <button
@@ -6881,10 +7217,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       )}
                     </div>
 
-                    {/* 2. Row Padding Density */}
+                    {/* 2. Table Row Spacing */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
                       <label className="block text-slate-800 font-bold text-xs">
-                        Row Padding Density
+                        Table Row Spacing
                       </label>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
                         Control table row height to fit more lines or maximize readability.
@@ -6931,12 +7267,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 3. Table Typography Scaling */}
+                    {/* 3. Table Text Size */}
                     <div className="pt-2 border-t border-slate-100 space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                           <Type className="w-3.5 h-3.5 text-blue-600" />
-                          Table Typography Scaling
+                          Table Text Size
                         </label>
                         <span className="text-[10px] font-mono text-slate-400 capitalize">
                           {tableFontScale}
@@ -7497,7 +7833,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     <div className="flex items-center justify-between">
                                       <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
                                         <Layers className="w-3.5 h-3.5 text-blue-600" />
-                                        &ldquo;In Front of Text&rdquo; Overlay Controls
+                                        Stamp &amp; Signature Position
                                       </span>
                                       <button
                                         type="button"
@@ -7727,7 +8063,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     {/* Realistic Ink Multiply Blend Toggle */}
                                     <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
                                       <span className="text-[10.5px] font-medium text-slate-700">
-                                        Realistic Wet-Ink Multiply Blend
+                                        Blend Stamp Like Real Ink
                                       </span>
                                       <input
                                         type="checkbox"

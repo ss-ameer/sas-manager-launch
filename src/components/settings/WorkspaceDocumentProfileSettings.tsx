@@ -1496,7 +1496,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
             <div>
               <label className="block text-slate-600 font-bold mb-1.5">
-                Official Registered Legal Entity Name
+                Company Name (Legal Name)
               </label>
               <input
                 type="text"
@@ -1749,17 +1749,17 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           <div className="pt-6 border-t border-slate-100">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
               <LayoutTemplate className="w-4 h-4 text-indigo-600" />
-              <span>Default Letterhead & Logo Display Mode</span>
+              <span>Default Header Logo Style</span>
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
               <div>
-                <label className="block text-slate-600 font-bold mb-1.5">Logo Display Mode</label>
+                <label className="block text-slate-600 font-bold mb-1.5">Header Logo Style</label>
                 <div className="grid grid-cols-2 gap-1.5">
                   {(
                     [
                       { id: 'logo_and_name', label: 'Logo + Name' },
-                      { id: 'logo_only', label: 'Wide Lockup Only' },
+                      { id: 'logo_only', label: 'Logo Only (Hide Company Name)' },
                       { id: 'full_banner', label: 'Full Banner' },
                       { id: 'no_logo', label: 'Text Only' }
                     ] as const
@@ -1836,7 +1836,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                     onChange={(e) => setShowLogoOnContinuationPages(e.target.checked)}
                     className="rounded border-slate-300 text-blue-600"
                   />
-                  <span>Show compact mini-logo on Page 2+ & Annex running headers</span>
+                  <span>Show Logo on Page 2+ Running Header</span>
                 </label>
               </div>
             </div>
@@ -1904,7 +1904,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                     />
                     <div>
                       <span className="text-xs font-bold text-slate-800 block">
-                        Custom Brand Hex Color Override
+                        Custom Brand Color
                       </span>
                       <span className="text-[11px] text-slate-500">
                         Drives top letterhead bar, table header, card borders &amp; grand total across all quotations
@@ -1993,7 +1993,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Font Scale</label>
+                  <label className="block text-slate-600 font-bold mb-1.5">Document Font Size</label>
                   <div className="grid grid-cols-3 gap-1">
                     {(
                       [
@@ -2020,7 +2020,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Table Density</label>
+                  <label className="block text-slate-600 font-bold mb-1.5">Table Row Spacing</label>
                   <div className="grid grid-cols-3 gap-1">
                     {(
                       [
@@ -2884,14 +2884,14 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-extrabold tracking-tight text-white">
-                  🧪 Live Quotation Sandbox & Dummy Data Simulator
+                  🧪 Live Quotation Preview &amp; Test Builder
                 </h3>
                 <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-bold rounded-md">
                   REAL-TIME A4 ENGINE
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Test your live unsaved branding, bank details, and presets with interactive dummy line items or launch the full 3-pane Quotation Studio.
+                Test your live unsaved branding, bank details, and presets with sample line items or launch the full 3-pane Quotation Studio.
               </p>
             </div>
           </div>
@@ -2908,11 +2908,11 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
         </div>
 
         <div className="p-6 space-y-6 bg-slate-50/70">
-          {/* Row 1: 3 1-Click Scenarios + Active Preset Preview Selector */}
+          {/* Row 1: 3 Sample Quote Templates + Active Preset Preview Selector */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end bg-white p-4 rounded-xl border border-slate-200">
             <div className="lg:col-span-8">
               <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2">
-                1-Click Dummy Quotation Scenarios
+                Sample Quote Templates
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
@@ -3001,7 +3001,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-indigo-600" />
                 <span className="text-xs font-extrabold text-slate-800">
-                  Interactive Dummy Line Items ({sandboxItems.length} Items • Grand Total:{' '}
+                  Sample Line Items ({sandboxItems.length} Items • Grand Total:{' '}
                   {sandboxQuotation.currency} {sandboxQuotation.grand_total.toLocaleString()})
                 </span>
               </div>
