@@ -1277,6 +1277,16 @@ export interface QuotationFooterConfig {
   signatoryEmail?: string;
   secondarySignatoryEmail?: string;
   signatoryCustomLines?: QuotationSignatoryCustomLine[];
+  signatoryContactFormat?: 'icon' | 'label' | 'plain'; // default 'icon'
+  signatoryLineOrder?: Array<'name' | 'title' | 'phone' | 'email' | 'custom' | 'date'>;
+  signatoryLineStyles?: Record<
+    string,
+    {
+      weight?: 'normal' | 'medium' | 'bold';
+      color?: 'default' | 'muted' | 'accent';
+    }
+  >;
+  visibleSignatoryLines?: Record<string, boolean>;
 }
 
 export interface QuotationRecipientConfig {
@@ -1303,6 +1313,13 @@ export interface QuotationRecipientConfig {
   globalCardRadius?: 'rounded' | 'sharp';
 }
 
+export interface QuotationBlockCustomRow {
+  id: string;
+  label: string;
+  value: string;
+  enabled?: boolean;
+}
+
 export interface QuotationBlockConfig {
   id: string;
   type?: QuotationBlockType;
@@ -1318,6 +1335,21 @@ export interface QuotationBlockConfig {
   spacer_fill_remaining?: boolean; // default: false
   show_continuation_header?: boolean; // for page_break blocks, default: true
   order?: number;
+  // Standardized Block Customization & Formatting
+  titleOverride?: string;
+  subtitleOverride?: string;
+  showHeaderIcon?: boolean; // default true
+  headerStyleOverride?: 'inherit' | 'solid' | 'tinted' | 'underline' | 'minimal' | 'none';
+  fieldLayoutMode?: 'split' | 'inline' | 'grid_2col'; // default 'split'
+  showRowDividers?: boolean; // default false
+  valueAlign?: 'left' | 'right'; // default 'right' in split mode, 'left' in inline/grid
+  visibleFields?: Record<string, boolean>;
+  fieldLabels?: Record<string, string>;
+  fieldOrder?: string[];
+  customRows?: QuotationBlockCustomRow[];
+  customNote?: string;
+  acceptanceLayout?: 'row_4col' | 'grid_2x2' | 'compact';
+  acceptanceStatementOverride?: string;
 }
 
 export interface QuotationLayoutSettings {

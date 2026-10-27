@@ -8163,16 +8163,488 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           </div>
 
+                          {/* Standardized Section Header & Banner Override (for Content & Signatory Blocks) */}
+                          {(selectedBlock.id === 'terms' ||
+                            selectedBlock.id === 'remittance' ||
+                            selectedBlock.id === 'acceptance' ||
+                            selectedBlock.id === 'totals' ||
+                            selectedBlock.id === 'signatory') && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-800">
+                                  Section Header &amp; Banner
+                                </span>
+                                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedBlock.showHeaderIcon !== false}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig(selectedBlock.id, {
+                                        showHeaderIcon: e.target.checked
+                                      })
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                  <span>Show Icon</span>
+                                </label>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                    Section Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={selectedBlock.titleOverride ?? ''}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig(selectedBlock.id, {
+                                        titleOverride: e.target.value
+                                      })
+                                    }
+                                    placeholder={
+                                      selectedBlock.id === 'terms'
+                                        ? 'Commercial Terms & Conditions'
+                                        : selectedBlock.id === 'remittance'
+                                          ? 'Bank Remittance Details'
+                                          : selectedBlock.id === 'acceptance'
+                                            ? 'Customer Acceptance & Confirmation'
+                                            : selectedBlock.id === 'totals'
+                                              ? 'Financial Summary (opt)'
+                                              : 'Authorized Signatories (opt)'
+                                    }
+                                    className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                    Right Subtitle (opt)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={selectedBlock.subtitleOverride ?? ''}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig(selectedBlock.id, {
+                                        subtitleOverride: e.target.value
+                                      })
+                                    }
+                                    placeholder={
+                                      selectedBlock.id === 'acceptance'
+                                        ? 'Sign & Return Copy with PO'
+                                        : 'Optional subtitle'
+                                    }
+                                    className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
+                                  Header Banner Style
+                                </label>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {[
+                                    { id: 'inherit' as const, label: 'Global' },
+                                    { id: 'underline' as const, label: 'Underline' },
+                                    { id: 'tinted' as const, label: 'Tinted' },
+                                    { id: 'solid' as const, label: 'Solid Fill' },
+                                    { id: 'minimal' as const, label: 'Minimal' },
+                                    { id: 'none' as const, label: 'Hide Title' }
+                                  ].map((opt) => {
+                                    const active = (selectedBlock.headerStyleOverride || 'inherit') === opt.id;
+                                    return (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            headerStyleOverride: opt.id
+                                          })
+                                        }
+                                        className={`py-1 px-1.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                                          active
+                                            ? 'bg-blue-600 text-white shadow-2xs'
+                                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Standardized Field Layout & Row Formatting (for Terms, Remittance, Totals) */}
+                          {(selectedBlock.id === 'terms' ||
+                            selectedBlock.id === 'remittance' ||
+                            selectedBlock.id === 'totals') && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                              <span className="text-[11px] font-bold text-slate-800 block">
+                                Field Layout &amp; Row Formatting
+                              </span>
+
+                              {selectedBlock.id !== 'totals' && (
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
+                                    Key-Value Layout Mode
+                                  </label>
+                                  <div className="grid grid-cols-3 gap-1">
+                                    {[
+                                      { id: 'split' as const, label: 'Split L/R' },
+                                      { id: 'inline' as const, label: 'Inline' },
+                                      { id: 'grid_2col' as const, label: '2-Col Grid' }
+                                    ].map((mode) => {
+                                      const active = (selectedBlock.fieldLayoutMode || 'split') === mode.id;
+                                      return (
+                                        <button
+                                          key={mode.id}
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateBlockConfig(selectedBlock.id, {
+                                              fieldLayoutMode: mode.id
+                                            })
+                                          }
+                                          className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? 'bg-blue-600 text-white shadow-2xs'
+                                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {mode.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-2 gap-2 items-center pt-1">
+                                <label className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                  <span className="text-[10px] font-semibold text-slate-700">
+                                    Row Dividers
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      selectedBlock.showRowDividers !== undefined
+                                        ? selectedBlock.showRowDividers
+                                        : selectedBlock.id === 'totals'
+                                    }
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig(selectedBlock.id, {
+                                        showRowDividers: e.target.checked
+                                      })
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </label>
+
+                                {selectedBlock.id !== 'totals' && (
+                                  <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+                                    {[
+                                      { id: 'left' as const, label: 'Val Left' },
+                                      { id: 'right' as const, label: 'Val Right' }
+                                    ].map((alignOpt) => {
+                                      const currentAlign =
+                                        selectedBlock.valueAlign ||
+                                        ((selectedBlock.fieldLayoutMode || 'split') === 'split'
+                                          ? 'right'
+                                          : 'left');
+                                      const active = currentAlign === alignOpt.id;
+                                      return (
+                                        <button
+                                          key={alignOpt.id}
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateBlockConfig(selectedBlock.id, {
+                                              valueAlign: alignOpt.id
+                                            })
+                                          }
+                                          className={`py-1 rounded-md text-[9.5px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? 'bg-blue-600 text-white'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {alignOpt.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Commercial Terms Specific Options */}
+                          {selectedBlock.id === 'terms' && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-800">
+                                  Commercial Terms Fields
+                                </span>
+                                <span className="text-[9.5px] text-slate-500">
+                                  Toggle, rename &amp; edit values
+                                </span>
+                              </div>
+
+                              {(() => {
+                                const vis = selectedBlock.visibleFields || {};
+                                const lbls = selectedBlock.fieldLabels || {};
+                                const defaultOrder = ['price_basis', 'payment_terms', 'validity'];
+                                const activeOrder =
+                                  selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
+                                    ? selectedBlock.fieldOrder
+                                    : defaultOrder;
+
+                                const moveTermField = (key: string, dir: -1 | 1) => {
+                                  const idx = activeOrder.indexOf(key);
+                                  if (idx === -1) return;
+                                  const target = idx + dir;
+                                  if (target < 0 || target >= activeOrder.length) return;
+                                  const copy = [...activeOrder];
+                                  const [item] = copy.splice(idx, 1);
+                                  copy.splice(target, 0, item);
+                                  handleUpdateBlockConfig('terms', { fieldOrder: copy });
+                                };
+
+                                const termMeta: Record<
+                                  string,
+                                  {
+                                    defaultLabel: string;
+                                    value: string;
+                                    onChange: (val: string) => void;
+                                    isNumber?: boolean;
+                                  }
+                                > = {
+                                  price_basis: {
+                                    defaultLabel: 'Price Basis:',
+                                    value: priceBasis,
+                                    onChange: (val) => setPriceBasis(val)
+                                  },
+                                  payment_terms: {
+                                    defaultLabel: 'Payment Terms:',
+                                    value: paymentTerms,
+                                    onChange: (val) => setPaymentTerms(val)
+                                  },
+                                  validity: {
+                                    defaultLabel: 'Validity:',
+                                    value: String(validityDays),
+                                    onChange: (val) => setValidityDays(Math.max(1, Number(val) || 30)),
+                                    isNumber: true
+                                  }
+                                };
+
+                                return (
+                                  <div className="space-y-2">
+                                    {activeOrder
+                                      .filter((k) => Boolean(termMeta[k]))
+                                      .map((key, idx) => {
+                                        const meta = termMeta[key];
+                                        const isChecked = vis[key] !== false;
+                                        return (
+                                          <div
+                                            key={key}
+                                            className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5"
+                                          >
+                                            <div className="flex items-center justify-between gap-1">
+                                              <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isChecked}
+                                                  onChange={(e) =>
+                                                    handleUpdateBlockConfig('terms', {
+                                                      visibleFields: {
+                                                        ...vis,
+                                                        [key]: e.target.checked
+                                                      }
+                                                    })
+                                                  }
+                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                                />
+                                                <input
+                                                  type="text"
+                                                  value={lbls[key] ?? meta.defaultLabel}
+                                                  onChange={(e) =>
+                                                    handleUpdateBlockConfig('terms', {
+                                                      fieldLabels: {
+                                                        ...lbls,
+                                                        [key]: e.target.value
+                                                      }
+                                                    })
+                                                  }
+                                                  className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full"
+                                                />
+                                              </label>
+                                              <div className="flex items-center gap-0.5 shrink-0">
+                                                <button
+                                                  type="button"
+                                                  disabled={idx === 0}
+                                                  onClick={() => moveTermField(key, -1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                  title="Move Up"
+                                                >
+                                                  <ArrowUp className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={idx === activeOrder.length - 1}
+                                                  onClick={() => moveTermField(key, 1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                  title="Move Down"
+                                                >
+                                                  <ArrowDown className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            {isChecked && (
+                                              <div className="flex items-center gap-1.5">
+                                                <input
+                                                  type={meta.isNumber ? 'number' : 'text'}
+                                                  value={meta.value}
+                                                  onChange={(e) => meta.onChange(e.target.value)}
+                                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
+                                                />
+                                                {meta.isNumber && (
+                                                  <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                                                    Days
+                                                  </span>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+
+                                    {/* Clauses / Notes Toggle & Direct Textarea */}
+                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                      <label className="flex items-center justify-between cursor-pointer">
+                                        <span className="text-[10.5px] font-semibold text-slate-700">
+                                          Show Terms &amp; Clauses Paragraph
+                                        </span>
+                                        <input
+                                          type="checkbox"
+                                          checked={vis.clauses !== false}
+                                          onChange={(e) =>
+                                            handleUpdateBlockConfig('terms', {
+                                              visibleFields: {
+                                                ...vis,
+                                                clauses: e.target.checked
+                                              }
+                                            })
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                        />
+                                      </label>
+                                      {vis.clauses !== false && (
+                                        <textarea
+                                          rows={3}
+                                          value={customNotes}
+                                          onChange={(e) => setCustomNotes(e.target.value)}
+                                          placeholder="1. All supplied items carry standard warranty..."
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Custom Key-Value Rows for Commercial Terms */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Custom Term Rows (e.g. Warranty, Origin)
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextRow = {
+                                        id: `term_row_${Date.now()}`,
+                                        label: 'Warranty:',
+                                        value: '12 Months Standard Manufacturer Warranty',
+                                        enabled: true
+                                      };
+                                      handleUpdateBlockConfig('terms', {
+                                        customRows: [...(selectedBlock.customRows || []), nextRow]
+                                      });
+                                    }}
+                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add Row</span>
+                                  </button>
+                                </div>
+                                {(selectedBlock.customRows || []).map((row, rIdx) => (
+                                  <div
+                                    key={row.id || rIdx}
+                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={row.enabled !== false}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, enabled: e.target.checked } : item
+                                        );
+                                        handleUpdateBlockConfig('terms', { customRows: updated });
+                                      }}
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, label: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('terms', { customRows: updated });
+                                      }}
+                                      placeholder="Label"
+                                      className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.value}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('terms', { customRows: updated });
+                                      }}
+                                      placeholder="Value"
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = (selectedBlock.customRows || []).filter(
+                                          (_, i) => i !== rIdx
+                                        );
+                                        handleUpdateBlockConfig('terms', { customRows: updated });
+                                      }}
+                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Financial Totals Specific Options */}
                           {selectedBlock.id === 'totals' && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-semibold text-slate-800 text-xs block">
                                     Show Amount in Words (Legal Phrasing)
                                   </span>
                                   <span className="text-[10.5px] text-slate-500">
-                                    Formal legal spelling of Grand Total (e.g. "Say UAE Dirhams...")
+                                    Formal legal spelling of Grand Total
                                   </span>
                                 </div>
                                 <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
@@ -8185,12 +8657,401 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                                 </label>
                               </div>
+
+                              {/* Totals Row Toggles & Custom Labels */}
+                              {(() => {
+                                const vis = selectedBlock.visibleFields || {};
+                                const lbls = selectedBlock.fieldLabels || {};
+                                const totalRows = [
+                                  { key: 'subtotal', defaultLabel: 'Subtotal (Excl. Tax):' },
+                                  { key: 'freight', defaultLabel: 'Freight / Logistics Charges:' },
+                                  { key: 'tax', defaultLabel: `VAT / Tax (${taxRatePercent}%):` },
+                                  { key: 'grand_total', defaultLabel: 'GRAND TOTAL:' }
+                                ];
+                                return (
+                                  <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                                    <span className="text-[10.5px] font-bold text-slate-700 block">
+                                      Summary Rows &amp; Labels
+                                    </span>
+                                    {totalRows.map((tr) => (
+                                      <div
+                                        key={tr.key}
+                                        className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={vis[tr.key] !== false}
+                                          onChange={(e) =>
+                                            handleUpdateBlockConfig('totals', {
+                                              visibleFields: { ...vis, [tr.key]: e.target.checked }
+                                            })
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={lbls[tr.key] ?? tr.defaultLabel}
+                                          onChange={(e) =>
+                                            handleUpdateBlockConfig('totals', {
+                                              fieldLabels: { ...lbls, [tr.key]: e.target.value }
+                                            })
+                                          }
+                                          className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Custom Financial Rows */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Custom Financial Rows
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextRow = {
+                                        id: `tot_row_${Date.now()}`,
+                                        label: 'Packing & Documentation:',
+                                        value: 'Included',
+                                        enabled: true
+                                      };
+                                      handleUpdateBlockConfig('totals', {
+                                        customRows: [...(selectedBlock.customRows || []), nextRow]
+                                      });
+                                    }}
+                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add Row</span>
+                                  </button>
+                                </div>
+                                {(selectedBlock.customRows || []).map((row, rIdx) => (
+                                  <div
+                                    key={row.id || rIdx}
+                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                  >
+                                    <input
+                                      type="text"
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, label: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('totals', { customRows: updated });
+                                      }}
+                                      placeholder="Label"
+                                      className="w-28 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.value}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('totals', { customRows: updated });
+                                      }}
+                                      placeholder="Value"
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = (selectedBlock.customRows || []).filter(
+                                          (_, i) => i !== rIdx
+                                        );
+                                        handleUpdateBlockConfig('totals', { customRows: updated });
+                                      }}
+                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Customer Acceptance Block Specific Options */}
+                          {selectedBlock.id === 'acceptance' && (
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                              <div>
+                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                  Signature Slots Layout
+                                </label>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {[
+                                    { id: 'row_4col' as const, label: '4-Col Row' },
+                                    { id: 'grid_2x2' as const, label: '2x2 Grid' },
+                                    { id: 'compact' as const, label: 'Compact' }
+                                  ].map((mode) => {
+                                    const active = (selectedBlock.acceptanceLayout || 'row_4col') === mode.id;
+                                    return (
+                                      <button
+                                        key={mode.id}
+                                        type="button"
+                                        onClick={() =>
+                                          handleUpdateBlockConfig('acceptance', {
+                                            acceptanceLayout: mode.id
+                                          })
+                                        }
+                                        className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                                          active
+                                            ? 'bg-blue-600 text-white shadow-2xs'
+                                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {mode.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Acceptance Statement Text Override */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <label className="flex items-center justify-between cursor-pointer">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Show Legal Acceptance Statement
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={(selectedBlock.visibleFields || {}).statement !== false}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig('acceptance', {
+                                        visibleFields: {
+                                          ...(selectedBlock.visibleFields || {}),
+                                          statement: e.target.checked
+                                        }
+                                      })
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </label>
+                                {(selectedBlock.visibleFields || {}).statement !== false && (
+                                  <textarea
+                                    rows={2}
+                                    value={selectedBlock.acceptanceStatementOverride ?? ''}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig('acceptance', {
+                                        acceptanceStatementOverride: e.target.value
+                                      })
+                                    }
+                                    placeholder="We hereby accept the above commercial offer..."
+                                    className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                  />
+                                )}
+                              </div>
+
+                              {/* Toggleable & Renameable Acceptance Signature Slots */}
+                              {(() => {
+                                const vis = selectedBlock.visibleFields || {};
+                                const lbls = selectedBlock.fieldLabels || {};
+                                const slots = [
+                                  { key: 'signature', defaultLabel: 'Authorized Signature', defOn: true },
+                                  { key: 'name', defaultLabel: 'Signatory Name', defOn: true },
+                                  { key: 'title', defaultLabel: 'Title / Designation', defOn: false },
+                                  { key: 'po_number', defaultLabel: 'PO Number', defOn: true },
+                                  { key: 'date', defaultLabel: 'Date', defOn: true },
+                                  { key: 'stamp', defaultLabel: 'Company Stamp / Seal', defOn: false }
+                                ];
+                                return (
+                                  <div className="space-y-1.5">
+                                    <span className="text-[10.5px] font-bold text-slate-700 block">
+                                      Acceptance Fields &amp; Labels
+                                    </span>
+                                    {slots.map((slot) => {
+                                      const isOn =
+                                        vis[slot.key] !== undefined ? vis[slot.key] : slot.defOn;
+                                      return (
+                                        <div
+                                          key={slot.key}
+                                          className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isOn}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('acceptance', {
+                                                visibleFields: { ...vis, [slot.key]: e.target.checked }
+                                              })
+                                            }
+                                            className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={lbls[slot.key] ?? slot.defaultLabel}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('acceptance', {
+                                                fieldLabels: { ...lbls, [slot.key]: e.target.value }
+                                              })
+                                            }
+                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Custom Acceptance Slots */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Custom Acceptance Slots
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextRow = {
+                                        id: `acc_slot_${Date.now()}`,
+                                        label: 'Project Code / Ref',
+                                        value: '',
+                                        enabled: true
+                                      };
+                                      handleUpdateBlockConfig('acceptance', {
+                                        customRows: [...(selectedBlock.customRows || []), nextRow]
+                                      });
+                                    }}
+                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add Slot</span>
+                                  </button>
+                                </div>
+                                {(selectedBlock.customRows || []).map((row, rIdx) => (
+                                  <div
+                                    key={row.id || rIdx}
+                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                  >
+                                    <input
+                                      type="text"
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, label: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('acceptance', { customRows: updated });
+                                      }}
+                                      placeholder="Slot Label"
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = (selectedBlock.customRows || []).filter(
+                                          (_, i) => i !== rIdx
+                                        );
+                                        handleUpdateBlockConfig('acceptance', { customRows: updated });
+                                      }}
+                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
                           {/* Signatory Block Specific Options */}
                           {selectedBlock.id === 'signatory' && (
                             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                              {/* Direct Signatory Mode & Primary/Secondary Identity Editor */}
+                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-slate-800">
+                                    Signatory Identity &amp; Mode
+                                  </span>
+                                  <div className="grid grid-cols-2 gap-1 bg-slate-100 p-0.5 rounded-md">
+                                    {[
+                                      { id: 'single' as const, label: 'Single' },
+                                      { id: 'dual' as const, label: 'Dual (2)' }
+                                    ].map((m) => {
+                                      const active = signatoryType === m.id;
+                                      return (
+                                        <button
+                                          key={m.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setSignatoryType(m.id);
+                                            setSignatoryMode(m.id);
+                                          }}
+                                          className={`px-2 py-0.5 rounded text-[9.5px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? 'bg-blue-600 text-white shadow-2xs'
+                                              : 'text-slate-600 hover:text-slate-900'
+                                          }`}
+                                        >
+                                          {m.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                      Primary Signatory Name
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={signatoryName}
+                                      onChange={(e) => setSignatoryName(e.target.value)}
+                                      placeholder="Full Name"
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                      Primary Title / Role
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={signatoryTitle}
+                                      onChange={(e) => setSignatoryTitle(e.target.value)}
+                                      placeholder="Account Manager"
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                    />
+                                  </div>
+                                </div>
+
+                                {signatoryType === 'dual' && (
+                                  <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-100">
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                        Secondary Signatory Name
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={secondarySignatoryName}
+                                        onChange={(e) => setSecondarySignatoryName(e.target.value)}
+                                        placeholder="Authorized Director"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                        Secondary Title / Role
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={secondarySignatoryTitle}
+                                        onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
+                                        placeholder="Commercial Approver"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-semibold text-slate-800 text-xs block">
@@ -8716,11 +9577,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* Signatory Custom Details & Contact Info */}
+                              {/* Signatory Custom Details, Line Order & Contact Info */}
                               <div className="pt-2.5 border-t border-slate-200 space-y-2.5">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[11px] font-bold text-slate-800">
-                                    Signatory Details &amp; Contact Info
+                                    Signatory Details &amp; Formatting
                                   </span>
                                   <button
                                     type="button"
@@ -8758,7 +9619,193 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   </button>
                                 </div>
 
-                                {/* For and on behalf of & Date Signed toggles */}
+                                {/* Contact Display Format */}
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
+                                    Contact Detail Format
+                                  </label>
+                                  <div className="grid grid-cols-3 gap-1">
+                                    {[
+                                      { id: 'icon' as const, label: 'Icon + Text' },
+                                      { id: 'label' as const, label: 'Tel: / Email:' },
+                                      { id: 'plain' as const, label: 'Plain Text' }
+                                    ].map((fmt) => {
+                                      const active = (footerConfig.signatoryContactFormat || 'icon') === fmt.id;
+                                      return (
+                                        <button
+                                          key={fmt.id}
+                                          type="button"
+                                          onClick={() =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              signatoryContactFormat: fmt.id
+                                            }))
+                                          }
+                                          className={`py-1 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? 'bg-blue-600 text-white'
+                                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {fmt.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Signatory Line Order, Visibility & Font/Color Styling */}
+                                {(() => {
+                                  const defaultLineOrder: Array<'name' | 'title' | 'phone' | 'email' | 'custom' | 'date'> = [
+                                    'name',
+                                    'title',
+                                    'phone',
+                                    'email',
+                                    'custom',
+                                    'date'
+                                  ];
+                                  const lineOrder =
+                                    footerConfig.signatoryLineOrder && footerConfig.signatoryLineOrder.length > 0
+                                      ? footerConfig.signatoryLineOrder
+                                      : defaultLineOrder;
+                                  const visLines = footerConfig.visibleSignatoryLines || {};
+                                  const lineStyles = footerConfig.signatoryLineStyles || {};
+
+                                  const moveSigLine = (key: 'name' | 'title' | 'phone' | 'email' | 'custom' | 'date', dir: -1 | 1) => {
+                                    const idx = lineOrder.indexOf(key);
+                                    if (idx === -1) return;
+                                    const target = idx + dir;
+                                    if (target < 0 || target >= lineOrder.length) return;
+                                    const copy = [...lineOrder];
+                                    const [moved] = copy.splice(idx, 1);
+                                    copy.splice(target, 0, moved);
+                                    setFooterConfig((prev) => ({
+                                      ...prev,
+                                      signatoryLineOrder: copy
+                                    }));
+                                  };
+
+                                  const lineLabels: Record<string, string> = {
+                                    name: 'Signatory Name',
+                                    title: 'Title / Designation',
+                                    phone: 'Direct Phone',
+                                    email: 'Email Address',
+                                    custom: 'Custom Lines',
+                                    date: 'Date Signed Line'
+                                  };
+
+                                  return (
+                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                      <span className="text-[10px] font-bold text-slate-700 block">
+                                        Detail Line Order, Weight &amp; Color
+                                      </span>
+                                      {lineOrder.map((lineKey, idx) => {
+                                        const isLineVisible =
+                                          lineKey === 'phone'
+                                            ? Boolean(footerConfig.showSignatoryPhone) && visLines.phone !== false
+                                            : lineKey === 'email'
+                                              ? Boolean(footerConfig.showSignatoryEmail) && visLines.email !== false
+                                              : lineKey === 'date'
+                                                ? Boolean(footerConfig.showDateSignedLine) && visLines.date !== false
+                                                : visLines[lineKey] !== false;
+                                        const st = lineStyles[lineKey] || {};
+                                        return (
+                                          <div
+                                            key={lineKey}
+                                            className="flex items-center justify-between gap-1 bg-slate-50 px-1.5 py-1 rounded border border-slate-200/80"
+                                          >
+                                            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 cursor-pointer min-w-0 flex-1">
+                                              <input
+                                                type="checkbox"
+                                                checked={isLineVisible}
+                                                onChange={(e) => {
+                                                  const checked = e.target.checked;
+                                                  setFooterConfig((prev) => ({
+                                                    ...prev,
+                                                    ...(lineKey === 'phone' ? { showSignatoryPhone: checked } : {}),
+                                                    ...(lineKey === 'email' ? { showSignatoryEmail: checked } : {}),
+                                                    ...(lineKey === 'date' ? { showDateSignedLine: checked } : {}),
+                                                    visibleSignatoryLines: {
+                                                      ...(prev.visibleSignatoryLines || {}),
+                                                      [lineKey]: checked
+                                                    }
+                                                  }));
+                                                }}
+                                                className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                              />
+                                              <span className="truncate">{lineLabels[lineKey] || lineKey}</span>
+                                            </label>
+
+                                            <select
+                                              value={st.weight || (lineKey === 'name' ? 'bold' : 'normal')}
+                                              onChange={(e) =>
+                                                setFooterConfig((prev) => ({
+                                                  ...prev,
+                                                  signatoryLineStyles: {
+                                                    ...(prev.signatoryLineStyles || {}),
+                                                    [lineKey]: {
+                                                      ...((prev.signatoryLineStyles || {})[lineKey] || {}),
+                                                      weight: e.target.value as any
+                                                    }
+                                                  }
+                                                }))
+                                              }
+                                              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[9.5px] text-slate-700"
+                                              title="Font Weight"
+                                            >
+                                              <option value="normal">Reg</option>
+                                              <option value="medium">Med</option>
+                                              <option value="bold">Bold</option>
+                                            </select>
+
+                                            <select
+                                              value={st.color || (lineKey === 'name' ? 'default' : 'muted')}
+                                              onChange={(e) =>
+                                                setFooterConfig((prev) => ({
+                                                  ...prev,
+                                                  signatoryLineStyles: {
+                                                    ...(prev.signatoryLineStyles || {}),
+                                                    [lineKey]: {
+                                                      ...((prev.signatoryLineStyles || {})[lineKey] || {}),
+                                                      color: e.target.value as any
+                                                    }
+                                                  }
+                                                }))
+                                              }
+                                              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[9.5px] text-slate-700"
+                                              title="Color Emphasis"
+                                            >
+                                              <option value="default">Dark</option>
+                                              <option value="muted">Muted</option>
+                                              <option value="accent">Brand</option>
+                                            </select>
+
+                                            <div className="flex items-center shrink-0">
+                                              <button
+                                                type="button"
+                                                disabled={idx === 0}
+                                                onClick={() => moveSigLine(lineKey, -1)}
+                                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                              >
+                                                <ArrowUp className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={idx === lineOrder.length - 1}
+                                                onClick={() => moveSigLine(lineKey, 1)}
+                                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                              >
+                                                <ArrowDown className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* For and on behalf of toggle */}
                                 <div className="space-y-1.5">
                                   <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
                                     <span className="text-[10.5px] font-medium text-slate-700">
@@ -8796,91 +9843,46 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                       className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
                                     />
                                   )}
+                                </div>
 
-                                  <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
-                                    <span className="text-[10.5px] font-medium text-slate-700">
-                                      Show &ldquo;Date Signed&rdquo; Line
-                                    </span>
+                                {/* Direct Phone & Email Values */}
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                    <label className="block text-[9.5px] font-semibold text-slate-500">
+                                      Signatory Phone
+                                    </label>
                                     <input
-                                      type="checkbox"
-                                      checked={Boolean(footerConfig.showDateSignedLine)}
+                                      type="text"
+                                      value={footerConfig.signatoryPhone ?? activeProfile?.contact_phone ?? ''}
                                       onChange={(e) =>
                                         setFooterConfig((prev) => ({
                                           ...prev,
-                                          showDateSignedLine: e.target.checked
+                                          showSignatoryPhone: true,
+                                          signatoryPhone: e.target.value
                                         }))
                                       }
-                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                      placeholder="+971 50 000 0000"
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px] text-slate-800"
                                     />
-                                  </label>
-                                </div>
-
-                                {/* Direct Phone & Email Toggles + Inputs */}
-                                <div className="space-y-1.5">
-                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                    <label className="flex items-center justify-between cursor-pointer">
-                                      <span className="text-[10.5px] font-semibold text-slate-700">
-                                        Display Signatory Phone
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean(footerConfig.showSignatoryPhone)}
-                                        onChange={(e) =>
-                                          setFooterConfig((prev) => ({
-                                            ...prev,
-                                            showSignatoryPhone: e.target.checked
-                                          }))
-                                        }
-                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                      />
-                                    </label>
-                                    {footerConfig.showSignatoryPhone && (
-                                      <input
-                                        type="text"
-                                        value={footerConfig.signatoryPhone ?? activeProfile?.contact_phone ?? ''}
-                                        onChange={(e) =>
-                                          setFooterConfig((prev) => ({
-                                            ...prev,
-                                            signatoryPhone: e.target.value
-                                          }))
-                                        }
-                                        placeholder="+971 50 000 0000"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
-                                      />
-                                    )}
                                   </div>
 
-                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                    <label className="flex items-center justify-between cursor-pointer">
-                                      <span className="text-[10.5px] font-semibold text-slate-700">
-                                        Display Signatory Email
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean(footerConfig.showSignatoryEmail)}
-                                        onChange={(e) =>
-                                          setFooterConfig((prev) => ({
-                                            ...prev,
-                                            showSignatoryEmail: e.target.checked
-                                          }))
-                                        }
-                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                      />
+                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                    <label className="block text-[9.5px] font-semibold text-slate-500">
+                                      Signatory Email
                                     </label>
-                                    {footerConfig.showSignatoryEmail && (
-                                      <input
-                                        type="email"
-                                        value={footerConfig.signatoryEmail ?? activeProfile?.official_email ?? ''}
-                                        onChange={(e) =>
-                                          setFooterConfig((prev) => ({
-                                            ...prev,
-                                            signatoryEmail: e.target.value
-                                          }))
-                                        }
-                                        placeholder="rep@company.com"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
-                                      />
-                                    )}
+                                    <input
+                                      type="email"
+                                      value={footerConfig.signatoryEmail ?? activeProfile?.official_email ?? ''}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          showSignatoryEmail: true,
+                                          signatoryEmail: e.target.value
+                                        }))
+                                      }
+                                      placeholder="rep@company.com"
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px] text-slate-800"
+                                    />
                                   </div>
                                 </div>
 
@@ -8977,15 +9979,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   )}
                                 </div>
                               </div>
-
-                              <button
-                                type="button"
-                                onClick={() => setActiveLeftTab('content')}
-                                className="w-full py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                <span>Edit Signatory Names in Deal Data</span>
-                              </button>
                             </div>
                           )}
 
@@ -9015,16 +10008,281 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 </select>
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveLeftTab('content');
-                                  setIsEditingBankDetails(true);
-                                }}
-                                className="w-full py-2 px-3 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                              >
-                                <span>📝 Edit Wire Details in Deal Data</span>
-                              </button>
+                              {/* Direct Bank Wire Fields: Toggle, Reorder, Rename & Edit Values */}
+                              {(() => {
+                                const vis = selectedBlock.visibleFields || {};
+                                const lbls = selectedBlock.fieldLabels || {};
+                                const defaultOrder = [
+                                  'bank_name',
+                                  'beneficiary',
+                                  'account_number',
+                                  'iban',
+                                  'swift',
+                                  'branch',
+                                  'currency'
+                                ];
+                                const activeOrder =
+                                  selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
+                                    ? selectedBlock.fieldOrder
+                                    : defaultOrder;
+
+                                const moveBankField = (key: string, dir: -1 | 1) => {
+                                  const idx = activeOrder.indexOf(key);
+                                  if (idx === -1) return;
+                                  const target = idx + dir;
+                                  if (target < 0 || target >= activeOrder.length) return;
+                                  const copy = [...activeOrder];
+                                  const [item] = copy.splice(idx, 1);
+                                  copy.splice(target, 0, item);
+                                  handleUpdateBlockConfig('remittance', { fieldOrder: copy });
+                                };
+
+                                const updateBankOverrideField = (
+                                  fieldKey:
+                                    | 'bankName'
+                                    | 'beneficiaryName'
+                                    | 'accountNumber'
+                                    | 'iban'
+                                    | 'swiftCode'
+                                    | 'branchName',
+                                  val: string
+                                ) => {
+                                  setCustomBankOverride((prev) => ({
+                                    bankName: prev?.bankName ?? activeBankAccount?.bankName ?? '',
+                                    beneficiaryName:
+                                      prev?.beneficiaryName ?? activeBankAccount?.beneficiaryName ?? '',
+                                    accountNumber:
+                                      prev?.accountNumber ?? activeBankAccount?.accountNumber ?? '',
+                                    iban: prev?.iban ?? activeBankAccount?.iban ?? '',
+                                    swiftCode: prev?.swiftCode ?? activeBankAccount?.swiftCode ?? '',
+                                    branchName: prev?.branchName ?? activeBankAccount?.branchName ?? '',
+                                    [fieldKey]: val
+                                  }));
+                                };
+
+                                const bankFieldMeta: Record<
+                                  string,
+                                  {
+                                    defaultLabel: string;
+                                    defaultOn: boolean;
+                                    value: string;
+                                    onChange?: (val: string) => void;
+                                  }
+                                > = {
+                                  bank_name: {
+                                    defaultLabel: 'Bank:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.bankName || '',
+                                    onChange: (val) => updateBankOverrideField('bankName', val)
+                                  },
+                                  beneficiary: {
+                                    defaultLabel: 'Beneficiary:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.beneficiaryName || '',
+                                    onChange: (val) => updateBankOverrideField('beneficiaryName', val)
+                                  },
+                                  account_number: {
+                                    defaultLabel: 'Account No:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.accountNumber || '',
+                                    onChange: (val) => updateBankOverrideField('accountNumber', val)
+                                  },
+                                  iban: {
+                                    defaultLabel: 'IBAN:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.iban || '',
+                                    onChange: (val) => updateBankOverrideField('iban', val)
+                                  },
+                                  swift: {
+                                    defaultLabel: 'SWIFT / BIC:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.swiftCode || '',
+                                    onChange: (val) => updateBankOverrideField('swiftCode', val)
+                                  },
+                                  branch: {
+                                    defaultLabel: 'Branch:',
+                                    defaultOn: true,
+                                    value: activeBankAccount?.branchName || '',
+                                    onChange: (val) => updateBankOverrideField('branchName', val)
+                                  },
+                                  currency: {
+                                    defaultLabel: 'Currency:',
+                                    defaultOn: false,
+                                    value: activeBankAccount?.currency || 'AED'
+                                  }
+                                };
+
+                                return (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10.5px] font-bold text-slate-700">
+                                        Bank Fields &amp; Wire Values
+                                      </span>
+                                      <span className="text-[9.5px] text-slate-400">
+                                        Toggle, reorder &amp; edit
+                                      </span>
+                                    </div>
+                                    {activeOrder
+                                      .filter((k) => Boolean(bankFieldMeta[k]))
+                                      .map((key, idx) => {
+                                        const meta = bankFieldMeta[key];
+                                        const isChecked =
+                                          vis[key] !== undefined ? vis[key] : meta.defaultOn;
+                                        return (
+                                          <div
+                                            key={key}
+                                            className="p-2 rounded-lg bg-white border border-slate-200 space-y-1"
+                                          >
+                                            <div className="flex items-center justify-between gap-1">
+                                              <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isChecked}
+                                                  onChange={(e) =>
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      visibleFields: {
+                                                        ...vis,
+                                                        [key]: e.target.checked
+                                                      }
+                                                    })
+                                                  }
+                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                                />
+                                                <input
+                                                  type="text"
+                                                  value={lbls[key] ?? meta.defaultLabel}
+                                                  onChange={(e) =>
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      fieldLabels: {
+                                                        ...lbls,
+                                                        [key]: e.target.value
+                                                      }
+                                                    })
+                                                  }
+                                                  className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full"
+                                                />
+                                              </label>
+                                              <div className="flex items-center gap-0.5 shrink-0">
+                                                <button
+                                                  type="button"
+                                                  disabled={idx === 0}
+                                                  onClick={() => moveBankField(key, -1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                >
+                                                  <ArrowUp className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={idx === activeOrder.length - 1}
+                                                  onClick={() => moveBankField(key, 1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                >
+                                                  <ArrowDown className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            {isChecked && meta.onChange && (
+                                              <input
+                                                type="text"
+                                                value={meta.value}
+                                                onChange={(e) => meta.onChange?.(e.target.value)}
+                                                className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                              />
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Custom Bank Rows */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Custom Bank Rows (e.g. Routing / Sort Code)
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextRow = {
+                                        id: `bank_row_${Date.now()}`,
+                                        label: 'Correspondent Bank:',
+                                        value: 'Standard Chartered NY',
+                                        enabled: true
+                                      };
+                                      handleUpdateBlockConfig('remittance', {
+                                        customRows: [...(selectedBlock.customRows || []), nextRow]
+                                      });
+                                    }}
+                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add Row</span>
+                                  </button>
+                                </div>
+                                {(selectedBlock.customRows || []).map((row, rIdx) => (
+                                  <div
+                                    key={row.id || rIdx}
+                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                  >
+                                    <input
+                                      type="text"
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, label: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('remittance', { customRows: updated });
+                                      }}
+                                      placeholder="Label"
+                                      className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.value}
+                                      onChange={(e) => {
+                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                        );
+                                        handleUpdateBlockConfig('remittance', { customRows: updated });
+                                      }}
+                                      placeholder="Value"
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = (selectedBlock.customRows || []).filter(
+                                          (_, i) => i !== rIdx
+                                        );
+                                        handleUpdateBlockConfig('remittance', { customRows: updated });
+                                      }}
+                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Custom Remittance Note */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                <label className="block text-[10px] font-semibold text-slate-600">
+                                  Remittance Footer Note (opt)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.customNote ?? ''}
+                                  onChange={(e) =>
+                                    handleUpdateBlockConfig('remittance', {
+                                      customNote: e.target.value
+                                    })
+                                  }
+                                  placeholder="e.g. Please quote Quotation Ref on wire transfer."
+                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                />
+                              </div>
                             </div>
                           )}
                         </>

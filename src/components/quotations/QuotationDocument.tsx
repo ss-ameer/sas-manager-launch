@@ -2031,15 +2031,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  const getBlockHeaderBannerStyle = (): { className: string; style: React.CSSProperties; iconColor: string } => {
-    if (resolvedBlockHeaderStyle === 'solid') {
+  const getBlockHeaderBannerStyle = (
+    blockConfig?: QuotationBlockConfig
+  ): { className: string; style: React.CSSProperties; iconColor: string; hidden?: boolean } => {
+    const effectiveStyle =
+      blockConfig?.headerStyleOverride && blockConfig.headerStyleOverride !== 'inherit'
+        ? blockConfig.headerStyleOverride
+        : resolvedBlockHeaderStyle;
+
+    if (effectiveStyle === 'none') {
+      return {
+        className: 'hidden',
+        style: {},
+        iconColor: themePalette.textAccent,
+        hidden: true
+      };
+    }
+    if (effectiveStyle === 'solid') {
       return {
         className: 'px-2 py-1 rounded-xs mb-1.5',
         style: { backgroundColor: themePalette.primaryHex, color: '#ffffff' },
         iconColor: '#ffffff'
       };
     }
-    if (resolvedBlockHeaderStyle === 'tinted') {
+    if (effectiveStyle === 'tinted') {
       return {
         className: 'px-2 py-1 rounded-xs mb-1.5 border-l-2',
         style: {
@@ -2050,7 +2065,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         iconColor: themePalette.textAccent
       };
     }
-    if (resolvedBlockHeaderStyle === 'minimal') {
+    if (effectiveStyle === 'minimal') {
       return {
         className: 'pb-0.5 mb-1',
         style: { color: themePalette.textAccent },
@@ -2728,18 +2743,163 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   // ========================================================
   const renderBlocksGrid = (blocksForSheet: QuotationBlockConfig[] = resolvedBlocks) => {
     const isTermsBlockSelected = activeSelectedSection === 'terms';
-    const renderTermsBlock = () => {
+    const isRemittanceBlockSelected = activeSelectedSection === 'remittance';
+    const isAcceptanceBlockSelected = activeSelectedSection === 'acceptance';
+
+    const renderBlockSectionHeader = (
+      blockConfig: QuotationBlockConfig | undefined,
+      defaultTitle: string,
+      IconComp: React.ComponentType<{ className?: string; style?: React.CSSProperties }>,
+      defaultSubtitle?: string
+    ) => {
+      const blockHdr = getBlockHeaderBannerStyle(blockConfig);
+      if (blockHdr.hidden) return null;
+      const titleText =
+        blockConfig?.titleOverride !== undefined && blockConfig.titleOverride.trim() !== ''
+          ? blockConfig.titleOverride
+          : blockConfig?.title && blockConfig.title.trim() !== '' && blockConfig.title !== defaultTitle
+          ? blockConfig.title
+          : defaultTitle;
+      const subtitleText =
+        blockConfig?.subtitleOverride !== undefined
+          ? blockConfig.subtitleOverride
+          : defaultSubtitle;
+      const showIcon = blockConfig?.showHeaderIcon !== false;
+
+      return (
+        <div
+          className={`flex items-center justify-between gap-2 ${blockHdr.className}`}
+          style={blockHdr.style}
+        >
+          <span
+            className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)]"
+            style={{ color: blockHdr.style.color || blockHdr.iconColor }}
+          >
+            {showIcon && <IconComp className="w-3.5 h-3.5 shrink-0" style={{ color: blockHdr.iconColor }} />}
+            <span>{titleText}</span>
+          </span>
+          {subtitleText && (
+            <span
+              className="text-[calc(var(--block-base)*0.85)] italic opacity-80 shrink-0"
+              style={{ color: blockHdr.style.color || undefined }}
+            >
+              {subtitleText}
+            </span>
+          )}
+        </div>
+      );
+    };
+
+    const renderStandardizedKeyValueRows = (
+      blockConfig: QuotationBlockConfig | undefined,
+      rows: Array<{
+        key: string;
+        label: string;
+        value: React.ReactNode;
+        isMono?: boolean;
+        isBold?: boolean;
+      }>
+    ) => {
+      if (rows.length === 0) return null;
+      const layoutMode = blockConfig?.fieldLayoutMode || 'split';
+      const showDividers = Boolean(blockConfig?.showRowDividers);
+      const valAlign =
+        blockConfig?.valueAlign || (layoutMode === 'split' ? 'right' : 'left');
+
+      if (layoutMode === 'grid_2col') {
+        return (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-1.5">
+            {rows.map((row) => (
+              <div
+                key={row.key}
+                className={`flex items-baseline justify-between gap-2 ${
+                  showDividers ? 'border-b border-slate-200/70 pb-1' : ''
+                }`}
+              >
+                <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
+                <span
+                  className={`${valAlign === 'right' ? 'text-right' : 'text-left'} ${
+                    row.isMono ? 'font-mono tabular-nums' : ''
+                  } ${row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}
+                >
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      if (layoutMode === 'inline') {
+        return (
+          <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-1.5">
+            {rows.map((row, idx) => (
+              <div
+                key={row.key}
+                className={`flex items-baseline gap-1.5 ${
+                  valAlign === 'right' ? 'justify-end text-right' : 'justify-start text-left'
+                } ${
+                  showDividers && idx < rows.length - 1
+                    ? 'border-b border-slate-200/70 pb-1'
+                    : ''
+                }`}
+              >
+                <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
+                <span
+                  className={`${row.isMono ? 'font-mono tabular-nums' : ''} ${
+                    row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'
+                  }`}
+                >
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      // Default 'split' (matches Commercial Terms & Conditions Left Label / Right Value)
+      return (
+        <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-1.5">
+          {rows.map((row, idx) => (
+            <div
+              key={row.key}
+              className={`flex items-baseline justify-between gap-3 ${
+                showDividers && idx < rows.length - 1
+                  ? 'border-b border-slate-200/70 pb-1'
+                  : ''
+              }`}
+            >
+              <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
+              <span
+                className={`${valAlign === 'left' ? 'text-left' : 'text-right'} ${
+                  row.isMono ? 'font-mono tabular-nums' : ''
+                } ${row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}
+              >
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const renderTermsBlock = (blockConfig?: QuotationBlockConfig) => {
+      const vis = blockConfig?.visibleFields || {};
+      const labels = blockConfig?.fieldLabels || {};
       const priceBasis = quotation.price_basis?.trim();
       const paymentTerms = quotation.payment_terms?.trim();
-      const validityText = quotation.valid_until && quotation.valid_until.trim() !== ''
-        ? `Valid until ${formatDate(quotation.valid_until)}`
-        : undefined;
+      const validityText =
+        quotation.valid_until && quotation.valid_until.trim() !== ''
+          ? `Valid until ${formatDate(quotation.valid_until)}`
+          : undefined;
 
-      const rawCustomNotes = (quotation.custom_notes && quotation.custom_notes.trim() !== '')
-        ? quotation.custom_notes.trim()
-        : (quotation.applied_terms && quotation.applied_terms.trim() !== '')
-        ? quotation.applied_terms.trim()
-        : undefined;
+      const rawCustomNotes =
+        quotation.custom_notes && quotation.custom_notes.trim() !== ''
+          ? quotation.custom_notes.trim()
+          : quotation.applied_terms && quotation.applied_terms.trim() !== ''
+          ? quotation.applied_terms.trim()
+          : undefined;
 
       const customNotes = (() => {
         if (!rawCustomNotes) return undefined;
@@ -2749,15 +2909,32 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           const lower = trimmed.toLowerCase();
           if (!trimmed) return false;
           if (priceBasis) {
-            if (lower.startsWith('price basis:') || lower.startsWith('price basis -') || lower.startsWith('price basis')) return false;
+            if (
+              lower.startsWith('price basis:') ||
+              lower.startsWith('price basis -') ||
+              lower.startsWith('price basis')
+            )
+              return false;
             if (lower === priceBasis.toLowerCase()) return false;
           }
           if (paymentTerms) {
-            if (lower.startsWith('payment terms:') || lower.startsWith('payment terms -') || lower.startsWith('payment:') || lower.startsWith('payment -')) return false;
+            if (
+              lower.startsWith('payment terms:') ||
+              lower.startsWith('payment terms -') ||
+              lower.startsWith('payment:') ||
+              lower.startsWith('payment -')
+            )
+              return false;
             if (lower === paymentTerms.toLowerCase()) return false;
           }
           if (validityText || quotation.valid_until) {
-            if (lower.startsWith('validity:') || lower.startsWith('validity -') || lower.startsWith('valid until:') || lower.startsWith('valid until')) return false;
+            if (
+              lower.startsWith('validity:') ||
+              lower.startsWith('validity -') ||
+              lower.startsWith('valid until:') ||
+              lower.startsWith('valid until')
+            )
+              return false;
           }
           return true;
         });
@@ -2765,110 +2942,190 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         return cleaned.length > 0 ? cleaned : undefined;
       })();
 
-      const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
-
-      const blockHdr = getBlockHeaderBannerStyle();
-      return (
-        <div className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-          <div>
-            <div
-              className={`flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] ${blockHdr.className}`}
-              style={blockHdr.style}
-            >
-              <FileCheck className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
-              Commercial Terms &amp; Conditions
-            </div>
-            <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
-              {priceBasis && (
-                <p className="flex justify-between">
-                  <span className="font-semibold text-slate-500">Price Basis:</span>
-                  <span className="text-slate-800 font-medium">
-                    <EditableCanvasText
-                      value={priceBasis}
-                      fieldKey="price_basis"
-                      canEdit={canEditCanvasInline && isTermsBlockSelected}
-                      onCommit={onInlineFieldEdit}
-                    />
-                  </span>
-                </p>
-              )}
-              {paymentTerms && (
-                <p className="flex justify-between">
-                  <span className="font-semibold text-slate-500">Payment Terms:</span>
-                  <span className="text-slate-800 font-medium">
-                    <EditableCanvasText
-                      value={paymentTerms}
-                      fieldKey="payment_terms"
-                      canEdit={canEditCanvasInline && isTermsBlockSelected}
-                      onCommit={onInlineFieldEdit}
-                    />
-                  </span>
-                </p>
-              )}
-              {validityText && (
-                <p className="flex justify-between">
-                  <span className="font-semibold text-slate-500">Validity:</span>
-                  <span className="text-slate-800 font-medium">{validityText}</span>
-                </p>
-              )}
-              {customNotes && (
-                <div className={`whitespace-pre-line text-slate-600 text-[var(--block-base)] ${(priceBasis || paymentTerms || validityText) ? 'mt-2 pt-2 border-t border-slate-200/60' : ''}`}>
+      const builtInRowMap: Record<
+        string,
+        { key: string; label: string; value: React.ReactNode; isMono?: boolean; isBold?: boolean } | null
+      > = {
+        price_basis:
+          vis.price_basis !== false && priceBasis
+            ? {
+                key: 'price_basis',
+                label: labels.price_basis || 'Price Basis',
+                value: (
                   <EditableCanvasText
-                    value={customNotes}
-                    fieldKey="custom_notes"
+                    value={priceBasis}
+                    fieldKey="price_basis"
                     canEdit={canEditCanvasInline && isTermsBlockSelected}
                     onCommit={onInlineFieldEdit}
-                    multiline
                   />
-                </div>
-              )}
-              {!hasAnyContent && (
-                <p className="text-slate-400 italic text-[calc(var(--block-base)*0.95)] py-1">
-                  No commercial terms specified.
-                </p>
-              )}
-            </div>
+                )
+              }
+            : null,
+        payment_terms:
+          vis.payment_terms !== false && paymentTerms
+            ? {
+                key: 'payment_terms',
+                label: labels.payment_terms || 'Payment Terms',
+                value: (
+                  <EditableCanvasText
+                    value={paymentTerms}
+                    fieldKey="payment_terms"
+                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
+                )
+              }
+            : null,
+        validity:
+          vis.validity !== false && validityText
+            ? {
+                key: 'validity',
+                label: labels.validity || 'Validity',
+                value: validityText
+              }
+            : null
+      };
+
+      const order = blockConfig?.fieldOrder || ['price_basis', 'payment_terms', 'validity'];
+      const orderedRows: Array<{
+        key: string;
+        label: string;
+        value: React.ReactNode;
+        isMono?: boolean;
+        isBold?: boolean;
+      }> = [];
+      order.forEach((k) => {
+        if (builtInRowMap[k]) orderedRows.push(builtInRowMap[k]!);
+      });
+      Object.keys(builtInRowMap).forEach((k) => {
+        if (!order.includes(k) && builtInRowMap[k]) orderedRows.push(builtInRowMap[k]!);
+      });
+
+      (blockConfig?.customRows || []).forEach((cr) => {
+        if (cr.enabled !== false && (cr.label || cr.value)) {
+          orderedRows.push({
+            key: cr.id,
+            label: cr.label || 'Term',
+            value: cr.value
+          });
+        }
+      });
+
+      const showClauses = vis.clauses !== false && Boolean(customNotes);
+      const hasAnyContent = orderedRows.length > 0 || showClauses;
+
+      return (
+        <div
+          className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full"
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div>
+            {renderBlockSectionHeader(
+              blockConfig,
+              'Commercial Terms & Conditions',
+              FileCheck
+            )}
+            {renderStandardizedKeyValueRows(blockConfig, orderedRows)}
+            {showClauses && customNotes && (
+              <div
+                className={`whitespace-pre-line text-slate-600 text-[var(--block-base)] leading-relaxed ${
+                  orderedRows.length > 0 ? 'mt-2 pt-2 border-t border-slate-200/60' : 'mt-1.5'
+                }`}
+              >
+                <EditableCanvasText
+                  value={customNotes}
+                  fieldKey="custom_notes"
+                  canEdit={canEditCanvasInline && isTermsBlockSelected}
+                  onCommit={onInlineFieldEdit}
+                  multiline
+                />
+              </div>
+            )}
+            {!hasAnyContent && (
+              <p className="text-slate-400 italic text-[calc(var(--block-base)*0.95)] py-1 mt-1">
+                No commercial terms specified.
+              </p>
+            )}
           </div>
         </div>
       );
     };
 
-    const renderTotalsBlock = (isMinimalBlock = false) => {
-      const rowBorderClass = isMinimalBlock ? '' : 'border-t border-slate-100';
-      return (
-        <div className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-          <div className="space-y-1.5 w-full">
-            <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
-              <span>Subtotal:</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {formatCurrency(quotation.subtotal)}
-              </span>
-            </div>
+    const renderTotalsBlock = (blockConfig?: QuotationBlockConfig, isMinimalBlock = false) => {
+      const showDividers =
+        blockConfig?.showRowDividers !== undefined
+          ? blockConfig.showRowDividers
+          : !isMinimalBlock;
+      const rowBorderClass = showDividers ? 'border-t border-slate-100' : '';
+      const labels = blockConfig?.fieldLabels || {};
+      const vis = blockConfig?.visibleFields || {};
 
-            {Number(quotation.freight_amount) > 0 && (
-              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}>
-                <span>Freight / Logistics:</span>
-                <span className="font-mono font-semibold text-slate-800">
+      return (
+        <div
+          className="totals-card break-inside-avoid page-break-inside-avoid flex-1 space-y-1.5 w-full flex flex-col justify-between"
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className="space-y-1.5 w-full">
+            {blockConfig?.titleOverride && (
+              <div>
+                {renderBlockSectionHeader(blockConfig, blockConfig.titleOverride, DollarSign)}
+              </div>
+            )}
+            {vis.subtotal !== false && (
+              <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
+                <span>{labels.subtotal || 'Subtotal'}:</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                  {formatCurrency(quotation.subtotal)}
+                </span>
+              </div>
+            )}
+
+            {vis.freight !== false && Number(quotation.freight_amount) > 0 && (
+              <div
+                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+              >
+                <span>{labels.freight || 'Freight / Logistics'}:</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-800">
                   {formatCurrency(quotation.freight_amount)}
                 </span>
               </div>
             )}
 
+            {/* Custom Financial Rows (e.g. Discount, Handling, Packing) */}
+            {(blockConfig?.customRows || []).map((cr) => {
+              if (cr.enabled === false || (!cr.label && !cr.value)) return null;
+              return (
+                <div
+                  key={cr.id}
+                  className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+                >
+                  <span>{cr.label}:</span>
+                  <span className="font-mono tabular-nums font-semibold text-slate-800">
+                    {cr.value}
+                  </span>
+                </div>
+              );
+            })}
+
             {/* Tax Mode Display */}
-            {quotation.tax_mode === 'tax_calculated' && (
-              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}>
-                <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-                <span className="font-mono font-semibold text-slate-800">
+            {vis.tax !== false && quotation.tax_mode === 'tax_calculated' && (
+              <div
+                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+              >
+                <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-800">
                   {formatCurrency(quotation.tax_amount)}
                 </span>
               </div>
             )}
 
-            {quotation.tax_mode === 'taxes_extra' && (
-              <div className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}>
+            {vis.tax !== false && quotation.tax_mode === 'taxes_extra' && (
+              <div
+                className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
+              >
                 <div className="flex justify-between">
-                  <span>VAT ({quotation.tax_rate_percent || 5}%):</span>
-                  <span className="font-mono font-semibold text-slate-800">
+                  <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                  <span className="font-mono tabular-nums font-semibold text-slate-800">
                     {formatCurrency(quotation.tax_amount)}
                   </span>
                 </div>
@@ -2878,8 +3135,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
             )}
 
-            {quotation.tax_mode === 'tax_exempt' && (
-              <div className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}>
+            {vis.tax !== false && quotation.tax_mode === 'tax_exempt' && (
+              <div
+                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}
+              >
                 <span>Tax Status:</span>
                 <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
                   Tax Exempt (0%)
@@ -2892,8 +3151,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
               style={{ borderColor: themePalette.primaryHex }}
             >
-              <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">Grand Total:</span>
-              <span className="font-mono font-bold text-[calc(var(--block-base)*1.35)]" style={{ color: themePalette.textAccent }}>
+              <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">
+                {labels.grand_total || 'Grand Total'}:
+              </span>
+              <span
+                className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
+                style={{ color: themePalette.textAccent }}
+              >
                 {formatCurrency(quotation.grand_total)}
               </span>
             </div>
@@ -2901,8 +3165,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
           {/* Amount in Words */}
           {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
-            <div className={`text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic ${rowBorderClass} pt-1.5 mt-1.5 break-words`}>
-              <span className="font-semibold text-slate-800 not-italic">Amount in Words ({currency || 'AED'}): </span>
+            <div
+              className={`text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic ${rowBorderClass} pt-1.5 mt-1.5 break-words`}
+            >
+              <span className="font-semibold text-slate-800 not-italic">
+                Amount in Words ({currency || 'AED'}):{' '}
+              </span>
               <span className="not-italic">{amountToWords(quotation.grand_total, currency)}</span>
             </div>
           )}
@@ -2910,72 +3178,140 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
-    const renderRemittanceBlock = () => {
-      const blockHdr = getBlockHeaderBannerStyle();
+    const renderRemittanceBlock = (blockConfig?: QuotationBlockConfig) => {
+      const vis = blockConfig?.visibleFields || {};
+      const labels = blockConfig?.fieldLabels || {};
+
+      const bankRowsMap: Record<
+        string,
+        { key: string; label: string; value: React.ReactNode; isMono?: boolean; isBold?: boolean } | null
+      > = resolvedBank
+        ? {
+            bankName:
+              vis.bankName !== false && resolvedBank.bankName
+                ? {
+                    key: 'bankName',
+                    label: labels.bankName || 'Bank',
+                    value: resolvedBank.bankName,
+                    isBold: true
+                  }
+                : null,
+            beneficiaryName:
+              vis.beneficiaryName !== false && resolvedBank.beneficiaryName
+                ? {
+                    key: 'beneficiaryName',
+                    label: labels.beneficiaryName || 'Beneficiary',
+                    value: resolvedBank.beneficiaryName
+                  }
+                : null,
+            accountNumber:
+              vis.accountNumber !== false && resolvedBank.accountNumber
+                ? {
+                    key: 'accountNumber',
+                    label: labels.accountNumber || 'Account No',
+                    value: resolvedBank.accountNumber,
+                    isMono: true
+                  }
+                : null,
+            iban:
+              vis.iban !== false && resolvedBank.iban
+                ? {
+                    key: 'iban',
+                    label: labels.iban || 'IBAN',
+                    value: resolvedBank.iban,
+                    isMono: true,
+                    isBold: true
+                  }
+                : null,
+            swiftCode:
+              vis.swiftCode !== false && resolvedBank.swiftCode
+                ? {
+                    key: 'swiftCode',
+                    label: labels.swiftCode || 'SWIFT / BIC',
+                    value: resolvedBank.swiftCode,
+                    isMono: true
+                  }
+                : null,
+            branchName:
+              vis.branchName !== false && resolvedBank.branchName
+                ? {
+                    key: 'branchName',
+                    label: labels.branchName || 'Branch',
+                    value: resolvedBank.branchName
+                  }
+                : null,
+            currency:
+              vis.currency === true && resolvedBank.currency
+                ? {
+                    key: 'currency',
+                    label: labels.currency || 'Currency',
+                    value: resolvedBank.currency,
+                    isMono: true
+                  }
+                : null
+          }
+        : {};
+
+      const defaultOrder = [
+        'bankName',
+        'beneficiaryName',
+        'accountNumber',
+        'iban',
+        'swiftCode',
+        'branchName',
+        'currency'
+      ];
+      const order = blockConfig?.fieldOrder || defaultOrder;
+      const orderedBankRows: Array<{
+        key: string;
+        label: string;
+        value: React.ReactNode;
+        isMono?: boolean;
+        isBold?: boolean;
+      }> = [];
+      order.forEach((k) => {
+        if (bankRowsMap[k]) orderedBankRows.push(bankRowsMap[k]!);
+      });
+      defaultOrder.forEach((k) => {
+        if (!order.includes(k) && bankRowsMap[k]) orderedBankRows.push(bankRowsMap[k]!);
+      });
+
+      (blockConfig?.customRows || []).forEach((cr) => {
+        if (cr.enabled !== false && (cr.label || cr.value)) {
+          orderedBankRows.push({
+            key: cr.id,
+            label: cr.label || 'Detail',
+            value: cr.value
+          });
+        }
+      });
+
       return (
-      <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        <div>
-          <div
-            className={`flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] ${blockHdr.className}`}
-            style={blockHdr.style}
-          >
-            <Landmark className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
-            Bank Remittance Details
+        <div
+          className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full"
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div>
+            {renderBlockSectionHeader(
+              blockConfig,
+              'Bank Remittance Details',
+              Landmark,
+              blockConfig?.subtitleOverride
+            )}
+            {orderedBankRows.length > 0 ? (
+              renderStandardizedKeyValueRows(blockConfig, orderedBankRows)
+            ) : (
+              <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
+                Thank you for your business. Please contact us for electronic wire instructions.
+              </div>
+            )}
+            {blockConfig?.customNote && blockConfig.customNote.trim() !== '' && (
+              <p className="text-[calc(var(--block-base)*0.9)] text-slate-600 mt-2 pt-1.5 border-t border-slate-200/60 whitespace-pre-line">
+                {blockConfig.customNote}
+              </p>
+            )}
           </div>
-          {resolvedBank ? (
-            <div className="text-[var(--block-base)] text-slate-700 space-y-0.5 mt-1.5">
-              {resolvedBank.bankName && (
-                <p>
-                  <span className="text-slate-500">Bank:</span>{' '}
-                  <span className="font-semibold text-slate-900">{resolvedBank.bankName}</span>
-                </p>
-              )}
-              {resolvedBank.beneficiaryName && (
-                <p>
-                  <span className="text-slate-500">Beneficiary:</span>{' '}
-                  <span className="font-medium text-slate-800">{resolvedBank.beneficiaryName}</span>
-                </p>
-              )}
-              {resolvedBank.accountNumber && (
-                <p>
-                  <span className="text-slate-500">Account No:</span>{' '}
-                  <span className="font-mono font-medium text-slate-900">
-                    {resolvedBank.accountNumber}
-                  </span>
-                </p>
-              )}
-              {resolvedBank.iban ? (
-                <p>
-                  <span className="text-slate-500">IBAN:</span>{' '}
-                  <span className="font-mono font-bold text-slate-900">
-                    {resolvedBank.iban}
-                  </span>
-                </p>
-              ) : null}
-              {resolvedBank.swiftCode ? (
-                <p>
-                  <span className="text-slate-500">SWIFT / BIC:</span>{' '}
-                  <span className="font-mono font-semibold text-slate-900">
-                    {resolvedBank.swiftCode}
-                  </span>
-                </p>
-              ) : null}
-              {resolvedBank.branchName ? (
-                <p>
-                  <span className="text-slate-500">Branch:</span>{' '}
-                  <span className="font-medium text-slate-800">
-                    {resolvedBank.branchName}
-                  </span>
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div className="text-[var(--block-base)] text-slate-500 italic p-2 mt-1">
-              Thank you for your business. Please contact us for electronic wire instructions.
-            </div>
-          )}
         </div>
-      </div>
       );
     };
 
@@ -2989,7 +3325,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     const isSignatoryBlockSelected =
       activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
 
-    const renderSignatoryBlock = () => {
+    const renderSignatoryBlock = (blockConfig?: QuotationBlockConfig) => {
       const blockAlign: QuotationSignatoryBlockAlign =
         resolvedFooterConfig.signatoryBlockAlign ||
         (footerLayoutMode === 'seller_only' ? 'space_between' : 'right');
@@ -3018,11 +3354,40 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       const showDateSignedLine = Boolean(resolvedFooterConfig.showDateSignedLine);
       const showSignatoryPhone = Boolean(resolvedFooterConfig.showSignatoryPhone);
       const showSignatoryEmail = Boolean(resolvedFooterConfig.showSignatoryEmail);
+      const contactFormat = resolvedFooterConfig.signatoryContactFormat || 'icon';
+      const visibleSigLines = resolvedFooterConfig.visibleSignatoryLines || {};
+      const lineStyles = resolvedFooterConfig.signatoryLineStyles || {};
+      const lineOrder: Array<'name' | 'title' | 'phone' | 'email' | 'custom' | 'date'> =
+        resolvedFooterConfig.signatoryLineOrder && resolvedFooterConfig.signatoryLineOrder.length > 0
+          ? resolvedFooterConfig.signatoryLineOrder
+          : ['name', 'title', 'phone', 'email', 'custom', 'date'];
+
       const customLines: QuotationSignatoryCustomLine[] = Array.isArray(
         resolvedFooterConfig.signatoryCustomLines
       )
         ? resolvedFooterConfig.signatoryCustomLines
         : [];
+
+      const getLineStyleInfo = (
+        lineKey: string,
+        defaultWeight: 'normal' | 'medium' | 'bold',
+        defaultColor: 'default' | 'muted' | 'accent'
+      ) => {
+        const cfg = lineStyles[lineKey] || {};
+        const w = cfg.weight || defaultWeight;
+        const c = cfg.color || defaultColor;
+        const weightClass =
+          w === 'bold' ? 'font-bold' : w === 'medium' ? 'font-medium' : 'font-normal';
+        const colorClass =
+          c === 'muted'
+            ? 'text-slate-500'
+            : c === 'default'
+            ? 'text-slate-800'
+            : '';
+        const colorStyle: React.CSSProperties =
+          c === 'accent' ? { color: themePalette.textAccent } : {};
+        return { weightClass, colorClass, colorStyle };
+      };
 
       const containerJustifyClass =
         blockAlign === 'left'
@@ -3114,14 +3479,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         );
       };
 
-      const renderSingleSignatoryColumn = (sig: { name: string; title: string; signature_url?: string }, sIdx: number) => {
+      const renderSingleSignatoryColumn = (
+        sig: { name: string; title: string; signature_url?: string },
+        sIdx: number
+      ) => {
         const resolvedSignatureImgUrl =
           (sIdx === 0 ? stampSigOverlay.activeSignatureUrl : undefined) ||
           sig.signature_url ||
           '';
         const useUploadedSignatureImage =
           Boolean(resolvedSignatureImgUrl) &&
-          (signatureStyle === 'image' || Boolean(quotation.signature_image_url) || Boolean(stampSigOverlay.activeSignatureUrl));
+          (signatureStyle === 'image' ||
+            Boolean(quotation.signature_image_url) ||
+            Boolean(stampSigOverlay.activeSignatureUrl));
         const nameFieldKey = sIdx === 0 ? 'primary_signatory_name' : 'secondary_signatory_name';
         const titleFieldKey = sIdx === 0 ? 'primary_signatory_title' : 'secondary_signatory_title';
 
@@ -3140,6 +3510,111 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           if (target === 'both') return true;
           return sIdx === 0 ? target === 'primary' : target === 'secondary';
         });
+
+        const nameStyle = getLineStyleInfo('name', 'bold', 'default');
+        const titleStyle = getLineStyleInfo('title', 'normal', 'muted');
+        const phoneStyle = getLineStyleInfo('phone', 'normal', 'muted');
+        const emailStyle = getLineStyleInfo('email', 'normal', 'muted');
+        const customStyle = getLineStyleInfo('custom', 'medium', 'default');
+
+        const renderDetailLine = (lineType: 'name' | 'title' | 'phone' | 'email' | 'custom' | 'date') => {
+          if (visibleSigLines[lineType] === false) return null;
+
+          if (lineType === 'name') {
+            return (
+              <p
+                key="sig-name"
+                className={`${nameStyle.weightClass} ${nameStyle.colorClass} text-[calc(var(--block-base)*1.08)] leading-tight`}
+                style={nameStyle.colorStyle}
+              >
+                <EditableCanvasText
+                  value={sig.name}
+                  fieldKey={nameFieldKey}
+                  canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                  onCommit={onInlineFieldEdit}
+                />
+              </p>
+            );
+          }
+
+          if (lineType === 'title') {
+            return (
+              <p
+                key="sig-title"
+                className={`${titleStyle.weightClass} ${titleStyle.colorClass} text-[calc(var(--block-base)*0.95)] leading-tight mt-0.5`}
+                style={titleStyle.colorStyle}
+              >
+                <EditableCanvasText
+                  value={sig.title}
+                  fieldKey={titleFieldKey}
+                  canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                  onCommit={onInlineFieldEdit}
+                />
+              </p>
+            );
+          }
+
+          if (lineType === 'phone' && showSignatoryPhone && sigPhone) {
+            return (
+              <p
+                key="sig-phone"
+                className={`${phoneStyle.weightClass} ${phoneStyle.colorClass} text-[calc(var(--block-base)*0.88)] leading-tight mt-0.5 flex items-center gap-1`}
+                style={phoneStyle.colorStyle}
+              >
+                {contactFormat === 'icon' && <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />}
+                {contactFormat === 'label' && <span className="text-slate-400 font-medium">Tel:</span>}
+                <span>{sigPhone}</span>
+              </p>
+            );
+          }
+
+          if (lineType === 'email' && showSignatoryEmail && sigEmail) {
+            return (
+              <p
+                key="sig-email"
+                className={`${emailStyle.weightClass} ${emailStyle.colorClass} text-[calc(var(--block-base)*0.88)] leading-tight mt-0.5 flex items-center gap-1`}
+                style={emailStyle.colorStyle}
+              >
+                {contactFormat === 'icon' && <Mail className="w-2.5 h-2.5 text-slate-400 shrink-0" />}
+                {contactFormat === 'label' && <span className="text-slate-400 font-medium">Email:</span>}
+                <span>{sigEmail}</span>
+              </p>
+            );
+          }
+
+          if (lineType === 'custom' && applicableCustomLines.length > 0) {
+            return (
+              <React.Fragment key="sig-custom">
+                {applicableCustomLines.map((line) => (
+                  <p
+                    key={line.id}
+                    className={`${customStyle.weightClass} ${customStyle.colorClass} text-[calc(var(--block-base)*0.88)] leading-tight mt-0.5`}
+                    style={customStyle.colorStyle}
+                  >
+                    {line.label && contactFormat !== 'plain' ? (
+                      <>
+                        <span className="text-slate-400 font-medium">{line.label}: </span>
+                        <span>{line.value}</span>
+                      </>
+                    ) : (
+                      <span>{line.value}</span>
+                    )}
+                  </p>
+                ))}
+              </React.Fragment>
+            );
+          }
+
+          if (lineType === 'date' && showDateSignedLine) {
+            return (
+              <p key="sig-date" className="text-[calc(var(--block-base)*0.85)] text-slate-500 mt-1.5 pt-0.5">
+                Date: <span className="inline-block w-20 border-b border-slate-300 ml-1" />
+              </p>
+            );
+          }
+
+          return null;
+        };
 
         return (
           <div
@@ -3202,60 +3677,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
             <div className={sigLineClass} />
 
-            <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.08)] leading-tight">
-              <EditableCanvasText
-                value={sig.name}
-                fieldKey={nameFieldKey}
-                canEdit={canEditCanvasInline && isSignatoryBlockSelected}
-                onCommit={onInlineFieldEdit}
-              />
-            </p>
-            <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight mt-0.5">
-              <EditableCanvasText
-                value={sig.title}
-                fieldKey={titleFieldKey}
-                canEdit={canEditCanvasInline && isSignatoryBlockSelected}
-                onCommit={onInlineFieldEdit}
-              />
-            </p>
-
-            {/* Optional Direct Contact Details (Phone & Email) */}
-            {showSignatoryPhone && sigPhone && (
-              <p className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5 flex items-center gap-1">
-                <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                <span>{sigPhone}</span>
-              </p>
-            )}
-            {showSignatoryEmail && sigEmail && (
-              <p className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5 flex items-center gap-1">
-                <Mail className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                <span>{sigEmail}</span>
-              </p>
-            )}
-
-            {/* Optional Custom Signatory Lines (Department, License #, Employee ID, etc.) */}
-            {applicableCustomLines.map((line) => (
-              <p
-                key={line.id}
-                className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5"
-              >
-                {line.label ? (
-                  <>
-                    <span className="text-slate-400 font-medium">{line.label}: </span>
-                    <span className="text-slate-700 font-medium">{line.value}</span>
-                  </>
-                ) : (
-                  <span className="text-slate-700">{line.value}</span>
-                )}
-              </p>
-            ))}
-
-            {/* Optional Date Signed Line */}
-            {showDateSignedLine && (
-              <p className="text-[calc(var(--block-base)*0.85)] text-slate-500 mt-1.5 pt-0.5">
-                Date: <span className="inline-block w-20 border-b border-slate-300 ml-1" />
-              </p>
-            )}
+            {lineOrder.map((lineType) => renderDetailLine(lineType))}
           </div>
         );
       };
@@ -3265,6 +3687,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           className="signatory-card overflow-visible relative break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full"
           style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
+          {blockConfig?.titleOverride && (
+            <div className="mb-1.5">
+              {renderBlockSectionHeader(
+                blockConfig,
+                blockConfig.titleOverride,
+                ShieldCheck,
+                blockConfig.subtitleOverride
+              )}
+            </div>
+          )}
+
           {/* When "For and on behalf of" is shown above a non-space_between layout */}
           {showForAndOnBehalf && blockAlign !== 'space_between' && (
             <div
@@ -3299,12 +3732,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       {forAndOnBehalfText}
                     </p>
                     <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
-                      Authorized Signatures &amp; Official Seal
+                      {blockConfig?.subtitleOverride || 'Authorized Signatures & Official Seal'}
                     </p>
                   </>
                 ) : (
                   <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider font-semibold">
-                    Authorized Signatures
+                    {blockConfig?.subtitleOverride || 'Authorized Signatures'}
                   </p>
                 )}
               </div>
@@ -3336,74 +3769,96 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
-    const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => {
-      const blockHdr = getBlockHeaderBannerStyle();
-      return (
-      <div className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        <div>
-          <div
-            className={`flex items-center justify-between ${blockHdr.className}`}
-            style={blockHdr.style}
-          >
-            <span
-              className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5"
-              style={{ color: blockHdr.iconColor }}
-            >
-              <FileCheck className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
-              Customer Acceptance &amp; Confirmation
-            </span>
-            <span
-              className="text-[calc(var(--block-base)*0.85)] italic opacity-80"
-              style={{ color: resolvedBlockHeaderStyle === 'solid' ? '#ffffff' : undefined }}
-            >
-              Sign &amp; Return Copy with Purchase Order
-            </span>
-          </div>
-          <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
-            We hereby accept and approve this commercial offer <span className="font-semibold text-slate-800">#{quotation.formatted_quote_ref || quotation.quote_number}</span> in accordance with the specified quantities, prices, and terms.
-          </p>
-        </div>
+    const renderAcceptanceBlock = (
+      blockConfig?: QuotationBlockConfig,
+      placement: 'left' | 'right' | 'full' = 'full'
+    ) => {
+      const vis = blockConfig?.visibleFields || {};
+      const labels = blockConfig?.fieldLabels || {};
+      const defaultSlots = [
+        { key: 'signature', label: labels.signature || 'Authorized Signature', dotted: false, defaultOn: true },
+        { key: 'name', label: labels.name || 'Signatory Name', dotted: false, defaultOn: true },
+        { key: 'title', label: labels.title || 'Title / Designation', dotted: false, defaultOn: false },
+        { key: 'po_number', label: labels.po_number || 'PO Number', dotted: false, defaultOn: false },
+        { key: 'date', label: labels.date || 'Date', dotted: false, defaultOn: true },
+        { key: 'stamp', label: labels.stamp || 'Company Stamp', dotted: true, defaultOn: true }
+      ];
 
-        {placement === 'full' ? (
-          <div className="grid grid-cols-4 gap-3 text-center pt-2 text-[var(--block-base)]">
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
-              <div className="h-5 border-b border-slate-300 mt-1" />
-            </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
-              <div className="h-5 border-b border-slate-300 mt-1" />
-            </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
-              <div className="h-5 border-b border-slate-300 mt-1" />
-            </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
-              <div className="h-5 border-b border-slate-300 border-dotted mt-1" />
-            </div>
+      const activeSlots = defaultSlots.filter((slot) =>
+        vis[slot.key] !== undefined ? vis[slot.key] : slot.defaultOn
+      );
+
+      (blockConfig?.customRows || []).forEach((cr) => {
+        if (cr.enabled !== false && (cr.label || cr.value)) {
+          activeSlots.push({
+            key: cr.id,
+            label: cr.label || cr.value || 'Field',
+            dotted: false,
+            defaultOn: true
+          });
+        }
+      });
+
+      const effectiveLayout =
+        blockConfig?.acceptanceLayout ||
+        (placement === 'full' ? 'row_4col' : 'grid_2x2');
+
+      const gridClass =
+        effectiveLayout === 'compact'
+          ? 'grid grid-cols-2 sm:grid-cols-3 gap-2 text-left pt-1.5'
+          : effectiveLayout === 'grid_2x2' || placement !== 'full'
+          ? 'grid grid-cols-2 gap-2.5 text-center pt-2'
+          : activeSlots.length <= 3
+          ? 'grid grid-cols-3 gap-3 text-center pt-2'
+          : 'grid grid-cols-4 gap-3 text-center pt-2';
+
+      return (
+        <div
+          className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between"
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div>
+            {renderBlockSectionHeader(
+              blockConfig,
+              'Customer Acceptance & Confirmation',
+              FileCheck,
+              'Sign & Return Copy with Purchase Order'
+            )}
+            {vis.statement !== false && (
+              <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
+                {blockConfig?.acceptanceStatementOverride &&
+                blockConfig.acceptanceStatementOverride.trim() !== '' ? (
+                  blockConfig.acceptanceStatementOverride
+                ) : (
+                  <>
+                    We hereby accept and approve this commercial offer{' '}
+                    <span className="font-semibold text-slate-800">
+                      #{quotation.formatted_quote_ref || quotation.quote_number}
+                    </span>{' '}
+                    in accordance with the specified quantities, prices, and terms.
+                  </>
+                )}
+              </p>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 text-center pt-2 text-[var(--block-base)]">
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Authorized Signature</span>
-              <div className="h-4 border-b border-slate-300 mt-1" />
+
+          {activeSlots.length > 0 && (
+            <div className={`${gridClass} text-[var(--block-base)]`}>
+              {activeSlots.map((slot) => (
+                <div key={slot.key}>
+                  <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">
+                    {slot.label}
+                  </span>
+                  <div
+                    className={`${
+                      effectiveLayout === 'compact' ? 'h-3.5' : 'h-5'
+                    } border-b border-slate-300 ${slot.dotted ? 'border-dotted' : ''} mt-1`}
+                  />
+                </div>
+              ))}
             </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Signatory Name</span>
-              <div className="h-4 border-b border-slate-300 mt-1" />
-            </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Date</span>
-              <div className="h-4 border-b border-slate-300 mt-1" />
-            </div>
-            <div>
-              <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">Company Stamp</span>
-              <div className="h-4 border-b border-slate-300 border-dotted mt-1" />
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
       );
     };
 
@@ -3609,11 +4064,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           fontSize: 'var(--block-base)'
                         }}
                       >
-                        {(bType === 'terms' || b.id === 'terms') && renderTermsBlock()}
-                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock(isMinimalBlock)}
-                        {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock()}
-                        {isSignatorySlot && renderSignatoryBlock()}
-                        {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b.placement)}
+                        {(bType === 'terms' || b.id === 'terms') && renderTermsBlock(b)}
+                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock(b, isMinimalBlock)}
+                        {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock(b)}
+                        {isSignatorySlot && renderSignatoryBlock(b)}
+                        {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b, b.placement)}
                       </div>
                     </div>
                   );
