@@ -977,6 +977,22 @@ export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
 export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
 export type QuotationPageMode = 'auto' | '1-page' | '2-page';
 
+export type QuotationDocumentFontFamily = 'sans' | 'serif' | 'technical';
+export type QuotationTopAccentBarStyle = 'thick' | 'double' | 'side_accent' | 'none';
+export type QuotationSectionHeaderStyle = 'solid' | 'tinted' | 'underline' | 'minimal';
+export type QuotationSignatoryBlockAlign = 'left' | 'center' | 'right' | 'space_between';
+export type QuotationSignatoryTextAlign = 'left' | 'center' | 'right';
+export type QuotationStampPlacement = 'left' | 'center' | 'right' | 'overlay';
+export type QuotationSignatureVerticalSpacing = 'compact' | 'standard' | 'spacious';
+export type QuotationSignatureLineWidth = 'narrow' | 'standard' | 'wide' | 'none';
+
+export interface QuotationSignatoryCustomLine {
+  id: string;
+  label: string;
+  value: string;
+  target?: 'primary' | 'secondary' | 'both';
+}
+
 export type QuotationStatus = 'Draft' | 'Sent' | 'Approved' | 'Rejected' | 'Declined' | 'Superseded' | string;
 
 export interface QuotationItemAttribute {
@@ -1206,6 +1222,11 @@ export interface QuotationHeaderConfig {
   showQuoteRefOnContinuation?: boolean; // default: true
   showPageNumberOnContinuation?: boolean; // default: true
   showContinuationDivider?: boolean; // default: true
+  companyNameOverride?: string; // Per-preset or per-quote sister-company trading name override
+  documentFontFamily?: QuotationDocumentFontFamily;
+  topAccentBarStyle?: QuotationTopAccentBarStyle;
+  tableHeaderStyle?: QuotationSectionHeaderStyle;
+  blockHeaderStyle?: QuotationSectionHeaderStyle;
 }
 
 export interface QuotationFooterConfig {
@@ -1222,6 +1243,7 @@ export interface QuotationFooterConfig {
   selectedBank?: BankAccountProfile;
   pageMode?: QuotationPageMode;
   companySealUrl?: string;
+  signatureImageUrl?: string;
   sealSizePx?: number; // range 60 to 180, default 105
   sealRotationDeg?: number; // range -35 to 35, default -6
   sealOffsetX?: number; // range -120 to 120, default 0
@@ -1239,6 +1261,22 @@ export interface QuotationFooterConfig {
   showReferenceInFooter?: boolean; // default true
   showIssueDateInFooter?: boolean; // default true
   customFooterPills?: string[]; // e.g., ['ISO 9001:2015 Certified', 'Confidential']
+  // Enhanced Signature & Stamp Alignment and Custom Details
+  signatoryBlockAlign?: QuotationSignatoryBlockAlign; // default 'space_between'
+  signatoryTextAlign?: QuotationSignatoryTextAlign; // default 'center'
+  stampPlacement?: QuotationStampPlacement; // default 'left'
+  signatureVerticalSpacing?: QuotationSignatureVerticalSpacing; // default 'standard'
+  signatureLineWidth?: QuotationSignatureLineWidth; // default 'standard'
+  showForAndOnBehalf?: boolean; // default false
+  forAndOnBehalfText?: string;
+  showDateSignedLine?: boolean; // default false
+  showSignatoryPhone?: boolean; // default false
+  signatoryPhone?: string;
+  secondarySignatoryPhone?: string;
+  showSignatoryEmail?: boolean; // default false
+  signatoryEmail?: string;
+  secondarySignatoryEmail?: string;
+  signatoryCustomLines?: QuotationSignatoryCustomLine[];
 }
 
 export interface QuotationRecipientConfig {
@@ -1312,6 +1350,11 @@ export interface QuotationPreset extends SoftDeleteFields {
   show_company_seal?: boolean;
   theme_accent?: QuotationThemeAccent;
   customThemeColor?: string;
+  documentFontFamily?: QuotationDocumentFontFamily;
+  topAccentBarStyle?: QuotationTopAccentBarStyle;
+  tableHeaderStyle?: QuotationSectionHeaderStyle;
+  blockHeaderStyle?: QuotationSectionHeaderStyle;
+  companyNameOverride?: string;
   header_config?: QuotationHeaderConfig;
   recipient_config?: QuotationRecipientConfig;
   footer_config?: QuotationFooterConfig;
@@ -1401,6 +1444,11 @@ export interface Quotation extends SoftDeleteFields {
   signatories?: QuotationSignatory[];
   theme_accent?: QuotationThemeAccent;
   customThemeColor?: string;
+  documentFontFamily?: QuotationDocumentFontFamily;
+  topAccentBarStyle?: QuotationTopAccentBarStyle;
+  tableHeaderStyle?: QuotationSectionHeaderStyle;
+  blockHeaderStyle?: QuotationSectionHeaderStyle;
+  companyNameOverride?: string;
   amount_in_words_enabled?: boolean;
   customer_acceptance_enabled?: boolean;
   signatory_mode?: QuotationSignatoryMode;

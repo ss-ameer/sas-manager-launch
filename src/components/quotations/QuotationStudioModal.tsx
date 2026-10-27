@@ -1636,6 +1636,21 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         ...prev,
         ...(hydrated.headerConfig || {}),
         ...(preset.header_config || {}),
+        ...(preset.documentFontFamily
+          ? { documentFontFamily: preset.documentFontFamily }
+          : {}),
+        ...(preset.topAccentBarStyle
+          ? { topAccentBarStyle: preset.topAccentBarStyle }
+          : {}),
+        ...(preset.tableHeaderStyle
+          ? { tableHeaderStyle: preset.tableHeaderStyle }
+          : {}),
+        ...(preset.blockHeaderStyle
+          ? { blockHeaderStyle: preset.blockHeaderStyle }
+          : {}),
+        ...(preset.companyNameOverride !== undefined
+          ? { companyNameOverride: preset.companyNameOverride }
+          : {}),
         ...(preset.header_config?.logoUrl || preset.company_logo_url
           ? { logoUrl: preset.header_config?.logoUrl || preset.company_logo_url }
           : {})
@@ -2298,6 +2313,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       signature_image_url: signatureImageUrl || footerConfig.signatureImageUrl || undefined,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
+      documentFontFamily: headerConfig.documentFontFamily || 'sans',
+      topAccentBarStyle: headerConfig.topAccentBarStyle || 'thick',
+      tableHeaderStyle: headerConfig.tableHeaderStyle || 'tinted',
+      blockHeaderStyle: headerConfig.blockHeaderStyle || 'underline',
+      companyNameOverride: headerConfig.companyNameOverride || undefined,
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
@@ -2688,6 +2708,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       logo_position: logoPosition,
       block_style: blockStyle,
       globalCardRadius: globalCardRadius,
+      documentFontFamily: headerConfig.documentFontFamily || 'sans',
+      topAccentBarStyle: headerConfig.topAccentBarStyle || 'thick',
+      tableHeaderStyle: headerConfig.tableHeaderStyle || 'tinted',
+      blockHeaderStyle: headerConfig.blockHeaderStyle || 'underline',
+      companyNameOverride: headerConfig.companyNameOverride || undefined,
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
@@ -3230,14 +3255,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                       type="button"
                       disabled={isSavingPreset}
                       onClick={() => handleSaveToActiveProfileAndPreset(false)}
-                      title="Save current branding, header/footer layout, stamp/signature overlays, and blocks to Workspace Profile & Active Preset"
+                      title="Save layout, styling, and brand overrides to the selected preset"
                       className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
                     >
                       <Save className="w-3 h-3" />
                       <span>
                         {selectedPreset
-                          ? `Save to Profile & "${selectedPreset.preset_name}"`
-                          : 'Save to Workspace Profile'}
+                          ? `Update Preset`
+                          : 'Save to Default Profile'}
                       </span>
                     </button>
 
@@ -3472,6 +3497,181 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                             </button>
                           );
                         })}
+                      </div>
+                    </div>
+
+                    {/* Document Font Family */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-600 font-medium">
+                          Document Font Family
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {headerConfig.documentFontFamily || 'sans'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { id: 'sans' as const, label: 'Modern Sans', sample: 'Inter / Sans' },
+                          { id: 'serif' as const, label: 'Classic Serif', sample: 'Editorial' },
+                          { id: 'technical' as const, label: 'Technical', sample: 'Monospace' }
+                        ].map((f) => {
+                          const isSelected = (headerConfig.documentFontFamily || 'sans') === f.id;
+                          return (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() =>
+                                setHeaderConfig((prev) => ({ ...prev, documentFontFamily: f.id }))
+                              }
+                              className={`py-1.5 px-2 rounded-lg border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold ring-2 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                              }`}
+                            >
+                              <span className="text-[10.5px] font-semibold">{f.label}</span>
+                              <span className="text-[9px] text-slate-400">{f.sample}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Top Letterhead Accent Bar Style */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-600 font-medium">
+                          Top Accent Bar Style
+                        </label>
+                        <span className="text-[10px] font-mono text-slate-400 capitalize">
+                          {(headerConfig.topAccentBarStyle || 'thick').replace('_', ' ')}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { id: 'thick' as const, label: 'Thick Bar' },
+                          { id: 'double' as const, label: 'Double Line' },
+                          { id: 'side_accent' as const, label: 'Left Side' },
+                          { id: 'none' as const, label: 'None' }
+                        ].map((bar) => {
+                          const isSelected = (headerConfig.topAccentBarStyle || 'thick') === bar.id;
+                          return (
+                            <button
+                              key={bar.id}
+                              type="button"
+                              onClick={() =>
+                                setHeaderConfig((prev) => ({ ...prev, topAccentBarStyle: bar.id }))
+                              }
+                              className={`py-1.5 px-1 rounded-lg border text-[10px] font-semibold transition cursor-pointer ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700 ring-1 ring-blue-600/20'
+                                  : 'border-slate-200 hover:border-slate-300 text-slate-600 bg-white'
+                              }`}
+                            >
+                              {bar.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Table & Section Header Styles */}
+                    <div className="pt-2.5 border-t border-slate-100 grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-slate-600 font-medium text-[11px] mb-1">
+                          Table Header Style
+                        </label>
+                        <select
+                          value={headerConfig.tableHeaderStyle || 'tinted'}
+                          onChange={(e) =>
+                            setHeaderConfig((prev) => ({
+                              ...prev,
+                              tableHeaderStyle: e.target.value as any
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-slate-800 text-[11px] font-medium"
+                        >
+                          <option value="solid">Solid Brand Fill</option>
+                          <option value="tinted">Tinted Fill (Default)</option>
+                          <option value="underline">Clean Underline</option>
+                          <option value="minimal">Minimal</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-medium text-[11px] mb-1">
+                          Section Title Style
+                        </label>
+                        <select
+                          value={headerConfig.blockHeaderStyle || 'underline'}
+                          onChange={(e) =>
+                            setHeaderConfig((prev) => ({
+                              ...prev,
+                              blockHeaderStyle: e.target.value as any
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-slate-800 text-[11px] font-medium"
+                        >
+                          <option value="underline">Underline (Default)</option>
+                          <option value="tinted">Tinted Banner</option>
+                          <option value="solid">Solid Brand Banner</option>
+                          <option value="minimal">Minimal</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Sister-Company / Brand Identity Override (Saved Per Preset) */}
+                    <div className="pt-2.5 border-t border-slate-100 space-y-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 text-[11px] flex items-center gap-1">
+                          <Building className="w-3.5 h-3.5 text-indigo-600" />
+                          Preset Brand / Sister-Company Override
+                        </span>
+                        {headerConfig.companyNameOverride && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setHeaderConfig((prev) => ({ ...prev, companyNameOverride: '' }))
+                            }
+                            className="text-[10px] text-rose-600 hover:underline font-medium cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={headerConfig.companyNameOverride || ''}
+                        onChange={(e) =>
+                          setHeaderConfig((prev) => ({
+                            ...prev,
+                            companyNameOverride: e.target.value
+                          }))
+                        }
+                        placeholder={
+                          activeProfile?.company_name ||
+                          activeWorkspace?.company_name ||
+                          'Alternate Trading / Sister Company Name (Optional)'
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-800 placeholder:text-slate-400"
+                      />
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => logoFileInputRef.current?.click()}
+                          className="py-1.5 px-2 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold text-[10.5px] flex items-center justify-center gap-1 transition cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>Preset Logo</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sealFileInputRef.current?.click()}
+                          className="py-1.5 px-2 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold text-[10.5px] flex items-center justify-center gap-1 transition cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>Preset Stamp</span>
+                        </button>
                       </div>
                     </div>
 
@@ -4670,7 +4870,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Save Changes</span>
+                    <span>Update Preset</span>
                   </button>
 
                   <button
@@ -4680,7 +4880,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Save &amp; Done</span>
+                    <span>Update Preset &amp; Close</span>
                   </button>
                 </div>
               ) : (
@@ -4692,7 +4892,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                     className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5 text-slate-500" />
-                    <span>{quotationStatus && quotationStatus !== 'Draft' ? `Save (${quotationStatus})` : 'Save Draft'}</span>
+                    <span>Save Quotation</span>
                   </button>
 
                   <button
@@ -8370,6 +8570,413 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 );
                               })()}
+
+                              {/* Alignment, Spacing & Signature Line Controls */}
+                              <div className="pt-2.5 border-t border-slate-200 space-y-2.5">
+                                <span className="text-[11px] font-bold text-slate-800 block">
+                                  Signature Area Alignment &amp; Spacing
+                                </span>
+
+                                {/* Horizontal Block Alignment */}
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                    Signatory Block Alignment
+                                  </label>
+                                  <div className="grid grid-cols-4 gap-1">
+                                    {[
+                                      { id: 'left' as const, label: 'Left' },
+                                      { id: 'center' as const, label: 'Center' },
+                                      { id: 'right' as const, label: 'Right' },
+                                      { id: 'space_between' as const, label: 'Spread' }
+                                    ].map((opt) => {
+                                      const active = (footerConfig.signatoryBlockAlign || 'space_between') === opt.id;
+                                      return (
+                                        <button
+                                          key={opt.id}
+                                          type="button"
+                                          onClick={() =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              signatoryBlockAlign: opt.id
+                                            }))
+                                          }
+                                          className={`py-1 px-1.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                                            active
+                                              ? 'bg-blue-600 text-white shadow-2xs'
+                                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Signatory Text Alignment & Stamp Placement */}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                      Text Alignment
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[
+                                        { id: 'left' as const, label: 'Left' },
+                                        { id: 'center' as const, label: 'Center' },
+                                        { id: 'right' as const, label: 'Right' }
+                                      ].map((opt) => {
+                                        const active = (footerConfig.signatoryTextAlign || 'left') === opt.id;
+                                        return (
+                                          <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatoryTextAlign: opt.id
+                                              }))
+                                            }
+                                            className={`py-1 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                                              active
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            {opt.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                      Stamp Placement
+                                    </label>
+                                    <select
+                                      value={footerConfig.stampPlacement || 'right'}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          stampPlacement: e.target.value as any
+                                        }))
+                                      }
+                                      className="w-full rounded-md border border-slate-200 py-1 px-1.5 bg-white text-[10.5px] font-semibold text-slate-700"
+                                    >
+                                      <option value="right">Right of Signature</option>
+                                      <option value="left">Left of Signature</option>
+                                      <option value="center">Centered</option>
+                                      <option value="overlay">Overlay on Signature</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                {/* Vertical Spacing & Signature Line Width */}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                      Vertical Spacing
+                                    </label>
+                                    <select
+                                      value={footerConfig.signatureVerticalSpacing || 'standard'}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          signatureVerticalSpacing: e.target.value as any
+                                        }))
+                                      }
+                                      className="w-full rounded-md border border-slate-200 py-1 px-1.5 bg-white text-[10.5px] font-semibold text-slate-700"
+                                    >
+                                      <option value="compact">Compact</option>
+                                      <option value="standard">Standard</option>
+                                      <option value="spacious">Spacious</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                      Signature Line Width
+                                    </label>
+                                    <select
+                                      value={footerConfig.signatureLineWidth || 'standard'}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          signatureLineWidth: e.target.value as any
+                                        }))
+                                      }
+                                      className="w-full rounded-md border border-slate-200 py-1 px-1.5 bg-white text-[10.5px] font-semibold text-slate-700"
+                                    >
+                                      <option value="narrow">Narrow (160px)</option>
+                                      <option value="standard">Standard (220px)</option>
+                                      <option value="wide">Full Width</option>
+                                      <option value="none">No Line</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Signatory Custom Details & Contact Info */}
+                              <div className="pt-2.5 border-t border-slate-200 space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-slate-800">
+                                    Signatory Details &amp; Contact Info
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const ownerName = resolveRepFullName(
+                                        salespersonName ||
+                                          enquiry?.sales_representative ||
+                                          enquiry?.salesperson ||
+                                          user?.displayName ||
+                                          user?.name
+                                      );
+                                      const ownerEmail =
+                                        (enquiry as any)?.salesperson_email ||
+                                        user?.email ||
+                                        activeProfile?.official_email ||
+                                        '';
+                                      const ownerPhone =
+                                        (enquiry as any)?.salesperson_phone ||
+                                        (user as any)?.phone ||
+                                        activeProfile?.contact_phone ||
+                                        '';
+                                      if (ownerName) setSignatoryName(ownerName);
+                                      setFooterConfig((prev) => ({
+                                        ...prev,
+                                        showSignatoryPhone: Boolean(ownerPhone) || prev.showSignatoryPhone,
+                                        signatoryPhone: ownerPhone || prev.signatoryPhone || '',
+                                        showSignatoryEmail: Boolean(ownerEmail) || prev.showSignatoryEmail,
+                                        signatoryEmail: ownerEmail || prev.signatoryEmail || ''
+                                      }));
+                                      triggerToast?.('Filled signatory details from Deal Owner.', 'success');
+                                    }}
+                                    className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+                                  >
+                                    Auto-Fill from Deal Owner
+                                  </button>
+                                </div>
+
+                                {/* For and on behalf of & Date Signed toggles */}
+                                <div className="space-y-1.5">
+                                  <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                    <span className="text-[10.5px] font-medium text-slate-700">
+                                      &ldquo;For and on behalf of [Company]&rdquo;
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(footerConfig.showForAndOnBehalf)}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          showForAndOnBehalf: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                  </label>
+
+                                  {footerConfig.showForAndOnBehalf && (
+                                    <input
+                                      type="text"
+                                      value={footerConfig.forAndOnBehalfText || ''}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          forAndOnBehalfText: e.target.value
+                                        }))
+                                      }
+                                      placeholder={`For and on behalf of ${
+                                        headerConfig.companyNameOverride ||
+                                        activeProfile?.company_name ||
+                                        activeWorkspace?.company_name ||
+                                        'Company'
+                                      }`}
+                                      className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
+                                    />
+                                  )}
+
+                                  <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                    <span className="text-[10.5px] font-medium text-slate-700">
+                                      Show &ldquo;Date Signed&rdquo; Line
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(footerConfig.showDateSignedLine)}
+                                      onChange={(e) =>
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          showDateSignedLine: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                  </label>
+                                </div>
+
+                                {/* Direct Phone & Email Toggles + Inputs */}
+                                <div className="space-y-1.5">
+                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                      <span className="text-[10.5px] font-semibold text-slate-700">
+                                        Display Signatory Phone
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(footerConfig.showSignatoryPhone)}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            showSignatoryPhone: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                    </label>
+                                    {footerConfig.showSignatoryPhone && (
+                                      <input
+                                        type="text"
+                                        value={footerConfig.signatoryPhone ?? activeProfile?.contact_phone ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            signatoryPhone: e.target.value
+                                          }))
+                                        }
+                                        placeholder="+971 50 000 0000"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                      />
+                                    )}
+                                  </div>
+
+                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                      <span className="text-[10.5px] font-semibold text-slate-700">
+                                        Display Signatory Email
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(footerConfig.showSignatoryEmail)}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            showSignatoryEmail: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                    </label>
+                                    {footerConfig.showSignatoryEmail && (
+                                      <input
+                                        type="email"
+                                        value={footerConfig.signatoryEmail ?? activeProfile?.official_email ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            signatoryEmail: e.target.value
+                                          }))
+                                        }
+                                        placeholder="rep@company.com"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Custom Text Lines per Signatory (Department, License #, ID, etc.) */}
+                                <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10.5px] font-semibold text-slate-700">
+                                      Custom Signatory Lines
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextLine = {
+                                          id: `sig_line_${Date.now()}`,
+                                          label: 'Department',
+                                          value: 'Commercial & Projects',
+                                          enabled: true,
+                                          target: 'primary' as const
+                                        };
+                                        setFooterConfig((prev) => ({
+                                          ...prev,
+                                          signatoryCustomLines: [
+                                            ...(prev.signatoryCustomLines || []),
+                                            nextLine
+                                          ]
+                                        }));
+                                      }}
+                                      className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>Add Line</span>
+                                    </button>
+                                  </div>
+
+                                  {(footerConfig.signatoryCustomLines || []).length === 0 ? (
+                                    <p className="text-[10px] text-slate-400 italic">
+                                      Add custom lines like Department, License #, or Employee ID under the signatory.
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {(footerConfig.signatoryCustomLines || []).map((line, lIdx) => (
+                                        <div
+                                          key={line.id || lIdx}
+                                          className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                        >
+                                          <input
+                                            type="text"
+                                            value={line.label}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatoryCustomLines: (prev.signatoryCustomLines || []).map(
+                                                  (item, i) => (i === lIdx ? { ...item, label: val } : item)
+                                                )
+                                              }));
+                                            }}
+                                            placeholder="Label (opt)"
+                                            className="w-20 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={line.value}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatoryCustomLines: (prev.signatoryCustomLines || []).map(
+                                                  (item, i) => (i === lIdx ? { ...item, value: val } : item)
+                                                )
+                                              }));
+                                            }}
+                                            placeholder="Value (e.g. Eng. Dept)"
+                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatoryCustomLines: (prev.signatoryCustomLines || []).filter(
+                                                  (_, i) => i !== lIdx
+                                                )
+                                              }))
+                                            }
+                                            className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                            title="Remove custom line"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
 
                               <button
                                 type="button"

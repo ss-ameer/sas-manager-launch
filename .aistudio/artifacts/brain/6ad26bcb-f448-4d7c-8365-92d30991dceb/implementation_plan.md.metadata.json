@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for fixing Quotation Studio and Document preview workflows: (1) Non-expanding free-floating stamp/signature overlay bounds, (2) Context-aware Page Break & Vertical Spacer insertion (above inspected block in Right Inspector, below last block in Left Drawer, plus last-row line item page break support), (3) Header Logo-Only vertical field stacking, widened Right Inspector zone alignment cards, and inline contact icon wrapping, (4) Direct Save Changes persistence in Settings Preview & Studio Sandbox, and (5) Granular sub-element click selection on A4 preview with Right Inspector auto-scroll focus.",
-  "updatedAt":  "2026-10-27T08:27:17.639023Z",
+  "summary":  "Implementation plan for upgrading Quotation Studio and Document Settings: advanced signature alignment and custom contact/company details, multi-brand preset differentiation (fonts, table/block header styles, top accent bar styles, per-preset company identity overrides), unified Remittance Bank Account cards matching Preset cards, streamlined 3-Save workflow, and simplified UI labels across Settings and the Right Inspector.",
+  "updatedAt":  "2026-10-27T12:41:02.534192052Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

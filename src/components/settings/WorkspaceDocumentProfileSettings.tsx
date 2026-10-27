@@ -1471,10 +1471,10 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                1. Legal Entity, Corporate Assets & Quotation Studio Defaults
+                1. Company Details
               </h3>
               <p className="text-xs text-slate-500">
-                Official letterhead details, TRN, corporate logo/seal uploaders, executive theme swatches, and default signatories.
+                Legal entity name, tax registration, address, logo, stamp, and default signatories.
               </p>
             </div>
           </div>
@@ -1486,7 +1486,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-60"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{savingProfile ? 'Saving...' : 'Save Branding & Studio Defaults'}</span>
+              <span>{savingProfile ? 'Saving...' : 'Save Company Info'}</span>
             </button>
           )}
         </div>
@@ -1613,7 +1613,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           <div className="pt-6 border-t border-slate-100">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-blue-600" />
-              <span>Corporate Identity Assets (Native Image Upload or URL)</span>
+              <span>Company Logo &amp; Official Stamp</span>
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1745,315 +1745,11 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             </div>
           </div>
 
-          {/* Sub-section 1C: Default Header & Logo Display Mode Controls */}
-          <div className="pt-6 border-t border-slate-100">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
-              <LayoutTemplate className="w-4 h-4 text-indigo-600" />
-              <span>Default Header Logo Style</span>
-            </h4>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
-              <div>
-                <label className="block text-slate-600 font-bold mb-1.5">Header Logo Style</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      { id: 'logo_and_name', label: 'Logo + Name' },
-                      { id: 'logo_only', label: 'Logo Only (Hide Company Name)' },
-                      { id: 'full_banner', label: 'Full Banner' },
-                      { id: 'no_logo', label: 'Text Only' }
-                    ] as const
-                  ).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      disabled={!isAdmin}
-                      onClick={() => {
-                        setLogoDisplayMode(m.id);
-                        if (m.id === 'full_banner') setHeaderLayoutMode('banner');
-                      }}
-                      className={`px-2.5 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                        logoDisplayMode === m.id
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-600 font-bold mb-1.5">Header Layout Alignment</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(
-                    [
-                      { id: 'split_left', label: 'Logo Left' },
-                      { id: 'split_right', label: 'Logo Right' },
-                      { id: 'centered', label: 'Centered' },
-                      { id: 'banner', label: 'Banner' }
-                    ] as const
-                  ).map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      disabled={!isAdmin}
-                      onClick={() => setHeaderLayoutMode(l.id)}
-                      className={`px-2.5 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                        headerLayoutMode === l.id
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-600 font-bold">Default Logo Height</label>
-                    <span className="font-mono font-bold text-blue-600">{logoHeightPx}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={28}
-                    max={110}
-                    disabled={!isAdmin}
-                    value={logoHeightPx}
-                    onChange={(e) => setLogoHeightPx(Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-[11px] text-slate-700 font-medium cursor-pointer">
-                  <input
-                    type="checkbox"
-                    disabled={!isAdmin}
-                    checked={showLogoOnContinuationPages}
-                    onChange={(e) => setShowLogoOnContinuationPages(e.target.checked)}
-                    className="rounded border-slate-300 text-blue-600"
-                  />
-                  <span>Show Logo on Page 2+ Running Header</span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub-section 1D: Executive Theme Accent Swatch Selector & Default Document Styling */}
-          <div className="pt-6 border-t border-slate-100">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
-              <Palette className="w-4 h-4 text-purple-600" />
-              <span>Executive Theme Swatches & Default Document Presentation</span>
-            </h4>
-
-            <div className="space-y-5">
-              {/* 7 Corporate Theme Swatches + Custom Brand Hex Color Picker */}
-              <div className="space-y-3">
-                <label className="block text-xs text-slate-600 font-bold">
-                  Corporate Theme Accent Palette (Synchronized with Quotation Studio)
-                </label>
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {THEME_ACCENT_SWATCHES.map((swatch) => {
-                    const isSelected = themeAccent === swatch.key && !customThemeColor;
-                    return (
-                      <button
-                        key={swatch.key}
-                        type="button"
-                        disabled={!isAdmin}
-                        onClick={() => {
-                          setThemeAccent(swatch.key);
-                          setAccentColor(swatch.hex);
-                          setCustomThemeColor('');
-                        }}
-                        className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-                          isSelected
-                            ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span
-                          className={`w-4 h-4 rounded-full ${swatch.bgClass} border border-white/40 flex items-center justify-center`}
-                        >
-                          {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                        </span>
-                        <span>{swatch.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Custom Brand Hex Color Picker */}
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center gap-2.5">
-                    <input
-                      type="color"
-                      disabled={!isAdmin}
-                      value={
-                        /^#([0-9a-fA-F]{6})$/.test(customThemeColor.trim())
-                          ? customThemeColor.trim()
-                          : accentColor || '#0f172a'
-                      }
-                      onChange={(e) => {
-                        setCustomThemeColor(e.target.value);
-                        setAccentColor(e.target.value);
-                      }}
-                      className="w-8 h-8 rounded-lg border border-slate-300 cursor-pointer bg-white p-0.5 shrink-0"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 block">
-                        Custom Brand Color
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        Drives top letterhead bar, table header, card borders &amp; grand total across all quotations
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      disabled={!isAdmin}
-                      value={customThemeColor}
-                      onChange={(e) => {
-                        setCustomThemeColor(e.target.value);
-                        if (/^#([0-9a-fA-F]{6})$/.test(e.target.value.trim())) {
-                          setAccentColor(e.target.value.trim());
-                        }
-                      }}
-                      placeholder="#1e3a8a"
-                      className="w-28 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono bg-white text-slate-800"
-                    />
-                    {customThemeColor && isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setCustomThemeColor('')}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-600 cursor-pointer"
-                      >
-                        Reset to Swatch
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* 4 Default Document Styling Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Presentation Style</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(
-                      [
-                        { id: 'framed', label: 'Framed Cards' },
-                        { id: 'minimal', label: 'Minimal Clean' }
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        disabled={!isAdmin}
-                        onClick={() => setBlockStyle(opt.id)}
-                        className={`px-2.5 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                          blockStyle === opt.id
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Corner Style</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(
-                      [
-                        { id: 'rounded', label: 'Rounded' },
-                        { id: 'sharp', label: 'Sharp 90°' }
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        disabled={!isAdmin}
-                        onClick={() => setGlobalCardRadius(opt.id)}
-                        className={`px-2.5 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                          globalCardRadius === opt.id
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Document Font Size</label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(
-                      [
-                        { id: 'compact', label: 'Compact' },
-                        { id: 'standard', label: 'Standard' },
-                        { id: 'large', label: 'Large' }
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        disabled={!isAdmin}
-                        onClick={() => setFontSizeScale(opt.id)}
-                        className={`px-2 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                          fontSizeScale === opt.id
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-600 font-bold mb-1.5">Table Row Spacing</label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(
-                      [
-                        { id: 'compact', label: 'Compact' },
-                        { id: 'standard', label: 'Standard' },
-                        { id: 'spacious', label: 'Spacious' }
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        disabled={!isAdmin}
-                        onClick={() => setTableDensity(opt.id)}
-                        className={`px-2 py-2 rounded-lg font-bold text-[11px] border transition cursor-pointer ${
-                          tableDensity === opt.id
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub-section 1E: Default Signatories & Authorization Section */}
+          {/* Sub-section 1C: Default Signatories */}
           <div className="pt-6 border-t border-slate-100">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-4 flex items-center gap-2">
               <PenTool className="w-4 h-4 text-emerald-600" />
-              <span>Default Signatories & Authorization Configuration</span>
+              <span>Default Signatories</span>
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
@@ -2202,9 +1898,9 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               <Landmark className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">2. Remittance Bank Accounts</h3>
+              <h3 className="text-sm font-bold text-slate-900">2. Bank Accounts</h3>
               <p className="text-xs text-slate-500">
-                Wire remittance accounts synchronized with Quotation Studio & PDF footer blocks.
+                Bank remittance accounts displayed on your quotations.
               </p>
             </div>
           </div>
@@ -2419,6 +2115,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               {bankAccounts.map((b, idx) => {
                 const accountTitle =
                   b.beneficiaryName || b.account_name || b.account_title || legalEntityName;
+                const acctNumber = b.account_number || b.accountNumber || '—';
                 const swiftVal = b.swiftCode || b.swift_bic || b.swift_code || '';
                 const branchVal = b.branchName || b.branch_address || '';
                 const isDef = Boolean(b.is_default ?? b.isDefault);
@@ -2433,21 +2130,19 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center flex-wrap gap-1.5">
                           <span className="font-bold text-slate-900 text-xs">
                             {b.bank_name || b.bankName}
                           </span>
                           {isDef && (
-                            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
-                              PRIMARY DEFAULT
+                            <span className="px-1.5 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded">
+                              ★ DEFAULT
                             </span>
                           )}
+                          <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded font-mono">
+                            {b.currency || 'AED'}
+                          </span>
                         </div>
-                        {accountTitle && (
-                          <p className="text-[11px] text-slate-600 mt-0.5 font-medium">
-                            {accountTitle}
-                          </p>
-                        )}
                       </div>
 
                       {isAdmin && (
@@ -2456,7 +2151,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                             <button
                               type="button"
                               onClick={() => handleSetDefaultBank(idx)}
-                              className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded hover:bg-indigo-50 cursor-pointer"
+                              className="text-[11px] text-emerald-700 hover:text-emerald-900 font-medium px-2 py-1 rounded hover:bg-emerald-50 cursor-pointer"
                             >
                               Set Default
                             </button>
@@ -2464,15 +2159,16 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                           <button
                             type="button"
                             onClick={() => handleEditBankAccount(idx)}
-                            className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition flex items-center gap-1 cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded transition cursor-pointer"
+                            title="Edit Bank Account"
                           >
-                            <Edit2 className="w-3 h-3" />
-                            <span>Edit</span>
+                            <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteBankAccount(idx)}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                            title="Delete Bank Account"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -2480,33 +2176,41 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                       )}
                     </div>
 
-                    <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-600">
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase">Account #</span>
-                        <span className="text-slate-800 font-bold">
-                          {b.account_number || b.accountNumber}
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-1 text-[11px] text-slate-600">
+                      {accountTitle && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-400 shrink-0">Beneficiary:</span>
+                          <span className="font-medium text-slate-800 truncate text-right">
+                            {accountTitle}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-400 shrink-0">Account No:</span>
+                        <span className="font-mono font-bold text-slate-800 truncate text-right">
+                          {acctNumber}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase">Currency</span>
-                        <span className="text-slate-800 font-bold">{b.currency || 'AED'}</span>
-                      </div>
                       {b.iban && (
-                        <div className="col-span-2">
-                          <span className="text-slate-400 block text-[9px] uppercase">IBAN</span>
-                          <span className="text-slate-800 font-bold truncate block">{b.iban}</span>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-400 shrink-0">IBAN:</span>
+                          <span className="font-mono font-bold text-slate-800 truncate text-right">
+                            {b.iban}
+                          </span>
                         </div>
                       )}
                       {swiftVal && (
-                        <div>
-                          <span className="text-slate-400 block text-[9px] uppercase">SWIFT / BIC</span>
-                          <span className="text-slate-800 font-bold">{swiftVal}</span>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-400 shrink-0">SWIFT / BIC:</span>
+                          <span className="font-mono font-semibold text-slate-800 truncate text-right">
+                            {swiftVal}
+                          </span>
                         </div>
                       )}
                       {branchVal && (
-                        <div>
-                          <span className="text-slate-400 block text-[9px] uppercase">Branch</span>
-                          <span className="text-slate-800 font-sans font-medium truncate block">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-400 shrink-0">Branch:</span>
+                          <span className="font-medium text-slate-800 truncate text-right">
                             {branchVal}
                           </span>
                         </div>
@@ -2534,9 +2238,9 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">3. Quotation Template Presets</h3>
+              <h3 className="text-sm font-bold text-slate-900">3. Quotation Presets</h3>
               <p className="text-xs text-slate-500">
-                Manage Studio templates without losing saved layout blocks, letterhead overrides, or annex attachments.
+                Create and manage distinct design and commercial templates (including sister-company branding).
               </p>
             </div>
           </div>
@@ -2884,14 +2588,14 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-extrabold tracking-tight text-white">
-                  🧪 Live Quotation Preview &amp; Test Builder
+                  4. Live Quotation Preview
                 </h3>
                 <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-bold rounded-md">
-                  REAL-TIME A4 ENGINE
+                  REAL-TIME A4
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Test your live unsaved branding, bank details, and presets with sample line items or launch the full 3-pane Quotation Studio.
+                Preview your presets and sample items or open Quotation Studio to customize layout &amp; design.
               </p>
             </div>
           </div>
@@ -2902,7 +2606,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-extrabold rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Open Full Quotation Studio Sandbox</span>
+            <span>Open in Quotation Studio</span>
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -3213,61 +2917,10 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
               <div className="flex items-center gap-2.5">
                 <button
                   type="button"
-                  disabled={savingProfile}
-                  onClick={async () => {
-                    await handleSaveProfile();
-                    const targetPreset =
-                      activeSandboxPreset || presets.find((p) => p.is_default) || presets[0];
-                    if (targetPreset?.id) {
-                      try {
-                        const updatedPreset = await QuotationRepository.updatePreset(
-                          targetPreset.id,
-                          {
-                            ...targetPreset,
-                            theme_accent: themeAccent,
-                            customThemeColor: customThemeColor || undefined,
-                            block_style: blockStyle,
-                            globalCardRadius,
-                            fontSizeScale,
-                            table_density: tableDensity,
-                            signatory_type: signatoryType,
-                            signature_style: signatureStyle,
-                            primary_signatory_name: primarySignatoryName,
-                            primary_signatory_title: primarySignatoryTitle,
-                            secondary_signatory_name: secondarySignatoryName,
-                            secondary_signatory_title: secondarySignatoryTitle,
-                            show_company_seal: showCompanySeal,
-                            customer_acceptance_enabled: customerAcceptanceEnabled,
-                            amount_in_words_enabled: amountInWordsEnabled,
-                            company_logo_url: logoUrl || undefined,
-                            company_seal_url: stampSealUrl || undefined,
-                            signature_image_url: signatureImageUrl || undefined,
-                            header_config: liveSandboxProfile.header_config
-                          }
-                        );
-                        setPresets((prev) =>
-                          QuotationRepository.applyPresetUpdateInList(prev, updatedPreset)
-                        );
-                      } catch (err) {
-                        console.warn('Preset sync notice:', err);
-                      }
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>
-                    {activeSandboxPreset
-                      ? `Save Changes to Profile & "${activeSandboxPreset.preset_name}"`
-                      : 'Save Changes to Profile'}
-                  </span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => setIsFullStudioSandboxOpen(true)}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs transition cursor-pointer shadow-sm"
                 >
-                  Open in Interactive 3-Pane Studio →
+                  Open in Quotation Studio →
                 </button>
               </div>
             </div>

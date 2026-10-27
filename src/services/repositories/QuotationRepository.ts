@@ -1638,11 +1638,37 @@ export class QuotationRepository {
       repeatHeaderOnSubsequentPages: rawHeaderCfg.repeatHeaderOnSubsequentPages ?? true,
       showLogoOnContinuationPages: rawHeaderCfg.showLogoOnContinuationPages ?? true,
       ...rawHeaderCfg,
+      ...(input.companyNameOverride !== undefined && rawHeaderCfg.companyNameOverride === undefined
+        ? { companyNameOverride: input.companyNameOverride }
+        : {}),
+      ...(input.documentFontFamily !== undefined && rawHeaderCfg.documentFontFamily === undefined
+        ? { documentFontFamily: input.documentFontFamily }
+        : {}),
+      ...(input.topAccentBarStyle !== undefined && rawHeaderCfg.topAccentBarStyle === undefined
+        ? { topAccentBarStyle: input.topAccentBarStyle }
+        : {}),
+      ...(input.tableHeaderStyle !== undefined && rawHeaderCfg.tableHeaderStyle === undefined
+        ? { tableHeaderStyle: input.tableHeaderStyle }
+        : {}),
+      ...(input.blockHeaderStyle !== undefined && rawHeaderCfg.blockHeaderStyle === undefined
+        ? { blockHeaderStyle: input.blockHeaderStyle }
+        : {}),
       ...(Array.isArray(rawHeaderCfg.headerFields)
         ? { headerFields: rawHeaderCfg.headerFields.map((f) => ({ ...f })) }
         : {}),
       ...(resolvedLogoUrl !== undefined ? { logoUrl: resolvedLogoUrl } : {})
     };
+
+    const resolvedFontFamily =
+      input.documentFontFamily || normalizedHeaderConfig.documentFontFamily || 'sans';
+    const resolvedTopBarStyle =
+      input.topAccentBarStyle || normalizedHeaderConfig.topAccentBarStyle || 'thick';
+    const resolvedTableHeaderStyle =
+      input.tableHeaderStyle || normalizedHeaderConfig.tableHeaderStyle || 'solid';
+    const resolvedBlockHeaderStyle =
+      input.blockHeaderStyle || normalizedHeaderConfig.blockHeaderStyle || 'underline';
+    const resolvedCompanyNameOverride =
+      input.companyNameOverride ?? normalizedHeaderConfig.companyNameOverride;
 
     return {
       ...input,
@@ -1660,6 +1686,11 @@ export class QuotationRepository {
       globalCardRadius: input.globalCardRadius || 'rounded',
       cardsOrder: input.cardsOrder || 'recipient_first',
       subjectPlacement: input.subjectPlacement || 'below_cards',
+      documentFontFamily: resolvedFontFamily,
+      topAccentBarStyle: resolvedTopBarStyle,
+      tableHeaderStyle: resolvedTableHeaderStyle,
+      blockHeaderStyle: resolvedBlockHeaderStyle,
+      companyNameOverride: resolvedCompanyNameOverride,
       remittanceBankId: resolvedBankId,
       remittance_bank_id: resolvedBankId,
       amount_in_words_enabled: resolvedAmountInWords,
@@ -1672,7 +1703,16 @@ export class QuotationRepository {
       signature_image_url: input.signature_image_url,
       customThemeColor: input.customThemeColor,
       header_config: normalizedHeaderConfig,
-      footer_config: normalizedFooterConfig
+      footer_config: {
+        ...normalizedFooterConfig,
+        ...(Array.isArray(normalizedFooterConfig.signatoryCustomLines)
+          ? {
+              signatoryCustomLines: normalizedFooterConfig.signatoryCustomLines.map((l) => ({
+                ...l
+              }))
+            }
+          : {})
+      }
     };
   }
 
@@ -1696,6 +1736,11 @@ export class QuotationRepository {
       globalCardRadius: serialized.globalCardRadius || 'rounded',
       cardsOrder: serialized.cardsOrder || 'recipient_first',
       subjectPlacement: serialized.subjectPlacement || 'below_cards',
+      documentFontFamily: serialized.documentFontFamily || 'sans',
+      topAccentBarStyle: serialized.topAccentBarStyle || 'thick',
+      tableHeaderStyle: serialized.tableHeaderStyle || 'solid',
+      blockHeaderStyle: serialized.blockHeaderStyle || 'underline',
+      companyNameOverride: serialized.companyNameOverride || '',
       remittanceBankId: serialized.remittanceBankId || '',
       headerConfig: { ...serialized.header_config },
       footerConfig: { ...serialized.footer_config },

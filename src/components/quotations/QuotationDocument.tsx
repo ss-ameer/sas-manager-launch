@@ -22,7 +22,16 @@ import {
   QuotationFooterConfig,
   QuotationPageMode,
   QuotationLineItem,
-  Attachment
+  Attachment,
+  QuotationDocumentFontFamily,
+  QuotationTopAccentBarStyle,
+  QuotationSectionHeaderStyle,
+  QuotationSignatoryBlockAlign,
+  QuotationSignatoryTextAlign,
+  QuotationStampPlacement,
+  QuotationSignatureVerticalSpacing,
+  QuotationSignatureLineWidth,
+  QuotationSignatoryCustomLine
 } from '../../types';
 import {
   amountToWords,
@@ -1604,6 +1613,10 @@ export interface QuotationDocumentProps {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   customThemeColor?: string;
+  documentFontFamily?: QuotationDocumentFontFamily;
+  topAccentBarStyle?: QuotationTopAccentBarStyle;
+  tableHeaderStyle?: QuotationSectionHeaderStyle;
+  blockHeaderStyle?: QuotationSectionHeaderStyle;
   layoutBlocks?: QuotationBlockConfig[];
   selectedBlockId?: StudioSelectedSection;
   selectedSection?: StudioSelectedSection;
@@ -1740,6 +1753,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   cardsOrder: propCardsOrder,
   subjectPlacement: propSubjectPlacement,
   customThemeColor: propCustomThemeColor,
+  documentFontFamily: propDocumentFontFamily,
+  topAccentBarStyle: propTopAccentBarStyle,
+  tableHeaderStyle: propTableHeaderStyle,
+  blockHeaderStyle: propBlockHeaderStyle,
   layoutBlocks,
   selectedBlockId,
   selectedSection,
@@ -1951,6 +1968,103 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     ...(propHeaderConfig || {})
   };
 
+  // Resolve Sister-Company & Multi-Brand Visual Differentiation Styles
+  const resolvedDocumentFontFamily: QuotationDocumentFontFamily =
+    propDocumentFontFamily ||
+    quotation.documentFontFamily ||
+    resolvedHeaderConfig.documentFontFamily ||
+    (quotation as any).presentation_preset?.documentFontFamily ||
+    'sans';
+
+  const documentFontClass =
+    resolvedDocumentFontFamily === 'serif'
+      ? 'font-serif'
+      : resolvedDocumentFontFamily === 'technical'
+      ? 'font-mono'
+      : 'font-sans';
+
+  const resolvedTopAccentBarStyle: QuotationTopAccentBarStyle =
+    propTopAccentBarStyle ||
+    quotation.topAccentBarStyle ||
+    resolvedHeaderConfig.topAccentBarStyle ||
+    (quotation as any).presentation_preset?.topAccentBarStyle ||
+    'thick';
+
+  const resolvedTableHeaderStyle: QuotationSectionHeaderStyle =
+    propTableHeaderStyle ||
+    quotation.tableHeaderStyle ||
+    resolvedHeaderConfig.tableHeaderStyle ||
+    (quotation as any).presentation_preset?.tableHeaderStyle ||
+    'tinted';
+
+  const resolvedBlockHeaderStyle: QuotationSectionHeaderStyle =
+    propBlockHeaderStyle ||
+    quotation.blockHeaderStyle ||
+    resolvedHeaderConfig.blockHeaderStyle ||
+    (quotation as any).presentation_preset?.blockHeaderStyle ||
+    'underline';
+
+  const renderTopAccentBar = () => {
+    if (resolvedTopAccentBarStyle === 'none') return null;
+    if (resolvedTopAccentBarStyle === 'double') {
+      return (
+        <div className="top-accent-bar absolute top-0 left-0 right-0 w-full print:w-full flex flex-col">
+          <div className="h-1.5 w-full" style={{ backgroundColor: accentColor }} />
+          <div className="h-0.5 w-full bg-white" />
+          <div className="h-0.5 w-full" style={{ backgroundColor: accentColor, opacity: 0.7 }} />
+        </div>
+      );
+    }
+    if (resolvedTopAccentBarStyle === 'side_accent') {
+      return (
+        <div
+          className="top-accent-bar absolute top-0 bottom-0 left-0 w-2 h-full"
+          style={{ backgroundColor: accentColor }}
+        />
+      );
+    }
+    return (
+      <div
+        className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
+        style={{ backgroundColor: accentColor }}
+      />
+    );
+  };
+
+  const getBlockHeaderBannerStyle = (): { className: string; style: React.CSSProperties; iconColor: string } => {
+    if (resolvedBlockHeaderStyle === 'solid') {
+      return {
+        className: 'px-2 py-1 rounded-xs mb-1.5',
+        style: { backgroundColor: themePalette.primaryHex, color: '#ffffff' },
+        iconColor: '#ffffff'
+      };
+    }
+    if (resolvedBlockHeaderStyle === 'tinted') {
+      return {
+        className: 'px-2 py-1 rounded-xs mb-1.5 border-l-2',
+        style: {
+          backgroundColor: themePalette.tintStrongBg,
+          borderColor: themePalette.primaryHex,
+          color: themePalette.textAccent
+        },
+        iconColor: themePalette.textAccent
+      };
+    }
+    if (resolvedBlockHeaderStyle === 'minimal') {
+      return {
+        className: 'pb-0.5 mb-1',
+        style: { color: themePalette.textAccent },
+        iconColor: themePalette.textAccent
+      };
+    }
+    // default 'underline'
+    return {
+      className: 'pb-1 mb-1 border-b border-slate-200',
+      style: { color: themePalette.textAccent, borderColor: themePalette.borderTint },
+      iconColor: themePalette.textAccent
+    };
+  };
+
   const headerBranding = React.useMemo(
     () => resolveHeaderBrandingConfig(resolvedHeaderConfig, quotation, profile),
     [resolvedHeaderConfig, quotation, profile]
@@ -2062,8 +2176,12 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     };
   }, []);
 
-  // Resolve sender info from profile with fallback to quotation.sender_snapshot
+  // Resolve sender info from preset/header override first (Sister-Company support), then profile, then quotation.sender_snapshot
   const senderEntityName =
+    (resolvedHeaderConfig.companyNameOverride && resolvedHeaderConfig.companyNameOverride.trim()) ||
+    (quotation.companyNameOverride && quotation.companyNameOverride.trim()) ||
+    ((quotation as any).presentation_preset?.companyNameOverride &&
+      String((quotation as any).presentation_preset.companyNameOverride).trim()) ||
     profile?.legal_entity_name ||
     (profile as any)?.company_name ||
     quotation.sender_snapshot?.entity_name ||
@@ -2649,14 +2767,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
       const hasAnyContent = Boolean(priceBasis || paymentTerms || validityText || customNotes);
 
+      const blockHdr = getBlockHeaderBannerStyle();
       return (
         <div className="terms-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
           <div>
             <div
-              className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] pb-1 border-b border-slate-200"
-              style={{ color: themePalette.textAccent, borderColor: themePalette.borderTint }}
+              className={`flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] ${blockHdr.className}`}
+              style={blockHdr.style}
             >
-              <FileCheck className="w-3.5 h-3.5" style={{ color: themePalette.textAccent }} />
+              <FileCheck className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
               Commercial Terms &amp; Conditions
             </div>
             <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-2">
@@ -2791,14 +2910,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
-    const renderRemittanceBlock = () => (
+    const renderRemittanceBlock = () => {
+      const blockHdr = getBlockHeaderBannerStyle();
+      return (
       <div className="remittance-card break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-between w-full" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div>
           <div
-            className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] mb-1 pb-1 border-b border-slate-200/80"
-            style={{ color: themePalette.textAccent, borderColor: themePalette.borderTint }}
+            className={`flex items-center gap-1.5 font-bold uppercase tracking-wider text-[calc(var(--block-base)*1.05)] ${blockHdr.className}`}
+            style={blockHdr.style}
           >
-            <Landmark className="w-3.5 h-3.5" style={{ color: themePalette.textAccent }} />
+            <Landmark className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
             Bank Remittance Details
           </div>
           {resolvedBank ? (
@@ -2855,7 +2976,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           )}
         </div>
       </div>
-    );
+      );
+    };
 
     const stampSigOverlay = resolveStampSignatureOverlayConfig(
       resolvedFooterConfig,
@@ -2867,189 +2989,373 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     const isSignatoryBlockSelected =
       activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
 
-    const renderSignatoryBlock = () => (
-      <div
-        className="signatory-card overflow-visible relative break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full"
-        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-      >
-        <div
-          className={`flex items-center ${
-            footerLayoutMode === 'seller_only' ? 'justify-between' : 'justify-end'
-          } gap-5 w-full overflow-visible relative`}
-        >
-          {footerLayoutMode === 'seller_only' && (
-            <div className="text-left text-slate-600 pr-4">
+    const renderSignatoryBlock = () => {
+      const blockAlign: QuotationSignatoryBlockAlign =
+        resolvedFooterConfig.signatoryBlockAlign ||
+        (footerLayoutMode === 'seller_only' ? 'space_between' : 'right');
+
+      const textAlign: QuotationSignatoryTextAlign =
+        resolvedFooterConfig.signatoryTextAlign || 'center';
+
+      const stampPlacement: QuotationStampPlacement =
+        resolvedFooterConfig.stampPlacement || 'left';
+
+      const verticalSpacing: QuotationSignatureVerticalSpacing =
+        resolvedFooterConfig.signatureVerticalSpacing || 'standard';
+
+      const lineWidth: QuotationSignatureLineWidth =
+        resolvedFooterConfig.signatureLineWidth || 'standard';
+
+      const showForAndOnBehalf =
+        resolvedFooterConfig.showForAndOnBehalf !== undefined
+          ? resolvedFooterConfig.showForAndOnBehalf
+          : footerLayoutMode === 'seller_only';
+
+      const forAndOnBehalfText =
+        (resolvedFooterConfig.forAndOnBehalfText && resolvedFooterConfig.forAndOnBehalfText.trim()) ||
+        `For and on behalf of ${senderEntityName || 'Company'}`;
+
+      const showDateSignedLine = Boolean(resolvedFooterConfig.showDateSignedLine);
+      const showSignatoryPhone = Boolean(resolvedFooterConfig.showSignatoryPhone);
+      const showSignatoryEmail = Boolean(resolvedFooterConfig.showSignatoryEmail);
+      const customLines: QuotationSignatoryCustomLine[] = Array.isArray(
+        resolvedFooterConfig.signatoryCustomLines
+      )
+        ? resolvedFooterConfig.signatoryCustomLines
+        : [];
+
+      const containerJustifyClass =
+        blockAlign === 'left'
+          ? 'justify-start'
+          : blockAlign === 'center'
+          ? 'justify-center'
+          : blockAlign === 'space_between'
+          ? 'justify-between'
+          : 'justify-end';
+
+      const textAlignmentClass =
+        textAlign === 'left'
+          ? 'text-left items-start'
+          : textAlign === 'right'
+          ? 'text-right items-end'
+          : 'text-center items-center';
+
+      const sigAnchorHeightClass =
+        verticalSpacing === 'compact'
+          ? 'h-10'
+          : verticalSpacing === 'spacious'
+          ? 'h-20'
+          : 'h-14';
+
+      const sigLineClass =
+        lineWidth === 'none'
+          ? 'hidden'
+          : lineWidth === 'narrow'
+          ? 'w-20 border-b border-slate-300 mb-1'
+          : lineWidth === 'wide'
+          ? 'w-36 border-b border-slate-300 mb-1'
+          : 'w-28 border-b border-slate-300 mb-1';
+
+      const renderSealBox = (extraPositionClass = '') => {
+        if (!resolvedShowCompanySeal) return null;
+        return (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    if (onSelectSection) {
+                      onSelectSection('signatory', 'stamp');
+                    } else if (onSelectBlock) {
+                      onSelectBlock('signatory');
+                    }
+                  }
+                : undefined
+            }
+            title={isInteractive ? 'Click to inspect & adjust Company Stamp / Seal' : undefined}
+            className={`company-seal-box w-16 ${sigAnchorHeightClass} shrink-0 flex flex-col items-center justify-center overflow-visible relative z-20 ${
+              isInteractive ? 'cursor-pointer' : ''
+            } ${extraPositionClass}`}
+          >
+            {resolvedCompanySealUrl ? (
+              <img
+                src={resolvedCompanySealUrl}
+                alt="Company Seal"
+                style={{
+                  position: 'absolute',
+                  height: `${stampSigOverlay.sealSizePx}px`,
+                  width: 'auto',
+                  maxWidth: 'none',
+                  transform: stampSigOverlay.sealTransformStyle,
+                  mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
+                }}
+                className={`object-contain mx-auto opacity-95 select-none z-20 ${
+                  isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
+                }`}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            ) : (
+              <>
+                <div className="company-seal-placeholder h-12 w-12 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                  <span className={`${typoScale.micro} font-mono uppercase tracking-wider text-slate-400 leading-tight`}>
+                    Official Seal
+                  </span>
+                </div>
+                {stampSigOverlay.showCompanySealLabel && (
+                  <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
+                    Company Seal
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        );
+      };
+
+      const renderSingleSignatoryColumn = (sig: { name: string; title: string; signature_url?: string }, sIdx: number) => {
+        const resolvedSignatureImgUrl =
+          (sIdx === 0 ? stampSigOverlay.activeSignatureUrl : undefined) ||
+          sig.signature_url ||
+          '';
+        const useUploadedSignatureImage =
+          Boolean(resolvedSignatureImgUrl) &&
+          (signatureStyle === 'image' || Boolean(quotation.signature_image_url) || Boolean(stampSigOverlay.activeSignatureUrl));
+        const nameFieldKey = sIdx === 0 ? 'primary_signatory_name' : 'secondary_signatory_name';
+        const titleFieldKey = sIdx === 0 ? 'primary_signatory_title' : 'secondary_signatory_title';
+
+        const sigPhone =
+          sIdx === 0
+            ? resolvedFooterConfig.signatoryPhone || senderPhone || ''
+            : resolvedFooterConfig.secondarySignatoryPhone || '';
+        const sigEmail =
+          sIdx === 0
+            ? resolvedFooterConfig.signatoryEmail || senderEmail || user?.email || ''
+            : resolvedFooterConfig.secondarySignatoryEmail || '';
+
+        const applicableCustomLines = customLines.filter((line) => {
+          if (!line.value && !line.label) return false;
+          const target = line.target || 'primary';
+          if (target === 'both') return true;
+          return sIdx === 0 ? target === 'primary' : target === 'secondary';
+        });
+
+        return (
+          <div
+            key={sIdx}
+            className={`flex flex-col ${textAlignmentClass} min-w-[130px] overflow-visible relative`}
+          >
+            {/* Fixed-height signature anchor box: resizing image never stretches block height */}
+            <div
+              onClick={
+                isInteractive
+                  ? (e) => {
+                      e.stopPropagation();
+                      if (onSelectSection) {
+                        onSelectSection('signatory', 'signature');
+                      } else if (onSelectBlock) {
+                        onSelectBlock('signatory');
+                      }
+                    }
+                  : undefined
+              }
+              title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
+              className={`${sigAnchorHeightClass} w-28 flex items-end justify-center mb-1 overflow-visible relative ${
+                isInteractive ? 'cursor-pointer' : ''
+              }`}
+            >
+              {stampPlacement === 'overlay' && sIdx === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 overflow-visible">
+                  {renderSealBox('pointer-events-auto')}
+                </div>
+              )}
+              {useUploadedSignatureImage ? (
+                <img
+                  src={resolvedSignatureImgUrl}
+                  alt="Authorized Signature"
+                  style={{
+                    position: 'absolute',
+                    bottom: '2px',
+                    height: `${stampSigOverlay.signatureSizePx}px`,
+                    width: 'auto',
+                    maxWidth: 'none',
+                    transform: stampSigOverlay.signatureTransformStyle,
+                    mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
+                  }}
+                  className={`object-contain mx-auto select-none z-20 ${
+                    isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
+                  }`}
+                />
+              ) : signatureStyle === 'script' ? (
+                <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1 z-20">
+                  {sig.name}
+                </span>
+              ) : signatureStyle === 'image' ? (
+                <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+                  Digital Signature
+                </div>
+              ) : (
+                <div className="h-4" />
+              )}
+            </div>
+
+            <div className={sigLineClass} />
+
+            <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.08)] leading-tight">
+              <EditableCanvasText
+                value={sig.name}
+                fieldKey={nameFieldKey}
+                canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                onCommit={onInlineFieldEdit}
+              />
+            </p>
+            <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight mt-0.5">
+              <EditableCanvasText
+                value={sig.title}
+                fieldKey={titleFieldKey}
+                canEdit={canEditCanvasInline && isSignatoryBlockSelected}
+                onCommit={onInlineFieldEdit}
+              />
+            </p>
+
+            {/* Optional Direct Contact Details (Phone & Email) */}
+            {showSignatoryPhone && sigPhone && (
+              <p className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5 flex items-center gap-1">
+                <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                <span>{sigPhone}</span>
+              </p>
+            )}
+            {showSignatoryEmail && sigEmail && (
+              <p className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5 flex items-center gap-1">
+                <Mail className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                <span>{sigEmail}</span>
+              </p>
+            )}
+
+            {/* Optional Custom Signatory Lines (Department, License #, Employee ID, etc.) */}
+            {applicableCustomLines.map((line) => (
               <p
-                className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider"
+                key={line.id}
+                className="text-[calc(var(--block-base)*0.88)] text-slate-600 leading-tight mt-0.5"
+              >
+                {line.label ? (
+                  <>
+                    <span className="text-slate-400 font-medium">{line.label}: </span>
+                    <span className="text-slate-700 font-medium">{line.value}</span>
+                  </>
+                ) : (
+                  <span className="text-slate-700">{line.value}</span>
+                )}
+              </p>
+            ))}
+
+            {/* Optional Date Signed Line */}
+            {showDateSignedLine && (
+              <p className="text-[calc(var(--block-base)*0.85)] text-slate-500 mt-1.5 pt-0.5">
+                Date: <span className="inline-block w-20 border-b border-slate-300 ml-1" />
+              </p>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div
+          className="signatory-card overflow-visible relative break-inside-avoid page-break-inside-avoid flex-1 flex flex-col justify-end w-full"
+          style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          {/* When "For and on behalf of" is shown above a non-space_between layout */}
+          {showForAndOnBehalf && blockAlign !== 'space_between' && (
+            <div
+              className={`mb-1.5 ${
+                blockAlign === 'left'
+                  ? 'text-left'
+                  : blockAlign === 'center'
+                  ? 'text-center'
+                  : 'text-right'
+              }`}
+            >
+              <p
+                className="font-bold text-[calc(var(--block-base)*1.02)] uppercase tracking-wider"
                 style={{ color: themePalette.textAccent }}
               >
-                For and on behalf of {senderEntityName || 'Company'}
-              </p>
-              <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
-                Authorized Signatures &amp; Official Seal
+                {forAndOnBehalfText}
               </p>
             </div>
           )}
-          <div className="flex items-center gap-5 shrink-0 overflow-visible relative">
-            {/* Official Stamp / Seal (MS Word "In Front of Text" Free-Floating Overlay — Zero-Footprint Anchor Box) */}
-            {resolvedShowCompanySeal && (
-              <div
-                onClick={
-                  isInteractive
-                    ? (e) => {
-                        e.stopPropagation();
-                        if (onSelectSection) {
-                          onSelectSection('signatory', 'stamp');
-                        } else if (onSelectBlock) {
-                          onSelectBlock('signatory');
-                        }
-                      }
-                    : undefined
-                }
-                title={isInteractive ? 'Click to inspect & adjust Company Stamp / Seal' : undefined}
-                className={`company-seal-box w-16 h-14 shrink-0 flex flex-col items-center justify-center overflow-visible relative z-20 ${
-                  isInteractive ? 'cursor-pointer' : ''
-                }`}
-              >
-                {resolvedCompanySealUrl ? (
-                  <img
-                    src={resolvedCompanySealUrl}
-                    alt="Company Seal"
-                    style={{
-                      position: 'absolute',
-                      height: `${stampSigOverlay.sealSizePx}px`,
-                      width: 'auto',
-                      maxWidth: 'none',
-                      transform: stampSigOverlay.sealTransformStyle,
-                      mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
-                    }}
-                    className={`object-contain mx-auto opacity-95 select-none z-20 ${
-                      isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
-                    }`}
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
+
+          <div
+            className={`flex items-center ${containerJustifyClass} gap-5 w-full overflow-visible relative`}
+          >
+            {blockAlign === 'space_between' && (
+              <div className="text-left text-slate-600 pr-4">
+                {showForAndOnBehalf ? (
                   <>
-                    <div className="company-seal-placeholder h-14 w-14 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
-                      <span className={`${typoScale.micro} font-mono uppercase tracking-wider text-slate-400 leading-tight`}>
-                        Official Seal
-                      </span>
-                    </div>
-                    {stampSigOverlay.showCompanySealLabel && (
-                      <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 mt-0.5 uppercase tracking-wider">
-                        Company Seal
-                      </span>
-                    )}
+                    <p
+                      className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider"
+                      style={{ color: themePalette.textAccent }}
+                    >
+                      {forAndOnBehalfText}
+                    </p>
+                    <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
+                      Authorized Signatures &amp; Official Seal
+                    </p>
                   </>
+                ) : (
+                  <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider font-semibold">
+                    Authorized Signatures
+                  </p>
                 )}
               </div>
             )}
 
-            {/* Signatories Rendering */}
-            <div className="flex gap-4 justify-end overflow-visible relative">
-              {resolvedSignatories.map((sig, sIdx) => {
-                const resolvedSignatureImgUrl =
-                  (sIdx === 0 ? stampSigOverlay.activeSignatureUrl : undefined) ||
-                  sig.signature_url ||
-                  '';
-                const useUploadedSignatureImage =
-                  Boolean(resolvedSignatureImgUrl) &&
-                  (signatureStyle === 'image' || Boolean(quotation.signature_image_url));
-                const nameFieldKey = sIdx === 0 ? 'primary_signatory_name' : 'secondary_signatory_name';
-                const titleFieldKey = sIdx === 0 ? 'primary_signatory_title' : 'secondary_signatory_title';
+            <div className="flex items-center gap-5 shrink-0 overflow-visible relative">
+              {stampPlacement === 'left' && renderSealBox()}
 
-                return (
-                  <div key={sIdx} className="text-center min-w-[120px] overflow-visible relative">
-                    <div
-                      onClick={
-                        isInteractive
-                          ? (e) => {
-                              e.stopPropagation();
-                              if (onSelectSection) {
-                                onSelectSection('signatory', 'signature');
-                              } else if (onSelectBlock) {
-                                onSelectBlock('signatory');
-                              }
-                            }
-                          : undefined
-                      }
-                      title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
-                      className={`h-14 w-28 mx-auto flex items-end justify-center mb-1 overflow-visible relative ${
-                        isInteractive ? 'cursor-pointer' : ''
-                      }`}
-                    >
-                      {useUploadedSignatureImage ? (
-                        <img
-                          src={resolvedSignatureImgUrl}
-                          alt="Authorized Signature"
-                          style={{
-                            position: 'absolute',
-                            bottom: '2px',
-                            height: `${stampSigOverlay.signatureSizePx}px`,
-                            width: 'auto',
-                            maxWidth: 'none',
-                            transform: stampSigOverlay.signatureTransformStyle,
-                            mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
-                          }}
-                          className={`object-contain mx-auto select-none z-20 ${
-                            isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
-                          }`}
-                        />
-                      ) : signatureStyle === 'script' ? (
-                        <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1">
-                          {sig.name}
-                        </span>
-                      ) : signatureStyle === 'image' ? (
-                        <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                          Digital Signature
-                        </div>
-                      ) : (
-                        <div className="h-4" />
-                      )}
-                    </div>
-                    <div className="w-24 border-b border-slate-300 mx-auto mb-1" />
-                    <p className="font-bold text-slate-800 text-[calc(var(--block-base)*1.1)] leading-tight">
-                      <EditableCanvasText
-                        value={sig.name}
-                        fieldKey={nameFieldKey}
-                        canEdit={canEditCanvasInline && isSignatoryBlockSelected}
-                        onCommit={onInlineFieldEdit}
-                      />
-                    </p>
-                    <p className="text-[calc(var(--block-base)*0.95)] text-slate-500 leading-tight">
-                      <EditableCanvasText
-                        value={sig.title}
-                        fieldKey={titleFieldKey}
-                        canEdit={canEditCanvasInline && isSignatoryBlockSelected}
-                        onCommit={onInlineFieldEdit}
-                      />
-                    </p>
-                  </div>
-                );
-              })}
+              {/* Signatories Rendering */}
+              <div className="flex items-end gap-5 overflow-visible relative">
+                {resolvedSignatories.length === 2 && stampPlacement === 'center' ? (
+                  <>
+                    {renderSingleSignatoryColumn(resolvedSignatories[0], 0)}
+                    {renderSealBox()}
+                    {renderSingleSignatoryColumn(resolvedSignatories[1], 1)}
+                  </>
+                ) : (
+                  <>
+                    {stampPlacement === 'center' && resolvedSignatories.length === 1 && renderSealBox()}
+                    {resolvedSignatories.map((sig, sIdx) => renderSingleSignatoryColumn(sig, sIdx))}
+                  </>
+                )}
+              </div>
+
+              {stampPlacement === 'right' && renderSealBox()}
             </div>
           </div>
         </div>
-      </div>
-    );
+      );
+    };
 
-    const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => (
+    const renderAcceptanceBlock = (placement: 'left' | 'right' | 'full' = 'full') => {
+      const blockHdr = getBlockHeaderBannerStyle();
+      return (
       <div className="acceptance-card break-inside-avoid page-break-inside-avoid w-full flex-1 flex flex-col justify-between" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <div>
           <div
-            className="flex items-center justify-between pb-1 border-b border-slate-200"
-            style={{ borderColor: themePalette.borderTint }}
+            className={`flex items-center justify-between ${blockHdr.className}`}
+            style={blockHdr.style}
           >
             <span
               className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider flex items-center gap-1.5"
-              style={{ color: themePalette.textAccent }}
+              style={{ color: blockHdr.iconColor }}
             >
-              <FileCheck className="w-3.5 h-3.5" style={{ color: themePalette.textAccent }} />
+              <FileCheck className="w-3.5 h-3.5" style={{ color: blockHdr.iconColor }} />
               Customer Acceptance &amp; Confirmation
             </span>
-            <span className="text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+            <span
+              className="text-[calc(var(--block-base)*0.85)] italic opacity-80"
+              style={{ color: resolvedBlockHeaderStyle === 'solid' ? '#ffffff' : undefined }}
+            >
               Sign &amp; Return Copy with Purchase Order
             </span>
           </div>
@@ -3098,7 +3404,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </div>
         )}
       </div>
-    );
+      );
+    };
 
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
@@ -4271,59 +4578,95 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
             </colgroup>
             <thead style={{ display: 'table-header-group' }}>
-              <tr
-                className="font-semibold border-b"
-                style={{
-                  backgroundColor: themePalette.tintStrongBg,
-                  borderBottom: `2px solid ${themePalette.primaryHex}`,
-                  color: themePalette.textAccent,
-                  breakInside: 'avoid',
-                  pageBreakInside: 'avoid'
-                }}
-              >
-                <th
-                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
-                  style={{ color: themePalette.textAccent }}
-                >
-                  #
-                </th>
-                <th
-                  className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-left`}
-                  style={{ color: themePalette.textAccent }}
-                >
-                  Description &amp; Technical Specifications
-                </th>
-                <th
-                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center font-mono whitespace-nowrap`}
-                  style={{ color: themePalette.textAccent }}
-                >
-                  Qty
-                </th>
-                {showUom && (
-                  <th
-                    className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-center whitespace-nowrap`}
-                    style={{ color: themePalette.textAccent }}
-                  >
-                    UOM
-                  </th>
-                )}
-                {showUnitPrice && (
-                  <th
-                    className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider border-r border-slate-200/80 last:border-r-0 text-right whitespace-nowrap`}
-                    style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: themePalette.textAccent }}
-                  >
-                    Unit Price
-                  </th>
-                )}
-                {showLineTotal && (
-                  <th
-                    className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
-                    style={{ paddingRight: '16px', color: themePalette.textAccent }}
-                  >
-                    Total ({currency})
-                  </th>
-                )}
-              </tr>
+              {(() => {
+                const isSolidHdr = resolvedTableHeaderStyle === 'solid';
+                const isUnderlineHdr = resolvedTableHeaderStyle === 'underline';
+                const isMinimalHdr = resolvedTableHeaderStyle === 'minimal';
+                const thTextColor = isSolidHdr ? '#ffffff' : themePalette.textAccent;
+                const thBorderClass = isSolidHdr
+                  ? 'border-r border-white/20 last:border-r-0'
+                  : isMinimalHdr
+                  ? 'border-r-0'
+                  : 'border-r border-slate-200/80 last:border-r-0';
+                const trStyle: React.CSSProperties = isSolidHdr
+                  ? {
+                      backgroundColor: themePalette.primaryHex,
+                      borderBottom: `2px solid ${themePalette.darkHex || themePalette.primaryHex}`,
+                      color: '#ffffff',
+                      breakInside: 'avoid',
+                      pageBreakInside: 'avoid'
+                    }
+                  : isUnderlineHdr
+                  ? {
+                      backgroundColor: '#ffffff',
+                      borderBottom: `2px solid ${themePalette.primaryHex}`,
+                      color: themePalette.textAccent,
+                      breakInside: 'avoid',
+                      pageBreakInside: 'avoid'
+                    }
+                  : isMinimalHdr
+                  ? {
+                      backgroundColor: 'transparent',
+                      borderBottom: '1px solid #cbd5e1',
+                      color: themePalette.textAccent,
+                      breakInside: 'avoid',
+                      pageBreakInside: 'avoid'
+                    }
+                  : {
+                      backgroundColor: themePalette.tintStrongBg,
+                      borderBottom: `2px solid ${themePalette.primaryHex}`,
+                      color: themePalette.textAccent,
+                      breakInside: 'avoid',
+                      pageBreakInside: 'avoid'
+                    };
+
+                return (
+                  <tr className="font-semibold border-b" style={trStyle}>
+                    <th
+                      className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                      style={{ color: thTextColor }}
+                    >
+                      #
+                    </th>
+                    <th
+                      className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-left`}
+                      style={{ color: thTextColor }}
+                    >
+                      Description &amp; Technical Specifications
+                    </th>
+                    <th
+                      className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                      style={{ color: thTextColor }}
+                    >
+                      Qty
+                    </th>
+                    {showUom && (
+                      <th
+                        className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                        style={{ color: thTextColor }}
+                      >
+                        UOM
+                      </th>
+                    )}
+                    {showUnitPrice && (
+                      <th
+                        className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-right whitespace-nowrap`}
+                        style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: thTextColor }}
+                      >
+                        Unit Price
+                      </th>
+                    )}
+                    {showLineTotal && (
+                      <th
+                        className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
+                        style={{ paddingRight: '16px', color: thTextColor }}
+                      >
+                        Total ({currency})
+                      </th>
+                    )}
+                  </tr>
+                );
+              })()}
             </thead>
             <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
               {pageItems.length > 0 ? (
@@ -4747,7 +5090,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               isFullBleed
                 ? 'quotation-full-bleed-sheet p-0 print:p-0 overflow-hidden h-[297mm]'
                 : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
-            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:break-after-page print:min-h-[294mm]`}
+            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:break-after-page print:min-h-[294mm]`}
             style={{ boxSizing: 'border-box' }}
           >
             {isFullBleed ? (
@@ -4758,10 +5101,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               />
             ) : (
               <>
-                <div
-                  className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-                  style={{ backgroundColor: accentColor }}
-                />
+                {renderTopAccentBar()}
                 <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
                   {att.show_title !== false && att.name && (
                     <div
@@ -4839,7 +5179,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 if (isFirst) sheetRef.current = el;
                 else if (sheetIdx === 1) page2Ref.current = el;
               }}
-              className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
+              className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
                 isVeryLastDocumentSheet
                   ? 'quotation-last-sheet print:break-after-avoid'
                   : 'print:break-after-page'
@@ -4847,10 +5187,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               style={{ boxSizing: 'border-box' }}
             >
               {/* Top Accent Stripe */}
-              <div
-                className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-                style={{ backgroundColor: accentColor }}
-              />
+              {renderTopAccentBar()}
 
               {/* Subtle Non-Printing 297mm A4 Height Limit Boundary Guide Line — Rendered ONLY when sheet actually overflows 297mm */}
               {showPageBreakGuides !== false && overflowingSheets[sheetIdx] === true && (
@@ -4960,7 +5297,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               isFullBleed
                 ? 'quotation-full-bleed-sheet p-0 print:p-0 overflow-hidden h-[297mm]'
                 : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
-            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 font-sans box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 ${
+            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 ${
               isLastAnnexSheet
                 ? 'quotation-last-sheet print:break-after-avoid'
                 : 'print:break-after-page'
@@ -4976,10 +5313,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             ) : (
               <>
                 {/* Top Accent Stripe */}
-                <div
-                  className="top-accent-bar absolute top-0 left-0 right-0 h-2 w-full print:w-full"
-                  style={{ backgroundColor: accentColor }}
-                />
+                {renderTopAccentBar()}
 
                 {/* Continuation Running Header for Technical Annex */}
                 <div className="w-full">
