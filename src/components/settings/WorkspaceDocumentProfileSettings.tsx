@@ -3316,8 +3316,9 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
             setRawProfileSnapshot(savedProfile);
             if (savedProfile.id) setProfileId(savedProfile.id);
             if (savedProfile.legal_entity_name) setLegalEntityName(savedProfile.legal_entity_name);
-            if (savedProfile.tax_registration_number !== undefined) {
-              setTrn(savedProfile.tax_registration_number || '');
+            const nextTrn = savedProfile.trn ?? (savedProfile as any).tax_registration_number;
+            if (nextTrn !== undefined) {
+              setTrn(nextTrn || '');
             }
             if (savedProfile.address_line_1 !== undefined) setAddressLine1(savedProfile.address_line_1 || '');
             if (savedProfile.address_line_2 !== undefined) setAddressLine2(savedProfile.address_line_2 || '');

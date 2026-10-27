@@ -2796,12 +2796,25 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         activeProfile?.signature_image_url ||
         '';
 
+      const getHeaderFieldOverride = (fieldId: string): string | undefined => {
+        const found = headerConfig.headerFields?.find((f) => f.id === fieldId);
+        return found?.valueOverride !== undefined && found.valueOverride.trim() !== ''
+          ? found.valueOverride.trim()
+          : undefined;
+      };
+
+      const resolvedTrn =
+        getHeaderFieldOverride('trn') ??
+        activeProfile?.trn ??
+        (activeProfile as any)?.tax_registration_number ??
+        '';
+
       const updatedProfilePayload: WorkspaceDocumentProfile = {
         ...(activeProfile || {}),
         id: activeProfile?.id || `doc_prof_${activeWorkspaceId}`,
         workspace_id: activeWorkspaceId,
         legal_entity_name:
-          senderOverride?.legal_entity_name ||
+          getHeaderFieldOverride('company_name') ||
           activeProfile?.legal_entity_name ||
           activeWorkspace?.name ||
           'Corporate Entity',
@@ -2811,22 +2824,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         stamp_seal_url: resolvedSealUrl,
         signature_image_url: resolvedSigUrl,
         tax_registration_label:
-          senderOverride?.tax_registration_label ||
-          activeProfile?.tax_registration_label ||
-          'TRN / VAT Reg',
-        tax_registration_number:
-          senderOverride?.tax_registration_number ??
-          activeProfile?.tax_registration_number ??
-          '',
+          (activeProfile as any)?.tax_registration_label || 'TRN / VAT Reg',
+        trn: resolvedTrn,
+        tax_registration_number: resolvedTrn,
         address_line_1:
-          senderOverride?.address_line_1 ?? activeProfile?.address_line_1 ?? '',
-        address_line_2:
-          senderOverride?.address_line_2 ?? activeProfile?.address_line_2 ?? '',
-        city: senderOverride?.city ?? activeProfile?.city ?? '',
-        country: senderOverride?.country ?? activeProfile?.country ?? 'UAE',
-        phone: senderOverride?.phone ?? activeProfile?.phone ?? '',
-        email: senderOverride?.email ?? activeProfile?.email ?? '',
-        website: senderOverride?.website ?? activeProfile?.website ?? '',
+          getHeaderFieldOverride('address') ?? activeProfile?.address_line_1 ?? '',
+        address_line_2: activeProfile?.address_line_2 ?? '',
+        city: activeProfile?.city ?? '',
+        country: activeProfile?.country ?? 'UAE',
+        phone: getHeaderFieldOverride('phone') ?? activeProfile?.phone ?? '',
+        email: getHeaderFieldOverride('email') ?? activeProfile?.email ?? '',
+        website: getHeaderFieldOverride('website') ?? activeProfile?.website ?? '',
         accent_color: customThemeColor || activeProfile?.accent_color || '#1e293b',
         theme_accent: themeAccent,
         customThemeColor: customThemeColor || undefined,
