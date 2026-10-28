@@ -16,6 +16,8 @@ import GeminiKeyModal from './GeminiKeyModal';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
+import CompositePackageEditor from './quotations/CompositePackageEditor';
+import { getKingSaudStpLineItems } from '../utils/kingSaudTankPreset';
 import {
   FileText,
   Building,
@@ -1500,7 +1502,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         include_datasheet_in_quote: item.datasheet_attachment ? true : undefined,
         lead_time_note: item.lead_time_note || '',
         option: 'Default / Included',
-        attributes: item.attributes || []
+        attributes: item.attributes || [],
+        ...(item.is_composite_set ? { is_composite_set: true } : {}),
+        ...(Array.isArray(item.sub_components) && item.sub_components.length > 0
+          ? { sub_components: item.sub_components }
+          : {}),
+        ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+        ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {})
       };
       setLineItems((prev) => [...prev, newItem]);
     }
@@ -5003,6 +5011,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={() => {
+                    const curr = (formCurrency as 'AED' | 'USD') || 'USD';
+                    const ksItems = getKingSaudStpLineItems(curr);
+                    setLineItems((prev) => {
+                      const nonEmpty = prev.filter(
+                        (li) => (li.item_name || '').trim() || (li.description || '').trim() || (Number(li.unit_price) || 0) > 0
+                      );
+                      return [...nonEmpty, ...ksItems];
+                    });
+                    if (triggerToast) {
+                      triggerToast(
+                        'Loaded King Saud Air Base STP Option A (SST) & Option B (GFS) multi-component tank sets!',
+                        'success'
+                      );
+                    }
+                  }}
+                  className="py-1.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
+                  title="Load King Saud Air Base STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component tank packages"
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span>⚡ Load King Saud STP (SST + GFS)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     setLinkingLineIndex(null);
                     setShowCatalogModal(true);
                   }}
@@ -5782,6 +5814,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         ) : (
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
                         )}
+                      </div>
+                    )}
+
+                    {/* Multi-Component Set / Package (BOM) Builder */}
+                    {!isServiceOrFee && (
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <CompositePackageEditor
+                          isCompositeSet={Boolean(
+                            item.is_composite_set ||
+                              (item.sub_components && item.sub_components.length > 0)
+                          )}
+                          subComponents={item.sub_components || []}
+                          packagePricingMode={item.package_pricing_mode || 'itemized'}
+                          optionScopeNotes={item.option_scope_notes || ''}
+                          parentQuantity={item.quantity || 1}
+                          currency={formCurrency || 'USD'}
+                          onChange={(patch) => {
+                            setLineItems((prev) => {
+                              const next = [...prev];
+                              next[index] = {
+                                ...next[index],
+                                ...patch
+                              };
+                              return next;
+                            });
+                          }}
+                        />
                       </div>
                     )}
 

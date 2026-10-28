@@ -33,7 +33,8 @@ import {
   QuotationHeaderFieldItem,
   Attachment,
   EnquiryQuotationSyncPayload,
-  Product
+  Product,
+  QuotationOptionDisplayMode
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
@@ -42,6 +43,8 @@ import SaveToCatalogModal, {
   hasCatalogDrift,
   syncLineItemToCatalogProduct
 } from '../SaveToCatalogModal';
+import CompositePackageEditor from './CompositePackageEditor';
+import { getKingSaudStpLineItems } from '../../utils/kingSaudTankPreset';
 import { db } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
@@ -1794,7 +1797,17 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
     if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
     if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
+    if (preset.option_display_mode) setOptionDisplayMode(preset.option_display_mode);
   };
+
+  const [optionDisplayMode, setOptionDisplayMode] = useState<QuotationOptionDisplayMode>(
+    editingQuotation?.option_display_mode || 'all_separate_tables'
+  );
+  const [itemCompositeOverrides, setItemCompositeOverrides] = useState<
+    Record<string, Partial<QuotationLineItem>>
+  >({});
+  const [customStudioLineItems, setCustomStudioLineItems] = useState<QuotationLineItem[] | null>(null);
+  const [expandedCompositeKey, setExpandedCompositeKey] = useState<string | null>(null);
 
   // Convert enquiry.line_items or editingQuotation.line_items to QuotationLineItem array
   const quotationLineItems = useMemo(() => {
@@ -1842,7 +1855,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
     const sourceQuotation = activeSourceQuotation || editingQuotation;
     let baseItems: QuotationLineItem[];
-    if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
+    if (customStudioLineItems && customStudioLineItems.length > 0) {
+      baseItems = customStudioLineItems;
+    } else if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
       baseItems = sourceQuotation.line_items.map((item) => {
         const { cleanDescription, extractedSpecsAttrs } =
           extractLineItemAttributesAndCleanDescription(item);
@@ -1961,7 +1976,12 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             hs_code: li.hs_code || undefined,
             availability: li.lead_time_note || 'Ex-Stock / Standard',
             is_optional: isOptionalFromOption,
+            option: optLabel || undefined,
             option_group: optLabel || undefined,
+            option_scope_notes: li.option_scope_notes || undefined,
+            is_composite_set: li.is_composite_set,
+            sub_components: li.sub_components,
+            package_pricing_mode: li.package_pricing_mode,
             attributes: itemAttrs,
             image_url: li.image_url,
             datasheet_attachment: li.datasheet_attachment,
@@ -2003,6 +2023,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         itemOptionalOverrides[itemKey] !== undefined
           ? itemOptionalOverrides[itemKey]
           : Boolean(item.is_optional);
+      const compOverride = itemCompositeOverrides[itemKey] || {};
 
       return {
         ...item,
@@ -2011,16 +2032,41 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         brand_make: item.brand_make || matchedCatalogProduct?.brand_make,
         model_part_no: item.model_part_no || matchedCatalogProduct?.model_part_no,
         country_of_origin: item.country_of_origin || matchedCatalogProduct?.country_of_origin,
-        hs_code: item.hs_code || matchedCatalogProduct?.hs_code,
+        hs_code: compOverride.hs_code ?? item.hs_code ?? matchedCatalogProduct?.hs_code,
         image_url: resolvedImageUrl,
         datasheet_attachment: resolvedDatasheet,
         include_datasheet_in_quote: resolvedIncludeDatasheet,
         is_optional: resolvedOptional,
         visible_attributes: customVisible,
-        page_break_after: customPageBreak
+        page_break_after: customPageBreak,
+        is_composite_set:
+          compOverride.is_composite_set ??
+          item.is_composite_set ??
+          matchedCatalogProduct?.is_composite_set,
+        sub_components:
+          compOverride.sub_components ??
+          item.sub_components ??
+          matchedCatalogProduct?.sub_components,
+        package_pricing_mode:
+          compOverride.package_pricing_mode ??
+          item.package_pricing_mode ??
+          matchedCatalogProduct?.package_pricing_mode,
+        option_scope_notes:
+          compOverride.option_scope_notes ??
+          item.option_scope_notes ??
+          matchedCatalogProduct?.option_scope_notes,
+        ...(compOverride.unit_price !== undefined ? { unit_price: compOverride.unit_price } : {}),
+        ...(compOverride.cost_price !== undefined ? { cost_price: compOverride.cost_price } : {}),
+        ...(compOverride.total_price !== undefined ? { total_price: compOverride.total_price } : {}),
+        ...(compOverride.item_name !== undefined ? { item_name: compOverride.item_name } : {}),
+        ...(compOverride.description !== undefined ? { description: compOverride.description } : {}),
+        ...(compOverride.option !== undefined
+          ? { option: compOverride.option, option_group: compOverride.option }
+          : {})
       };
     });
   }, [
+    customStudioLineItems,
     activeSourceQuotation,
     editingQuotation,
     enquiry?.line_items,
@@ -2029,6 +2075,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     itemImageOverrides,
     itemDatasheetToggles,
     itemOptionalOverrides,
+    itemCompositeOverrides,
     itemLinkedProductIds,
     workspaceProducts
   ]);
@@ -2162,15 +2209,32 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     });
   };
 
-  // Calculate live financial figures
+  // Calculate live financial figures based on active optionDisplayMode
   const financialTotals = useMemo(() => {
+    const itemsForTotals =
+      optionDisplayMode === 'option_b_only'
+        ? quotationLineItems
+            .filter((it) => {
+              const opt = String(it.option || it.option_group || '').trim();
+              return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
+            })
+            .map((it) => ({ ...it, is_optional: false }))
+        : optionDisplayMode === 'option_a_only'
+        ? quotationLineItems
+            .filter((it) => {
+              const opt = String(it.option || it.option_group || '').trim();
+              return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
+            })
+            .map((it) => ({ ...it, is_optional: false }))
+        : quotationLineItems;
+
     return QuotationRepository.calculateTotals(
-      quotationLineItems,
+      itemsForTotals,
       freightAmount,
       taxMode,
       taxRatePercent
     );
-  }, [quotationLineItems, freightAmount, taxMode, taxRatePercent]);
+  }, [quotationLineItems, optionDisplayMode, freightAmount, taxMode, taxRatePercent]);
 
   // Dynamic Bank Profile Registry from workspace document profile
   const bankRegistry: BankAccountProfile[] = useMemo(() => {
@@ -2511,6 +2575,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
+      option_display_mode: optionDisplayMode,
       layout_blocks: layoutBlocks,
       flyer_attachments: resolvedFlyerAttachments,
       show_submittals_index: showSubmittalsIndex,
@@ -2587,6 +2652,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     preparedBy,
     quotationSubject,
     pageMode,
+    optionDisplayMode,
     activeQuotationId,
     parentQuotationId,
     revisionNumber,
@@ -2732,6 +2798,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         subject: quotationSubject || liveQuotation.subject,
         sender_snapshot: liveQuotation.sender_snapshot,
         line_items: liveQuotation.line_items,
+        option_display_mode: optionDisplayMode,
         tax_mode: liveQuotation.tax_mode,
         subtotal: liveQuotation.subtotal,
         freight_amount: liveQuotation.freight_amount,
@@ -7475,6 +7542,120 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {/* 0. Multi-Option Table Display & King Saud STP Package Loader */}
+                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                          Multi-Option &amp; Tank Sets
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const curr = (enquiry?.currency as 'AED' | 'USD') || 'USD';
+                            const ksItems = getKingSaudStpLineItems(curr);
+                            const mapped: QuotationLineItem[] = ksItems.map((li, i) => ({
+                              id: li.id || `ks_${i}`,
+                              sku: li.sku,
+                              item_name: li.item_name || `Option ${i + 1}`,
+                              description: li.description,
+                              quantity: li.quantity,
+                              unit: li.unit,
+                              unit_price: li.unit_price,
+                              cost_price: li.cost_price,
+                              total_price: li.total_price,
+                              brand_make: li.brand_make,
+                              model_part_no: li.model_part_no,
+                              country_of_origin: li.country_of_origin,
+                              hs_code: li.hs_code,
+                              availability: li.lead_time_note,
+                              option: li.option,
+                              option_group: li.option,
+                              option_scope_notes: li.option_scope_notes,
+                              is_optional: li.option === 'Option B',
+                              is_composite_set: true,
+                              package_pricing_mode: 'itemized',
+                              sub_components: li.sub_components,
+                              attributes: li.attributes
+                            }));
+                            setCustomStudioLineItems(mapped);
+                            setOptionDisplayMode('all_separate_tables');
+                            setPriceBasis('Ex-Works');
+                            setPaymentTerms('50% Advance along with PO & 50% Before dispatch of materials');
+                            setValidityDays(30);
+                            if (!quotationSubject || quotationSubject.includes('Proposal')) {
+                              setQuotationSubject(
+                                'Proposal for Supply of Water Storage Tanks — King Saud Air Base Development STP (Option A: SST & Option B: GFS)'
+                              );
+                            }
+                            triggerToast?.(
+                              'Loaded King Saud Air Base STP (Option A: SST & Option B: GFS) multi-component tank sets!',
+                              'success'
+                            );
+                          }}
+                          className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold shadow-2xs transition cursor-pointer"
+                          title="Load King Saud Air Base STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component sets"
+                        >
+                          ⚡ Load King Saud STP (SST + GFS)
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70 mb-1">
+                          Option Table Layout Mode
+                        </label>
+                        <div className="grid grid-cols-2 gap-1">
+                          {[
+                            {
+                              id: 'all_separate_tables' as const,
+                              label: 'Option A + B Tables',
+                              desc: 'Separate titled tables'
+                            },
+                            {
+                              id: 'option_a_only' as const,
+                              label: 'Option A Only',
+                              desc: 'Show only Option 1 (SST)'
+                            },
+                            {
+                              id: 'option_b_only' as const,
+                              label: 'Option B Only',
+                              desc: 'Show only Option 2 (GFS)'
+                            },
+                            {
+                              id: 'combined_table' as const,
+                              label: 'Combined Table',
+                              desc: 'All items in 1 table'
+                            }
+                          ].map((optMode) => {
+                            const active = optionDisplayMode === optMode.id;
+                            return (
+                              <button
+                                key={optMode.id}
+                                type="button"
+                                onClick={() => setOptionDisplayMode(optMode.id)}
+                                className={`p-1.5 rounded-lg border text-left transition cursor-pointer ${
+                                  active
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                }`}
+                              >
+                                <span className="text-[10.5px] font-bold block leading-tight">
+                                  {optMode.label}
+                                </span>
+                                <span
+                                  className={`text-[9px] block mt-0.5 ${
+                                    active ? 'text-indigo-100' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {optMode.desc}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* 1. Column Visibility Toggles */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -7871,6 +8052,80 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </label>
                               )}
+
+                              {/* Multi-Component Set / BOM & Pricing Mode Quick Controls */}
+                              <div className="pt-1 border-t border-slate-200/60 space-y-1.5">
+                                <div className="flex items-center justify-between gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedCompositeKey((prev) => (prev === itemKey ? null : itemKey))
+                                    }
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+                                      Array.isArray(item.sub_components) && item.sub_components.length > 0
+                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <Layers className="w-3 h-3" />
+                                    <span>
+                                      {Array.isArray(item.sub_components) && item.sub_components.length > 0
+                                        ? `BOM Set (${item.sub_components.length} parts)`
+                                        : '+ Configure Multi-Component Set'}
+                                    </span>
+                                  </button>
+
+                                  {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setItemCompositeOverrides((prev) => ({
+                                          ...prev,
+                                          [itemKey]: {
+                                            ...(prev[itemKey] || {}),
+                                            package_pricing_mode:
+                                              item.package_pricing_mode === 'lump_sum'
+                                                ? 'itemized'
+                                                : 'lump_sum'
+                                          }
+                                        }))
+                                      }
+                                      className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9.5px] font-semibold cursor-pointer"
+                                      title="Toggle between showing individual component prices vs a single package lump-sum price"
+                                    >
+                                      {item.package_pricing_mode === 'lump_sum'
+                                        ? 'Mode: Lump-Sum Set'
+                                        : 'Mode: Itemized Rates'}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {expandedCompositeKey === itemKey && (
+                                  <div className="pt-1">
+                                    <CompositePackageEditor
+                                      compact
+                                      isCompositeSet={Boolean(
+                                        item.is_composite_set ||
+                                          (item.sub_components && item.sub_components.length > 0)
+                                      )}
+                                      subComponents={item.sub_components || []}
+                                      packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                      optionScopeNotes={item.option_scope_notes || ''}
+                                      parentQuantity={item.quantity || 1}
+                                      currency={(enquiry?.currency as string) || 'USD'}
+                                      onChange={(patch) =>
+                                        setItemCompositeOverrides((prev) => ({
+                                          ...prev,
+                                          [itemKey]: {
+                                            ...(prev[itemKey] || {}),
+                                            ...patch
+                                          }
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}

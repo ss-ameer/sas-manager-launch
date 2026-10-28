@@ -168,6 +168,12 @@ export function hasCatalogDrift(item: any, product?: Product | null): boolean {
     if (cleanItemAttrs && cleanItemAttrs !== cleanProdAttrs) return true;
   }
 
+  if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+    const itemSubsJson = JSON.stringify(item.sub_components);
+    const prodSubsJson = JSON.stringify(product.sub_components || []);
+    if (itemSubsJson !== prodSubsJson) return true;
+  }
+
   return false;
 }
 
@@ -229,6 +235,10 @@ export async function syncLineItemToCatalogProduct(
     image_url: updatedImage,
     datasheet_attachment: updatedDatasheet,
     attributes: updatedAttributes,
+    ...(item.is_composite_set !== undefined ? { is_composite_set: Boolean(item.is_composite_set) } : {}),
+    ...(Array.isArray(item.sub_components) ? { sub_components: item.sub_components } : {}),
+    ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+    ...(item.option_scope_notes !== undefined ? { option_scope_notes: item.option_scope_notes } : {}),
     search_terms: searchTerms,
     updatedAt: new Date().toISOString()
   };
@@ -270,6 +280,10 @@ export interface SaveToCatalogLineItemInput {
   image_url?: string;
   datasheet_attachment?: Attachment;
   attributes?: ProductAttribute[];
+  is_composite_set?: boolean;
+  sub_components?: any[];
+  package_pricing_mode?: 'itemized' | 'lump_sum';
+  option_scope_notes?: string;
 }
 
 interface SaveToCatalogModalProps {
@@ -518,6 +532,12 @@ export default function SaveToCatalogModal({
         image_url: imageUrl.trim() || undefined,
         datasheet_attachment: datasheetAttachment || undefined,
         attributes: cleanAttrs,
+        ...(lineItem.is_composite_set ? { is_composite_set: true } : {}),
+        ...(Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0
+          ? { sub_components: lineItem.sub_components }
+          : {}),
+        ...(lineItem.package_pricing_mode ? { package_pricing_mode: lineItem.package_pricing_mode } : {}),
+        ...(lineItem.option_scope_notes ? { option_scope_notes: lineItem.option_scope_notes } : {}),
         search_terms: searchTerms,
         is_inventoried: false,
         stock_on_hand: 0,

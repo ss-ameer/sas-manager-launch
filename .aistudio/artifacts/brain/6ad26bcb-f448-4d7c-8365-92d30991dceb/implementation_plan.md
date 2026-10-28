@@ -1,113 +1,87 @@
-# Implementation Plan: End-to-End Enquiry ↔ Catalog ↔ Quotation Synchronization & Deep-Codebase Overhaul
+# Multi-Component Package / Set System & Multi-Option Tank Quotation Plan
 
-## 1. Architectural & Functional Overview
-
-This plan addresses the **6 core UI/workflow upgrades** alongside the **6 hidden data-integrity and state-synchronization issues** uncovered during our deep-codebase audit across `EnquiryList.tsx`, `EnquiryDetail.tsx`, `EnquiryForm.tsx`, `QuotationStudioModal.tsx`, `ProductManager.tsx`, `EnquiryRepository.ts`, and `types.ts`.
-
----
-
-## 2. Pillar-by-Pillar Implementation Specification
-
-### Pillar 1: Two-Way Catalog Sync ("Save Line Item to Catalog" & "Sync to Catalog")
-- **Reusable `SaveToCatalogModal.tsx` Component (`/src/components/SaveToCatalogModal.tsx`):**
-  - Triggered from any unlinked line item (`!item.product_id`) via a `[ + Save to Catalog ]` button in `EnquiryDetail.tsx` (`Line Items` tab), `EnquiryForm.tsx` (Line Items builder), and `QuotationStudioModal.tsx` (Items Inspector).
-  - **Smart Pre-Fill Logic:**
-    - Automatically populates `Name / Title` from `item.item_name`; if `item_name` is blank, intelligently splits the leading title phrase from `item.description` (before the first ` - `, ` – `, `: `, or newline) and places the remainder into `Description`.
-    - Pre-fills `Category` (with existing category selector + inline new category input), `SKU` (auto-generated from category/name prefix or editable), `Brand / Make`, `Model / Part #`, `Selling Price` (`unit_price`), `Unit Cost Price` (`cost_price`), `Unit (UOM)`, `Lead Time / Availability` (`lead_time_note`), `Country of Origin`, `HS Code`, `Technical Attributes / Specs` (`attributes`), `Product Image` (`image_url` with Custom Bucket upload), and `Technical Datasheet` (`datasheet_attachment` with Custom Bucket upload).
-  - **Two-Way Persistence & Linking:**
-    - Writes the new `Product` document to Firestore (`products` collection) and updates top-level `products` state via `onProductsChange` / `setProducts` callback so it is immediately available across the app without a reload.
-    - Links the newly created `product.id` (plus `sku`, `image_url`, `datasheet_attachment`, `brand_make`, `model_part_no`) back onto the current line item in `EnquiryDetail`, `EnquiryForm`, or `QuotationStudioModal`.
-- **1-Click `[ Sync to Catalog ]` for Modified Linked Items (`item.product_id` exists):**
-  - Compares the line item's current commercial/technical fields (`unit_price`, `cost_price`, `unit`, `brand_make`, `model_part_no`, `country_of_origin`, `hs_code`, `lead_time_note`, `image_url`, `datasheet_attachment`, `attributes`) against the linked `Product` in `products`.
-  - Whenever any field differs from the master catalog product, displays a subtle `[ Sync to Catalog ]` button on that line item card/row.
-  - Clicking `[ Sync to Catalog ]` updates the master `Product` record in Firestore and local `products` state in 1 click and shows a confirmation toast.
+## 1. Architectural Overview & Goal
+Enable the Enquiries, Products Catalog, and Quotation Studio to natively build, price, and render **Multi-Component Packages / Composite Sets** (where a single parent system such as a Water Storage Tank Package consists of multiple priced sub-components + included zero-rate accessories) across **multiple commercial options (Option A: SST vs. Option B: GFS)** within a single quotation, complete with a **1-Click Pre-Loaded King Saud Air Base Development STP** template.
 
 ---
 
-### Pillar 2: Inline Line Items Editor & Legacy Title Handling (`EnquiryDetail.tsx` & `EnquiryForm.tsx`)
-- **Legacy Blank Title Helper & Auto-Display:**
-  - When rendering or editing a line item whose `item_name` is empty while `description` contains a combined heading + specification (e.g., `"SAND MEDIA FOR 30x72 - Media per Tank: Silica Fine Sand..."`), display the parsed title in read view and provide a 1-click `[ Split Title & Spec ]` button inside `Quick Edit` (plus a bulk `[ Clean Up Legacy Titles ]` action in the Line Items toolbar when legacy items are detected) that cleanly extracts the leading title into `item_name` and retains the detailed spec body in `description`.
-  - Add the `Item Name / Heading` input field to `EnquiryForm.tsx` line item cards so `EnquiryForm` and `EnquiryDetail` have 100% field parity.
-- **Full Field Parity in `EnquiryDetail.tsx` Inline Editor (`Line Items` tab):**
-  - Expand the inline `Quick Edit` panel on each line item card to support editing all commercial, technical, and media fields:
-    - **Commercial & Option:** `Item Name / Heading`, `Option Designation` (`Baseline / All`, `Option A`, `Option B`, `Optional / Add-On`), `Item Type` (`Standard` / `Custom`), `Quantity`, `Unit (UOM)`, `Selling Price`, `Unit Cost Price`, `Lead Time / Availability`.
-    - **Technical Metadata:** `Brand / Make`, `Model / Part #`, `Country of Origin`, `HS Code`.
-    - **Media & Datasheets:** Direct **Product Image** upload (via Custom Bucket `uploadCustomFile` with client-side compression or URL input) and **Technical Datasheet** upload/link with the `Include in Quote Annex` checkbox.
-    - **Technical Specification Attributes:** Interactive Key/Value attribute pill editor (`+ Add Spec`, edit key/value, remove pill).
+## 2. Core Data Model Upgrades (`/src/types.ts`)
+
+### 2.1 Sub-Component / BOM Item Schema (`LineItemComponent`)
+Introduce a dedicated `LineItemComponent` interface shared across `LineItem`, `QuotationLineItem`, and `Product`:
+- `id: string`
+- `sn_label?: string` (e.g., `1.1`, `1.2` or bullet for included accessories)
+- `item_name: string` (e.g., `SST 475-60; Dia : 16.04m ; Ht : 6.0m ; Gross Cap : 1219KL` or `HDG FLANGED OUTLET 600MM (RF PAD & E TABLE) HDG SIDE`)
+- `remark?: string` (e.g., `Equalization Tank (Closed Type Roof)`, `Anoxic Tanks (Open Roof)`, `TSE Tanks (Closed Type Roof)`)
+- `specifications?: string` (dimensions, roof type, capacity, or technical note)
+- `quantity: number` (e.g., `1`, `3`, `2`, `17`, `4`, `8`)
+- `unit: string` (e.g., `NOS`, `SET`, `LOT`)
+- `cost_price?: number` (Supplier Ex-Works unit rate, e.g., `$45,500.00`)
+- `markup_percent?: number` (Optional markup % over supplier cost to auto-calculate selling unit rate)
+- `unit_price: number` (Client selling unit rate)
+- `total_price: number` (`quantity * unit_price`)
+- `is_included_accessory?: boolean` (When `true`, renders the component with its quantity in the package breakdown while showing `Included` instead of a separate unit rate/amount — matching the 6 HDG outlet, ladder, and airvent rows in the reference PDFs)
+
+### 2.2 Composite Package Controls on `LineItem`, `QuotationLineItem`, and `Product`
+Add composite package fields to `LineItem`, `QuotationLineItem`, and `Product`:
+- `is_composite_set?: boolean` — Marks the line item as a multi-component package/set.
+- `sub_components?: LineItemComponent[]` — Ordered list of priced tank sub-items and included accessories.
+- `package_pricing_mode?: 'itemized' | 'lump_sum'` — Controls how the package renders on the Quotation PDF:
+  - `'itemized'`: Displays each priced sub-component's `Qty`, `Unit Rate`, and `Total Amount` row-by-row inside the parent package, plus `Included` badges for zero-rate accessories, summing up to the package total.
+  - `'lump_sum'`: Displays the parent package total (`Unit Price` / `Total`) on the parent heading row while still listing all sub-components and their quantities underneath (hiding individual component unit rates on the client PDF).
+- `option_scope_notes?: string` — Option-specific technical scope & design standards block (e.g., SST Enamel Coated Zn-Al-Mg Steel & PVC Liner spec vs. GFS Glass-Fused-To-Steel AWWA D103-09 spec).
+
+### 2.3 Multi-Option Table & Filter Mode on `Quotation`
+Add option presentation settings to `Quotation`:
+- `option_display_mode?: 'all_separate_tables' | 'baseline_only' | 'option_a_only' | 'option_b_only' | 'combined_table'` (defaults to `'all_separate_tables'` when multiple options exist so Option A and Option B render as clearly titled, independent option tables with their own subtotals/totals in a single quotation, plus a live filter switcher in Quotation Studio).
 
 ---
 
-### Pillar 3: Unified & Modernized Catalog Picker (`EnquiryForm.tsx` & `EnquiryDetail.tsx`)
-- **Clean Commercial Formatting:**
-  - Replace legacy `"On Request"` and `"Unit: Custom Unit"` strings with clean tabular formatting: `AED 0.00 (Custom)` when `unit_price === 0` and clean UOM badges (`Unit: Nos`, `Unit: Set`, `Unit: Lot`, etc.).
-- **Rich Product Cards in Both Pickers:**
-  - Upgrade both the `Standard Component Catalog` modal in `EnquiryForm.tsx` and the inline `Quick Catalog Picker` drawer in `EnquiryDetail.tsx` so every catalog card displays:
-    - Product Thumbnail image (with clean SVG fallback).
-    - `SKU`, `Brand / Make`, and `Model / Part #`.
-    - Up to 3 Technical Specification pills preview (`key: value`).
-    - Selling Price, Cost Price, and Gross Margin % indicator.
-    - Color-coded **Live Stock Badges** (`Available: X`, `Low Stock: X`, `Out of Stock: 0`, or `Order / Non-Stock`).
-- **Category & Stock Filter Bar:**
-  - Add interactive Category filter buttons and Stock Availability filter buttons (`All Items`, `In Stock`, `Low Stock`) inside both Catalog Pickers for rapid filtering.
+## 3. UI & Workflow Enhancements
+
+### 3.1 Multi-Component Set / BOM Builder (`EnquiryForm.tsx`, `EnquiryDetail.tsx`, & `QuotationStudioModal.tsx`)
+1. **Package / Set Toggle & Sub-Component Table on Any Line Item**:
+   - Add a `[ 📦 Multi-Component Set / BOM ]` toggle button on every line item header in `EnquiryForm`, `EnquiryDetail` (Line Items tab), and `QuotationStudioModal`.
+   - When enabled, display an structured **Package Components & Accessories Editor** directly inside the line item card:
+     - **Batch Supplier Markup Bar**: Quick input to apply a uniform Markup % or Margin % across all sub-component `cost_price` values (or convert USD supplier costs to AED at `3.6725` / SAR at `3.75`) to compute client `unit_price` automatically, while still allowing per-component price overrides.
+     - **Pricing Display Toggle**: Instant switch between **Itemized Component Rates** (`itemized`) and **Single Package Lump-Sum** (`lump_sum`).
+     - **Sub-Component Rows**: Inline rows for `Model / Component Spec`, `Remark / Tank Purpose (e.g., Equalization Tank - Closed Roof)`, `Qty`, `UOM`, `Supplier Cost`, `Selling Rate`, `Amount`, and an `Included Accessory (Qty Only)` checkbox.
+     - **Auto-Rollup**: Automatically sums sub-component costs into the parent item's `cost_price` and sub-component selling totals into the parent item's `unit_price` / `total_price`.
+
+### 3.2 Single-Quotation Multi-Option Tables & Filter Toggle (`QuotationDocument.tsx` & `QuotationStudioModal.tsx`)
+1. **Structured Parent + Sub-Component Rendering on A4 Document (`QuotationDocument.tsx`)**:
+   - When a line item has `sub_components?.length > 0`:
+     - Render the **Parent Package Row** (`#1`, HSN/SAC code badge `73090090`, bold package title, e.g., `Supply of Secure Store Water Storage Tank (SST)` or `Glass-Fused-To-Steel (GFS) Water Storage Tank`).
+     - Render numbered/indented **Sub-Component Rows** underneath with clean typographic hierarchy:
+       - Model & dimensions (`SST 475-60; Dia : 16.04m ; Ht : 6.0m ; Gross Cap : 1219KL`)
+       - Bold **Remark** pill/line (`Remark: Equalization Tank (Closed Type Roof)`)
+       - `Qty` (`1.00`, `3.00`, `2.00`, `17.00`) and `UOM` (`NOS`)
+       - In `itemized` mode: shows each component's `Unit Price` and `Total`, and shows `Included` for accessory rows (`HDG FLANGED OUTLET 600MM`, `HDG CAGE LADDER`, `HDG GOOSE NECK AIRVENT`).
+       - In `lump_sum` mode: shows the full package price on the parent row and displays `Included (Set)` on the component rows so the client sees all technical specs and quantities without component price breakdown.
+     - Render any `option_scope_notes` (Scope of Work & Tank Design Standards) cleanly below the option table.
+2. **Option A (SST) & Option B (GFS) Separate Tables + Studio Filter Bar**:
+   - When a quotation contains multiple options (`Option A`, `Option B`, etc.), `QuotationDocument` can render:
+     - **Separate Option Tables Mode (Default)**: Renders a dedicated, clearly badged commercial table for **Option A — Secure Store Water Storage Tank (SST)** with its own Option A Total (`USD 631,250.00` or marked-up total), followed by **Option B — Glass-Fused-To-Steel (GFS) Water Storage Tank** with its own Option B Total (`USD 834,250.00` or marked-up total), plus an **Executive Option Summary Comparison Box** in the Financial Totals block so the client can approve either Option A or Option B.
+     - **Quick Option Filter Pill Bar in Quotation Studio**: Lets you switch between `Show Both Options (A & B Tables)`, `Option A Only (SST)`, or `Option B Only (GFS)` with one click if the client asks for a standalone PDF of just one option.
+
+### 3.3 1-Click Pre-Loaded "King Saud Air Base STP (SST & GFS)" Template & Catalog Bundles
+1. **Ready-to-Use King Saud Air Base STP Generator (`src/utils/kingSaudTankPreset.ts`)**:
+   - Include the exact, complete dataset from both attached PDFs (`26-27/SQ/1898` SST Offer and `26-27/SQ/1899` GFS Offer):
+     - **Option A — Supply of Secure Store Water Storage Tank (SST)** (`HSN: 73090090`, Base Value `USD 631,250.00`):
+       - All 8 priced SST tanks (`SST 475-60` $45,500 × 1, `SST 85-48` $13,500 × 3, `SST 310-60` $29,750 × 3, `SST 155-48` $17,500 × 3, `SST 70-48` $12,000 × 1, `SST 105-48` $16,000 × 1, `SST 1720-84` $173,500 × 2, `SST 70-36` $9,500 × 3)
+       - All 6 included HDG accessories with exact quantities (`17`, `4`, `8`, `2`, `3`, `17`)
+       - SST Scope of Work & Design Standards + Commercial Terms
+     - **Option B — Glass-Fused-To-Steel (GFS) Water Storage Tank** (`HSN: 73090090`, Base Value `USD 834,250.00`):
+       - All 8 priced GFS tanks (`GFS475-60` $59,500 × 1, `GFS85-48` $18,000 × 3, `GFS310-60` $40,000 × 3, `GFS155-48` $23,250 × 3, `GFS70-48` $16,000 × 1, `GFS105-48` $21,500 × 1, `GFS1720-84` $228,000 × 2, `GFS70-36` $12,500 × 3)
+       - All 6 included HDG accessories with exact quantities (`17`, `4`, `8`, `2`, `3`, `17`)
+       - GFS Scope of Work & Design Standards + Commercial Terms
+   - Expose a prominent **`[ ⚡ Load King Saud STP Tank Package (SST + GFS) ]`** action button in the **Enquiries & Quotes** header and inside **Enquiry Form / Quotation Studio** so you can immediately create or populate the Enquiry and open it in Quotation Studio ready to apply your markup, toggle itemized vs. lump-sum, and export the PDF.
+   - Support saving any multi-component line item set to the **Products Catalog** via `SaveToCatalogModal` so reusable tank/equipment packages retain their full `sub_components` BOM.
 
 ---
 
-### Pillar 4: `EnquiryForm.tsx` Modal Layout & On-the-Fly Company / Contact Creation
-- **Sticky Top Quick-Jump Section Bar:**
-  - Preserve the left-hand split-pane RFQ PDF/Image viewer and add a sticky top **Quick-Jump Section Bar** inside the right-hand form pane:
-    - `1. Metadata & Client` | `2. Scope & Specs` | `3. Line Items (N)` | `4. Terms & Files`
-  - Clicking any tab smoothly scrolls the form container to that section (`scrollIntoView({ behavior: 'smooth' })`) and highlights the active section.
-- **On-the-Fly Company & Contact Registry Saving (Inline Buttons + Auto-Prompt on Submit):**
-  - **Inline Quick-Save Buttons:**
-    - When the user types a `Client / Company Name` that does not match an existing company in `companies`, render a prominent `[ + Save to Companies Registry ]` button directly beside the Company input that creates the `Company` record in Firestore and links `company_id` immediately.
-    - Replace the hidden 3-dot contact menu with a clean combo input/selector for `Contact Person` (`Name`, `Phone`, `Email`) and a visible `[ + Save Contact ]` button whenever a new contact name/phone/email is entered for the selected company.
-  - **Auto-Prompt on Submit:**
-    - If the user clicks `Save Enquiry` while a new unlinked Company name or new Contact Person is typed in the fields, instead of blocking with a browser alert, present a clean confirmation modal offering to **Auto-Register Company & Contact and Save Enquiry** in a single step.
-
----
-
-### Pillar 5: Subtotal vs. VAT Financial Clarity (`EnquiryDetail.tsx`)
-- **Summary Cards on Both `Details` and `Line Items` Tabs:**
-  - Update the financial summary strip in both tabs to clearly break down:
-    - **Subtotal (Excl. VAT):** Sum of baseline/active option selling prices (`tabular-nums`).
-    - **VAT (5%):** Calculated at 5% (or synced with the active quotation's `tax_mode` / `tax_rate` when a formal quote exists).
-    - **Total Package (Incl. VAT):** Grand total in AED (with secondary USD equivalent when currency is USD).
-    - **Profitability Strip:** `Total Cost (Excl. VAT)`, `Gross Profit (Excl. VAT)`, and `Gross Margin %` (computed strictly on Excl. VAT subtotal vs. cost so VAT never distorts margin math).
-
----
-
-### Pillar 6: Null-Safe Controlled Inputs (`?? ''`)
-- **Zero React Controlled/Uncontrolled Warnings:**
-  - Audit and update all `<input>`, `<textarea>`, and `<select>` elements across `ProductManager.tsx`, `EnquiryForm.tsx`, `EnquiryDetail.tsx`, and `QuotationStudioModal.tsx` so every `value` prop uses nullish coalescing (`value={field ?? ''}`) and numeric inputs safely format `value={numField ?? ''}`.
-
----
-
-### Pillar 7: Proactive Deep-Codebase Bug Fixes & Pipeline Hardening
-1. **Multi-Option & Optional Add-On Math Fix (`EnquiryDetail.tsx` & `QuotationStudioModal.tsx`):**
-   - In `EnquiryDetail.tsx`, compute baseline deal totals (`Subtotal`, `Cost`, `Gross Profit`, `Margin %`) using the active selected option filter (or `Baseline / All` + `Option A` when viewing `'all'`), excluding alternative options (`Option B`, `Option C`) and `'Optional / Add-On'` items from the baseline sum while showing an explicit `+ Optional / Alternatives` note when present.
-   - When creating a formal quote or syncing line items to `QuotationStudioModal.tsx`, map `item.option === 'Optional / Add-On'` or alternative options (`Option B`, `Option C`) to `is_optional: true` and `option_group: item.option` on `QuotationLineItem`, ensuring `QuotationRepository.calculateTotals` excludes them from the mandatory baseline subtotal and marks them clearly as Optional in the quotation table.
-2. **Inline State Reactivity Fix (`EnquiryDetail.tsx`):**
-   - Update `optionAnalysis` and `filteredLineItems` in `EnquiryDetail.tsx` to read from `currentEnquiry.line_items` (local state) instead of the parent `enquiry.line_items` prop so inline edits, catalog quick-adds, and title splits reflect instantaneously.
-   - Pass `setProducts` / `onProductsChange` into `EnquiryDetail.tsx` and `QuotationStudioModal.tsx` so two-way catalog sync updates global state immediately.
-3. **AI Extraction & Smart Clipboard Catalog Auto-Linking (`EnquiryForm.tsx`):**
-   - Update `applyExtractedData` and `parseInstantSmartTextData` to populate `item_name` (splitting leading title from description if needed), `brand_make`, `model_part_no`, `country_of_origin`, `lead_time_note`, and `cost_price`.
-   - Automatically cross-reference extracted line items against `products` (by matching `sku`, `model_part_no`, or exact `name`) to auto-link `product_id`, `image_url`, `datasheet_attachment`, and `cost_price` when a catalog match is found.
-4. **USD / AED Currency Normalization (`EnquiryList.tsx` & `EnquiryDetail.tsx`):**
-   - Fix `EnquiryList.tsx` KPI pipeline summation so USD quotations (`quote.currency === 'USD'`) convert `grand_total * 3.6725` before adding to `activePipelineValueAed`.
-   - Fix `handleAcceptQuotation` in `EnquiryDetail.tsx` so accepting a USD quotation converts `value_aed` properly (`grand_total * 3.6725`) while preserving `currency: 'USD'` and `exchange_rate: 3.6725`.
-5. **Enquiry Cloning & Revision Chain Cleanup (`EnquiryDetail.tsx`):**
-   - Update `handleCreateRevision` so cloned revision enquiries reset `status: 'Active'`, `stock_reserved: false`, `project_id: undefined`, `project_number: undefined`, `wonAt: undefined`, `lostAt: undefined`, and initialize a clean `statusHistory` entry.
-   - Filter out soft-deleted enquiries (`!e.is_deleted`) from `revisionChain`.
-6. **Consistent Stock Reservation on Status Change (`EnquiryList.tsx`):**
-   - Wire `reserveEnquiryStock` and `releaseEnquiryStock` into `EnquiryList.tsx` (`handleStatusChange`) so changing an enquiry's status to/from `'Won / Approved'` or `'Order Received'` from the main table reserves/releases stock identically to `EnquiryDetail.tsx`.
-
----
-
-## 3. Files to Create / Modify
-
-1. `/src/components/SaveToCatalogModal.tsx` *(New)* — Pre-filled modal for saving custom line items to the Products Catalog and syncing modified linked items back to Firestore.
-2. `/src/components/EnquiryDetail.tsx` — Two-way catalog sync buttons, expanded inline `Quick Edit` with full field parity + media uploads, legacy title parser, unified catalog picker filters, Subtotal/VAT/Total summary cards, multi-option math fix, and local state reactivity fixes.
-3. `/src/components/EnquiryForm.tsx` — Sticky Quick-Jump section bar, inline `[ + Save to Companies Registry ]` and `[ + Save Contact ]` buttons + submit auto-prompt modal, `item_name` field + `[ + Save to Catalog ]` on line items, upgraded Catalog Picker modal, AI extraction catalog auto-matching, and null-safe inputs.
-4. `/src/components/quotations/QuotationStudioModal.tsx` — `[ + Save to Catalog ]` and `[ Sync to Catalog ]` actions in the Line Items inspector, plus multi-option / `is_optional` mapping from Enquiry line items.
-5. `/src/components/EnquiryList.tsx` — USD-to-AED conversion fix in KPI pipeline calculations and consistent stock reservation in `handleStatusChange`.
-6. `/src/components/ProductManager.tsx` & `/src/App.tsx` — Null-safe controlled inputs check and passing `setProducts` to `EnquiryDetail` / `QuotationStudioModal`.
+## 4. Verification Plan
+1. Verify TypeScript compilation (`compile_applet`) with zero errors.
+2. Verify creating/loading the **King Saud Air Base Development STP** enquiry populates both Option A (SST — USD 631,250.00) and Option B (GFS — USD 834,250.00) with all 8 priced tank rows and 6 included accessory rows.
+3. Verify applying a supplier markup % updates all component selling rates and package totals, and toggling between **Itemized Component Prices** and **Lump-Sum Package Price** updates the A4 Quotation preview cleanly.
+4. Verify switching the **Option Filter** in Quotation Studio (`Both Option A & B Tables`, `Option A Only`, `Option B Only`) accurately updates the A4 document tables and totals block.

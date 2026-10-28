@@ -347,6 +347,28 @@ export interface ProductAttribute {
   value: string;
 }
 
+export interface LineItemComponent {
+  id: string;
+  sn?: string;
+  item_name: string;
+  remark?: string;
+  description?: string;
+  quantity: number;
+  unit: string;
+  cost_price?: number;
+  unit_price: number;
+  total_price: number;
+  is_included_accessory?: boolean;
+  product_id?: string;
+  sku?: string;
+}
+
+export type QuotationOptionDisplayMode =
+  | 'all_separate_tables'
+  | 'option_a_only'
+  | 'option_b_only'
+  | 'combined_table';
+
 export interface LineItem {
   id?: string;
   product_id?: string;
@@ -371,6 +393,10 @@ export interface LineItem {
   include_datasheet_in_quote?: boolean;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
+  option_scope_notes?: string;
+  is_composite_set?: boolean;
+  sub_components?: LineItemComponent[];
+  package_pricing_mode?: 'itemized' | 'lump_sum';
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
 }
@@ -771,6 +797,10 @@ export interface Product extends SoftDeleteFields {
   cost_price?: number;
   cost_price_aed?: number;
   search_terms?: string[];
+  is_composite_set?: boolean;
+  sub_components?: LineItemComponent[];
+  package_pricing_mode?: 'itemized' | 'lump_sum';
+  option_scope_notes?: string;
 }
 
 export const getInitials = (name?: string | null): string => {
@@ -1058,6 +1088,13 @@ export interface QuotationLineItem {
   datasheet_attachment?: Attachment;
   include_datasheet_in_quote?: boolean;
   is_optional?: boolean;
+  option?: string;
+  option_group?: string;
+  option_scope_notes?: string;
+  is_composite_set?: boolean;
+  sub_components?: LineItemComponent[];
+  package_pricing_mode?: 'itemized' | 'lump_sum';
+  cost_price?: number;
   attributes?: QuotationItemAttribute[];
   technical_attributes?: QuotationItemAttribute[] | Record<string, string>;
   visible_attributes?: string[];
@@ -1459,6 +1496,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
+  option_display_mode?: QuotationOptionDisplayMode;
   custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
@@ -1572,6 +1610,7 @@ export interface Quotation extends SoftDeleteFields {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
+  option_display_mode?: QuotationOptionDisplayMode;
   layout_blocks?: QuotationBlockConfig[];
   flyer_attachments?: Attachment[];
   show_submittals_index?: boolean;

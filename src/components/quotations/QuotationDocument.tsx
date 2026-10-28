@@ -1878,9 +1878,31 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     profile?.footerLayoutMode ||
     'split';
 
+  const resolvedOptionDisplayMode =
+    quotation.option_display_mode ||
+    (quotation as any).presentation_preset?.option_display_mode ||
+    'all_separate_tables';
+
   const rawLineItems: QuotationLineItem[] = React.useMemo(() => {
-    return quotation.line_items || [];
-  }, [quotation.line_items]);
+    const all = quotation.line_items || [];
+    if (resolvedOptionDisplayMode === 'option_a_only') {
+      return all
+        .filter((it) => {
+          const opt = String(it.option || it.option_group || '').trim();
+          return !opt || opt === 'Default / Included' || /^option\s*a\b/i.test(opt) || /^option\s*1\b/i.test(opt);
+        })
+        .map((it) => ({ ...it, is_optional: false }));
+    }
+    if (resolvedOptionDisplayMode === 'option_b_only') {
+      return all
+        .filter((it) => {
+          const opt = String(it.option || it.option_group || '').trim();
+          return !opt || opt === 'Default / Included' || /^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt);
+        })
+        .map((it) => ({ ...it, is_optional: false }));
+    }
+    return all;
+  }, [quotation.line_items, resolvedOptionDisplayMode]);
 
   const hasExplicitLayoutBlocks = Boolean(
     (layoutBlocks && layoutBlocks.length > 0) ||
@@ -3136,6 +3158,39 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 {renderBlockSectionHeader(blockConfig, blockConfig.titleOverride, DollarSign)}
               </div>
             )}
+            {(() => {
+              const optionSummaryMap = new Map<string, number>();
+              rawLineItems.forEach((it) => {
+                const rawOpt = String(it.option || it.option_group || '').trim();
+                if (/^option\s*[a-z0-9]/i.test(rawOpt)) {
+                  const lineVal = Number(it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0));
+                  optionSummaryMap.set(rawOpt, (optionSummaryMap.get(rawOpt) || 0) + lineVal);
+                }
+              });
+              if (optionSummaryMap.size > 1) {
+                return (
+                  <div className="mb-1.5 pb-1.5 border-b border-slate-200 space-y-1">
+                    <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
+                      Commercial Option Summary
+                    </div>
+                    {Array.from(optionSummaryMap.entries()).map(([optName, optTotal], oIdx) => (
+                      <div
+                        key={optName}
+                        className="flex justify-between items-center py-0.5 text-[var(--block-base)]"
+                      >
+                        <span className="font-semibold text-slate-700">
+                          {optName} ({oIdx === 0 ? 'Baseline Offer' : 'Alternative Offer'}):
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-slate-900">
+                          {formatCurrency(optTotal)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              return null;
+            })()}
             {vis.subtotal !== false && (
               <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
                 <span>{labels.subtotal || 'Subtotal'}:</span>
@@ -5046,6 +5101,65 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         ? 'rounded-none'
         : 'rounded-lg';
 
+    const distinctOptionGroups = Array.from(
+      new Set(
+        pageItems
+          .map((it) => String(it.option || it.option_group || '').trim())
+          .filter((opt) => /^option\s*[a-z0-9]/i.test(opt))
+      )
+    );
+
+    const shouldSplitByOptionTables =
+      resolvedOptionDisplayMode === 'all_separate_tables' && distinctOptionGroups.length > 1;
+
+    const tableGroups: Array<{
+      optionKey: string;
+      optionBannerTitle?: string;
+      items: QuotationLineItem[];
+    }> = shouldSplitByOptionTables
+      ? (() => {
+          const groups: Array<{
+            optionKey: string;
+            optionBannerTitle?: string;
+            items: QuotationLineItem[];
+          }> = [];
+          const baselineWithoutOption = pageItems.filter((it) => {
+            const opt = String(it.option || it.option_group || '').trim();
+            return !/^option\s*[a-z0-9]/i.test(opt);
+          });
+          if (baselineWithoutOption.length > 0) {
+            groups.push({
+              optionKey: 'baseline',
+              optionBannerTitle: 'BASELINE COMMERCIAL SCHEDULE',
+              items: baselineWithoutOption
+            });
+          }
+          distinctOptionGroups.forEach((optGroup, gIdx) => {
+            const groupItems = pageItems.filter(
+              (it) => String(it.option || it.option_group || '').trim().toLowerCase() === optGroup.toLowerCase()
+            );
+            if (groupItems.length > 0) {
+              const firstTitle = groupItems[0]?.item_name || '';
+              groups.push({
+                optionKey: optGroup,
+                optionBannerTitle: `OPTION ${gIdx + 1} (${optGroup.toUpperCase()})${firstTitle ? ` — ${firstTitle}` : ''}`,
+                items: groupItems
+              });
+            }
+          });
+          return groups;
+        })()
+      : [
+          {
+            optionKey: 'all',
+            optionBannerTitle:
+              distinctOptionGroups.length === 1 && resolvedOptionDisplayMode !== 'combined_table'
+                ? `${distinctOptionGroups[0].toUpperCase()} — ${pageItems[0]?.item_name || 'COMMERCIAL SCHEDULE'}`
+                : undefined,
+            items: pageItems
+          }
+        ];
+
     return (
       <section
         ref={!isContinuation ? tableRef : undefined}
@@ -5077,396 +5191,605 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             {isTableSelected ? 'Editing Table Layout' : 'Click to Inspect Table'}
           </div>
         )}
-        <div
-          className={`${
-            isMinimal
-              ? 'border-b border-slate-200/80 rounded-none'
-              : `${resolvedTableRadiusClass} border border-slate-200`
-          } overflow-hidden w-full`}
-          style={{ width: '100%', maxWidth: '100%' }}
-        >
-          <table
-            className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
-            style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
-          >
-            <colgroup>
-              <col style={{ width: tableColLayout.widths.sl }} />
-              {showImageColumn && <col style={{ width: tableColLayout.widths.image }} />}
-              <col style={{ width: tableColLayout.widths.description }} />
-              <col style={{ width: tableColLayout.widths.qty }} />
-              {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
-              {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
-              {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
-            </colgroup>
-            <thead style={{ display: 'table-header-group' }}>
-              {(() => {
-                const isSolidHdr = resolvedTableHeaderStyle === 'solid';
-                const isUnderlineHdr = resolvedTableHeaderStyle === 'underline';
-                const isMinimalHdr = resolvedTableHeaderStyle === 'minimal';
-                const thTextColor = isSolidHdr ? '#ffffff' : themePalette.textAccent;
-                const thBorderClass = isSolidHdr
-                  ? 'border-r border-white/20 last:border-r-0'
-                  : isMinimalHdr
-                  ? 'border-r-0'
-                  : 'border-r border-slate-200/80 last:border-r-0';
-                const trStyle: React.CSSProperties = isSolidHdr
-                  ? {
-                      backgroundColor: themePalette.primaryHex,
-                      borderBottom: `2px solid ${themePalette.darkHex || themePalette.primaryHex}`,
-                      color: '#ffffff',
-                      breakInside: 'avoid',
-                      pageBreakInside: 'avoid'
-                    }
-                  : isUnderlineHdr
-                  ? {
-                      backgroundColor: '#ffffff',
-                      borderBottom: `2px solid ${themePalette.primaryHex}`,
-                      color: themePalette.textAccent,
-                      breakInside: 'avoid',
-                      pageBreakInside: 'avoid'
-                    }
-                  : isMinimalHdr
-                  ? {
-                      backgroundColor: 'transparent',
-                      borderBottom: '1px solid #cbd5e1',
-                      color: themePalette.textAccent,
-                      breakInside: 'avoid',
-                      pageBreakInside: 'avoid'
-                    }
-                  : {
+        <div className="space-y-4 w-full" style={{ width: '100%', maxWidth: '100%' }}>
+          {tableGroups.map((group, groupIdx) => {
+            const groupTotal = group.items.reduce(
+              (acc, it) =>
+                acc +
+                Number(
+                  it.total_price ??
+                    it.line_total ??
+                    (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
+                ),
+              0
+            );
+            const groupScopeNotes = group.items
+              .map((it) => (it.option_scope_notes || '').trim())
+              .filter(Boolean);
+
+            return (
+              <div
+                key={group.optionKey || groupIdx}
+                className={`${
+                  isMinimal
+                    ? 'border-b border-slate-200/80 rounded-none'
+                    : `${resolvedTableRadiusClass} border border-slate-200`
+                } overflow-hidden w-full break-inside-avoid-page`}
+                style={{ width: '100%', maxWidth: '100%' }}
+              >
+                {group.optionBannerTitle && (
+                  <div
+                    className={`px-3 py-1.5 border-b flex items-center justify-between gap-2 ${tableHeadingSize} font-extrabold uppercase tracking-wider`}
+                    style={{
                       backgroundColor: themePalette.tintStrongBg,
-                      borderBottom: `2px solid ${themePalette.primaryHex}`,
-                      color: themePalette.textAccent,
-                      breakInside: 'avoid',
-                      pageBreakInside: 'avoid'
-                    };
+                      borderColor: themePalette.primaryHex,
+                      color: themePalette.textAccent
+                    }}
+                  >
+                    <span>{group.optionBannerTitle}</span>
+                    {group.items[0]?.hs_code && (
+                      <span className="font-mono text-[9px] px-2 py-0.5 rounded bg-white/90 border border-slate-300 text-slate-800 shrink-0">
+                        HSN/SAC Code: {group.items[0].hs_code}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <table
+                  className={`w-full border-collapse table-fixed text-left ${tableFontSize}`}
+                  style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
+                >
+                  <colgroup>
+                    <col style={{ width: tableColLayout.widths.sl }} />
+                    {showImageColumn && <col style={{ width: tableColLayout.widths.image }} />}
+                    <col style={{ width: tableColLayout.widths.description }} />
+                    <col style={{ width: tableColLayout.widths.qty }} />
+                    {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
+                    {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
+                    {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
+                  </colgroup>
+                  <thead style={{ display: 'table-header-group' }}>
+                    {(() => {
+                      const isSolidHdr = resolvedTableHeaderStyle === 'solid';
+                      const isUnderlineHdr = resolvedTableHeaderStyle === 'underline';
+                      const isMinimalHdr = resolvedTableHeaderStyle === 'minimal';
+                      const thTextColor = isSolidHdr ? '#ffffff' : themePalette.textAccent;
+                      const thBorderClass = isSolidHdr
+                        ? 'border-r border-white/20 last:border-r-0'
+                        : isMinimalHdr
+                        ? 'border-r-0'
+                        : 'border-r border-slate-200/80 last:border-r-0';
+                      const trStyle: React.CSSProperties = isSolidHdr
+                        ? {
+                            backgroundColor: themePalette.primaryHex,
+                            borderBottom: `2px solid ${themePalette.darkHex || themePalette.primaryHex}`,
+                            color: '#ffffff',
+                            breakInside: 'avoid',
+                            pageBreakInside: 'avoid'
+                          }
+                        : isUnderlineHdr
+                        ? {
+                            backgroundColor: '#ffffff',
+                            borderBottom: `2px solid ${themePalette.primaryHex}`,
+                            color: themePalette.textAccent,
+                            breakInside: 'avoid',
+                            pageBreakInside: 'avoid'
+                          }
+                        : isMinimalHdr
+                        ? {
+                            backgroundColor: 'transparent',
+                            borderBottom: '1px solid #cbd5e1',
+                            color: themePalette.textAccent,
+                            breakInside: 'avoid',
+                            pageBreakInside: 'avoid'
+                          }
+                        : {
+                            backgroundColor: themePalette.tintStrongBg,
+                            borderBottom: `2px solid ${themePalette.primaryHex}`,
+                            color: themePalette.textAccent,
+                            breakInside: 'avoid',
+                            pageBreakInside: 'avoid'
+                          };
 
-                return (
-                  <tr className="font-semibold border-b" style={trStyle}>
-                    <th
-                      className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
-                      style={{ color: thTextColor }}
-                    >
-                      #
-                    </th>
-                    {showImageColumn && (
-                      <th
-                        className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
-                        style={{ color: thTextColor }}
-                      >
-                        Image
-                      </th>
-                    )}
-                    <th
-                      className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-left`}
-                      style={{ color: thTextColor }}
-                    >
-                      Description &amp; Technical Specifications
-                    </th>
-                    <th
-                      className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
-                      style={{ color: thTextColor }}
-                    >
-                      Qty
-                    </th>
-                    {showUom && (
-                      <th
-                        className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
-                        style={{ color: thTextColor }}
-                      >
-                        UOM
-                      </th>
-                    )}
-                    {showUnitPrice && (
-                      <th
-                        className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-right whitespace-nowrap`}
-                        style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: thTextColor }}
-                      >
-                        Unit Price
-                      </th>
-                    )}
-                    {showLineTotal && (
-                      <th
-                        className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
-                        style={{ paddingRight: '16px', color: thTextColor }}
-                      >
-                        Total ({currency})
-                      </th>
-                    )}
-                  </tr>
-                );
-              })()}
-            </thead>
-            <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
-              {pageItems.length > 0 ? (
-                pageItems.map((item, idx) => {
-                  const itemNumber = startIndex + idx + 1;
-                  const rowSpacerMm = item.row_spacer_after_mm && item.row_spacer_after_mm > 0 ? item.row_spacer_after_mm : 0;
-                  return (
-                    <React.Fragment key={item.id || itemNumber}>
-                      <tr
-                        className={`break-inside-avoid transition-colors ${
-                          item.is_optional
-                            ? 'bg-amber-50/50 hover:bg-amber-50'
-                            : 'hover:bg-slate-50/60'
-                        }`}
-                        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                      >
-                        <td className={`${tdPad} px-1.5 text-center font-mono text-slate-500 align-top ${tableFontSize} whitespace-nowrap`}>
-                          {itemNumber}
-                        </td>
-                        {showImageColumn && (
-                          <td className={`${tdPad} px-1.5 text-center align-top`}>
-                            {item.image_url ? (
-                              <div
-                                className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
-                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                              >
-                                <img
-                                  src={item.image_url}
-                                  alt={item.item_name || `Item ${itemNumber}`}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-                            ) : (
-                              <div
-                                className="mx-auto rounded border border-dashed border-slate-200 bg-slate-50/60 flex items-center justify-center text-[8px] font-mono text-slate-400"
-                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                              >
-                                —
-                              </div>
-                            )}
-                          </td>
-                        )}
-                        <td className={`${tdPad} px-2.5 align-top break-words`}>
-                          <div className={showLineItemImages && lineItemImageLayout === 'inline' && item.image_url ? 'flex items-start gap-2.5' : ''}>
-                            {showLineItemImages && lineItemImageLayout === 'inline' && item.image_url && (
-                              <div
-                                className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
-                                style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                              >
-                                <img
-                                  src={item.image_url}
-                                  alt={item.item_name || `Item ${itemNumber}`}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
-                                <span>{item.item_name || 'Standard Line Item'}</span>
-                                {item.is_optional && (
-                                  <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
-                                    Optional
-                                  </span>
-                                )}
-                              </div>
-                          {(() => {
-                            const { cleanDescription, extractedSpecsAttrs } =
-                              extractLineItemAttributesAndCleanDescription(item);
+                      return (
+                        <tr className="font-semibold border-b" style={trStyle}>
+                          <th
+                            className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                            style={{ color: thTextColor }}
+                          >
+                            #
+                          </th>
+                          {showImageColumn && (
+                            <th
+                              className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                              style={{ color: thTextColor }}
+                            >
+                              Image
+                            </th>
+                          )}
+                          <th
+                            className={`${thPad} px-2.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-left`}
+                            style={{ color: thTextColor }}
+                          >
+                            Description &amp; Technical Specifications
+                          </th>
+                          <th
+                            className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                            style={{ color: thTextColor }}
+                          >
+                            Qty
+                          </th>
+                          {showUom && (
+                            <th
+                              className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                              style={{ color: thTextColor }}
+                            >
+                              UOM
+                            </th>
+                          )}
+                          {showUnitPrice && (
+                            <th
+                              className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-right whitespace-nowrap`}
+                              style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: thTextColor }}
+                            >
+                              Unit Price
+                            </th>
+                          )}
+                          {showLineTotal && (
+                            <th
+                              className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
+                              style={{ paddingRight: '16px', color: thTextColor }}
+                            >
+                              Total ({currency})
+                            </th>
+                          )}
+                        </tr>
+                      );
+                    })()}
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/80" style={{ display: 'table-row-group' }}>
+                    {group.items.length > 0 ? (
+                      group.items.map((item, idx) => {
+                        const itemNumber = shouldSplitByOptionTables ? idx + 1 : startIndex + idx + 1;
+                        const rowSpacerMm = item.row_spacer_after_mm && item.row_spacer_after_mm > 0 ? item.row_spacer_after_mm : 0;
+                        const hasCompositeSubRows =
+                          Array.isArray(item.sub_components) && item.sub_components.length > 0;
+                        const isItemizedSet =
+                          hasCompositeSubRows && item.package_pricing_mode !== 'lump_sum';
 
-                            return (
-                              <>
-                                {cleanDescription && (
-                                  <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line`}>
-                                    {cleanDescription}
-                                  </div>
-                                )}
-                                {/* Technical Specifications & Attributes Block */}
+                        return (
+                          <React.Fragment key={item.id || itemNumber}>
+                            <tr
+                              className={`break-inside-avoid transition-colors ${
+                                hasCompositeSubRows
+                                  ? 'bg-slate-50/90 font-semibold'
+                                  : item.is_optional
+                                  ? 'bg-amber-50/50 hover:bg-amber-50'
+                                  : 'hover:bg-slate-50/60'
+                              }`}
+                              style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                            >
+                              <td className={`${tdPad} px-1.5 text-center font-mono text-slate-600 font-bold align-top ${tableFontSize} whitespace-nowrap`}>
+                                {itemNumber}
+                              </td>
+                              {showImageColumn && (
+                                <td className={`${tdPad} px-1.5 text-center align-top`}>
+                                  {item.image_url ? (
+                                    <div
+                                      className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
+                                      style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                                    >
+                                      <img
+                                        src={item.image_url}
+                                        alt={item.item_name || `Item ${itemNumber}`}
+                                        className="w-full h-full object-contain"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className="mx-auto rounded border border-dashed border-slate-200 bg-slate-50/60 flex items-center justify-center text-[8px] font-mono text-slate-400"
+                                      style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                                    >
+                                      —
+                                    </div>
+                                  )}
+                                </td>
+                              )}
+                              <td className={`${tdPad} px-2.5 align-top break-words`}>
+                                <div className={showLineItemImages && lineItemImageLayout === 'inline' && item.image_url ? 'flex items-start gap-2.5' : ''}>
+                                  {showLineItemImages && lineItemImageLayout === 'inline' && item.image_url && (
+                                    <div
+                                      className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
+                                      style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
+                                    >
+                                      <img
+                                        src={item.image_url}
+                                        alt={item.item_name || `Item ${itemNumber}`}
+                                        className="w-full h-full object-contain"
+                                      />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
+                                      <span>{item.item_name || 'Standard Line Item'}</span>
+                                      {item.hs_code && !group.optionBannerTitle && (
+                                        <span className={`px-1.5 py-0.5 ${typoScale.micro} font-mono bg-slate-100 text-slate-700 border border-slate-200 rounded shrink-0`}>
+                                          HSN/SAC: {item.hs_code}
+                                        </span>
+                                      )}
+                                      {(item.option || item.option_group) && !shouldSplitByOptionTables && (
+                                        <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-blue-100 text-blue-900 rounded shrink-0`}>
+                                          {item.option || item.option_group}
+                                        </span>
+                                      )}
+                                      {item.is_optional && !shouldSplitByOptionTables && (
+                                        <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
+                                          Optional
+                                        </span>
+                                      )}
+                                    </div>
                                 {(() => {
-                                  if (!showItemAttributes) return null;
-                                  const allAttrs: Array<{ key: string; value: string }> = [];
-
-                                  if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
-                                    allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
-                                  }
-                                  if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
-                                    allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
-                                  }
-                                  if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
-                                    allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
-                                  }
-                                  if (showAvailability && item.availability && item.availability.trim()) {
-                                    allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
-                                  }
-
-                                  const rawAttrs: Array<{ key: string; value: string }> = [...extractedSpecsAttrs];
-                                  const itemAny = item as any;
-                                  const isRealDiffuserOrPump =
-                                    item.item_name?.toLowerCase().includes('diffuser') ||
-                                    item.item_name?.toLowerCase().includes('jackson') ||
-                                    item.item_name?.toLowerCase().includes('dosing pump') ||
-                                    item.item_name?.toLowerCase().includes('item one');
-
-                                  const isLegacySampleAttr = (k: string, v: string) => {
-                                    if (isRealDiffuserOrPump || extractedSpecsAttrs.length === 0) return false;
-                                    return (
-                                      (k === 'Size' && v === '9 Inch / DN200') ||
-                                      (k === 'Material' && v === 'EPDM Membrane / ABS Body') ||
-                                      (k === 'Connection' && v === '3/4" NPT Thread') ||
-                                      (k === 'Design Flow' && v === '2 - 5 Nm³/h') ||
-                                      (k === 'Capacity' && v === '15 LPH') ||
-                                      (k === 'Pressure' && v === '10 bar') ||
-                                      (k === 'Power Supply' && v === '220V / 50Hz / 1Ph')
-                                    );
-                                  };
-
-                                  if (Array.isArray(item.attributes)) {
-                                    item.attributes.forEach((attr) => {
-                                      if (attr && (attr.key || (attr as any).name) && attr.value) {
-                                        const k = String(attr.key || (attr as any).name).trim();
-                                        const v = String(attr.value).trim();
-                                        if (!isLegacySampleAttr(k, v)) {
-                                          rawAttrs.push({ key: k, value: v });
-                                        }
-                                      }
-                                    });
-                                  } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
-                                    Object.entries(itemAny.attributes).forEach(([k, v]) => {
-                                      if (v !== undefined && v !== null && String(v).trim() !== '') {
-                                        const kTrim = k.trim();
-                                        const vTrim = String(v).trim();
-                                        if (!isLegacySampleAttr(kTrim, vTrim)) {
-                                          rawAttrs.push({ key: kTrim, value: vTrim });
-                                        }
-                                      }
-                                    });
-                                  }
-
-                                  if (Array.isArray(itemAny.specs)) {
-                                    itemAny.specs.forEach((s: any) => {
-                                      if (s && s.key && s.value) {
-                                        rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                                      }
-                                    });
-                                  }
-
-                                  if (Array.isArray(itemAny.specifications)) {
-                                    itemAny.specifications.forEach((s: any) => {
-                                      if (s && s.key && s.value) {
-                                        rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
-                                      }
-                                    });
-                                  }
-
-                                  rawAttrs.forEach((attr) => {
-                                    const kLower = attr.key.toLowerCase();
-                                    if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
-                                      allAttrs.push(attr);
-                                    }
-                                  });
-
-                                  const itemVisibleKeys = Array.isArray(item.visible_attributes)
-                                    ? item.visible_attributes.map((k) => k.toLowerCase())
-                                    : undefined;
-                                  const itemHiddenKeys = Array.isArray(item.hidden_attributes)
-                                    ? item.hidden_attributes.map((k) => k.toLowerCase())
-                                    : undefined;
-
-                                  const visibleAttrs = allAttrs.filter((attr) => {
-                                    const kLower = attr.key.toLowerCase();
-                                    if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
-                                      return false;
-                                    }
-                                    if (itemVisibleKeys !== undefined) {
-                                      return itemVisibleKeys.includes(kLower);
-                                    }
-                                    if (itemHiddenKeys !== undefined) {
-                                      return !itemHiddenKeys.includes(kLower);
-                                    }
-                                    return true;
-                                  });
-
-                                  if (visibleAttrs.length === 0) return null;
-
-                                  if (attributeDisplayFormat === 'inline_text') {
-                                    return (
-                                      <div className={`${typoScale.sub} text-slate-600 mt-1 leading-normal`}>
-                                        <span className="font-semibold text-slate-700">Specs: </span>
-                                        {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
-                                      </div>
-                                    );
-                                  }
+                                  const { cleanDescription, extractedSpecsAttrs } =
+                                    extractLineItemAttributesAndCleanDescription(item);
 
                                   return (
-                                    <div className="flex flex-wrap gap-1.5 mt-1.5 print:mt-1">
-                                      {visibleAttrs.map((attr, aIdx) => (
-                                        <span
-                                          key={aIdx}
-                                          className={`inline-flex items-center ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
-                                        >
-                                          <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                          <span>{attr.value}</span>
-                                        </span>
-                                      ))}
-                                    </div>
+                                    <>
+                                      {cleanDescription && (
+                                        <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line font-normal`}>
+                                          {cleanDescription}
+                                        </div>
+                                      )}
+                                      {/* Technical Specifications & Attributes Block */}
+                                      {(() => {
+                                        if (!showItemAttributes) return null;
+                                        const allAttrs: Array<{ key: string; value: string }> = [];
+
+                                        if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+                                          allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
+                                        }
+                                        if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+                                          allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
+                                        }
+                                        if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+                                          allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
+                                        }
+                                        if (showAvailability && item.availability && item.availability.trim()) {
+                                          allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
+                                        }
+
+                                        const rawAttrs: Array<{ key: string; value: string }> = [...extractedSpecsAttrs];
+                                        const itemAny = item as any;
+                                        const isRealDiffuserOrPump =
+                                          item.item_name?.toLowerCase().includes('diffuser') ||
+                                          item.item_name?.toLowerCase().includes('jackson') ||
+                                          item.item_name?.toLowerCase().includes('dosing pump') ||
+                                          item.item_name?.toLowerCase().includes('item one');
+
+                                        const isLegacySampleAttr = (k: string, v: string) => {
+                                          if (isRealDiffuserOrPump || extractedSpecsAttrs.length === 0) return false;
+                                          return (
+                                            (k === 'Size' && v === '9 Inch / DN200') ||
+                                            (k === 'Material' && v === 'EPDM Membrane / ABS Body') ||
+                                            (k === 'Connection' && v === '3/4" NPT Thread') ||
+                                            (k === 'Design Flow' && v === '2 - 5 Nm³/h') ||
+                                            (k === 'Capacity' && v === '15 LPH') ||
+                                            (k === 'Pressure' && v === '10 bar') ||
+                                            (k === 'Power Supply' && v === '220V / 50Hz / 1Ph')
+                                          );
+                                        };
+
+                                        if (Array.isArray(item.attributes)) {
+                                          item.attributes.forEach((attr) => {
+                                            if (attr && (attr.key || (attr as any).name) && attr.value) {
+                                              const k = String(attr.key || (attr as any).name).trim();
+                                              const v = String(attr.value).trim();
+                                              if (!isLegacySampleAttr(k, v)) {
+                                                rawAttrs.push({ key: k, value: v });
+                                              }
+                                            }
+                                          });
+                                        } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+                                          Object.entries(itemAny.attributes).forEach(([k, v]) => {
+                                            if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                              const kTrim = k.trim();
+                                              const vTrim = String(v).trim();
+                                              if (!isLegacySampleAttr(kTrim, vTrim)) {
+                                                rawAttrs.push({ key: kTrim, vTrim });
+                                              }
+                                            }
+                                          });
+                                        }
+
+                                        if (Array.isArray(itemAny.specs)) {
+                                          itemAny.specs.forEach((s: any) => {
+                                            if (s && s.key && s.value) {
+                                              rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                            }
+                                          });
+                                        }
+
+                                        if (Array.isArray(itemAny.specifications)) {
+                                          itemAny.specifications.forEach((s: any) => {
+                                            if (s && s.key && s.value) {
+                                              rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+                                            }
+                                          });
+                                        }
+
+                                        rawAttrs.forEach((attr) => {
+                                          const kLower = attr.key.toLowerCase();
+                                          if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                                            allAttrs.push(attr);
+                                          }
+                                        });
+
+                                        const itemVisibleKeys = Array.isArray(item.visible_attributes)
+                                          ? item.visible_attributes.map((k) => k.toLowerCase())
+                                          : undefined;
+                                        const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+                                          ? item.hidden_attributes.map((k) => k.toLowerCase())
+                                          : undefined;
+
+                                        const visibleAttrs = allAttrs.filter((attr) => {
+                                          const kLower = attr.key.toLowerCase();
+                                          if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                                            return false;
+                                          }
+                                          if (itemVisibleKeys !== undefined) {
+                                            return itemVisibleKeys.includes(kLower);
+                                          }
+                                          if (itemHiddenKeys !== undefined) {
+                                            return !itemHiddenKeys.includes(kLower);
+                                          }
+                                          return true;
+                                        });
+
+                                        if (visibleAttrs.length === 0) return null;
+
+                                        if (attributeDisplayFormat === 'inline_text') {
+                                          return (
+                                            <div className={`${typoScale.sub} text-slate-600 mt-1 leading-normal font-normal`}>
+                                              <span className="font-semibold text-slate-700">Specs: </span>
+                                              {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5 print:mt-1 font-normal">
+                                            {visibleAttrs.map((attr, aIdx) => (
+                                              <span
+                                                key={aIdx}
+                                                className={`inline-flex items-center ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
+                                              >
+                                                <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                                <span>{attr.value}</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()}
+                                    </>
                                   );
                                 })()}
-                              </>
-                            );
-                          })()}
-                            </div>
-                          </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                {isItemizedSet ? '' : item.quantity}
+                              </td>
+                              {showUom && (
+                                <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
+                                  <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
+                                    {isItemizedSet ? 'SET' : item.unit || 'pcs'}
+                                  </span>
+                                </td>
+                              )}
+                              {showUnitPrice && (
+                                <td
+                                  className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                  style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                >
+                                  {isItemizedSet ? (
+                                    <span className={`${typoScale.micro} text-slate-400 uppercase font-sans font-semibold`}>
+                                      Itemized Below
+                                    </span>
+                                  ) : (
+                                    Number(item.unit_price || 0).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })
+                                  )}
+                                </td>
+                              )}
+                              {showLineTotal && (
+                                <td
+                                  className={`${tdPad} pl-3 pr-4 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                  style={{ paddingRight: '16px' }}
+                                >
+                                  {isItemizedSet ? (
+                                    <span className={`${typoScale.micro} text-slate-500 font-mono`}>
+                                      ({item.sub_components?.length} items)
+                                    </span>
+                                  ) : item.is_optional && !shouldSplitByOptionTables ? (
+                                    <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
+                                      {Number(item.total_price || 0).toLocaleString('en-US', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}{' '}
+                                      [Opt]
+                                    </span>
+                                  ) : (
+                                    Number(item.total_price || 0).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+
+                            {/* Render Sub-Components (BOM Rows + Included Accessories) */}
+                            {hasCompositeSubRows &&
+                              item.sub_components!.map((sub, subIdx) => {
+                                const subSn = `${itemNumber}.${subIdx + 1}`;
+                                const isAcc = Boolean(sub.is_included_accessory);
+                                return (
+                                  <tr
+                                    key={sub.id || subSn}
+                                    className={`break-inside-avoid ${
+                                      isAcc ? 'bg-slate-50/40 text-slate-600' : 'bg-white hover:bg-slate-50/50'
+                                    }`}
+                                    style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                                  >
+                                    <td className={`py-1.5 px-1.5 text-center font-mono text-slate-400 align-top ${typoScale.sub} whitespace-nowrap`}>
+                                      {subSn}
+                                    </td>
+                                    {showImageColumn && <td className="py-1.5 px-1.5" />}
+                                    <td className="py-1.5 px-2.5 pl-4 align-top break-words">
+                                      <div className={`${tableFontSize} font-medium text-slate-800 leading-snug`}>
+                                        {sub.item_name}
+                                      </div>
+                                      {sub.remark && (
+                                        <div className={`${typoScale.sub} font-bold text-slate-700 mt-0.5`}>
+                                          Remark : {sub.remark}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                      {Number(sub.quantity || 0).toLocaleString('en-US', {
+                                        minimumFractionDigits: sub.quantity % 1 === 0 ? 0 : 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </td>
+                                    {showUom && (
+                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                        {sub.unit || 'NOS'}
+                                      </td>
+                                    )}
+                                    {showUnitPrice && (
+                                      <td
+                                        className={`py-1.5 pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                        style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                      >
+                                        {isAcc ? (
+                                          <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
+                                        ) : item.package_pricing_mode === 'lump_sum' ? (
+                                          <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
+                                        ) : (
+                                          Number(sub.unit_price || 0).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                          })
+                                        )}
+                                      </td>
+                                    )}
+                                    {showLineTotal && (
+                                      <td
+                                        className={`py-1.5 pl-3 pr-4 text-right font-mono font-semibold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                        style={{ paddingRight: '16px' }}
+                                      >
+                                        {isAcc ? (
+                                          <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
+                                            Included
+                                          </span>
+                                        ) : item.package_pricing_mode === 'lump_sum' ? (
+                                          <span className={`${typoScale.micro} text-slate-400 italic`}>
+                                            Included in Set
+                                          </span>
+                                        ) : (
+                                          Number(sub.total_price || 0).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                          })
+                                        )}
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+
+                            {/* Inline Scope Notes for Single-Table Composite Item */}
+                            {!shouldSplitByOptionTables && item.option_scope_notes && (
+                              <tr className="bg-slate-50/70 break-inside-avoid">
+                                <td colSpan={tableColLayout.activeColumnCount} className="px-3 py-2 text-left">
+                                  <div className={`${typoScale.sub} font-bold text-slate-800 mb-0.5`}>
+                                    Technical Scope &amp; Material Notes ({item.option || item.item_name}):
+                                  </div>
+                                  <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
+                                    {item.option_scope_notes}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+
+                            {rowSpacerMm > 0 && (
+                              <tr className="quotation-row-spacer border-none" style={{ height: `${rowSpacerMm}mm` }}>
+                                <td colSpan={tableColLayout.activeColumnCount} className="p-0 border-none" />
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    ) : showEmptyPlaceholder ? (
+                      <tr>
+                        <td
+                          colSpan={tableColLayout.activeColumnCount}
+                          className="py-8 text-center text-slate-400 italic"
+                        >
+                          No line items specified for this offer.
                         </td>
-                        <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                          {item.quantity}
-                        </td>
-                        {showUom && (
-                          <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
-                            <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
-                              {item.unit || 'pcs'}
-                            </span>
-                          </td>
-                        )}
-                        {showUnitPrice && (
+                      </tr>
+                    ) : null}
+
+                    {/* Option / Package Subtotal Footer Row */}
+                    {group.items.length > 0 &&
+                      (shouldSplitByOptionTables ||
+                        group.items.some((it) => Array.isArray(it.sub_components) && it.sub_components.length > 0)) && (
+                        <tr
+                          className="border-t-2 font-bold break-inside-avoid"
+                          style={{
+                            backgroundColor: themePalette.tintBg,
+                            borderColor: themePalette.primaryHex
+                          }}
+                        >
                           <td
-                            className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                            style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                            colSpan={Math.max(1, tableColLayout.activeColumnCount - 1)}
+                            className="py-2 px-3 text-right uppercase tracking-wider text-slate-800"
                           >
-                            {Number(item.unit_price || 0).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2
-                            })}
+                            {shouldSplitByOptionTables
+                              ? `${group.optionKey.toUpperCase()} TOTAL (${currency})`
+                              : `TOTAL (${currency})`}
                           </td>
-                        )}
-                        {showLineTotal && (
-                          <td
-                            className={`${tdPad} pl-3 pr-4 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                            style={{ paddingRight: '16px' }}
-                          >
-                            {item.is_optional ? (
-                              <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
-                                [Excluded]
-                              </span>
-                            ) : (
-                              Number(item.total_price || 0).toLocaleString('en-US', {
+                          {showLineTotal && (
+                            <td
+                              className="py-2 pl-3 pr-4 text-right font-mono font-extrabold text-slate-900 tabular-nums whitespace-nowrap"
+                              style={{ paddingRight: '16px', color: themePalette.textAccent }}
+                            >
+                              {groupTotal.toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2
-                              })
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                      {rowSpacerMm > 0 && (
-                        <tr className="quotation-row-spacer border-none" style={{ height: `${rowSpacerMm}mm` }}>
-                          <td colSpan={tableColLayout.activeColumnCount} className="p-0 border-none" />
+                              })}
+                            </td>
+                          )}
                         </tr>
                       )}
-                    </React.Fragment>
-                  );
-                })
-              ) : showEmptyPlaceholder ? (
-                <tr>
-                  <td
-                    colSpan={tableColLayout.activeColumnCount}
-                    className="py-8 text-center text-slate-400 italic"
-                  >
-                    No line items specified for this offer.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                  </tbody>
+                </table>
+
+                {/* Option Scope Notes Footer Block when Split by Option Tables */}
+                {shouldSplitByOptionTables && groupScopeNotes.length > 0 && (
+                  <div className="px-3.5 py-2.5 bg-slate-50/90 border-t border-slate-200 text-left">
+                    <div className={`${typoScale.sub} font-bold text-slate-900 uppercase tracking-wide mb-1`}>
+                      Note ({group.optionKey}):
+                    </div>
+                    <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
+                      {groupScopeNotes.join('\n')}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
     );

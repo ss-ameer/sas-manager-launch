@@ -21,6 +21,8 @@ import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
 import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
+import CompositePackageEditor from './quotations/CompositePackageEditor';
+import { getKingSaudStpLineItems } from '../utils/kingSaudTankPreset';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -1475,7 +1477,13 @@ export default function EnquiryDetail({
       include_datasheet_in_quote: p.datasheet_attachment ? true : undefined,
       lead_time_note: defaultLead,
       option: activeOptionTab !== 'ALL' ? activeOptionTab : 'Default / Included',
-      attributes: p.attributes ? [...p.attributes] : []
+      attributes: p.attributes ? [...p.attributes] : [],
+      ...(p.is_composite_set ? { is_composite_set: true } : {}),
+      ...(Array.isArray(p.sub_components) && p.sub_components.length > 0
+        ? { sub_components: p.sub_components }
+        : {}),
+      ...(p.package_pricing_mode ? { package_pricing_mode: p.package_pricing_mode } : {}),
+      ...(p.option_scope_notes ? { option_scope_notes: p.option_scope_notes } : {})
     };
 
     setDraftLineItems((prev) => [...prev, newItem]);
@@ -3896,6 +3904,29 @@ export default function EnquiryDetail({
                         )}
                         <button
                           type="button"
+                          onClick={() => {
+                            const curr = (currentEnquiry.currency as 'AED' | 'USD') || 'USD';
+                            const ksItems = getKingSaudStpLineItems(curr);
+                            const baseList = isInlineEditingItems
+                              ? draftLineItems
+                              : currentEnquiry.line_items || [];
+                            setDraftLineItems([...baseList, ...ksItems]);
+                            setIsInlineEditingItems(true);
+                            if (triggerToast) {
+                              triggerToast(
+                                'Loaded King Saud Air Base STP Option A (SST) & Option B (GFS) tank packages into Line Items. Click Save Items to persist!',
+                                'success'
+                              );
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                          title="Load King Saud Air Base Development STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component tank sets"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>⚡ Load King Saud STP (SST + GFS)</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setShowQuickCatalogPicker(!showQuickCatalogPicker)}
                           className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
                         >
@@ -4571,6 +4602,31 @@ export default function EnquiryDetail({
                             </div>
                           )}
                         </div>
+
+                        {/* Multi-Component Set / BOM Editor */}
+                        <div className="pt-2 border-t border-slate-100">
+                          <CompositePackageEditor
+                            isCompositeSet={Boolean(
+                              item.is_composite_set ||
+                                (item.sub_components && item.sub_components.length > 0)
+                            )}
+                            subComponents={item.sub_components || []}
+                            packagePricingMode={item.package_pricing_mode || 'itemized'}
+                            optionScopeNotes={item.option_scope_notes || ''}
+                            parentQuantity={item.quantity || 1}
+                            currency={(currentEnquiry.currency as string) || 'USD'}
+                            onChange={(patch) => {
+                              setDraftLineItems((prev) => {
+                                const next = [...prev];
+                                next[idx] = {
+                                  ...next[idx],
+                                  ...patch
+                                };
+                                return next;
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                     );
                   })}
@@ -4824,6 +4880,69 @@ export default function EnquiryDetail({
                                       </span>
                                     ))}
                                   </div>
+                                </div>
+                              )}
+
+                              {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
+                                <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <span className="text-[10px] font-mono font-bold text-indigo-700 uppercase tracking-wider">
+                                      Multi-Component Set / BOM Breakdown ({item.sub_components.length} items • Mode: {item.package_pricing_mode === 'lump_sum' ? 'Single Package Lump-Sum' : 'Itemized Component Prices'})
+                                    </span>
+                                  </div>
+                                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                      <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono uppercase text-slate-500">
+                                          <th className="py-1.5 px-2 w-10 text-center">#</th>
+                                          <th className="py-1.5 px-2">Component Specification &amp; Remark</th>
+                                          <th className="py-1.5 px-2 w-16 text-center">Qty</th>
+                                          <th className="py-1.5 px-2 w-16 text-center">UOM</th>
+                                          <th className="py-1.5 px-2 w-28 text-right">Unit Price</th>
+                                          <th className="py-1.5 px-2 w-28 text-right">Total</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                        {item.sub_components.map((sub, sIdx) => (
+                                          <tr key={sub.id || sIdx} className={sub.is_included_accessory ? 'bg-slate-50/60 text-slate-600' : 'bg-white'}>
+                                            <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
+                                              {idx + 1}.{sIdx + 1}
+                                            </td>
+                                            <td className="py-1.5 px-2">
+                                              <div className="font-medium text-slate-800">{sub.item_name}</div>
+                                              {sub.remark && (
+                                                <div className="text-[11px] font-bold text-slate-600">
+                                                  Remark: {sub.remark}
+                                                </div>
+                                              )}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-800">
+                                              {sub.quantity}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase">
+                                              {sub.unit || 'NOS'}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-right font-mono text-slate-700">
+                                              {sub.is_included_accessory ? '—' : formatCurrency(sub.unit_price)}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900">
+                                              {sub.is_included_accessory ? (
+                                                <span className="text-[10px] font-semibold text-emerald-700">Included</span>
+                                              ) : (
+                                                formatCurrency(sub.total_price)
+                                              )}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  {item.option_scope_notes && (
+                                    <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 text-xs text-slate-700 whitespace-pre-line">
+                                      <span className="font-bold text-indigo-950 block mb-0.5">Option Technical Scope Notes:</span>
+                                      {item.option_scope_notes}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
