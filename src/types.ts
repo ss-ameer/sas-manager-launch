@@ -350,6 +350,7 @@ export interface ProductAttribute {
 export interface LineItem {
   id?: string;
   product_id?: string;
+  sku?: string;
   item_name?: string;
   item_type?: ItemType;
   charge_type?: string;
@@ -358,6 +359,7 @@ export interface LineItem {
   quantity: number;
   unit: UnitType;
   unit_price: number;
+  cost_price?: number;
   total_price: number;
   lead_time_note?: string;
   brand_make?: string;
@@ -476,10 +478,13 @@ export interface Attachment {
   fileUrl?: string;
   downloadURL?: string;
   storageKey?: string;
+  storagePath?: string;
   uploadedAt?: string;
   isLocal?: boolean;
   uploadedByUserName?: string;
   storageProvider?: 'supabase' | 'local';
+  include_in_quote_annex?: boolean;
+  custom_title?: string;
   render_as_annex_page?: boolean;
   show_title_on_annex?: boolean;
   page_placement?: 'cover_before' | 'annex_after' | 'index_only';
@@ -764,6 +769,7 @@ export interface Product extends SoftDeleteFields {
   gross_weight_kg?: number;
   storage_location?: string;
   cost_price?: number;
+  cost_price_aed?: number;
   search_terms?: string[];
 }
 
@@ -1029,7 +1035,9 @@ export interface QuotationItemAttribute {
 
 export interface QuotationLineItem {
   id?: string;
+  sn?: number;
   product_id?: string;
+  sku?: string;
   item_name: string;
   description: string;
   quantity: number;

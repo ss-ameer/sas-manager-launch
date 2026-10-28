@@ -2033,6 +2033,7 @@ export default function App() {
           setCompanies={setCompanies}
           contacts={workspaceContacts}
           salespersons={workspaceSalespersons}
+          products={workspaceProducts}
           auditLogs={auditLogs}
           user={user}
           enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!

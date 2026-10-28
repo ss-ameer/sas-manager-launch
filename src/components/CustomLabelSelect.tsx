@@ -50,7 +50,7 @@ export function CustomLabelSelect({
       <input
         type="text"
         list={listId}
-        value={value}
+        value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={`w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-800 text-slate-100 focus:border-amber-500 focus:outline-none font-medium ${className}`}

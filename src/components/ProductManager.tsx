@@ -324,7 +324,7 @@ export default function ProductManager({
     const target = prod || inventoriedProducts[0] || activeCatalogProducts[0];
     if (target) {
       setGrnProductId(target.id || '');
-      setGrnUnitCost(target.cost_price !== undefined ? target.cost_price : target.unit_price || '');
+      setGrnUnitCost(target.cost_price != null ? target.cost_price : target.unit_price ?? '');
       setGrnStorageLocation(target.storage_location || '');
     } else {
       setGrnProductId('');
@@ -338,9 +338,9 @@ export default function ProductManager({
     setGrnProductId(productId);
     const p = activeCatalogProducts.find((item) => item.id === productId);
     if (p) {
-      if (p.cost_price !== undefined && p.cost_price > 0) {
+      if (p.cost_price != null && p.cost_price > 0) {
         setGrnUnitCost(p.cost_price);
-      } else if (p.unit_price !== undefined && p.unit_price > 0) {
+      } else if (p.unit_price != null && p.unit_price > 0) {
         setGrnUnitCost(p.unit_price);
       } else {
         setGrnUnitCost('');
@@ -446,7 +446,7 @@ export default function ProductManager({
       setAdjustMode(isUntrackedOrZero ? 'OPENING_STOCK' : 'RECOUNT');
       setAdjustQty(target.stock_on_hand ?? 0);
       setAdjustStorageLocation(target.storage_location || '');
-      setAdjustUnitCost(target.cost_price !== undefined ? target.cost_price : '');
+      setAdjustUnitCost(target.cost_price ?? '');
     } else {
       setAdjustProductId('');
       setAdjustMode('RECOUNT');
@@ -770,8 +770,8 @@ export default function ProductManager({
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
     setFormDescription(p.description || '');
     setFormUnit(p.unit || units[0] || 'Nos');
-    setFormUnitPrice(p.unit_price);
-    setFormCostPrice(p.cost_price);
+    setFormUnitPrice(p.unit_price ?? undefined);
+    setFormCostPrice(p.cost_price ?? undefined);
     setFormSku(p.sku || '');
     const brandAttr = (p.attributes || []).find((a) => /^(brand|make|manufacturer|brand \/ make)$/i.test(a.key.trim()))?.value;
     const modelAttr = (p.attributes || []).find((a) => /^(model|model no|part no|model \/ part no)$/i.test(a.key.trim()))?.value;
@@ -787,7 +787,7 @@ export default function ProductManager({
     setFormStorageLocation(p.storage_location || '');
     setFormHsCode(p.hs_code || '');
     setFormCountryOfOrigin(p.country_of_origin || '');
-    setFormGrossWeightKg(p.gross_weight_kg);
+    setFormGrossWeightKg(p.gross_weight_kg ?? undefined);
     setShowFormModal(true);
   };
 
@@ -799,8 +799,8 @@ export default function ProductManager({
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
     setFormDescription(p.description || '');
     setFormUnit(p.unit || units[0] || 'Nos');
-    setFormUnitPrice(p.unit_price);
-    setFormCostPrice(p.cost_price);
+    setFormUnitPrice(p.unit_price ?? undefined);
+    setFormCostPrice(p.cost_price ?? undefined);
     setFormSku(p.sku ? `${p.sku}-VAR` : '');
     setFormBrandMake(p.brand_make || '');
     setFormModelPartNo(p.model_part_no || '');
@@ -814,7 +814,7 @@ export default function ProductManager({
     setFormStorageLocation(p.storage_location || '');
     setFormHsCode(p.hs_code || '');
     setFormCountryOfOrigin(p.country_of_origin || '');
-    setFormGrossWeightKg(p.gross_weight_kg);
+    setFormGrossWeightKg(p.gross_weight_kg ?? undefined);
     setShowFormModal(true);
     if (triggerToast) {
       triggerToast(`Cloned "${p.name || p.description}". Adjust variant details & click Register Product.`, 'info');
@@ -1900,7 +1900,7 @@ export default function ProductManager({
                             type="number"
                             min={0}
                             step="any"
-                            value={formUnitPrice !== undefined ? formUnitPrice : ''}
+                            value={formUnitPrice ?? ''}
                             onChange={(e) => setFormUnitPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
                             className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm font-mono font-bold text-slate-900 focus:outline-none"
                             placeholder="0.00 (or leave blank)"
@@ -1915,7 +1915,7 @@ export default function ProductManager({
                             type="number"
                             min={0}
                             step="any"
-                            value={formCostPrice !== undefined ? formCostPrice : ''}
+                            value={formCostPrice ?? ''}
                             onChange={(e) => setFormCostPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
                             className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm font-mono text-slate-800 focus:outline-none"
                             placeholder="0.00"
@@ -2233,7 +2233,7 @@ export default function ProductManager({
                               <input
                                 type="text"
                                 placeholder="Attribute Name (e.g. Dimensions, Voltage, Material)"
-                                value={attr.key}
+                                value={attr.key ?? ''}
                                 onChange={(e) =>
                                   setFormAttributes((prev) =>
                                     prev.map((a, i) => (i === index ? { ...a, key: e.target.value } : a))
@@ -2244,7 +2244,7 @@ export default function ProductManager({
                               <input
                                 type="text"
                                 placeholder="Value (e.g. 8040, SS316L, 15 Bar)"
-                                value={attr.value}
+                                value={attr.value ?? ''}
                                 onChange={(e) =>
                                   setFormAttributes((prev) =>
                                     prev.map((a, i) => (i === index ? { ...a, value: e.target.value } : a))
@@ -2314,7 +2314,7 @@ export default function ProductManager({
                                 type="number"
                                 min={0}
                                 step="any"
-                                value={formStockOnHand !== undefined ? formStockOnHand : 0}
+                                value={formStockOnHand ?? 0}
                                 onChange={(e) =>
                                   setFormStockOnHand(e.target.value !== '' ? Number(e.target.value) : 0)
                                 }
@@ -2331,7 +2331,7 @@ export default function ProductManager({
                                 type="number"
                                 min={0}
                                 step="any"
-                                value={formReorderLevel !== undefined ? formReorderLevel : 0}
+                                value={formReorderLevel ?? 0}
                                 onChange={(e) =>
                                   setFormReorderLevel(e.target.value !== '' ? Number(e.target.value) : 0)
                                 }
@@ -2412,7 +2412,7 @@ export default function ProductManager({
                             type="number"
                             min={0}
                             step="any"
-                            value={formGrossWeightKg !== undefined ? formGrossWeightKg : ''}
+                            value={formGrossWeightKg ?? ''}
                             onChange={(e) =>
                               setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)
                             }
@@ -2666,7 +2666,7 @@ export default function ProductManager({
                         min="1"
                         step="any"
                         required
-                        value={grnQuantity}
+                        value={grnQuantity ?? ''}
                         onChange={(e) => setGrnQuantity(e.target.value)}
                         placeholder="e.g. 50"
                         className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
@@ -2681,7 +2681,7 @@ export default function ProductManager({
                         type="number"
                         min="0"
                         step="0.01"
-                        value={grnUnitCost}
+                        value={grnUnitCost ?? ''}
                         onChange={(e) => setGrnUnitCost(e.target.value)}
                         placeholder="0.00"
                         className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
@@ -2864,7 +2864,7 @@ export default function ProductManager({
                       if (p) {
                         setAdjustQty(p.stock_on_hand ?? 0);
                         setAdjustStorageLocation(p.storage_location || '');
-                        setAdjustUnitCost(p.cost_price !== undefined ? p.cost_price : '');
+                        setAdjustUnitCost(p.cost_price ?? '');
                       }
                     }}
                     className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
@@ -2927,7 +2927,7 @@ export default function ProductManager({
                       min={0}
                       step="any"
                       required
-                      value={adjustQty}
+                      value={adjustQty ?? ''}
                       onChange={(e) => setAdjustQty(e.target.value)}
                       className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm font-mono font-bold text-slate-900 focus:outline-none"
                     />

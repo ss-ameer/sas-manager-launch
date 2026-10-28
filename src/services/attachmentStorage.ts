@@ -312,6 +312,9 @@ export async function uploadWorkspaceMediaAsset(
   options?: {
     compressImage?: boolean;
     maxDimension?: number;
+    maxWidth?: number;
+    maxHeight?: number;
+    preserveTransparency?: boolean;
     quality?: number;
     onProgress?: (percent: number) => void;
   }
@@ -323,6 +326,7 @@ export async function uploadWorkspaceMediaAsset(
   type: string;
   name: string;
   storageKey?: string;
+  storagePath?: string;
 }> {
   const isImage = file.type.startsWith('image/');
   let targetFile = file;
@@ -331,7 +335,7 @@ export async function uploadWorkspaceMediaAsset(
   if (isImage && options?.compressImage !== false) {
     const compressed = await compressImageFile(
       file,
-      options?.maxDimension ?? 700,
+      options?.maxDimension ?? options?.maxWidth ?? 700,
       options?.quality ?? 0.82
     );
     targetFile = compressed.file;
@@ -483,6 +487,9 @@ export async function prepareAttachmentsForSave(
         id: att.id || key,
         storageKey: key,
         isLocal: false,
+        storageProvider: att.storageProvider || 'supabase',
+        include_in_quote_annex: att.include_in_quote_annex,
+        render_as_annex_page: att.render_as_annex_page,
         uploadedByUserName: att.uploadedByUserName
       });
       continue;
@@ -517,6 +524,9 @@ export async function prepareAttachmentsForSave(
       id: att.id || key,
       storageKey: key,
       isLocal: true,
+      storageProvider: att.storageProvider || 'local',
+      include_in_quote_annex: att.include_in_quote_annex,
+      render_as_annex_page: att.render_as_annex_page,
       uploadedByUserName: att.uploadedByUserName
     });
   }

@@ -3025,6 +3025,7 @@ describe('Suite 22: Last-Item Page Breaks, Context-Aware Break Insertion & Logo-
       {
         id: 'sim_1',
         item_name: 'High-Rejection Brackish Water RO Membrane Element 8"',
+        description: 'High-Rejection Brackish Water RO Membrane Element 8"',
         quantity: 12,
         uom: 'PCS',
         unit_price: 1850,
@@ -3034,6 +3035,7 @@ describe('Suite 22: Last-Item Page Breaks, Context-Aware Break Insertion & Logo-
       {
         id: 'sim_2',
         item_name: 'Vertical Multistage Centrifugal High-Pressure Booster Pump',
+        description: 'Vertical Multistage Centrifugal High-Pressure Booster Pump',
         quantity: 2,
         uom: 'SET',
         unit_price: 14600,

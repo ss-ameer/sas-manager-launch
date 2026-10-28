@@ -734,16 +734,16 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
   // Commercial terms
   const [priceBasis, setPriceBasis] = useState<string>(() => {
-    if (editingQuotation?.price_basis !== undefined) return editingQuotation.price_basis;
+    if (editingQuotation?.price_basis != null) return editingQuotation.price_basis;
     return 'Ex-Works / Delivered Site';
   });
   const [paymentTerms, setPaymentTerms] = useState<string>(() => {
-    if (editingQuotation?.payment_terms !== undefined) return editingQuotation.payment_terms;
+    if (editingQuotation?.payment_terms != null) return editingQuotation.payment_terms;
     return '100% Advance against PI / Approved Credit';
   });
   const [validityDays, setValidityDays] = useState<number>(30);
   const [customNotes, setCustomNotes] = useState<string>(() => {
-    if (editingQuotation?.custom_notes !== undefined) return editingQuotation.custom_notes;
+    if (editingQuotation?.custom_notes != null) return editingQuotation.custom_notes;
     return editingQuotation?.applied_terms ?? '';
   });
 
@@ -1610,7 +1610,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         setSignatoryType(preset.signatory_mode);
       }
     }
-    if (preset.notes_template !== undefined) setCustomNotes(preset.notes_template);
+    if (preset.notes_template !== undefined) setCustomNotes(preset.notes_template || '');
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
     if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
@@ -2307,6 +2307,47 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     return d.toISOString();
   }, [validityDays]);
 
+  // Combined Annexes: Explicit studio flyers + Enquiry RFQ attachments marked for Quote Annex + Line-item Datasheets
+  const resolvedFlyerAttachments = useMemo(() => {
+    const merged: Attachment[] = [...flyerAttachments];
+    const hasExisting = (url?: string, name?: string) =>
+      merged.some(
+        (existing) =>
+          (url && existing.url === url) ||
+          (name && existing.name.toLowerCase().trim() === name.toLowerCase().trim())
+      );
+
+    // 1. Enquiry RFQ attachments with include_in_quote_annex === true
+    (enquiry?.attachments || []).forEach((att, idx) => {
+      if (att.include_in_quote_annex && att.url && !hasExisting(att.url, att.name)) {
+        const isImg = att.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(att.name || '');
+        merged.push({
+          ...att,
+          id: att.id || `enq_annex_${idx}`,
+          render_as_annex_page: att.render_as_annex_page ?? isImg,
+          page_placement: att.page_placement || (isImg ? 'annex_after' : 'index_only')
+        });
+      }
+    });
+
+    // 2. Line-item datasheets with include_datasheet_in_quote !== false
+    quotationLineItems.forEach((item, idx) => {
+      const ds = item.datasheet_attachment;
+      if (ds && ds.url && item.include_datasheet_in_quote !== false && !hasExisting(ds.url, ds.name)) {
+        const isImg = ds.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(ds.name || '');
+        merged.push({
+          ...ds,
+          id: ds.id || `item_ds_${item.id || idx}`,
+          name: ds.name || `${item.item_name || 'Product'} Datasheet`,
+          render_as_annex_page: ds.render_as_annex_page ?? isImg,
+          page_placement: ds.page_placement || (isImg ? 'annex_after' : 'index_only')
+        });
+      }
+    });
+
+    return merged;
+  }, [flyerAttachments, enquiry?.attachments, quotationLineItems]);
+
   // Constructed live Quotation object for preview
   const liveQuotation: Quotation = useMemo(() => {
     const rawQuoteNumber =
@@ -2424,7 +2465,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
       layout_blocks: layoutBlocks,
-      flyer_attachments: flyerAttachments,
+      flyer_attachments: resolvedFlyerAttachments,
       show_submittals_index: showSubmittalsIndex,
       header_config: {
         ...headerConfig,
@@ -2486,7 +2527,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     cardsOrder,
     subjectPlacement,
     layoutBlocks,
-    flyerAttachments,
+    resolvedFlyerAttachments,
     showSubmittalsIndex,
     headerConfig,
     recipientConfig,
@@ -2694,7 +2735,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         subjectPlacement: subjectPlacement,
         pageMode: pageMode,
         layout_blocks: layoutBlocks,
-        flyer_attachments: flyerAttachments,
+        flyer_attachments: resolvedFlyerAttachments,
         show_submittals_index: showSubmittalsIndex,
         header_config: {
           ...headerConfig,
@@ -2936,10 +2977,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         (activeProfile as any)?.tax_registration_number ??
         '';
 
-      const updatedProfilePayload: WorkspaceDocumentProfile = {
-        ...(activeProfile || {}),
+      const updatedProfilePayload: WorkspaceDocumentProfile & { workspace_id: string } = {
+        ...(activeProfile || ({} as WorkspaceDocumentProfile)),
         id: activeProfile?.id || `doc_prof_${activeWorkspaceId}`,
-        workspace_id: activeWorkspaceId,
+        workspace_id: activeWorkspaceId || activeProfile?.workspace_id || 'default',
         legal_entity_name:
           getHeaderFieldOverride('company_name') ||
           activeProfile?.legal_entity_name ||
@@ -7627,7 +7668,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                 (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
                           );
                           const isTracked = Boolean(matchedProd?.is_inventoried);
-                          const currentStock = Number(matchedProd?.current_stock || 0);
+                          const currentStock = Math.max(
+                            0,
+                            Number(matchedProd?.stock_on_hand ?? matchedProd?.current_stock ?? 0) -
+                              Number(matchedProd?.stock_reserved ?? 0)
+                          );
                           const reorderLvl = Number(matchedProd?.reorder_level || 0);
 
                           return (
@@ -7664,7 +7709,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                       >
                                         {currentStock <= 0
                                           ? 'Out of Stock (0)'
-                                          : `In Stock: ${currentStock} ${matchedProd?.uom || item.unit || 'pcs'}`}
+                                          : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
                                       </span>
                                     )}
                                   </div>
@@ -8844,7 +8889,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                               <div className="flex items-center gap-1.5">
                                                 <input
                                                   type={meta.isNumber ? 'number' : 'text'}
-                                                  value={meta.value}
+                                                  value={meta.value ?? ''}
                                                   onChange={(e) => meta.onChange(e.target.value)}
                                                   className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
                                                 />
@@ -8882,7 +8927,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                       {vis.clauses !== false && (
                                         <textarea
                                           rows={3}
-                                          value={customNotes}
+                                          value={customNotes ?? ''}
                                           onChange={(e) => setCustomNotes(e.target.value)}
                                           placeholder="1. All supplied items carry standard warranty..."
                                           className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
@@ -8936,7 +8981,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     />
                                     <input
                                       type="text"
-                                      value={row.label}
+                                      value={row.label ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, label: e.target.value } : item
@@ -8948,7 +8993,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     />
                                     <input
                                       type="text"
-                                      value={row.value}
+                                      value={row.value ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, value: e.target.value } : item
@@ -9077,7 +9122,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   >
                                     <input
                                       type="text"
-                                      value={row.label}
+                                      value={row.label ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, label: e.target.value } : item
@@ -9089,7 +9134,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     />
                                     <input
                                       type="text"
-                                      value={row.value}
+                                      value={row.value ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, value: e.target.value } : item
@@ -9272,7 +9317,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   >
                                     <input
                                       type="text"
-                                      value={row.label}
+                                      value={row.label ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, label: e.target.value } : item
@@ -10271,7 +10316,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                         >
                                           <input
                                             type="text"
-                                            value={line.label}
+                                            value={line.label ?? ''}
                                             onChange={(e) => {
                                               const val = e.target.value;
                                               setFooterConfig((prev) => ({
@@ -10286,7 +10331,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                           />
                                           <input
                                             type="text"
-                                            value={line.value}
+                                            value={line.value ?? ''}
                                             onChange={(e) => {
                                               const val = e.target.value;
                                               setFooterConfig((prev) => ({
@@ -10525,7 +10570,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                             {isChecked && meta.onChange && (
                                               <input
                                                 type="text"
-                                                value={meta.value}
+                                                value={meta.value ?? ''}
                                                 onChange={(e) => meta.onChange?.(e.target.value)}
                                                 className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
                                               />
@@ -10569,7 +10614,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                   >
                                     <input
                                       type="text"
-                                      value={row.label}
+                                      value={row.label ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, label: e.target.value } : item
@@ -10581,7 +10626,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     />
                                     <input
                                       type="text"
-                                      value={row.value}
+                                      value={row.value ?? ''}
                                       onChange={(e) => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
                                           i === rIdx ? { ...item, value: e.target.value } : item

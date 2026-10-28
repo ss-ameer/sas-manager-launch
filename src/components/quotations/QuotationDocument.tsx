@@ -56,7 +56,8 @@ import {
   AlertCircle,
   Landmark,
   ShieldCheck,
-  FileCheck
+  FileCheck,
+  DollarSign
 } from 'lucide-react';
 
 export const QUOTATION_THEMES: Record<

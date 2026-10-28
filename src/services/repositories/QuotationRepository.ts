@@ -1712,9 +1712,9 @@ export class QuotationRepository {
       header_config: normalizedHeaderConfig,
       footer_config: {
         ...normalizedFooterConfig,
-        ...(Array.isArray(normalizedFooterConfig.signatoryCustomLines)
+        ...(Array.isArray((normalizedFooterConfig as any).signatoryCustomLines)
           ? {
-              signatoryCustomLines: normalizedFooterConfig.signatoryCustomLines.map((l) => ({
+              signatoryCustomLines: (normalizedFooterConfig as any).signatoryCustomLines.map((l: any) => ({
                 ...l
               }))
             }

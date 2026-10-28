@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
@@ -11,7 +11,7 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
-import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile } from '../services/attachmentStorage';
+import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile, uploadWorkspaceMediaAsset, prepareAttachmentsForSave, getAttachmentStorageKey } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -69,7 +69,14 @@ import {
   Package,
   Printer,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Save,
+  DollarSign,
+  FileCheck,
+  RefreshCw
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -79,6 +86,7 @@ interface EnquiryDetailProps {
   contacts: Contact[];
   auditLogs: AuditLog[];
   salespersons: Salesperson[];
+  products?: Product[];
   user: UserProfile;
   enquiries?: Enquiry[];
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -114,6 +122,7 @@ export default function EnquiryDetail({
   contacts,
   auditLogs,
   salespersons,
+  products = [],
   user,
   enquiries = [],
   setEnquiries,
@@ -145,9 +154,22 @@ export default function EnquiryDetail({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [activeOptionTab, setActiveOptionTab] = useState<string>('ALL');
 
+  // Inline Line Items Editor & Quick Catalog Add states
+  const [isInlineEditingItems, setIsInlineEditingItems] = useState(false);
+  const [draftLineItems, setDraftLineItems] = useState<LineItem[]>(enquiry.line_items || []);
+  const [isSavingInlineItems, setIsSavingInlineItems] = useState(false);
+  const [showQuickCatalogPicker, setShowQuickCatalogPicker] = useState(false);
+  const [quickCatalogSearch, setQuickCatalogSearch] = useState('');
+  const [showQuoteSyncPrompt, setShowQuoteSyncPrompt] = useState(false);
+  const [isSyncingQuoteItems, setIsSyncingQuoteItems] = useState(false);
+  const [isUploadingDetailAttachment, setIsUploadingDetailAttachment] = useState(false);
+
   // Synchronize local enquiry when prop updates
   useEffect(() => {
     setCurrentEnquiry(enquiry);
+    setDraftLineItems(enquiry.line_items || []);
+    setIsInlineEditingItems(false);
+    setShowQuoteSyncPrompt(false);
     setActiveOptionTab('ALL');
   }, [enquiry]);
 
@@ -1256,6 +1278,371 @@ export default function EnquiryDetail({
     }
   };
 
+  // Direct file upload in EnquiryDetail using unified Custom Bucket helper
+  const handleDetailFileUpload = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0 || !currentEnquiry.id) return;
+    setIsUploadingDetailAttachment(true);
+    try {
+      const existing = currentEnquiry.attachments || [];
+      const newAttachments: Attachment[] = [];
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const uploaded = await uploadWorkspaceMediaAsset(
+          file,
+          'enquiries/rfq',
+          activeWorkspace,
+          {
+            compressImage: true,
+            maxDimension: 1400,
+            quality: 0.85
+          }
+        );
+
+        const storageKey =
+          uploaded.storageKey ||
+          getAttachmentStorageKey({ name: file.name, size: uploaded.size || file.size }, existing.length + i, currentEnquiry.id);
+
+        newAttachments.push({
+          name: file.name,
+          size: uploaded.size || file.size,
+          type: uploaded.type || file.type || 'application/pdf',
+          url: uploaded.url,
+          storageKey,
+          uploadedAt: new Date().toISOString(),
+          isLocal: uploaded.isLocal,
+          storageProvider: uploaded.storageProvider,
+          include_in_quote_annex: false,
+          uploadedByUserName: user?.full_name || user?.username || user?.email || 'User'
+        });
+      }
+
+      const combined = [...existing, ...newAttachments];
+      const { firestoreAttachments, memoryAttachments } = await prepareAttachmentsForSave(combined, currentEnquiry.id);
+      await safeUpdateDoc('enquiries', currentEnquiry.id, {
+        attachments: firestoreAttachments || [],
+        updatedAt: new Date().toISOString()
+      });
+
+      const updatedEnquiry: Enquiry = {
+        ...currentEnquiry,
+        attachments: memoryAttachments,
+        updatedAt: new Date().toISOString()
+      };
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      if (triggerToast) {
+        triggerToast(`Attached ${newAttachments.length} file(s) to Enquiry #${currentEnquiry.sn}.`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed uploading detail attachment:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to upload file', 'error');
+      }
+    } finally {
+      setIsUploadingDetailAttachment(false);
+    }
+  };
+
+  // Toggle whether an RFQ attachment is automatically included in Quotation Studio Technical Annexes
+  const handleToggleAttachmentQuoteAnnex = async (targetIndex: number) => {
+    const attachments = currentEnquiry.attachments || [];
+    const target = attachments[targetIndex];
+    if (!target || !currentEnquiry.id) return;
+
+    const nextVal = !target.include_in_quote_annex;
+    const updatedAttachments = attachments.map((att, i) =>
+      i === targetIndex ? { ...att, include_in_quote_annex: nextVal } : att
+    );
+
+    try {
+      const { firestoreAttachments, memoryAttachments } = await prepareAttachmentsForSave(updatedAttachments, currentEnquiry.id);
+      await safeUpdateDoc('enquiries', currentEnquiry.id, {
+        attachments: firestoreAttachments || [],
+        updatedAt: new Date().toISOString()
+      });
+      const updatedEnquiry: Enquiry = {
+        ...currentEnquiry,
+        attachments: memoryAttachments
+      };
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      if (triggerToast) {
+        triggerToast(
+          nextVal
+            ? `"${target.name}" marked for inclusion in Quotation Annexes.`
+            : `"${target.name}" removed from automatic Quotation Annexes.`,
+          'info'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed toggling quote annex flag:', err);
+    }
+  };
+
+  // Inline Line Items Manipulation Helpers
+  const handleDraftItemChange = (idx: number, field: keyof LineItem, val: any) => {
+    setDraftLineItems((prev) => {
+      const next = [...prev];
+      const item = { ...next[idx] };
+      if (field === 'quantity' || field === 'unit_price') {
+        const q = field === 'quantity' ? (Number(val) || 0) : (Number(item.quantity) || 0);
+        const p = field === 'unit_price' ? (Number(val) || 0) : (Number(item.unit_price) || 0);
+        (item as any)[field] = Number(val) || 0;
+        item.total_price = Number((q * p).toFixed(2));
+      } else if (field === 'cost_price') {
+        item.cost_price = val === '' || val === null || val === undefined ? undefined : (Number(val) || 0);
+      } else {
+        (item as any)[field] = val;
+      }
+      next[idx] = item;
+      return next;
+    });
+  };
+
+  const handleMoveDraftItem = (idx: number, direction: 'up' | 'down') => {
+    setDraftLineItems((prev) => {
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[targetIdx];
+      next[targetIdx] = temp;
+      return next;
+    });
+  };
+
+  const handleRemoveDraftItem = (idx: number) => {
+    setDraftLineItems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleQuickAddCatalogProduct = (p: Product) => {
+    const isUSD = currentEnquiry.currency === 'USD';
+    const rawSell = Number(p.unit_price) || 0;
+    const unitPrice = rawSell > 0 ? Math.round((isUSD ? rawSell / 3.6725 : rawSell) * 100) / 100 : 0;
+    const rawCost = Number(p.cost_price ?? p.cost_price_aed) || 0;
+    const costPrice = rawCost > 0 ? Math.round((isUSD ? rawCost / 3.6725 : rawCost) * 100) / 100 : undefined;
+    const availStock = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+    const defaultLead =
+      p.default_availability?.trim() ||
+      (p.is_inventoried && availStock > 0 ? 'Ex-Stock' : '2–3 Weeks');
+
+    const newItem: LineItem = {
+      id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      product_id: p.id,
+      sku: p.sku || undefined,
+      item_name: p.name || p.product_type,
+      item_type: 'product',
+      product_type: p.product_type || 'Other',
+      description: p.description || p.name || '',
+      quantity: 1,
+      unit: p.unit || 'Nos',
+      unit_price: unitPrice,
+      cost_price: costPrice,
+      total_price: unitPrice,
+      brand_make: p.brand_make || undefined,
+      model_part_no: p.model_part_no || undefined,
+      country_of_origin: p.country_of_origin || undefined,
+      hs_code: p.hs_code || undefined,
+      image_url: p.image_url || undefined,
+      datasheet_attachment: p.datasheet_attachment || undefined,
+      include_datasheet_in_quote: p.datasheet_attachment ? true : undefined,
+      lead_time_note: defaultLead,
+      option: activeOptionTab !== 'ALL' ? activeOptionTab : 'Default / Included',
+      attributes: p.attributes ? [...p.attributes] : []
+    };
+
+    setDraftLineItems((prev) => [...prev, newItem]);
+    setIsInlineEditingItems(true);
+    setShowQuickCatalogPicker(false);
+    if (triggerToast) {
+      triggerToast(`Added "${p.name || p.product_type}" to Line Items. Click Save Changes to persist.`, 'info');
+    }
+  };
+
+  const handleQuickAddCustomItem = () => {
+    const newItem: LineItem = {
+      id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      item_name: 'Custom Line Item',
+      item_type: 'product',
+      product_type: 'Other',
+      description: '',
+      quantity: 1,
+      unit: 'Nos',
+      unit_price: 0,
+      total_price: 0,
+      lead_time_note: 'Standard',
+      option: activeOptionTab !== 'ALL' ? activeOptionTab : 'Default / Included',
+      attributes: []
+    };
+    setDraftLineItems((prev) => [...prev, newItem]);
+    setIsInlineEditingItems(true);
+  };
+
+  const handleSaveInlineLineItems = async () => {
+    if (!currentEnquiry.id) return;
+    setIsSavingInlineItems(true);
+    try {
+      // Calculate updated baseline package total
+      let baselineSum = 0;
+      draftLineItems.forEach((li) => {
+        const opt = ((li as any).option_designation || li.option || 'Default / Included').trim();
+        const isBaseline = !opt || opt === 'Default / Included' || opt === 'Option A' || opt.startsWith('Option A ');
+        if (isBaseline) {
+          const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+          const lineTot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+          baselineSum += isDisc ? -Math.abs(lineTot) : lineTot;
+        }
+      });
+
+      const isUSD = currentEnquiry.currency === 'USD';
+      const nextValueAed = currentEnquiry.is_lump_sum
+        ? currentEnquiry.value_aed
+        : Math.max(0, Math.round((isUSD ? baselineSum * 3.6725 : baselineSum) * 100) / 100);
+
+      const now = new Date().toISOString();
+      const updatedPayload: Partial<Enquiry> = {
+        line_items: draftLineItems,
+        value_aed: nextValueAed,
+        updatedAt: now
+      };
+
+      await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);
+      const updatedEnquiry: Enquiry = {
+        ...currentEnquiry,
+        ...updatedPayload
+      };
+      await EnquiryRepository.save(updatedEnquiry);
+
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+      }
+      setIsInlineEditingItems(false);
+
+      if (quotations.length > 0) {
+        setShowQuoteSyncPrompt(true);
+      }
+
+      if (triggerToast) {
+        triggerToast(`Saved ${draftLineItems.length} line item(s) on Enquiry #${currentEnquiry.sn}.`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed saving inline line items:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to save line items', 'error');
+      }
+    } finally {
+      setIsSavingInlineItems(false);
+    }
+  };
+
+  // Sync updated Enquiry Line Items into an active Draft Quotation or fork a new Revision (R2 / R(N+1))
+  const handleSyncLineItemsToQuote = async (mode: 'sync_draft' | 'new_revision') => {
+    if (quotations.length === 0) return;
+    setIsSyncingQuoteItems(true);
+    try {
+      const mappedQuoteItems: QuotationLineItem[] = (currentEnquiry.line_items || []).map((li, idx) => ({
+        id: li.id || `item_${idx + 1}`,
+        sn: idx + 1,
+        product_id: li.product_id,
+        sku: li.sku,
+        item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
+        description: li.description || li.item_name || '',
+        brand_make: li.brand_make,
+        model_part_no: li.model_part_no,
+        country_of_origin: li.country_of_origin,
+        hs_code: li.hs_code,
+        availability: li.lead_time_note || 'Ex-Stock / Standard',
+        quantity: Number(li.quantity) || 1,
+        unit: li.unit || 'Nos',
+        unit_price: Number(li.unit_price) || 0,
+        line_total: Number(li.total_price) || (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
+        is_optional: Boolean(
+          ((li as any).option_designation || li.option || '').toLowerCase().includes('optional')
+        ),
+        attributes: li.attributes || [],
+        image_url: li.image_url,
+        datasheet_attachment: li.datasheet_attachment,
+        include_datasheet_in_quote: li.include_datasheet_in_quote !== false
+      }));
+
+      const targetDraft = quotations.find((q) => q.status === 'Draft') || quotations[0];
+
+      if (mode === 'sync_draft' && targetDraft?.id) {
+        const totals = QuotationRepository.calculateTotals(
+          mappedQuoteItems,
+          targetDraft.freight_amount || 0,
+          targetDraft.tax_mode || 'tax_calculated',
+          targetDraft.tax_rate_percent ?? 5
+        );
+        const updatedQuote: Quotation = {
+          ...targetDraft,
+          line_items: mappedQuoteItems,
+          subtotal: totals.subtotal,
+          freight_amount: totals.freight_amount,
+          tax_rate_percent: totals.tax_rate_percent,
+          tax_amount: totals.tax_amount,
+          grand_total: totals.grand_total
+        };
+        await QuotationRepository.saveQuotation(updatedQuote);
+        setQuotations((prev) => prev.map((q) => (q.id === updatedQuote.id ? updatedQuote : q)));
+        setShowQuoteSyncPrompt(false);
+        setEditingQuotation(updatedQuote);
+        setIsQuotationStudioOpen(true);
+        if (triggerToast) {
+          triggerToast(`Synced ${mappedQuoteItems.length} line items into ${updatedQuote.formatted_quote_ref}.`, 'success');
+        }
+      } else {
+        const latestQuote = quotations[0];
+        if (!latestQuote?.id) return;
+        const nextRev = await QuotationRepository.createRevision(latestQuote.id);
+        const totals = QuotationRepository.calculateTotals(
+          mappedQuoteItems,
+          nextRev.freight_amount || 0,
+          nextRev.tax_mode || 'tax_calculated',
+          nextRev.tax_rate_percent ?? 5
+        );
+        const updatedNextRev: Quotation = {
+          ...nextRev,
+          line_items: mappedQuoteItems,
+          subtotal: totals.subtotal,
+          freight_amount: totals.freight_amount,
+          tax_rate_percent: totals.tax_rate_percent,
+          tax_amount: totals.tax_amount,
+          grand_total: totals.grand_total
+        };
+        await QuotationRepository.saveQuotation(updatedNextRev);
+        setQuotations((prev) => [
+          updatedNextRev,
+          ...prev.map((item) =>
+            item.id === latestQuote.id ? { ...item, status: 'Superseded' as const } : item
+          )
+        ]);
+        setShowQuoteSyncPrompt(false);
+        setEditingQuotation(updatedNextRev);
+        setIsQuotationStudioOpen(true);
+        if (triggerToast) {
+          triggerToast(`Created new revision ${updatedNextRev.formatted_quote_ref} with updated line items.`, 'success');
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed syncing line items to quotation:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to sync quotation', 'error');
+      }
+    } finally {
+      setIsSyncingQuoteItems(false);
+    }
+  };
+
   // Strict Zero-Trust Audit: Force close if workspace changes or mismatch detected
   useEffect(() => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
@@ -1686,155 +2073,184 @@ export default function EnquiryDetail({
     <div id="enquiry-detail-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl lg:max-w-7xl' : 'max-w-3xl lg:max-w-4xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
-        {/* Header Block */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-3 min-w-0 bg-white sticky top-0 z-20">
-          {/* Left Title & Metadata: flexible and truncates gracefully */}
-          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1">
-            <span className="text-xs font-mono bg-slate-50 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-md font-bold shrink-0">
-              #{enquiry.sn}
-            </span>
-            <div className="flex flex-col min-w-0 flex-1 justify-center">
-              <div className="flex items-center space-x-2 min-w-0 flex-wrap">
-                {(() => {
-                  const resolvedCompanyName =
-                    matchedCompany?.display_name ||
-                    enquiry.company_name ||
-                    (enquiry as any)?.company ||
-                    (enquiry as any)?.client_name ||
-                    currentEnquiry.company_name ||
-                    (currentEnquiry as any)?.company ||
-                    'Unassigned Account';
-                  return (
-                    <h3
-                      className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate"
-                      title={resolvedCompanyName}
-                    >
-                      {resolvedCompanyName}
-                    </h3>
-                  );
-                })()}
-                {matchedCompany && (
-                  <div className="hidden md:flex items-center space-x-2 shrink-0">
-                    <GoogleSearchButton
-                      companyName={matchedCompany.display_name}
-                      location={matchedCompany.city}
-                      size="sm"
-                    />
-                    <TemperatureBadge
-                      companyId={matchedCompany.id}
-                      temperature={matchedCompany.temperature}
-                      isDnc={matchedCompany.is_dnc}
-                      variant="compact"
-                      companies={companies}
-                      setCompanies={setCompanies}
-                    />
-                    <IndustryBadge company={matchedCompany} size="sm" showEmpty />
-                  </div>
-                )}
-                {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
-                    Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
-                  </span>
-                )}
-                {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
-                    {currentEnquiry.proposal_option || enquiry.proposal_option}
-                  </span>
+        {/* Two-Tier Sticky Header Block */}
+        <div className="border-b border-slate-200/80 bg-white sticky top-0 z-20">
+          {/* Tier 1: Full Client Title, Identity Badges & Window Controls (Never Crushes Title) */}
+          <div className="px-4 pt-3.5 pb-2.5 sm:px-6 flex items-start justify-between gap-3 min-w-0">
+            <div className="flex items-start space-x-3 min-w-0 flex-1">
+              <span className="text-xs font-mono tabular-nums bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold shrink-0 mt-0.5">
+                #{currentEnquiry.sn || enquiry.sn}
+              </span>
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  {(() => {
+                    const resolvedCompanyName =
+                      matchedCompany?.display_name ||
+                      currentEnquiry.company_name ||
+                      enquiry.company_name ||
+                      (enquiry as any)?.company ||
+                      (enquiry as any)?.client_name ||
+                      'Unassigned Account';
+                    return (
+                      <h3
+                        className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate max-w-full"
+                        title={resolvedCompanyName}
+                      >
+                        {resolvedCompanyName}
+                      </h3>
+                    );
+                  })()}
+                  {matchedCompany && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <GoogleSearchButton
+                        companyName={matchedCompany.display_name}
+                        location={matchedCompany.city}
+                        size="sm"
+                      />
+                      <TemperatureBadge
+                        companyId={matchedCompany.id}
+                        temperature={matchedCompany.temperature}
+                        isDnc={matchedCompany.is_dnc}
+                        variant="compact"
+                        companies={companies}
+                        setCompanies={setCompanies}
+                      />
+                      <IndustryBadge company={matchedCompany} size="sm" showEmpty />
+                    </div>
+                  )}
+                  {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
+                      Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                    </span>
+                  )}
+                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
+                      {currentEnquiry.proposal_option || enquiry.proposal_option}
+                    </span>
+                  )}
+                </div>
+                {(currentEnquiry.subject || enquiry.subject) && (
+                  <p className="text-xs text-slate-500 font-medium truncate mt-0.5" title={currentEnquiry.subject || enquiry.subject}>
+                    {currentEnquiry.subject || enquiry.subject}
+                  </p>
                 )}
               </div>
-              {(currentEnquiry.subject || enquiry.subject) && (
-                <p className="text-xs text-slate-500 font-medium truncate mt-0.5" title={currentEnquiry.subject || enquiry.subject}>
-                  {currentEnquiry.subject || enquiry.subject}
-                </p>
-              )}
             </div>
-          </div>
 
-          {/* Right Action & Control Buttons */}
-          <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
-            {/* Primary Action Buttons (condense labels cleanly on compact viewports) */}
-            <button
-              type="button"
-              onClick={(e) => {
-                handleInitiate({
-                  companyId: matchedCompany?.id || enquiry.company_id,
-                  companyName: matchedCompany?.display_name,
-                  company: matchedCompany,
-                  contactId: matchedContact?.id || enquiry.contact_id,
-                  contactName: matchedContact?.full_name,
-                  contact: matchedContact,
-                  enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn),
-                  e
-                });
-              }}
-              className="px-2.5 sm:px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
-              title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Log Activity</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsQuotationStudioOpen(true)}
-              className="px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
-              title="Open Quotation Studio to generate or customize formal commercial offer"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">
-                {quotations && quotations.length > 0 ? 'Quotation Studio' : 'Create Quotation'}
-              </span>
-              <span className="sm:hidden">
-                {quotations && quotations.length > 0 ? 'Studio' : 'Quote'}
-              </span>
-            </button>
-            {canEditEnquiry(user, activeWorkspace, enquiry) && (
-              <button
-                type="button"
-                onClick={handleCreateRevision}
-                className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition cursor-pointer shrink-0"
-                title="Clone Enquiry to create a revision (clones line items, links, currency & value)"
-              >
-                <GitFork className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Clone Enquiry</span>
-                <span className="sm:hidden">Clone</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setIsShareModalOpen(true)}
-              className="px-2.5 sm:px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-2xs transition cursor-pointer shrink-0"
-              title="Share Enquiry & Manage Collaborators"
-            >
-              <Users className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Share</span>
-              {totalCollaboratorsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono font-bold">
-                  {totalCollaboratorsCount}
-                </span>
-              )}
-            </button>
-
-            {/* Dedicated Pinned Window Controls: shrink-0, ml-auto, permanently visible */}
-            <div className="flex items-center space-x-1 pl-1 border-l border-slate-200 shrink-0 ml-auto z-10">
+            {/* Pinned Window Controls: Expand/Compress & Close */}
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsExpandedWidth(!isExpandedWidth)}
                 className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
-                title={isExpandedWidth ? "Compress drawer width" : "Expand full width"}
+                title={isExpandedWidth ? 'Compress drawer width' : 'Expand full width'}
               >
                 {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5 text-slate-600" />
+              </button>
+            </div>
+          </div>
+
+          {/* Tier 2: Dedicated Action Toolbar Row */}
+          <div className="px-4 py-2 sm:px-6 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsQuotationStudioOpen(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                title="Open Quotation Studio to generate or customize formal commercial offer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>
+                  {quotations && quotations.length > 0 ? `Quotation Studio (${quotations.length})` : 'Create Quotation'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  handleInitiate({
+                    companyId: matchedCompany?.id || enquiry.company_id,
+                    companyName: matchedCompany?.display_name,
+                    company: matchedCompany,
+                    contactId: matchedContact?.id || enquiry.contact_id,
+                    contactName: matchedContact?.full_name,
+                    contact: matchedContact,
+                    enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn),
+                    e
+                  });
+                }}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Log Activity</span>
+              </button>
+
               {canEditEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
                   onClick={() => {
-                    onEditEnquiry(enquiry);
+                    setActiveTab('items');
+                    setIsInlineEditingItems(true);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                  title="Quick-edit line items, quantities, cost & margins inline"
+                >
+                  <ListOrdered className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Manage Items</span>
+                </button>
+              )}
+
+              {canEditEnquiry(user, activeWorkspace, enquiry) && (
+                <button
+                  type="button"
+                  onClick={handleCreateRevision}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                  title="Clone Enquiry to create a revision (clones line items, links, currency & value)"
+                >
+                  <GitFork className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Clone Enquiry</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsShareModalOpen(true)}
+                className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                title="Share Enquiry & Manage Collaborators"
+              >
+                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Share</span>
+                {totalCollaboratorsCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono font-bold">
+                    {totalCollaboratorsCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Secondary Record Actions: Full Modal Edit & Delete */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {canEditEnquiry(user, activeWorkspace, enquiry) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onEditEnquiry(currentEnquiry);
                     onClose();
                   }}
-                  className="p-1.5 hover:bg-blue-50 text-blue-500 hover:text-blue-700 rounded-lg transition shrink-0 cursor-pointer"
-                  title="Edit Enquiry"
+                  className="px-2.5 py-1.5 bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 cursor-pointer whitespace-nowrap"
+                  title="Open full Edit Enquiry Modal"
                 >
-                  <Edit2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Form</span>
                 </button>
               )}
               {canDeleteEnquiry(user, activeWorkspace, enquiry) && (
@@ -1847,7 +2263,6 @@ export default function EnquiryDetail({
                       return;
                     }
 
-                    // Active Project Deletion Guard
                     const linkedProjId = enquiry.project_id || linkedProject?.id;
                     if (linkedProjId) {
                       let activeProj = linkedProject;
@@ -1859,7 +2274,7 @@ export default function EnquiryDetail({
                         }
                       }
                       if (activeProj && activeProj.status !== 'Cancelled') {
-                        const guardMsg = "Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.";
+                        const guardMsg = 'Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.';
                         if (triggerToast) {
                           triggerToast(guardMsg, 'error');
                         } else {
@@ -1883,43 +2298,43 @@ export default function EnquiryDetail({
                       }
                     });
                   }}
-                  className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition shrink-0 cursor-pointer"
+                  className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 rounded-xl transition shrink-0 cursor-pointer"
                   title="Delete Enquiry"
                 >
-                  <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
-                title="Close"
-              >
-                <X className="w-5 h-5 text-slate-600" />
-              </button>
             </div>
           </div>
         </div>
 
-        {/* Tab Selection */}
-        <div className="px-6 border-b border-slate-100 flex space-x-6 text-sm">
-          {(['details', 'items', 'history', 'revisions'] as const).map((tab) => (
+        {/* Tab Selection with Live Counts */}
+        <div className="px-6 border-b border-slate-100 flex space-x-6 text-sm overflow-x-auto scrollbar-none shrink-0 bg-white">
+          {([
+            { id: 'details', label: 'Details', count: null },
+            { id: 'items', label: 'Line Items', count: (currentEnquiry.line_items || []).length },
+            { id: 'revisions', label: 'Quotes & Revisions', count: quotations.length + (revisionChain.length > 1 ? revisionChain.length : 0) },
+            { id: 'history', label: 'History', count: recordLogs.length }
+          ] as const).map((t) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`py-4 font-semibold capitalize font-sans relative flex items-center space-x-1.5 ${
-                activeTab === tab ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              className={`py-3.5 font-semibold font-sans relative flex items-center space-x-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === t.id ? 'text-blue-600' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <span>{tab === 'items' ? 'Line Items' : tab}</span>
-              {tab === 'revisions' && revisionChain.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
-                  activeTab === 'revisions' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {revisionChain.length}
+              <span>{t.label}</span>
+              {t.count !== null && t.count > 0 && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums font-bold ${
+                    activeTab === t.id ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {t.count}
                 </span>
               )}
-              {activeTab === tab && (
+              {activeTab === t.id && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />
               )}
             </button>
@@ -2901,137 +3316,202 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Attachments */}
-              {enquiry.attachments && enquiry.attachments.length > 0 && (
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
+              {/* Attachments & Direct Custom Bucket Upload */}
+              {((currentEnquiry.attachments && currentEnquiry.attachments.length > 0) || canEditEnquiry(user, activeWorkspace, currentEnquiry)) && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-                      Source Proposal Attachments ({enquiry.attachments.length})
+                      Source RFQ & Proposal Attachments ({(currentEnquiry.attachments || []).length})
                     </h4>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Click attachment to preview in-app
-                    </span>
+                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs">
+                        {isUploadingDetailAttachment ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                        ) : (
+                          <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
+                        )}
+                        <span>{isUploadingDetailAttachment ? 'Uploading...' : '+ Attach RFQ / Spec File'}</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="application/pdf,image/png,image/jpeg,text/plain,.docx,.eml"
+                          onChange={(e) => {
+                            handleDetailFileUpload(e.target.files);
+                            e.target.value = '';
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {enquiry.attachments.map((file, idx) => {
-                      const f = file as any;
-                      const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src || '';
-                      const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name);
-                      const isPdf = file.type?.includes('pdf') || /\.pdf$/i.test(file.name);
-                      const ext = file.name.split('.').pop()?.toUpperCase() || (isPdf ? 'PDF' : isImg ? 'IMG' : 'FILE');
-                      
-                      const normalizedFile: Attachment = {
-                        ...file,
-                        url: fileUrl
-                      };
-                      
-                      return (
-                        <div
-                          key={idx}
-                          className="group bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition shadow-2xs"
-                        >
-                          {/* Thumbnail / File Info */}
+
+                  {currentEnquiry.attachments && currentEnquiry.attachments.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      {currentEnquiry.attachments.map((file, idx) => {
+                        const f = file as any;
+                        const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src || '';
+                        const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name);
+                        const isPdf = file.type?.includes('pdf') || /\.pdf$/i.test(file.name);
+                        const ext = file.name.split('.').pop()?.toUpperCase() || (isPdf ? 'PDF' : isImg ? 'IMG' : 'FILE');
+
+                        const normalizedFile: Attachment = {
+                          ...file,
+                          url: fileUrl
+                        };
+
+                        return (
                           <div
-                            onClick={() => setPreviewAttachment(normalizedFile)}
-                            className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
-                            title="Click to preview file in-app"
+                            key={idx}
+                            className="group bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition shadow-2xs"
                           >
-                            <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 shrink-0 group-hover:scale-105 transition">
-                              {isImg ? (
-                                <ImageIcon className="w-4 h-4" />
-                              ) : isPdf ? (
-                                <FileText className="w-4 h-4 text-red-500" />
-                              ) : (
-                                <Paperclip className="w-4 h-4" />
+                            {/* Thumbnail / File Info */}
+                            <div
+                              onClick={() => setPreviewAttachment(normalizedFile)}
+                              className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
+                              title="Click to preview file in-app"
+                            >
+                              <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 shrink-0 group-hover:scale-105 transition">
+                                {isImg ? (
+                                  <ImageIcon className="w-4 h-4" />
+                                ) : isPdf ? (
+                                  <FileText className="w-4 h-4 text-red-500" />
+                                ) : (
+                                  <Paperclip className="w-4 h-4" />
+                                )}
+                              </div>
+                              <div className="truncate">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="truncate font-semibold text-xs text-slate-800 group-hover:text-blue-600 transition">
+                                    {file.name}
+                                  </span>
+                                  <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded shrink-0">
+                                    {ext}
+                                  </span>
+                                  {!file.isLocal && fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) ? (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded shrink-0">
+                                      <Cloud className="w-2.5 h-2.5 text-blue-600" />
+                                      <span>Cloud Synced</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded shrink-0" title={file.uploadedByUserName ? `Stored locally on ${file.uploadedByUserName}'s device` : 'Stored locally on uploader device'}>
+                                      <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                      <span>Local Device</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                  {((file.size || 0) / 1024).toFixed(1)} KB
+                                  {file.uploadedAt && ` • ${new Date(file.uploadedAt).toLocaleDateString()}`}
+                                  {file.uploadedByUserName && ` • By ${file.uploadedByUserName}`}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons: Quote Annex Toggle, Promote to Cloud, Preview, Download, Delete */}
+                            <div className="flex items-center flex-wrap gap-1.5 shrink-0 self-end sm:self-center">
+                              {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleAttachmentQuoteAnnex(idx)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer whitespace-nowrap ${
+                                    file.include_in_quote_annex
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                                  }`}
+                                  title="Toggle to automatically include this file in Quotation Studio Technical Annexes"
+                                >
+                                  <FileCheck className="w-3.5 h-3.5" />
+                                  <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
+                                </button>
+                              )}
+
+                              {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !fileUrl.startsWith('http')) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePromoteAttachmentToCloud(idx)}
+                                  disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
+                                  title="Upload this local attachment to Supabase Cloud Storage to share across team devices"
+                                >
+                                  {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                  ) : (
+                                    <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
+                                  )}
+                                  <span>Upload to Cloud</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAttachment(normalizedFile)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs"
+                                title="Preview attachment in-app"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Preview</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadAttachment(normalizedFile)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                                title="Download proposal attachment"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download</span>
+                              </button>
+
+                              {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAttachment(idx)}
+                                  disabled={deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer disabled:opacity-50"
+                                  title="Remove attachment"
+                                >
+                                  {deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
                               )}
                             </div>
-                            <div className="truncate">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="truncate font-semibold text-xs text-slate-800 group-hover:text-blue-600 transition">
-                                  {file.name}
-                                </span>
-                                <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded shrink-0">
-                                  {ext}
-                                </span>
-                                {!file.isLocal && fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) ? (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded shrink-0">
-                                    <Cloud className="w-2.5 h-2.5 text-blue-600" />
-                                    <span>Cloud Synced</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded shrink-0" title={file.uploadedByUserName ? `Stored locally on ${file.uploadedByUserName}'s device` : 'Stored locally on uploader device'}>
-                                    <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
-                                    <span>Local Device</span>
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                {(file.size / 1024).toFixed(1)} KB
-                                {file.uploadedAt && ` • ${new Date(file.uploadedAt).toLocaleDateString()}`}
-                                {file.uploadedByUserName && ` • By ${file.uploadedByUserName}`}
-                              </div>
-                            </div>
                           </div>
-
-                          {/* Action Buttons: Promote to Cloud, Preview, Download, Delete */}
-                          <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-center">
-                            {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !fileUrl.startsWith('http')) && (
-                              <button
-                                type="button"
-                                onClick={() => handlePromoteAttachmentToCloud(idx)}
-                                disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-50"
-                                title="Upload this local attachment to Supabase Cloud Storage to share across team devices"
-                              >
-                                {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                                ) : (
-                                  <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
-                                )}
-                                <span>Upload to Cloud</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => setPreviewAttachment(normalizedFile)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs"
-                              title="Preview attachment in-app"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Preview</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadAttachment(normalizedFile)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-150 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
-                              title="Download proposal attachment"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              <span>Download</span>
-                            </button>
-
-                            {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAttachment(idx)}
-                                disabled={deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition cursor-pointer disabled:opacity-50"
-                                title="Remove attachment"
-                              >
-                                {deletingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-600" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <label
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer?.files?.length) {
+                          handleDetailFileUpload(e.dataTransfer.files);
+                        }
+                      }}
+                      className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl p-5 text-center transition cursor-pointer block bg-slate-50/50"
+                    >
+                      <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                      <span className="text-xs font-semibold text-slate-700 block">
+                        Drag & drop RFQ PDFs, specs, or images here, or click to upload
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
+                        Synced via Custom Bucket storage • Toggle any file to auto-attach into Quotation Annexes
+                      </span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="application/pdf,image/png,image/jpeg,text/plain,.docx,.eml"
+                        onChange={(e) => {
+                          handleDetailFileUpload(e.target.files);
+                          e.target.value = '';
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
               )}
 
@@ -3045,7 +3525,7 @@ export default function EnquiryDetail({
                       onClick={() => {
                         try {
                           navigator.clipboard.writeText(enquiry.raw_source_text || '');
-                          alert('Copied raw context to clipboard!');
+                          if (triggerToast) triggerToast('Copied raw context to clipboard!', 'info');
                         } catch (e) {
                           console.error(e);
                         }
@@ -3066,29 +3546,141 @@ export default function EnquiryDetail({
 
           {activeTab === 'items' && (
             <div className="space-y-4">
+              {/* Interactive Quotation Sync Prompt Banner when Line Items were updated */}
+              {showQuoteSyncPrompt && quotations.length > 0 && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-900">
+                      <RefreshCw className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span>Line Items Updated — Sync with Formal Quotations?</span>
+                    </div>
+                    <p className="text-xs text-indigo-700">
+                      Keep your commercial offer aligned by syncing into the active Draft or forking a new Revision (R{quotations.reduce((m, q) => Math.max(m, q.revision_number || 1), 1) + 1}).
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {quotations.some((q) => q.status === 'Draft') && (
+                      <button
+                        type="button"
+                        disabled={isSyncingQuoteItems}
+                        onClick={() => handleSyncLineItemsToQuote('sync_draft')}
+                        className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap disabled:opacity-50"
+                      >
+                        Sync to Active Draft
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={isSyncingQuoteItems}
+                      onClick={() => handleSyncLineItemsToQuote('new_revision')}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <GitFork className="w-3.5 h-3.5" />
+                      <span>Create Revision R{quotations.reduce((m, q) => Math.max(m, q.revision_number || 1), 1) + 1}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuoteSyncPrompt(false)}
+                      className="p-1 text-indigo-400 hover:text-indigo-700 rounded-lg cursor-pointer"
+                      title="Dismiss"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Deal Profitability & Gross Margin Summary Strip */}
+              {!isMaskedForBasic && (
+                (() => {
+                  const sourceList = isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || []);
+                  if (sourceList.length === 0) return null;
+                  const currSymbol = currentEnquiry.currency === 'USD' ? '$' : 'AED ';
+                  const totalSelling = sourceList.reduce((sum, li) => {
+                    const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                    const tot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+                    return isDisc ? sum - Math.abs(tot) : sum + tot;
+                  }, 0);
+                  const totalCost = sourceList.reduce((sum, li) => {
+                    const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                    if (isDisc) return sum;
+                    return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
+                  }, 0);
+                  const hasAnyCost = sourceList.some((li) => (Number(li.cost_price) || 0) > 0);
+                  const estProfit = totalSelling - totalCost;
+                  const marginPct = totalSelling > 0 && hasAnyCost ? (estProfit / totalSelling) * 100 : null;
+
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-emerald-600" />
+                        <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700">
+                          Deal Profitability & Margin
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs font-mono tabular-nums">
+                        <span>
+                          <span className="text-slate-400 mr-1">Cost:</span>
+                          <span className="font-semibold text-slate-700">
+                            {hasAnyCost ? `${currSymbol}${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </span>
+                        </span>
+                        <span className="text-slate-300">·</span>
+                        <span>
+                          <span className="text-slate-400 mr-1">Selling:</span>
+                          <span className="font-bold text-slate-900">
+                            {currSymbol}{totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </span>
+                        {marginPct !== null && (
+                          <>
+                            <span className="text-slate-300">·</span>
+                            <span>
+                              <span className="text-slate-400 mr-1">Profit:</span>
+                              <span className={`font-bold ${estProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {currSymbol}{estProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+                                marginPct >= 20
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : marginPct >= 0
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}
+                            >
+                              {marginPct.toFixed(1)}% Margin
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+
               {/* Commercial Option Comparison Banner */}
               {optionAnalysis.hasMultipleOptions && (
-                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-3 mb-4 shadow-2xs">
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 mb-2 shadow-2xs">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    {/* Left side: Baseline Package Total badge with item count */}
                     <div className="flex items-center space-x-2.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                       <div>
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-400 block font-bold">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block font-bold">
                           Baseline Package Total ({optionAnalysis.baselineCount} items)
                         </span>
-                        <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
+                        <span className="text-sm font-bold font-mono tabular-nums text-slate-900">
                           {formatCurrency(optionAnalysis.baselineTotal)}
                         </span>
                       </div>
                     </div>
 
-                    {/* Right side: Responsive flex showing chips for each alternative option and elective add-ons */}
                     <div className="flex flex-wrap items-center gap-2">
                       {(Object.entries(optionAnalysis.alternativeTotals) as [string, { count: number; total: number }][]).map(([optName, optData]) => (
                         <span
                           key={optName}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shadow-2xs"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-medium bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs"
                           title={`${optName} Alternative Subtotal`}
                         >
                           <span className="font-bold">{optName}:</span>
@@ -3099,7 +3691,7 @@ export default function EnquiryDetail({
 
                       {optionAnalysis.optionalTotal > 0 && (
                         <span
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-medium bg-purple-50 text-purple-800 border border-purple-200 shadow-2xs"
                           title="Optional / Add-On Electives Total"
                         >
                           <span className="font-bold">Optionals:</span>
@@ -3112,34 +3704,183 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Line Items Header & Option Filter Navigation */}
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-2 mb-2 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-xs text-slate-400 dark:text-slate-500 font-mono">
-                    <ListOrdered className="w-4 h-4" />
-                    <span>Multi-Product proposal line item breakdown</span>
+              {/* Line Items Toolbar: Quick Add Catalog, Custom Item, & Inline Edit Controls */}
+              <div className="border-b border-slate-100 pb-3 space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
+                    <ListOrdered className="w-4 h-4 text-blue-600" />
+                    <span>Line Items & Specifications ({(isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || [])).length})</span>
                   </div>
-                  {filteredLineItems.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={toggleExpandAllItems}
-                      className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold flex items-center space-x-1 py-1 px-2.5 bg-blue-50/60 dark:bg-blue-950/40 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded-lg border border-blue-100 dark:border-blue-900/60 transition cursor-pointer"
-                    >
-                      <ChevronsUpDown className="w-3.5 h-3.5" />
-                      <span>
-                        {filteredLineItems.every((item) => {
-                          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
-                          return origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
-                        })
-                          ? 'Collapse All'
-                          : 'Expand All'}
-                      </span>
-                    </button>
-                  )}
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickCatalogPicker(!showQuickCatalogPicker)}
+                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                        >
+                          <Package className="w-3.5 h-3.5" />
+                          <span>+ Add from Catalog</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleQuickAddCustomItem}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Custom Item</span>
+                        </button>
+                        {isInlineEditingItems ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isSavingInlineItems}
+                              onClick={handleSaveInlineLineItems}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap disabled:opacity-50"
+                            >
+                              {isSavingInlineItems ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                              <span>Save Items</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDraftLineItems(currentEnquiry.line_items || []);
+                                setIsInlineEditingItems(false);
+                              }}
+                              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraftLineItems(currentEnquiry.line_items || []);
+                              setIsInlineEditingItems(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Quick Edit</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {!isInlineEditingItems && filteredLineItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={toggleExpandAllItems}
+                        className="text-[11px] font-mono text-slate-600 hover:text-slate-900 font-semibold flex items-center space-x-1 py-1.5 px-2.5 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition cursor-pointer"
+                      >
+                        <ChevronsUpDown className="w-3.5 h-3.5" />
+                        <span>
+                          {filteredLineItems.every((item) => {
+                            const origIdx = currentEnquiry.line_items ? currentEnquiry.line_items.indexOf(item) : -1;
+                            return origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
+                          })
+                            ? 'Collapse All'
+                            : 'Expand All'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
+                {/* Inline Quick Catalog Picker Drawer */}
+                {showQuickCatalogPicker && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          value={quickCatalogSearch ?? ''}
+                          onChange={(e) => setQuickCatalogSearch(e.target.value)}
+                          placeholder="Search Products Catalog by name, SKU, brand, model..."
+                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickCatalogPicker(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(products || [])
+                        .filter((p) => {
+                          if (p.is_deleted) return false;
+                          const q = quickCatalogSearch.toLowerCase().trim();
+                          if (!q) return true;
+                          return (
+                            (p.name || '').toLowerCase().includes(q) ||
+                            (p.sku || '').toLowerCase().includes(q) ||
+                            (p.brand_make || '').toLowerCase().includes(q) ||
+                            (p.model_part_no || '').toLowerCase().includes(q) ||
+                            (p.description || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .slice(0, 20)
+                        .map((p) => {
+                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => handleQuickAddCatalogProduct(p)}
+                              className="bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 flex items-center justify-between gap-2 cursor-pointer transition"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {p.image_url ? (
+                                  <img
+                                    src={p.image_url}
+                                    alt={p.name}
+                                    className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                    <Package className="w-4 h-4" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
+                                  <div className="text-[10px] font-mono text-slate-500 truncate">
+                                    {[p.brand_make, p.model_part_no, p.sku ? `SKU: ${p.sku}` : ''].filter(Boolean).join(' · ') || p.product_type}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    {p.is_inventoried ? (
+                                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${isLow ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                        Avail: {avail} {p.unit}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-mono text-slate-400">
+                                        {p.default_availability || 'Order / Non-Stock'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right font-mono tabular-nums shrink-0">
+                                <span className="text-xs font-bold text-emerald-600 block">
+                                  {p.unit_price ? `AED ${Number(p.unit_price).toLocaleString()}` : 'Custom'}
+                                </span>
+                                <span className="text-[10px] text-blue-600 font-sans font-semibold">+ Add</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Option Filter Pill Navigation */}
-                {optionAnalysis.detectedOptions.length > 1 && (
+                {!isInlineEditingItems && optionAnalysis.detectedOptions.length > 1 && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <button
                       type="button"
@@ -3147,12 +3888,12 @@ export default function EnquiryDetail({
                       className={`px-2.5 py-1 rounded-lg text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5 ${
                         activeOptionTab === 'ALL'
                           ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                       }`}
                     >
                       <span>All Items</span>
                       <span className={`font-mono text-[10px] ${activeOptionTab === 'ALL' ? 'text-blue-100' : 'text-slate-400'}`}>
-                        ({enquiry.line_items?.length || 0})
+                        ({currentEnquiry.line_items?.length || 0})
                       </span>
                     </button>
 
@@ -3167,7 +3908,7 @@ export default function EnquiryDetail({
                           className={`px-2.5 py-1 rounded-lg text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5 ${
                             isActive
                               ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                           }`}
                         >
                           <span>{optName}</span>
@@ -3181,12 +3922,183 @@ export default function EnquiryDetail({
                 )}
               </div>
 
-              {filteredLineItems && filteredLineItems.length > 0 ? (
+              {isInlineEditingItems ? (
+                /* Inline Editor Mode for Line Items */
+                <div className="space-y-3">
+                  {draftLineItems.map((item, idx) => {
+                    const matchedProduct = (products || []).find(
+                      (p) =>
+                        (item.product_id && p.id === item.product_id) ||
+                        (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase())
+                    );
+                    const thumbUrl = item.image_url || matchedProduct?.image_url;
+                    const sell = Number(item.unit_price) || 0;
+                    const cost = Number(item.cost_price) || 0;
+                    const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+
+                    return (
+                      <div key={item.id || idx} className="bg-white border border-blue-200 rounded-xl p-3.5 space-y-3 shadow-2xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {thumbUrl ? (
+                              <img
+                                src={thumbUrl}
+                                alt={item.item_name || 'Item'}
+                                className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <span className="text-xs font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded shrink-0">
+                                #{idx + 1}
+                              </span>
+                            )}
+                            <input
+                              type="text"
+                              value={item.item_name ?? ''}
+                              onChange={(e) => handleDraftItemChange(idx, 'item_name', e.target.value)}
+                              placeholder="Item Name / Heading"
+                              className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => handleMoveDraftItem(idx, 'up')}
+                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                              title="Move Up"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === draftLineItems.length - 1}
+                              onClick={() => handleMoveDraftItem(idx, 'down')}
+                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                              title="Move Down"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDraftItem(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Remove Line Item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Qty</label>
+                            <input
+                              type="number"
+                              value={item.quantity ?? ''}
+                              onChange={(e) => handleDraftItemChange(idx, 'quantity', e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Unit</label>
+                            <input
+                              type="text"
+                              value={item.unit ?? ''}
+                              onChange={(e) => handleDraftItemChange(idx, 'unit', e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Selling Price</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={item.unit_price ?? ''}
+                              onChange={(e) => handleDraftItemChange(idx, 'unit_price', e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <label className="text-[10px] font-mono uppercase text-slate-400">Unit Cost</label>
+                              {marginPct !== null && (
+                                <span className={`text-[9px] font-mono font-bold ${marginPct >= 20 ? 'text-emerald-600' : marginPct >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                  {marginPct.toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={item.cost_price ?? ''}
+                              placeholder="0.00"
+                              onChange={(e) => handleDraftItemChange(idx, 'cost_price', e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Lead Time</label>
+                            <input
+                              type="text"
+                              value={item.lead_time_note ?? ''}
+                              placeholder="Ex-Stock / 2-3 Wks"
+                              onChange={(e) => handleDraftItemChange(idx, 'lead_time_note', e.target.value)}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
+                          <div className="sm:col-span-2">
+                            <input
+                              type="text"
+                              value={item.description ?? ''}
+                              onChange={(e) => handleDraftItemChange(idx, 'description', e.target.value)}
+                              placeholder="Technical description & specification notes..."
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                              <label className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={item.include_datasheet_in_quote !== false}
+                                  onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
+                                  className="rounded border-indigo-300 text-indigo-600"
+                                />
+                                <span>Annex Datasheet</span>
+                              </label>
+                            )}
+                            <span className="text-xs font-mono tabular-nums font-bold text-blue-600 ml-auto">
+                              {formatCurrency(item.total_price)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : filteredLineItems && filteredLineItems.length > 0 ? (
                 <div className="space-y-3">
                   {filteredLineItems.map((item, idx) => {
-                    const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : idx;
+                    const origIdx = currentEnquiry.line_items ? currentEnquiry.line_items.indexOf(item) : idx;
                     const isExpanded = origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
                     const hasAttrs = item.attributes && item.attributes.length > 0;
+
+                    const matchedProduct = (products || []).find(
+                      (p) =>
+                        (item.product_id && p.id === item.product_id) ||
+                        (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+                        (item.item_name && (p.name || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+                    );
+                    const thumbUrl = item.image_url || matchedProduct?.image_url;
+                    const availStock = matchedProduct ? (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0) : null;
+                    const isLowStock = Boolean(matchedProduct?.is_inventoried) && (availStock ?? 0) <= (matchedProduct?.reorder_level || 0);
+                    const sell = Number(item.unit_price) || 0;
+                    const cost = Number(item.cost_price) || 0;
+                    const lineMarginPct = !isMaskedForBasic && sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
 
                     const rawOpt = ((item as any).option_designation || item.option || '').trim();
                     const currentOpt = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
@@ -3198,29 +4110,28 @@ export default function EnquiryDetail({
 
                     return (
                       <React.Fragment key={origIdx >= 0 ? origIdx : idx}>
-                        {/* Group Section Divider in "ALL" View */}
                         {isFirstOfGroup && (
-                          <div className="flex items-center justify-between pt-3 pb-1 border-b border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center justify-between pt-3 pb-1 border-b border-slate-200">
                             <div className="flex items-center space-x-2">
-                              <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                              <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-800">
                                 {currentOpt}
                               </span>
                               {currentOpt === 'Default / Included' || currentOpt === 'Option A' || currentOpt.startsWith('Option A ') ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-mono font-semibold">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-mono font-semibold">
                                   Baseline Scope
                                 </span>
                               ) : currentOpt.toLowerCase().includes('optional') ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-mono font-semibold">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono font-semibold">
                                   Elective Add-On
                                 </span>
                               ) : (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-mono font-semibold">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-mono font-semibold">
                                   Alternative Option
                                 </span>
                               )}
                             </div>
                             {optionAnalysis.groupMap[currentOpt] && (
-                              <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                              <span className="text-xs font-mono tabular-nums font-semibold text-slate-500">
                                 Subtotal: {formatCurrency(optionAnalysis.groupMap[currentOpt].total)} ({optionAnalysis.groupMap[currentOpt].count} items)
                               </span>
                             )}
@@ -3228,16 +4139,16 @@ export default function EnquiryDetail({
                         )}
 
                         <div
-                          className={`bg-slate-50 dark:bg-slate-800/40 border transition-all duration-200 rounded-xl overflow-hidden ${
-                            isExpanded ? 'border-blue-300 dark:border-blue-700 shadow-xs bg-slate-50/90 dark:bg-slate-800/70' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                          className={`bg-slate-50 border transition-all duration-200 rounded-xl overflow-hidden ${
+                            isExpanded ? 'border-blue-300 shadow-xs bg-slate-50/90' : 'border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          {/* Collapsed Header Bar - Clickable to toggle */}
+                          {/* Collapsed Header Bar */}
                           <div
                             onClick={() => toggleLineItem(origIdx >= 0 ? origIdx : idx)}
-                            className="p-4 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 dark:hover:bg-slate-800/80 transition"
+                            className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition gap-3"
                           >
-                            <div className="flex items-center space-x-3 truncate pr-2">
+                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
                               <div className="text-slate-400 hover:text-slate-600 shrink-0">
                                 {isExpanded ? (
                                   <ChevronDown className="w-4 h-4 text-blue-600" />
@@ -3245,45 +4156,81 @@ export default function EnquiryDetail({
                                   <ChevronRight className="w-4 h-4" />
                                 )}
                               </div>
-                              <span className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded font-mono font-bold shrink-0">
-                                Line #{origIdx >= 0 ? origIdx + 1 : idx + 1}
-                              </span>
+
+                              {thumbUrl ? (
+                                <img
+                                  src={thumbUrl}
+                                  alt={item.item_name || 'Product'}
+                                  className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <span className="text-xs bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded font-mono font-bold shrink-0">
+                                  #{origIdx >= 0 ? origIdx + 1 : idx + 1}
+                                </span>
+                              )}
+
                               {item.item_type === 'charge' || item.item_type === 'discount' || item.product_type === 'Service / Charge' ? (
-                                <span className="text-xs bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-bold px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0">
+                                <span className="text-xs bg-amber-50 border border-amber-200 text-amber-800 font-bold px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0">
                                   <span>Charge:</span> {item.charge_type || item.product_type}
                                 </span>
                               ) : (
-                                <div className="truncate">
-                                  <div className="font-semibold text-slate-800 dark:text-slate-100 text-sm">
-                                    {item.item_name || item.description || item.product_type || 'Line Item'}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-semibold text-slate-900 text-sm truncate">
+                                      {item.item_name || item.description || item.product_type || 'Line Item'}
+                                    </span>
+                                    {matchedProduct?.is_inventoried && availStock !== null && (
+                                      <span
+                                        className={`text-[10px] font-mono tabular-nums font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                                          isLowStock
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        }`}
+                                      >
+                                        Avail: {availStock} {matchedProduct.unit}
+                                      </span>
+                                    )}
+                                    {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                        Datasheet
+                                      </span>
+                                    )}
                                   </div>
-                                  {item.item_name && item.description && item.description !== item.item_name && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                      {item.description}
-                                    </div>
-                                  )}
+                                  <div className="text-xs text-slate-500 truncate flex items-center gap-1.5">
+                                    {(item.brand_make || matchedProduct?.brand_make) && (
+                                      <span className="font-medium text-slate-600">{item.brand_make || matchedProduct?.brand_make}</span>
+                                    )}
+                                    {(item.model_part_no || matchedProduct?.model_part_no) && (
+                                      <span>· {item.model_part_no || matchedProduct?.model_part_no}</span>
+                                    )}
+                                    {item.item_name && item.description && item.description !== item.item_name && (
+                                      <span className="truncate">· {item.description}</span>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                              {((item as any).option_designation || item.option) && (
-                                <span
-                                  className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                                    (((item as any).option_designation || item.option) || '').toLowerCase().includes('optional')
-                                      ? 'bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300'
-                                      : (((item as any).option_designation || item.option) || '').startsWith('Option ') && !(((item as any).option_designation || item.option) || '').startsWith('Option A')
-                                      ? 'bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'
-                                      : 'bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-                                  }`}
-                                >
-                                  {(item as any).option_designation || item.option}
-                                </span>
                               )}
                             </div>
 
-                            <div className="flex items-center space-x-4 shrink-0 font-mono">
-                              <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline-block">
-                                {item.quantity} {item.unit} x {formatCurrency(item.unit_price)}
+                            <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums">
+                              {lineMarginPct !== null && (
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded hidden sm:inline-block ${
+                                    lineMarginPct >= 20
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : lineMarginPct >= 0
+                                      ? 'bg-amber-50 text-amber-700'
+                                      : 'bg-rose-50 text-rose-700'
+                                  }`}
+                                  title={`Unit Cost: ${formatCurrency(cost)}`}
+                                >
+                                  {lineMarginPct.toFixed(0)}% Margin
+                                </span>
+                              )}
+                              <span className="text-xs text-slate-500 hidden sm:inline-block">
+                                {item.quantity} {item.unit} × {formatCurrency(item.unit_price)}
                               </span>
-                              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                              <span className="text-sm font-bold text-blue-600">
                                 {formatCurrency(item.total_price)}
                               </span>
                             </div>
@@ -3291,26 +4238,43 @@ export default function EnquiryDetail({
 
                           {/* Inline Expanded View */}
                           {isExpanded && (
-                            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans pt-1">
+                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-200/80 bg-white">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-sans pt-1">
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Quantity & Pricing</span>
-                                  <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                                  <span className="font-semibold text-slate-800 font-mono tabular-nums">
                                     {item.quantity} {item.unit} @ {formatCurrency(item.unit_price)} = {formatCurrency(item.total_price)}
                                   </span>
                                 </div>
+                                {!isMaskedForBasic && cost > 0 && (
+                                  <div>
+                                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Cost & Line Margin</span>
+                                    <span className="font-semibold text-slate-700 font-mono tabular-nums">
+                                      Cost: {formatCurrency(cost)} ({lineMarginPct !== null ? `${lineMarginPct.toFixed(1)}%` : '—'})
+                                    </span>
+                                  </div>
+                                )}
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Delivery / Lead Time</span>
-                                  <span className="font-semibold text-slate-700 dark:text-slate-300 font-mono">
-                                    {item.lead_time_note || 'Immediate / Stock'}
+                                  <span className="font-semibold text-slate-700 font-mono">
+                                    {item.lead_time_note || matchedProduct?.default_availability || 'Immediate / Stock'}
                                   </span>
                                 </div>
                               </div>
 
+                              {(item.brand_make || item.model_part_no || item.country_of_origin || item.hs_code) && (
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-slate-600 pt-1">
+                                  {item.brand_make && <span><strong>Brand:</strong> {item.brand_make}</span>}
+                                  {item.model_part_no && <span>· <strong>Model:</strong> {item.model_part_no}</span>}
+                                  {item.country_of_origin && <span>· <strong>Origin:</strong> {item.country_of_origin}</span>}
+                                  {item.hs_code && <span>· <strong>HS:</strong> {item.hs_code}</span>}
+                                </div>
+                              )}
+
                               {item.description && (
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Description / Spec Notes</span>
-                                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 p-3 rounded-lg border border-slate-150 dark:border-slate-700">
+                                  <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-150">
                                     {item.description}
                                   </p>
                                 </div>
@@ -3320,9 +4284,9 @@ export default function EnquiryDetail({
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Specification Attributes</span>
                                   <div className="flex flex-wrap gap-1.5">
-                                    {item.attributes.map((attr, attrIdx) => (
-                                      <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-md shadow-2xs">
-                                        <span className="font-semibold text-slate-900 dark:text-slate-100">{attr.key}:</span> {attr.value || '—'}
+                                    {item.attributes!.map((attr, attrIdx) => (
+                                      <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
+                                        <span className="font-semibold text-slate-900">{attr.key}:</span> {attr.value || '—'}
                                       </span>
                                     ))}
                                   </div>
@@ -3336,10 +4300,22 @@ export default function EnquiryDetail({
                   })}
                 </div>
               ) : (
-                <div className="py-12 text-center text-slate-400 font-sans text-sm">
-                  {enquiry.line_items && enquiry.line_items.length > 0
-                    ? `No line items declared under "${activeOptionTab}".`
-                    : 'This enquiry does not have any declared line item details.'}
+                <div className="py-12 text-center text-slate-400 font-sans text-sm space-y-2">
+                  <p>
+                    {currentEnquiry.line_items && currentEnquiry.line_items.length > 0
+                      ? `No line items declared under "${activeOptionTab}".`
+                      : 'This enquiry does not have any declared line items yet.'}
+                  </p>
+                  {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickCatalogPicker(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>+ Pick Items from Catalog</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -3356,8 +4332,6 @@ export default function EnquiryDetail({
                 <div className="space-y-4">
                   {recordLogs.map((log) => (
                     <div key={log.id} className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
-                      
-                      {/* Log meta */}
                       <div className="flex items-center justify-between border-b border-slate-150 pb-2.5">
                         <div className="space-y-0.5">
                           <span className="text-xs text-slate-800 font-semibold block font-sans">
@@ -3368,7 +4342,6 @@ export default function EnquiryDetail({
                           </span>
                         </div>
 
-                        {/* Rollback option */}
                         {user.role !== 'Viewer' && (
                           <button
                             type="button"
@@ -3382,7 +4355,6 @@ export default function EnquiryDetail({
                         )}
                       </div>
 
-                      {/* Log edits */}
                       {log.changes && log.changes.length > 0 ? (
                         <div className="space-y-2">
                           <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Modified properties:</span>
@@ -3417,102 +4389,246 @@ export default function EnquiryDetail({
           )}
 
           {activeTab === 'revisions' && (
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono border-b border-slate-100 pb-2 mb-2">
-                <GitFork className="w-4 h-4 text-blue-500" />
-                <span>Sequential Sheet Revisions Chain</span>
-              </div>
+            <div className="space-y-6">
+              {/* Section 1: Formal Quotations & Offer Revisions (R1, R2, ...) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span className="font-bold uppercase tracking-wider text-slate-700">
+                      Formal Commercial Quotations ({quotations.length})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingQuotation(quotations[0] || null);
+                      setIsQuotationStudioOpen(true);
+                    }}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{quotations.length > 0 ? 'Open Quotation Studio' : 'Create First Quotation (R1)'}</span>
+                  </button>
+                </div>
 
-              {revisionChain.length > 0 ? (
-                <div className="relative border-l border-slate-200 ml-3.5 pl-5 space-y-5 py-2">
-                  {revisionChain.map((rev, index) => {
-                    const isCurrent = rev.id === enquiry.id;
-                    const revCompany = companies.find((c) => c.id === rev.company_id);
-                    const revDate = rev.enquiry_date;
-                    const itemsCount = rev.line_items?.length || (rev as any).items?.length || 0;
-                    const revLabel = typeof rev.revision_number === 'number' ? (rev.revision_number === 0 ? 'Original' : `Rev ${rev.revision_number}`) : (index === 0 ? 'Original' : `Rev ${index}`);
-                    
-                    return (
-                      <div key={rev.id || index} className="relative group">
-                        {/* Timeline point indicator */}
-                        <div className={`absolute -left-[27px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white transition-all ${
-                          isCurrent 
-                            ? 'border-blue-600 ring-4 ring-blue-100 scale-110 z-10' 
-                            : 'border-slate-300 group-hover:border-slate-400'
-                        }`} />
-
-                        <div 
-                          onClick={() => {
-                            if (!isCurrent && onSelectEnquiry && rev.id) {
-                              onSelectEnquiry(rev.id);
-                            }
-                          }}
-                          className={`border rounded-xl p-4 transition-all text-left ${
-                            isCurrent
-                              ? 'bg-blue-50/50 border-blue-200 shadow-xs'
-                              : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs cursor-pointer'
+                {quotations.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {quotations.map((q) => {
+                      const isApproved = q.status === 'Approved';
+                      const isDeclined = q.status === 'Declined';
+                      const isSuperseded = q.status === 'Superseded';
+                      return (
+                        <div
+                          key={q.id || q.formatted_quote_ref}
+                          className={`border rounded-xl p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isApproved
+                              ? 'bg-emerald-50/40 border-emerald-200'
+                              : isDeclined
+                              ? 'bg-rose-50/30 border-rose-200'
+                              : isSuperseded
+                              ? 'bg-slate-50 border-slate-200 opacity-75'
+                              : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-mono font-bold text-slate-800 flex items-center space-x-1.5">
-                              <span>Quote Ref: {rev.quote_ref_no || `#${rev.sn}`}</span>
-                              <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
-                                {revLabel}
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-sm font-bold text-slate-900">
+                                {q.formatted_quote_ref}
                               </span>
-                            </span>
-                            <div className="flex items-center space-x-2">
-                              {isCurrent && (
-                                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider font-sans">
-                                  Viewing
-                                </span>
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                Rev R{q.revision_number || 1}
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                                  isApproved
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    : isDeclined
+                                    ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                    : isSuperseded
+                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                }`}
+                              >
+                                {q.status || 'Draft'}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono tabular-nums text-slate-500 flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-800">
+                                {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              <span>·</span>
+                              <span>{(q.line_items || []).length} items</span>
+                              {q.created_at && (
+                                <>
+                                  <span>·</span>
+                                  <span>{new Date(q.created_at).toLocaleDateString()}</span>
+                                </>
                               )}
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                S/N: #{rev.sn}
-                              </span>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs font-sans mb-3 text-slate-600">
-                            <div>
-                              <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Proposal Date</span>
-                              <span className="font-medium text-slate-800 font-mono">{revDate}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Package Value</span>
-                              <span className="font-bold text-blue-600 font-mono">{formatCurrency(rev.value_aed)}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Company</span>
-                              <span className="font-medium truncate block max-w-[150px] text-slate-800">
-                                {revCompany?.display_name || 'Unknown Company'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Line Items</span>
-                              <span className="font-medium text-slate-800">
-                                {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between text-[10px] border-t border-slate-100 pt-2 text-slate-400 font-mono">
-                            <span>
-                              {rev.updatedByUsername ? `Updated by ${rev.updatedByUsername}` : 'Initial revision'}
-                            </span>
-                            <span>
-                              {rev.updatedAt ? new Date(rev.updatedAt).toLocaleDateString() : ''}
-                            </span>
+                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingQuotation(q);
+                                setIsQuotationStudioOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                            >
+                              Edit in Studio
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCreateQuotationRevision(q)}
+                              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                              title="Fork next quotation revision"
+                            >
+                              <GitFork className="w-3 h-3" />
+                              <span>Fork R{(q.revision_number || 1) + 1}</span>
+                            </button>
+                            {!isApproved && !isDeclined && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => promptAcceptQuotation(q)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDeclineModal(q)}
+                                  className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                                >
+                                  Decline
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-6 text-center text-xs text-slate-500">
+                    No formal quotations generated yet. Click <strong>Create First Quotation (R1)</strong> to launch Quotation Studio.
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Cloned Enquiry Sheet Revisions Chain */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
+                    <GitFork className="w-4 h-4 text-blue-500" />
+                    <span className="font-bold uppercase tracking-wider text-slate-700">
+                      Linked Enquiry Sheet Revisions ({revisionChain.length})
+                    </span>
+                  </div>
+                  {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                    <button
+                      type="button"
+                      onClick={handleCreateRevision}
+                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                    >
+                      <GitFork className="w-3 h-3" />
+                      <span>Clone Sheet Revision</span>
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="py-12 text-center text-slate-400 font-sans text-sm">
-                  No linked sheet revisions are available for this record.
-                </div>
-              )}
+
+                {revisionChain.length > 0 ? (
+                  <div className="relative border-l border-slate-200 ml-3.5 pl-5 space-y-4 py-1">
+                    {revisionChain.map((rev, index) => {
+                      const isCurrent = rev.id === enquiry.id;
+                      const revCompany = companies.find((c) => c.id === rev.company_id);
+                      const revDate = rev.enquiry_date;
+                      const itemsCount = rev.line_items?.length || (rev as any).items?.length || 0;
+                      const revLabel = typeof rev.revision_number === 'number' ? (rev.revision_number === 0 ? 'Original' : `Rev ${rev.revision_number}`) : (index === 0 ? 'Original' : `Rev ${index}`);
+
+                      return (
+                        <div key={rev.id || index} className="relative group">
+                          <div className={`absolute -left-[27px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white transition-all ${
+                            isCurrent
+                              ? 'border-blue-600 ring-4 ring-blue-100 scale-110 z-10'
+                              : 'border-slate-300 group-hover:border-slate-400'
+                          }`} />
+
+                          <div
+                            onClick={() => {
+                              if (!isCurrent && onSelectEnquiry && rev.id) {
+                                onSelectEnquiry(rev.id);
+                              }
+                            }}
+                            className={`border rounded-xl p-4 transition-all text-left ${
+                              isCurrent
+                                ? 'bg-blue-50/50 border-blue-200 shadow-xs'
+                                : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-mono font-bold text-slate-800 flex items-center space-x-1.5">
+                                <span>Quote Ref: {rev.quote_ref_no || `#${rev.sn}`}</span>
+                                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
+                                  {revLabel}
+                                </span>
+                              </span>
+                              <div className="flex items-center space-x-2">
+                                {isCurrent && (
+                                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider font-sans">
+                                    Viewing
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  S/N: #{rev.sn}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs font-sans mb-3 text-slate-600">
+                              <div>
+                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Proposal Date</span>
+                                <span className="font-medium text-slate-800 font-mono">{revDate}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Package Value</span>
+                                <span className="font-bold text-blue-600 font-mono tabular-nums">{formatCurrency(rev.value_aed)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Company</span>
+                                <span className="font-medium truncate block max-w-[150px] text-slate-800">
+                                  {revCompany?.display_name || rev.company_name || 'Unknown Company'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Line Items</span>
+                                <span className="font-medium text-slate-800">
+                                  {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] border-t border-slate-100 pt-2 text-slate-400 font-mono">
+                              <span>
+                                {rev.updatedByUsername ? `Updated by ${rev.updatedByUsername}` : 'Initial revision'}
+                              </span>
+                              <span>
+                                {rev.updatedAt ? new Date(rev.updatedAt).toLocaleDateString() : ''}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-slate-400 font-sans text-xs">
+                    No linked sheet revisions are available for this record.
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

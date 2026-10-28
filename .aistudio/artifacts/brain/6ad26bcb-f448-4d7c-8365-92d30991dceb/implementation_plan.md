@@ -1,102 +1,90 @@
-# Products Catalog, Inventory System & Quotation Integration Overhaul Plan
+# Implementation Plan: Enquiries & Quotes Module Overhaul
 
-## 1. Architectural Audit Findings
+## 1. Architectural Overview & Goals
+This plan modernizes, declutters, and connects the **Enquiries & Quotes** module (`EnquiryList.tsx`, `EnquiryDetail.tsx`, `EnquiryForm.tsx`, and `types.ts`) with the upgraded **Products Catalog**, **Custom Bucket Storage**, and **Quotation Studio**.
 
-1. **Custom Bucket Storage (`src/services/attachmentStorage.ts`)**:
-   - Currently, `uploadToSupabaseStorage(file, storageConfig, onProgress)` hardcodes the bucket path prefix to `enquiries/${Date.now()}_${cleanFileName}` and only handles enquiry `Attachment[]` arrays.
-   - Meanwhile, Quotation Studio branding assets (Company Logos, Stamps, Digital Signatures, Cover Pages/Annexes) in `QuotationStudioModal.tsx` and `SettingsModal.tsx` are converted directly to inline Base64 data-URIs inside Firestore documents, which risks exceeding Firestore's 1 MB document size limit when combined with 15–30 line-item product images.
-2. **Product Schema & Cross-Module Parity (`src/types.ts`, `ProductManager.tsx`, `EnquiryForm.tsx`, `QuotationDocument.tsx`)**:
-   - `Product` currently stores `name`, `sku`, `category`, `description`, `unit_price`, `cost_price`, `unit`, `attributes`, `hs_code`, `country_of_origin`, `track_inventory`, `stock_on_hand`, `stock_allocated`, and `stock_on_order`.
-   - It lacks `brand_make`, `model_part_no`, `default_availability`, `min_stock_threshold`, `image_url`, and `datasheet_attachment` (`Attachment`), forcing users to re-type Brand/Make, Model/Part #, and Availability on every Enquiry/Quotation line item.
-   - `LineItem` (Enquiry) and `QuotationLineItem` (Quotation) also lack `image_url`, `datasheet_attachment`, `include_datasheet_in_quote`, `country_of_origin`, and `hs_code` propagation from the catalog.
-3. **Products Catalog Top Clipping & Table UX (`src/App.tsx`, `src/components/layout/PageHeader.tsx`, `src/components/ProductManager.tsx`)**:
-   - In `src/App.tsx`, `<main className="flex-1 h-screen overflow-y-auto flex flex-col">` has a sticky top workspace bar (`<header className="sticky top-0 z-30">`). Inside `<main>`, `PageHeader.tsx` also applies `sticky top-0 z-20`, causing `PageHeader` to stick at `top: 0` directly *underneath* the `App.tsx` top bar and clipping the Products Catalog header and KPI cards when scrolling.
-   - Category pills wrap awkwardly on multi-word categories, product rows lack visual thumbnails and Brand/Model badges, and the `"Custom Price"` / `"Custom Unit"` labels in the modal are confusing.
-4. **Hardcoded Industry Attributes (`src/components/ProductManager.tsx`)**:
-   - The Register/Edit Product modal hardcodes water-treatment attribute chips (`Membrane Size`, `Flow Rate (GPD)`, `Salt Rejection`, `Housing Material`, `Port Size`, `Operating Pressure`, `Micron Rating`, `Power / Voltage`), which makes the catalog feel rigid for multi-tenant public SaaS users across other industries.
-5. **Inventory Terminology & Soft-Delete UX (`src/components/ProductManager.tsx`, `src/components/TrashBinModal.tsx`)**:
-   - The Product Modal says `"Track Warehouse Stock"` while the Inbound GRN Modal says `"Track Inventory & Physical Stock"` and hides untracked products until a checkbox is ticked.
-   - `handleDeleteProduct` performs a soft delete (`is_deleted: true`), but its confirmation prompt misleadingly states `"This is irreversible"` instead of informing the user that the product moves to the Recycle Bin, and `TrashBinModal.tsx` displays `p.description` instead of `p.name || p.description`.
+### Core Objectives
+1. **Two-Tier Enquiry Detail Header & Navigation (`EnquiryDetail.tsx`)**: Eliminate title truncation (`"R.."`) by separating the full-width client title, subject, and window controls (Row 1) from a dedicated, well-proportioned action bar (`Quotation Studio`, `Log Activity`, `Clone Enquiry`, `Share`, `Edit`, `Delete`) on Row 2, paired with live badge counters on the tab bar (`Details`, `Line Items (N)`, `Revisions (N)`, `History`).
+2. **Enquiry List KPI Summary Strip & High-Density Pipeline Table (`EnquiryList.tsx`)**: Add a 4-card top KPI summary strip (`Total Pipeline Value`, `Active / Pending Quotes`, `Won / Accepted Value & Win Rate`, `Follow-Up Action Required`) and enrich table rows with quick-glance indicators (line item count, attachment count, gross margin indicator, and formal quotation revision status).
+3. **Interactive Line Items, Cost/Margin Analytics & Inline Editing (`EnquiryForm.tsx` & `EnquiryDetail.tsx`)**: Surface `cost_price` and live **Gross Margin %** per line item and at the deal level (role-aware so basic viewers don't see confidential cost data), display product thumbnails and live stock availability (`Avail: X`, `Low Stock`, `Order / Non-Stock`) on every line item card, and empower users to **inline-edit quantities, selling prices, cost prices, reorder rows, or quick-add catalog products directly inside the Enquiry Detail `Line Items` tab**.
+4. **Quotation & Revision (`R1 -> R2`) Sync Prompt & Unified Revisions Tab (`EnquiryDetail.tsx`)**: When line items are edited on an Enquiry that already has Formal Quotations, present an interactive sync banner/prompt allowing the user to **1-click sync changes into an active `Draft` quotation** or **fork a new Quotation Revision (`R2`, `R3`)** with the updated items. Upgrade the `Revisions` tab to show both **Formal Quotations (`QT-...-R1`, `R2`)** with status selectors, PDF preview/print, and Studio launch alongside **Cloned Enquiry Revisions**.
+5. **Unified Custom Bucket RFQ Attachments & Quotation Annex Toggles (`EnquiryDetail.tsx` & `EnquiryForm.tsx`)**: Replace legacy Supabase-only attachment checks in `EnquiryDetail.tsx` with our unified `uploadWorkspaceMediaAsset` Custom Bucket service, add drag-and-drop file upload directly inside `EnquiryDetail`, and provide a per-attachment **`Include in Quote Annex`** toggle so client RFQ drawings/specs flow automatically into Quotation Studio.
+6. **Multi-Tenant SaaS Standardization & Zero-Null Controlled Inputs**: Ensure all `<input>`, `<textarea>`, and `<select>` elements across `EnquiryDetail.tsx`, `EnquiryList.tsx`, `EnquiryForm.tsx`, and `ProductManager.tsx` coalesce nullable values with `?? ''`, and replace industry-specific hardcoded placeholders with clean, multi-tenant commercial phrasing.
 
 ---
 
-## 2. Implementation Plan Across the 7 Core Pillars
+## 2. Detailed Implementation By Pillar
 
-### Pillar 1: Unified Custom Bucket Storage for Product Media & Studio Assets
-- **Upgrade `src/services/attachmentStorage.ts`**:
-  - Add a folder-aware upload helper `uploadAssetToBucket(fileOrBlob, folder, storageConfig, onProgress)` supporting structured paths:
-    - `products/images/` (compressed WebP/JPEG/PNG product photos)
-    - `products/datasheets/` (PDF/image technical spec sheets & submittals)
-    - `branding/logos/`, `branding/stamps/`, `branding/signatures/`
-    - `quotations/annexes/` and `enquiries/`
-  - Add client-side image compression (`compressImageForUpload(file, maxDimension, quality)`) before uploading to the custom Supabase/S3-compatible bucket so product thumbnails and branding assets render instantaneously inside the A4 PDF print engine.
-  - Provide automatic graceful fallback: if the workspace has not configured a Custom Storage Bucket or is offline, store a compact compressed image or local IndexedDB reference (`idb://`) and cleanly resolve URLs when rendering.
-- **Route Quotation Studio & Settings Branding Uploads Through Bucket**:
-  - Update logo, stamp, signature, and PDF annex upload handlers in `QuotationStudioModal.tsx` and `SettingsModal.tsx` to upload via `uploadAssetToBucket` when custom storage is configured, storing the clean HTTPS URL in Firestore.
+### Pillar 1: Enquiry Detail Two-Tier Header, Split-Pane Layout & Tab Polish (`src/components/EnquiryDetail.tsx`)
+- **Row 1 (Identity & Window Controls)**:
+  - Left side (`min-w-0 flex-1`): `#SN` badge, full Client / Company Display Name (`text-lg sm:text-xl font-bold text-slate-900 truncate` with full horizontal breathing room), Company quick-badges (`GoogleSearchButton`, `TemperatureBadge`, `IndustryBadge`), Customer Ref badge, and full Subject line below.
+  - Far right (`shrink-0`): Drawer width toggle (`Expand / Compress`) and `Close (X)` button.
+- **Row 2 (Primary & Secondary Action Toolbar)**:
+  - Left group (Primary Workflow Actions):
+    - `Quotation Studio` / `Create Quotation` (primary indigo CTA with active revision badge e.g. `R1 • Sent`).
+    - `Log Activity` (blue CTA).
+    - `+ Add / Edit Items` quick-jump button to the interactive `Line Items` tab.
+  - Right group (Record Actions):
+    - `Clone Enquiry`, `Share (N)`, `Edit Enquiry`, and `Delete` (with clear labels on desktop and clean icon+label responsive sizing).
+- **Tab Bar Enhancements**:
+  - Display live counts on tabs: `Details`, `Line Items (${lineItems.length})`, `Revisions (${quotations.length + (revisionChain.length > 1 ? revisionChain.length : 0)})`, and `History (${recordLogs.length})`.
 
-### Pillar 2: Product Images & End-to-End Quotation Line-Item Image Rendering
-- **Product Image Management**:
-  - Add `image_url?: string` to `Product`, `LineItem`, and `QuotationLineItem` in `src/types.ts`.
-  - Support drag-and-drop file upload (compressed & uploaded to Custom Bucket), direct image URL input, preview, and removal in the Register/Edit Product Modal, plus per-line-item image override in Enquiry Form and Quotation Studio (`Deal Data & Content` tab + Line Item Editor).
-- **Quotation Studio Line Items Table Image Modes & Sizing**:
-  - Extend `QuotationTemplateConfig` in `src/types.ts` with:
-    - `showLineItemImages?: boolean`
-    - `lineItemImageLayout?: 'column' | 'inline'` (`Dedicated Image Column` vs `Inline Thumbnail beside Item Title & Specs`)
-    - `lineItemImageSize?: 'sm' | 'md' | 'lg'` (`32px`, `48px`, `64px`)
-  - Add these controls to the **Line Items Table Inspector** (Right Drawer) and Left Drawer in `QuotationStudioModal.tsx`.
-  - Render crisp, aspect-ratio-preserved product thumbnails in `QuotationDocument.tsx` across both `column` and `inline` modes with print-safe styling.
+### Pillar 2: Enquiry List KPI Strip & Pipeline Table UX (`src/components/EnquiryList.tsx`)
+- **Top 4-Card KPI Summary Strip**:
+  - Rendered above the filter bar using tabular numerals (`font-mono tabular-nums`) and single-elevation borders:
+    1. **Active Pipeline Value**: Sum of active/pending enquiries + count of active deals.
+    2. **Pending Formal Quotes**: Count and total value of `Draft` / `Sent` quotations awaiting client decision.
+    3. **Won / Converted Deals**: Total won value and conversion win-rate percentage.
+    4. **Follow-Up Attention**: Count of overdue or due-today follow-ups (clickable to toggle the `Overdue` urgency filter).
+- **Table Row Quick-Glance Indicators (`EnquiryTableRow`)**:
+  - Under the Company / Subject cell or Quote Ref cell, display clean unboxed metadata indicators with `·` separators:
+    - Line items count (e.g. `6 items`), attachment count (`2 files`), and—for authorized Admin/Owner/Full-tier users—live deal **Gross Margin %** (`Margin: 28.4%`) when cost prices are present.
+    - Formal Quotation badge showing the latest revision number (`R1`, `R2`), status (`Draft`, `Sent`, `Approved`), and 1-click preview trigger.
 
-### Pillar 3: Full Data & Schema Parity (Catalog ↔ Enquiry ↔ Quotation)
-- **First-Class Catalog Fields**:
-  - Expand `Product` in `src/types.ts` and `ProductManager.tsx` with:
-    - `brand_make?: string` (Brand / Make)
-    - `model_part_no?: string` (Model / Part #)
-    - `default_availability?: string` (e.g., `Ex-Stock`, `2–3 Weeks`, `4–6 Weeks`, `Made to Order`, or custom)
-    - `country_of_origin?: string` & `hs_code?: string`
-    - `unit_price?: number` (`Default Selling Price`), `cost_price?: number` (`Unit Cost Price`), and live **Gross Margin % & Markup %** indicator badge
-    - `unit?: string` (`Unit of Measure` with quick presets + custom input, replacing the confusing `"Custom Price"` / `"Custom Unit"` labels)
-    - `datasheet_attachment?: Attachment` (Technical Datasheet / Spec Sheet PDF or image uploaded to Custom Bucket)
-- **Auto-Propagation & Technical Datasheet Annex Carry-Over**:
-  - Selecting a catalog product in `EnquiryForm.tsx` or `QuotationStudioModal.tsx` automatically populates `brand_make` (`brand`), `model_part_no` (`part_no`), `default_availability` (`availability`), `country_of_origin`, `hs_code`, `unit_price`, `unit`, `image_url`, `attributes`, and `datasheet_attachment`.
-  - When a line item has a `datasheet_attachment`, automatically include it in the Quotation's **Attached Submittals / Technical Annexes** with a per-line toggle (`include_datasheet_in_quote?: boolean`, defaulting to `true`) so users can include or exclude individual product spec sheets with 1 click.
+### Pillar 3: Interactive Line Items Builder, Catalog Integration & Gross Margin (`src/types.ts`, `src/components/EnquiryForm.tsx`, `src/components/EnquiryDetail.tsx`)
+- **Data Model (`src/types.ts`)**:
+  - Add optional `cost_price?: number` to `EnquiryLineItem` (propagated automatically from `Product.cost_price_aed` when picking or linking a catalog product, converted by currency rate if `USD`).
+  - Add optional `include_in_quote_annex?: boolean` to `Attachment` so Enquiry RFQ attachments can be flagged for Quotation Studio annexes.
+- **Enquiry Form Line Items (`src/components/EnquiryForm.tsx`)**:
+  - Add `Unit Cost` input alongside `Qty`, `Unit`, and `Unit Selling Price`, with an automatic live **Line Margin %** indicator (`((Selling - Cost) / Selling) * 100`) and color-coded health text (emerald $\ge 25\%$, amber $10\text{–}24\%$, rose $< 10\%$).
+  - Display a **Deal Profitability Summary** bar in the Line Items footer showing `Total Cost`, `Total Selling Value`, `Net Profit`, and `Overall Gross Margin %`.
+  - In the Catalog Picker Modal, display `Cost Price` and estimated `Margin %` alongside `Selling Price`, `SKU`, `Brand / Make`, `Model / Part No.`, product thumbnail, and live warehouse stock badge.
+- **Interactive Line Items Tab in Enquiry Detail (`src/components/EnquiryDetail.tsx`)**:
+  - Add an **`Inline Edit / Manage Items`** mode directly inside the `Line Items` tab of `EnquiryDetail`:
+    - **Product Thumbnail & Stock Badge**: Every line item card displays its product thumbnail (or fallback icon), `Brand / Make`, `Model / Part No.`, `Origin`, `Datasheet` badge, and live warehouse stock badge (`Avail: X`, `Low Stock`, or `Order / Non-Stock`).
+    - **Inline Quick-Edit Controls**: Users with edit permission can directly adjust `Qty`, `Unit Selling Price`, `Unit Cost`, `Lead Time`, `Option Designation`, and `Include Datasheet in Quote` or **Reorder lines (`Move Up` / `Move Down`)** and **Remove lines** without leaving the drawer.
+    - **Quick-Add from Catalog / Custom Row**: Add `+ Add from Catalog` and `+ Add Custom Item` buttons directly in the `Line Items` tab header so reps can build or adjust the bill of materials on the fly and save with 1 click.
+    - **Deal Gross Margin Summary Strip**: Show `Total Selling`, `Total Cost`, `Gross Profit`, and `Gross Margin %` at the top of the `Line Items` tab (respecting role visibility).
 
-### Pillar 4: Multi-Tenant SaaS Flexibility for Attributes, Categories & Cloning
-- **Dynamic Workspace-Aware Attribute Chips**:
-  - Remove hardcoded water-treatment attribute pills from `ProductManager.tsx`.
-  - Dynamically derive quick-add specification pills from existing attributes used in the workspace (prioritizing attributes used within the currently selected Category), plus allow users to add or remove custom quick-attribute suggestions for their workspace.
-- **1-Click Duplicate / Clone Product**:
-  - Add a **Duplicate / Clone** action button on every product row in `ProductManager.tsx` that opens the Register Product Modal pre-filled with the source product's specs, category, brand, pricing, and attributes (with `(Copy)` appended to the name and a fresh auto-generated or editable SKU) for rapid variant creation.
+### Pillar 4: Quotation & Revision (`R1 -> R2`) Lifecycle & Data Sync (`src/components/EnquiryDetail.tsx`)
+- **Post-Line-Item Edit Quotation Sync Prompt**:
+  - Whenever line items are saved inline in `EnquiryDetail` (or when Enquiry items differ from the latest Quotation), if the Enquiry has existing Formal Quotations:
+    - Show a prominent **Quotation Sync Banner** with two 1-click actions:
+      1. **Update Active Draft (`QT-...-R1`)**: If the latest quotation is still in `Draft`, sync the updated Enquiry line items and recalculated totals directly into that Draft quotation.
+      2. **Create New Revision (`R2` / `R(N+1)`)**: If the latest quotation was already `Sent` or `Approved`, or if the user wants a separate revision, clone the latest quotation into `R(N+1)` with the updated Enquiry line items and open it in Quotation Studio.
+- **Unified `Revisions` Tab (`src/components/EnquiryDetail.tsx`)**:
+  - Upgrade the `Revisions` tab so it serves as the complete **Commercial Revisions Hub**:
+    - **Section A — Formal Quotations (`R1`, `R2`, ...)**: Rich cards for every formal quotation showing revision badge (`R1`, `R2`), formatted quote reference, issue date, validity date, line item count, total amount, document preset name, interactive status actions (`Edit in Studio`, `Accept / Won`, `Decline`, `Fork as R(N+1)`, `Preview`, `Print PDF`), and a diff indicator if Enquiry line items were modified after the quote was issued.
+    - **Section B — Linked Enquiry Sheet Revisions**: The chronological Enquiry revision chain (`Original`, `Rev 1`, `Rev 2`) with `+ Clone Enquiry Revision` button.
 
-### Pillar 5: Products Catalog UI/UX, Scroll Clipping Fix & 3-Tab Modal Redesign
-- **Fix Sticky Header & KPI Card Clipping**:
-  - Update the layout container between `src/App.tsx` and `src/components/layout/PageHeader.tsx` so `<main>` keeps the top workspace bar fixed in a flex column while the inner content viewport scrolls independently (or adjust sticky offset), completely eliminating the overlap where `PageHeader` and KPI cards get clipped behind the top bar.
-- **Catalog Table Polish**:
-  - Add product thumbnail avatars (`40x40` rounded frame with category icon fallback) on the left of every product row.
-  - Display `Brand / Make` and `Model / Part #` pills alongside the SKU badge.
-  - Fix category badge text wrapping with `whitespace-nowrap`.
-  - Standardize the right-aligned `Actions` column: `Receive Stock (GRN)`, `Adjust Stock`, `Duplicate`, `Edit`, and `Delete`.
-- **Redesigned 3-Tab Register / Edit Product Modal (`max-w-3xl`) with Live Header Summary Card**:
-  - **Live Header Summary Card**: Shows live product thumbnail preview, Product Title, SKU, Category badge, Brand/Model, Selling Price, Margin % pill, and Stock status pill as the user types.
-  - **Tab 1 — Overview & Pricing**: Product Name, SKU (with 1-click Auto-Generate SKU button), Category selector + inline new category creator, Brand / Make, Model / Part #, Description, Default Selling Price, Unit Cost Price, live Margin/Markup calculator card, and Unit of Measure selector.
-  - **Tab 2 — Specs, Image & Datasheet**: Product Image uploader (Bucket upload + URL + live preview), Technical Datasheet / Spec Sheet uploader (PDF/Image to Bucket), and Dynamic Technical Specifications builder with category-aware quick chips.
-  - **Tab 3 — Inventory & Logistics**: Unified `Track Inventory & Physical Stock` toggle, Opening / Current Stock on Hand, Minimum Stock Alert Threshold (`min_stock_threshold`), Default Lead Time / Availability, Country of Origin, and HS Code.
+### Pillar 5: Unified Custom Bucket RFQ Attachments & Quotation Annex Integration (`src/components/EnquiryDetail.tsx`, `src/components/quotations/QuotationStudioModal.tsx`)
+- **Direct Drag-and-Drop Upload in `EnquiryDetail.tsx`**:
+  - Add an `+ Upload RFQ / Attachment` dropzone and button directly in the `Source Proposal Attachments` section of `EnquiryDetail` so users can attach client RFQs, BOQs, or drawings without opening the full edit form.
+  - Route uploads and the `Upload to Cloud` promotion button through `uploadWorkspaceMediaAsset` (`src/services/customBucketStorage.ts`), supporting both the Custom Bucket endpoint and Supabase Storage with clean local fallback.
+- **Per-Attachment `Include in Quote Annex` Toggle**:
+  - Add an interactive checkbox/toggle (`Include in Quote Annex`) on each attachment card in `EnquiryDetail` and `EnquiryForm`.
+  - When opening **Quotation Studio** (`QuotationStudioModal.tsx`), automatically include any Enquiry attachment marked `include_in_quote_annex: true` (alongside line-item product datasheets) in the Quotation's Technical Annexes list.
 
-### Pillar 6: Unified Inventory, Quick Stock Adjustments & Live Enquiry Stock Badges
-- **Unified Terminology & Auto-Enable on GRN**:
-  - Standardize terminology to **"Track Inventory & Physical Stock"** across the Product Modal, GRN Modal, and Stock Ledger.
-  - In the Inbound GRN Modal, allow selecting any catalog product and automatically enable `track_inventory: true` if a GRN is recorded for a previously untracked product.
-- **Quick Stock Adjustment Modal & Minimum Stock Alert Filter**:
-  - Add a **Quick Stock Adjustment Modal** accessible from each product row and inside the Stock Ledger Modal supporting:
-    - `Opening Stock / Initial Count`
-    - `Physical Recount (Set Exact On-Hand Qty)`
-    - `Damage / Write-Off / Scrap (Deduct Qty)`
-    - `Manual Addition / Return`
-    with required reference/reason notes recorded as an `ADJUSTMENT` entry in `stock_movements`.
-  - Add `min_stock_threshold?: number` per product and a **Low Stock** filter chip in `ProductManager.tsx` highlighting items where `Available Stock <= min_stock_threshold`.
-- **Live Stock Availability Badges in Enquiries & Quotations**:
-  - When picking or viewing products in `EnquiryForm.tsx` and `QuotationStudioModal.tsx`, display live stock pills (`Available: X [Unit]`, `Low Stock: X`, `Out of Stock`, or `Order-to-Order / Non-Stock`) and warn if line-item quantity exceeds available stock.
+### Pillar 6: Multi-Tenant SaaS Polish & Zero-Null Controlled Inputs
+- **Controlled Input Safety Sweep**:
+  - Audit all `<input>`, `<textarea>`, and `<select>` controls across `EnquiryDetail.tsx`, `EnquiryList.tsx`, `EnquiryForm.tsx`, and `ProductManager.tsx` to guarantee every `value` prop uses `?? ''` (never `null`).
+- **Neutral Commercial Placeholders**:
+  - Replace overly narrow water-treatment-only placeholder hints in line item descriptions and search bars with versatile commercial & engineering examples suitable for any B2B trading, industrial, or project-based tenant.
 
-### Pillar 7: Safe Deletion & Recycle Bin Integration
-- **Clear Soft-Delete Messaging & Recycle Bin Restoration**:
-  - Update the Delete Product confirmation modal in `ProductManager.tsx` so it clearly states that the product will be moved to the **Recycle Bin** (and can be restored anytime) while preserving historical Enquiries, Quotations, and Stock Ledger entries.
-  - Fix `src/components/TrashBinModal.tsx` so deleted products display their `name` (`p.name || p.description`), SKU, and Brand, and can be cleanly restored or permanently purged.
+---
+
+## 3. Verification Plan
+1. Run `compile_applet` and `lint_applet` to verify zero TypeScript or React controlled-input warnings.
+2. Verify the new Two-Tier Header in `EnquiryDetail` across standard desktop and split-pane widths to confirm client names and subjects never truncate to 1–2 characters.
+3. Test inline line-item editing, catalog quick-add, cost/margin calculation, and the Quotation `Draft` / `R2` sync workflow in `EnquiryDetail`.
+4. Test direct attachment upload to the Custom Bucket and the `Include in Quote Annex` toggle carrying over into Quotation Studio.

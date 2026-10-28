@@ -292,6 +292,7 @@ interface CatalogItem {
   description: string;
   unit: UnitType;
   unit_price_aed?: number;
+  cost_price_aed?: number;
   lead_time_note?: string;
   attributes?: ProductAttribute[];
 }
@@ -561,6 +562,7 @@ export default function EnquiryForm({
           description: p.description,
           unit: p.unit,
           unit_price_aed: p.unit_price,
+          cost_price_aed: p.cost_price ?? p.cost_price_aed,
           lead_time_note: defaultLeadTime,
           attributes: p.attributes || [],
         };
@@ -1185,8 +1187,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   // Load edit values
   useEffect(() => {
     if (enquiryToEdit) {
-      setSn(enquiryToEdit.sn);
-      setEnquiryDate(enquiryToEdit.enquiry_date);
+      setSn(enquiryToEdit.sn ?? calibratedDefaultSn);
+      setEnquiryDate(enquiryToEdit.enquiry_date || new Date().toISOString().split('T')[0]);
       setLoggedDate(enquiryToEdit.logged_date || new Date().toISOString().split('T')[0]);
       setSalesPerson(enquiryToEdit.sales_person_id || enquiryToEdit.sales_person || '');
       setConcernedPersons(enquiryToEdit.concerned_persons || (enquiryToEdit.concerned_person ? [enquiryToEdit.concerned_person] : []));
@@ -1209,7 +1211,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
 
       setPastedSourceText(enquiryToEdit.raw_source_text || null);
-      setQuoteRefNo(enquiryToEdit.quote_ref_no);
+      setQuoteRefNo(enquiryToEdit.quote_ref_no || '');
       setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
       setNextFollowupDate(enquiryToEdit.next_followup_date || '');
       const editCurrency = enquiryToEdit.currency || 'AED';
@@ -1265,7 +1267,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       const matchedComp = companies.find((c) => c.id === enquiryToEdit.company_id);
       if (matchedComp) {
-        setCompanySearch(matchedComp.display_name);
+        setCompanySearch(matchedComp.display_name || matchedComp.canonical_name || '');
       } else if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED' || enquiryToEdit.company_name?.includes('[Reserved Sequence')) {
         setCompanySearch('');
         setCompanyId('');
@@ -1361,6 +1363,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       : 0;
     const price = Math.round(rawPrice * 100) / 100;
 
+    const rawCost = item.cost_price_aed !== undefined && item.cost_price_aed > 0
+      ? (formCurrency === 'USD' ? item.cost_price_aed / 3.6725 : item.cost_price_aed)
+      : 0;
+    const costPrice = rawCost > 0 ? Math.round(rawCost * 100) / 100 : undefined;
+
     if (linkingLineIndex !== null && lineItems[linkingLineIndex]) {
       // Update existing line item in place
       setLineItems((prev) => {
@@ -1369,11 +1376,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         next[linkingLineIndex] = {
           ...current,
           product_id: item.id || undefined,
+          sku: item.sku || current.sku,
           item_name: item.name || current.item_name,
           product_type: item.product_type || current.product_type,
           description: current.description?.trim() ? current.description : item.description,
           unit: item.unit || current.unit,
           unit_price: current.unit_price > 0 ? current.unit_price : price,
+          cost_price: current.cost_price && current.cost_price > 0 ? current.cost_price : costPrice,
           total_price: (current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : price),
           brand_make: item.brand_make || current.brand_make,
           model_part_no: item.model_part_no || current.model_part_no,
@@ -1397,6 +1406,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       // Default append behavior
       const newItem: LineItem = {
         product_id: item.id || undefined,
+        sku: item.sku || undefined,
         item_name: item.name,
         item_type: 'product',
         product_type: item.product_type,
@@ -1404,6 +1414,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         quantity: 1,
         unit: item.unit,
         unit_price: price,
+        cost_price: costPrice,
         total_price: price,
         brand_make: item.brand_make || undefined,
         model_part_no: item.model_part_no || undefined,
@@ -1440,6 +1451,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const p = field === 'unit_price' ? (Number(val) || 0) : (Number(item.unit_price) || 0);
       item[field] = (Number(val) || 0) as any;
       item.total_price = Number((q * p).toFixed(2));
+    } else if (field === 'cost_price') {
+      item.cost_price = val === '' || val === null || val === undefined ? undefined : (Number(val) || 0);
     } else if (field === 'total_price') {
       const tot = Number(val) || 0;
       item.total_price = tot;
@@ -1533,20 +1546,27 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         let downloadUrl = '';
         let isLocal = false;
+        let resolvedSize = file.size;
+        let resolvedType = file.type || 'application/pdf';
+        let customStorageKey = '';
 
-        if (hasCloudStorage && storageConfig && uploadTarget === 'cloud') {
-          downloadUrl = await uploadToSupabaseStorage(
+        if (uploadTarget === 'cloud') {
+          const uploaded = await uploadWorkspaceMediaAsset(
             file,
+            'enquiries/rfq',
+            activeWorkspace,
             {
-              supabaseUrl: storageConfig.supabaseUrl!,
-              supabaseAnonKey: storageConfig.supabaseAnonKey!,
-              bucket: storageConfig.bucket!
-            },
-            (percent) => {
-              setUploadProgress(percent);
+              compressImage: true,
+              maxDimension: 1400,
+              quality: 0.85,
+              onProgress: (percent) => setUploadProgress(percent)
             }
           );
-          isLocal = false;
+          downloadUrl = uploaded.url;
+          isLocal = uploaded.isLocal;
+          resolvedSize = uploaded.size || file.size;
+          resolvedType = uploaded.type || resolvedType;
+          customStorageKey = uploaded.storageKey || '';
         } else {
           // Local fallback (IndexedDB / Base64)
           const storagePath = `proposals/${Date.now()}_${file.name}`;
@@ -1556,17 +1576,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           isLocal = true;
         }
 
-        const storageKey = getAttachmentStorageKey({ name: file.name, size: file.size }, i, enquiryToEdit?.id);
+        const storageKey = customStorageKey || getAttachmentStorageKey({ name: file.name, size: resolvedSize }, i, enquiryToEdit?.id);
 
         const attachment: Attachment = {
           name: file.name,
-          size: file.size,
-          type: file.type || 'application/pdf',
+          size: resolvedSize,
+          type: resolvedType,
           url: downloadUrl,
           storageKey,
           uploadedAt: new Date().toISOString(),
           isLocal,
           storageProvider: isLocal ? 'local' : 'supabase',
+          include_in_quote_annex: false,
           uploadedByUserName: user?.displayName || user?.full_name || user?.username || user?.name || user?.email || 'User'
         };
         uploadedList.push(attachment);
@@ -3780,7 +3801,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <input
                       type="number"
                       required
-                      value={sn}
+                      value={sn ?? ''}
                       disabled={isClaimingGap}
                       onChange={(e) => setSn(Number(e.target.value))}
                       className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${
@@ -3796,7 +3817,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
-                      value={enquiryDate}
+                      value={enquiryDate || ''}
                       onChange={(e) => setEnquiryDate(e.target.value)}
                       style={{ colorScheme: 'dark' }}
                       className={`[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
@@ -3809,7 +3830,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
-                      value={loggedDate}
+                      value={loggedDate || ''}
                       onChange={(e) => setLoggedDate(e.target.value)}
                       style={{ colorScheme: 'dark' }}
                       className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
@@ -4280,7 +4301,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     type="text"
                     required={status !== 'Gap / Reserved'}
                     placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
-                    value={companySearch}
+                    value={companySearch || ''}
                     onChange={(e) => {
                       setCompanySearch(e.target.value);
                       setShowCompanyList(true);
@@ -4464,7 +4485,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   type="text"
                   required
                   placeholder="e.g. UAE / Oman"
-                  value={country}
+                  value={country || ''}
                   onChange={(e) => setCountry(e.target.value)}
                   className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('country')}`}
                 />
@@ -4481,7 +4502,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   type="text"
                   required
                   placeholder="e.g. Dubai / Muscat"
-                  value={projectLocation}
+                  value={projectLocation || ''}
                   onChange={(e) => setProjectLocation(e.target.value)}
                   className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('location')}`}
                 />
@@ -4515,7 +4536,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <input
                   type="text"
                   required
-                  value={quoteRefNo}
+                  value={quoteRefNo || ''}
                   onChange={(e) => {
                     setQuoteRefNo(e.target.value);
                     setIsQuoteRefCustom(true);
@@ -4531,7 +4552,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <input
                   type="text"
                   placeholder="e.g. RO Supply and Commissioning"
-                  value={subject}
+                  value={subject || ''}
                   onChange={(e) => setSubject(e.target.value)}
                   className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('subject')}`}
                 />
@@ -4542,7 +4563,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <input
                   type="text"
                   placeholder="e.g. PO-8902-X / RFQ-2026"
-                  value={customerReferenceCode}
+                  value={customerReferenceCode || ''}
                   onChange={(e) => setCustomerReferenceCode(e.target.value)}
                   className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                 />
@@ -4624,7 +4645,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <input
                         type="text"
                         placeholder="Attribute (e.g. Consultant)"
-                        value={detail.key}
+                        value={detail.key ?? ''}
                         onChange={(e) => {
                           const next = [...customProjectDetails];
                           next[idx].key = e.target.value;
@@ -4636,7 +4657,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <input
                         type="text"
                         placeholder="Value (e.g. Khatib & Alami / Site Ref)"
-                        value={detail.value}
+                        value={detail.value ?? ''}
                         onChange={(e) => {
                           const next = [...customProjectDetails];
                           next[idx].value = e.target.value;
@@ -4866,22 +4887,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     </div>
 
-                    {/* Tier 2: Qty, Unit, and Unit Price */}
+                    {/* Tier 2: Qty, Unit, Selling Price, Cost Price & Margin */}
                     <div className="grid grid-cols-12 gap-3 mb-3">
-                      <div className="col-span-3">
+                      <div className="col-span-3 sm:col-span-2">
                         <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                           Qty
                         </label>
                         <input
                           type="number"
                           required
-                          value={item.quantity}
+                          value={item.quantity ?? ''}
                           onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
                         />
                       </div>
 
-                      <div className="col-span-3">
+                      <div className="col-span-3 sm:col-span-2">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Unit
@@ -4893,24 +4914,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           value={item.unit}
                           onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
                           onCreateOption={(val: string) => {
-                            // Strictly local to this line item; does not pollute master dropdowns
                             handleLineItemChange(index, 'unit', val);
                           }}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
                         />
                       </div>
 
-                      <div className="col-span-6">
+                      <div className="col-span-6 sm:col-span-4">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                            Unit Price ({formCurrency})
+                            Selling Price ({formCurrency})
                           </label>
                           {formCurrency === 'USD' ? (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono">
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums">
                               ≈ {(item.unit_price * 3.6725).toFixed(2)} AED
                             </span>
                           ) : (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono">
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums">
                               ≈ ${(item.unit_price / 3.6725).toFixed(2)} USD
                             </span>
                           )}
@@ -4919,7 +4939,49 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           required
                           value={item.unit_price}
                           onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono focus:outline-none"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="col-span-12 sm:col-span-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            Unit Cost ({formCurrency})
+                          </label>
+                          {(() => {
+                            const sell = Number(item.unit_price) || 0;
+                            const cost = Number(item.cost_price) || 0;
+                            if (sell > 0 && cost > 0) {
+                              const marginPct = ((sell - cost) / sell) * 100;
+                              const isHealthy = marginPct >= 20;
+                              const isThin = marginPct >= 0 && marginPct < 20;
+                              return (
+                                <span
+                                  className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                    isHealthy
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                      : isThin
+                                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                                      : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                  }`}
+                                  title="Gross Margin: (Selling - Cost) / Selling"
+                                >
+                                  Margin: {marginPct.toFixed(1)}%
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="text-[10px] font-mono text-slate-400">
+                                Base Cost
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <FormattedNumberInput
+                          value={item.cost_price ?? ''}
+                          placeholder="0.00"
+                          onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
                         />
                       </div>
                     </div>
@@ -4929,8 +4991,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">ITEM DESCRIPTION & SPECS</MarqueeLabel>
                         <input
                           type="text"
-                          placeholder="e.g. MMF 63''x67'', Design Pressure 10.5 Bar, ASME Stamped"
-                          value={item.description}
+                          placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
+                          value={item.description ?? ''}
                           onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                         />
@@ -5193,7 +5255,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     <div className="min-w-[120px] max-w-[160px] flex-shrink-0 flex items-center space-x-1 bg-transparent">
                                       <input
                                         type="text"
-                                        value={attr.key === '__custom_editing__' ? '' : attr.key}
+                                        value={attr.key === '__custom_editing__' ? '' : (attr.key ?? '')}
                                         placeholder="Key"
                                         onChange={(e) => {
                                           const updated = [...lineItems];
@@ -5223,7 +5285,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     </div>
                                   ) : (
                                     <select
-                                      value={attr.key}
+                                      value={attr.key ?? ''}
                                       title={attr.key || 'Select Attribute Key'}
                                       onChange={(e) => {
                                         const val = e.target.value;
@@ -5249,7 +5311,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">:</span>
                                   <input
                                     type="text"
-                                    value={attr.value}
+                                    value={attr.value ?? ''}
                                     placeholder="Value (e.g. 10m3)"
                                     onChange={(e) => {
                                       const updated = [...lineItems];
@@ -5298,6 +5360,73 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
                 );
               })}
+
+              {/* Deal Profitability & Gross Margin Summary Strip */}
+              {(() => {
+                const totalSelling = lineItems.reduce((sum, li) => {
+                  const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                  const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+                  return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
+                }, 0);
+                const totalCost = lineItems.reduce((sum, li) => {
+                  const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                  if (isDisc) return sum;
+                  return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
+                }, 0);
+                const hasAnyCost = lineItems.some((li) => (Number(li.cost_price) || 0) > 0);
+                const grossProfit = totalSelling - totalCost;
+                const marginPct = totalSelling > 0 && hasAnyCost ? (grossProfit / totalSelling) * 100 : null;
+
+                return (
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 font-mono">
+                        Deal Profitability Summary
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-4 text-xs font-mono tabular-nums">
+                      <div>
+                        <span className="text-slate-400 mr-1.5">Total Cost:</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {hasAnyCost
+                            ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </span>
+                      </div>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <div>
+                        <span className="text-slate-400 mr-1.5">Total Selling:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {formCurrency} {totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      {marginPct !== null && (
+                        <>
+                          <span className="text-slate-300 dark:text-slate-700">·</span>
+                          <div>
+                            <span className="text-slate-400 mr-1.5">Est. Profit:</span>
+                            <span className={`font-bold ${grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {formCurrency} {grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                              marginPct >= 20
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                                : marginPct >= 0
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
+                            }`}
+                          >
+                            {marginPct.toFixed(1)}% Gross Margin
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               </div>
             ) : (
               <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 overflow-hidden">
@@ -5792,6 +5921,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <span>Upload to Cloud</span>
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttachments((prev) =>
+                            prev.map((att, i) =>
+                              i === idx
+                                ? { ...att, include_in_quote_annex: !att.include_in_quote_annex }
+                                : att
+                            )
+                          );
+                        }}
+                        className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-semibold border cursor-pointer whitespace-nowrap ${
+                          file.include_in_quote_annex
+                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                            : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}
+                        title="Toggle to automatically include this file in Quotation Studio Technical Annexes"
+                      >
+                        <FileCheck className="w-3 h-3" />
+                        <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
+                      </button>
 
                       <button
                         type="button"
@@ -6634,13 +6785,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 )}
                               </div>
                             </div>
-                            <div className="text-right font-mono shrink-0">
+                            <div className="text-right font-mono tabular-nums shrink-0">
                               <span className="text-[10px] text-slate-400 block">Unit Price</span>
                               <span className="text-sm font-bold text-emerald-600 block">
                                 {priceAed > 0
                                   ? `${formCurrency} ${Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                   : 'On Request'}
                               </span>
+                              {item.cost_price_aed && item.cost_price_aed > 0 && priceAed > 0 && (
+                                <span className="text-[10px] text-slate-500 block mt-0.5">
+                                  Margin: {(((priceAed - item.cost_price_aed) / priceAed) * 100).toFixed(0)}%
+                                </span>
+                              )}
                             </div>
                           </div>
 

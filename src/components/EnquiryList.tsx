@@ -326,7 +326,8 @@ export function areRowPropsEqual(
       prevE.updatedAt !== nextE.updatedAt ||
       prevE.is_gap_placeholder !== nextE.is_gap_placeholder ||
       prevE.is_deleted !== nextE.is_deleted ||
-      prevE.attachments?.length !== nextE.attachments?.length
+      prevE.attachments?.length !== nextE.attachments?.length ||
+      prevE.line_items?.length !== nextE.line_items?.length
     ) {
       return false;
     }
@@ -647,10 +648,39 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           )}
         </div>
       </td>
-      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
-        <div className="inline-flex items-baseline justify-end">
-          <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
-          <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
+      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono tabular-nums">
+        <div className="flex flex-col items-end gap-0.5">
+          <div className="inline-flex items-baseline justify-end">
+            <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
+            <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
+          </div>
+          {(() => {
+            const items = e.line_items || [];
+            const itemCount = items.length;
+            const fileCount = (e.attachments || []).length;
+            let marginText: string | null = null;
+            if (canEdit && itemCount > 0) {
+              const hasCost = items.some((li) => (Number(li.cost_price) || 0) > 0);
+              if (hasCost) {
+                const sellSum = items.reduce((s, li) => s + (Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)), 0);
+                const costSum = items.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0), 0);
+                if (sellSum > 0) {
+                  marginText = `${(((sellSum - costSum) / sellSum) * 100).toFixed(0)}% margin`;
+                }
+              }
+            }
+            const parts = [
+              itemCount > 0 ? `${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : null,
+              fileCount > 0 ? `${fileCount} ${fileCount === 1 ? 'file' : 'files'}` : null,
+              marginText
+            ].filter(Boolean);
+            if (parts.length === 0) return null;
+            return (
+              <span className="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                {parts.join(' · ')}
+              </span>
+            );
+          })()}
         </div>
       </td>
       <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
@@ -1136,17 +1166,24 @@ export default function EnquiryList({
     return map;
   }, [quotations]);
 
-  // Aggregate lifecycle counts across authorized enquiries
+  // Aggregate lifecycle counts and KPI pipeline metrics across authorized enquiries
   const lifecycleCounts = React.useMemo(() => {
     let pending = 0;
     let won = 0;
     let lost = 0;
     let unquoted = 0;
+    let activePipelineValueAed = 0;
+    let pendingQuotesValueAed = 0;
+    let wonValueAed = 0;
+    let overdueFollowups = 0;
+    const today = new Date().toISOString().split('T')[0];
 
     (authorizedEnquiries || []).forEach((e) => {
-      if (!e) return;
+      if (!e || e.is_gap_placeholder) return;
       const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
       const normStatus = normalizeEnquiryStatus(e.status);
+      const valAed = Number(quote?.grand_total || e.value_aed || 0);
+
       const isWon =
         quote?.status === 'Approved' ||
         normStatus === 'Won / Order Confirmed' ||
@@ -1174,19 +1211,38 @@ export default function EnquiryList({
         e.attachments?.some((a) => a.name?.startsWith('QT-') && a.name?.endsWith('.pdf')) ||
         Boolean(e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no));
 
-      if (isWon) won++;
-      else if (isLost) lost++;
-      else if (isPending) pending++;
+      if (isWon) {
+        won++;
+        wonValueAed += valAed;
+      } else if (isLost) {
+        lost++;
+      } else {
+        activePipelineValueAed += valAed;
+        if (isPending) {
+          pending++;
+          pendingQuotesValueAed += valAed;
+        }
+      }
 
       if (!hasFormal) unquoted++;
+      if (!isWon && !isLost && e.next_followup_date && e.next_followup_date < today) {
+        overdueFollowups++;
+      }
     });
+
+    const winRatePct = won + lost > 0 ? Math.round((won / (won + lost)) * 100) : 0;
 
     return {
       all: authorizedEnquiries.length,
       pending,
       won,
       lost,
-      unquoted
+      unquoted,
+      activePipelineValueAed,
+      pendingQuotesValueAed,
+      wonValueAed,
+      winRatePct,
+      overdueFollowups
     };
   }, [authorizedEnquiries, activeQuotationByEnquiryId]);
 
@@ -1943,6 +1999,69 @@ export default function EnquiryList({
       />
 
       <PageBody maxWidth="max-w-7xl">
+
+      {/* Top 4-Card KPI Summary Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        <div
+          onClick={() => setQuoteLifecycleFilter('all')}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-blue-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
+        >
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+            Active Pipeline Value
+          </span>
+          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+            AED {lifecycleCounts.activePipelineValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </div>
+          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
+            {lifecycleCounts.all - lifecycleCounts.won - lifecycleCounts.lost} open enquiries · {lifecycleCounts.unquoted} unquoted
+          </span>
+        </div>
+
+        <div
+          onClick={() => setQuoteLifecycleFilter('pending')}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-indigo-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
+        >
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+            Pending Formal Quotes
+          </span>
+          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400">
+            AED {lifecycleCounts.pendingQuotesValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </div>
+          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
+            {lifecycleCounts.pending} formal {lifecycleCounts.pending === 1 ? 'offer' : 'offers'} awaiting client decision
+          </span>
+        </div>
+
+        <div
+          onClick={() => setQuoteLifecycleFilter('won')}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-emerald-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
+        >
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+            Won / Converted Deals
+          </span>
+          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+            AED {lifecycleCounts.wonValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+          </div>
+          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
+            {lifecycleCounts.won} won · {lifecycleCounts.winRatePct}% conversion rate
+          </span>
+        </div>
+
+        <div
+          onClick={() => setUrgencyFilter(urgencyFilter === 'Overdue' ? 'All' : 'Overdue')}
+          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-amber-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
+        >
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
+            Follow-Up Attention
+          </span>
+          <div className={`mt-1.5 text-lg font-bold font-mono tabular-nums ${lifecycleCounts.overdueFollowups > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
+            {lifecycleCounts.overdueFollowups} Overdue
+          </div>
+          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
+            {urgencyFilter === 'Overdue' ? 'Showing overdue follow-ups (click to reset)' : 'Click to filter overdue follow-ups'}
+          </span>
+        </div>
+      </div>
 
       {/* Structured Filtering Section */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4 mb-6">
