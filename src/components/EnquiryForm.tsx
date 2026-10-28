@@ -3436,13 +3436,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     >
       <div 
         className={`fixed inset-y-0 right-0 w-full ${
-          isPreviewActive ? 'max-w-7xl' : 'max-w-4xl'
+          isPreviewActive ? 'max-w-[96vw] xl:max-w-[1440px]' : 'max-w-5xl'
         } z-50 bg-white dark:bg-slate-900 shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200/80 dark:border-slate-800 overflow-hidden`}
       >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (
-          <div className="w-[45%] border-r border-slate-200 h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden">
+          <div className="w-[42%] xl:w-[44%] border-r border-slate-200 h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden">
             {/* Case 1: Document File Preview (PDF or Image) */}
             {activePreviewUrl && (
               <>
@@ -4434,14 +4434,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 relative bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 shadow-2xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 shadow-2xs">
               {/* Company search */}
-              <div className="relative">
+              <div className="relative min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                       Search & Pair Company
-                    </MarqueeLabel>
+                    </span>
                     {renderConfidenceBadge('company_name')}
                   </div>
                   
@@ -4450,7 +4450,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <button
                       type="button"
                       onClick={() => setCompanyMenuOpen(!companyMenuOpen)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
                       title="Company Actions"
                     >
                       <MoreVertical className="w-4 h-4" />
@@ -4469,7 +4469,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 setCompanyMenuOpen(false);
                                 const comp = companies.find((c) => c.id === companyId);
                                 if (comp) {
-                                  // Find base name (without legal suffix)
                                   let baseName = comp.display_name;
                                   if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
                                     if (comp.display_name.endsWith(comp.legal_suffix)) {
@@ -4517,7 +4516,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     )}
                   </div>
                 </div>
-                <div className="flex space-x-2 items-center">
+                <div className="flex gap-2 items-center min-w-0">
                   <input
                     type="text"
                     required={status !== 'Gap / Reserved'}
@@ -4529,18 +4528,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       setShowCompanyList(true);
                     }}
                     onFocus={() => setShowCompanyList(true)}
-                    className={`flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
+                    className={`flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
                   />
                   {companySearch.trim().length > 0 && !companyId && (
                     <button
                       type="button"
                       disabled={isCreatingCompanyInline}
                       onClick={() => handleCreateCompanyInline(companySearch)}
-                      className="px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                      className="px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 shadow-2xs transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       title="Save typed company name directly to Companies Registry"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Save Company</span>
+                      <span>Save</span>
                     </button>
                   )}
                 </div>
@@ -4557,7 +4556,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           setCountry(c.country);
                           setProjectLocation(c.city);
                           setShowCompanyList(false);
-                          // Auto set primary contact if available
                           const prim = contacts.find((ct) => ct.company_id === c.id && ct.is_primary);
                           if (prim) {
                             setContactId(prim.id!);
@@ -4567,8 +4565,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         }}
                         className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition"
                       >
-                        <span className="font-semibold text-slate-800 dark:text-slate-100">{c.display_name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono uppercase">{c.city}, {c.country}</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{c.display_name}</span>
+                        <span className="text-[10px] text-slate-400 font-mono uppercase shrink-0 ml-2">{c.city}, {c.country}</span>
                       </button>
                     ))}
                     {matchingCompanies.length === 0 ? (
@@ -4607,13 +4605,35 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               {/* Contact lookup */}
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                       Account Contact Personnel
-                    </MarqueeLabel>
+                    </span>
                     {renderConfidenceBadge('contact_name')}
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {companyId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubContactName('');
+                          setSubContactDesignation('');
+                          setSubContactMobile('');
+                          setSubContactEmail('');
+                          setSubContactIsPrimary(false);
+                          setIsEditingContact(false);
+                          setShowNewContactModal(true);
+                        }}
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
+                        title="Open New Contact modal"
+                      >
+                        <UserPlus className="w-3 h-3 text-blue-600" />
+                        <span>+ New</span>
+                      </button>
+                    )}
 
                     {/* Contact Action Menu Dropdown */}
                     <div className="relative inline-block z-20 shrink-0">
@@ -4623,7 +4643,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
                         title="Contact Actions"
                       >
-                        <MoreVertical className="w-3.5 h-3.5" />
+                        <MoreVertical className="w-4 h-4" />
                       </button>
                       {showContactMenu && (
                         <>
@@ -4631,7 +4651,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             className="fixed inset-0 z-40"
                             onClick={() => setShowContactMenu(false)}
                           />
-                          <div className="absolute left-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
+                          <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
                             {companyId && contactId && (
                               <button
                                 type="button"
@@ -4687,59 +4707,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={contactId ?? ''}
-                      onChange={(e) => setContactId(e.target.value)}
-                      disabled={!companyId}
-                      className={`flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
-                    >
-                      <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
-                      {companyContacts.map((ct) => (
-                        <option key={ct.id} value={ct.id}>
-                          {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {companyId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSubContactName('');
-                          setSubContactDesignation('');
-                          setSubContactMobile('');
-                          setSubContactEmail('');
-                          setSubContactIsPrimary(false);
-                          setIsEditingContact(false);
-                          setShowNewContactModal(true);
-                        }}
-                        className="px-2.5 py-2 bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer"
-                        title="Open full New Contact modal"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="hidden sm:inline">+ Modal</span>
-                      </button>
-                    )}
-                  </div>
+                <div className="space-y-1.5 min-w-0">
+                  <select
+                    value={contactId ?? ''}
+                    onChange={(e) => setContactId(e.target.value)}
+                    disabled={!companyId}
+                    className={`w-full min-w-0 truncate bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
+                  >
+                    <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
+                    {companyContacts.map((ct) => (
+                      <option key={ct.id} value={ct.id}>
+                        {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
+                      </option>
+                    ))}
+                  </select>
                   {companyId && !contactId && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <input
                         type="text"
                         placeholder="Or type new contact name to quick-save..."
                         value={customContactInput ?? ''}
                         onChange={(e) => setCustomContactInput(e.target.value)}
-                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                        className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
                       />
                       {customContactInput.trim().length > 0 && (
                         <button
                           type="button"
                           disabled={isCreatingContactInline}
                           onClick={() => handleCreateContactInline(customContactInput)}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                         >
                           <Plus className="w-3 h-3" />
-                          <span>Save Contact</span>
+                          <span>Save</span>
                         </button>
                       )}
                     </div>
@@ -4825,9 +4824,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
-              <div id="field-subject" className="col-span-1 md:col-span-5">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Subject (Optional)</MarqueeLabel>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+              <div id="field-subject" className="col-span-1 sm:col-span-12 lg:col-span-6">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Subject / Project Title (Optional)
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. RO Supply and Commissioning"
@@ -4837,8 +4838,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div className="col-span-1 md:col-span-3">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Client Ref</MarqueeLabel>
+              <div className="col-span-1 sm:col-span-6 lg:col-span-3">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Client Ref
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. PO-8902-X / RFQ-2026"
@@ -4848,12 +4851,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div className="col-span-1 md:col-span-4 min-w-[160px]">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Option</MarqueeLabel>
+              <div className="col-span-1 sm:col-span-6 lg:col-span-3 min-w-0">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Option Scope
+                </label>
                 <select
                   value={proposalOption}
                   onChange={(e) => setProposalOption(e.target.value)}
-                  className="w-full min-w-[160px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                  className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
                 >
                   <option value="">None / Single Option</option>
                   <option value="Option A">Option A</option>
@@ -4873,20 +4878,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               id="field-custom_project_details" 
               className={`bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
             >
-              <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700/80 pb-2">
-                <div className="flex items-center space-x-2">
-                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans uppercase tracking-wider">
-                    Custom Project Specifications & Information
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans uppercase tracking-wider truncate">
+                    Custom Project Specifications
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    ({customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length} Specs Defined)
+                  <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
+                    ({customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length} Defined)
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setCustomProjectDetails(prev => [...prev, { key: '', value: '' }])}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition flex items-center space-x-1 cursor-pointer"
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Project Spec</span>
@@ -4961,14 +4966,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
           {/* Section 4: Line Items Table */}
           <div id="field-line_items" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                  <span>📦 Proposal Line Items (Multi-Product Breakdown)</span>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5 whitespace-nowrap">
+                  <span>📦 Proposal Line Items ({lineItems.length})</span>
                 </span>
                 {renderConfidenceBadge('line_items')}
               </div>
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
                 {lineItems.some((li) => !li.item_name?.trim() && li.description?.trim()) && (
                   <button
                     type="button"
@@ -4988,11 +4993,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         triggerToast('Cleaned up and split legacy item titles & specs!', 'success');
                       }
                     }}
-                    className="py-1 px-2.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-amber-800 dark:text-amber-300 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1 shadow-2xs cursor-pointer"
+                    className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-amber-800 dark:text-amber-300 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1 shadow-2xs cursor-pointer whitespace-nowrap"
                     title="Automatically split combined description text into Item Name and Technical Spec across all items"
                   >
-                    <Scissors className="w-3.5 h-3.5" />
-                    <span>Clean Up Legacy Titles</span>
+                    <Scissors className="w-3.5 h-3.5 shrink-0" />
+                    <span>Clean Up Titles</span>
                   </button>
                 )}
                 <button
@@ -5001,18 +5006,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setLinkingLineIndex(null);
                     setShowCatalogModal(true);
                   }}
-                  className="py-1 px-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  className="py-1.5 px-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
                   title="Fuzzy insert prefilled water treatment components from product catalogs"
                 >
-                  <Search className="w-3.5 h-3.5" />
+                  <Search className="w-3.5 h-3.5 shrink-0" />
                   <span>Quick Catalog Insert</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleAddLineItem}
-                  className="py-1 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  className="py-1.5 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
                   <span>Add Item Line</span>
                 </button>
               </div>
@@ -5037,21 +5042,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     item.product_type === 'Service / Charge';
 
                   return (
-                  <div key={index} className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 shadow-2xs">
-                    {/* Card Header Bar */}
-                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 flex-wrap gap-2">
-                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-mono text-[10px] font-bold flex items-center justify-center">
+                  <div key={index} className="bg-white/95 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3.5 shadow-2xs">
+                    {/* Card Header Bar — Single Clean Row */}
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[11px] font-bold shrink-0">
                           #{index + 1}
-                        </span>
-                        <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                          Item Line #{index + 1}
                         </span>
                         {(() => {
                           if (isServiceOrFee) {
                             return (
-                              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                <span>⚡ Non-Stock Service / Fee</span>
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                <span>⚡ Service / Fee</span>
                               </span>
                             );
                           }
@@ -5074,14 +5076,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               matchedProduct
                             );
                             return (
-                              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  <Package className="w-3 h-3 text-emerald-600"/>
-                                  <span>Linked: {matchedProduct.name} {matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}</span>
+                              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[220px] truncate" title={`${matchedProduct.name} ${matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}`}>
+                                  <Package className="w-3 h-3 text-emerald-600 shrink-0"/>
+                                  <span className="truncate">{matchedProduct.sku || matchedProduct.name}</span>
                                 </span>
                                 {matchedProduct.is_inventoried ? (
                                   <span
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border whitespace-nowrap ${
                                       isLow
                                         ? 'bg-amber-50 text-amber-800 border-amber-200'
                                         : 'bg-emerald-50 text-emerald-800 border-emerald-200'
@@ -5093,7 +5095,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     )}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
                                     {matchedProduct.default_availability || 'Order / Non-Stock'}
                                   </span>
                                 )}
@@ -5138,17 +5140,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         setSyncingCatalogIdx(null);
                                       }
                                     }}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
                                     title="Push updated price, cost, brand, model, or specs back to the master Product Catalog"
                                   >
                                     <RefreshCw className={`w-2.5 h-2.5 ${syncingCatalogIdx === index ? 'animate-spin' : ''}`} />
-                                    <span>Sync to Catalog</span>
+                                    <span>Sync Catalog</span>
                                   </button>
                                 )}
                                 <button
                                   type="button"
                                   onClick={() => handleUnlinkCatalogItem(index)}
-                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer"
+                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer whitespace-nowrap"
                                   title="Unlink from catalog SKU (converts to custom/non-stock)"
                                 >
                                   Unlink
@@ -5157,10 +5159,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             );
                           }
                           return (
-                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                                <Wrench className="w-3 h-3 text-slate-400"/>
-                                <span>Custom / Non-Stock</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                                <Wrench className="w-2.5 h-2.5 text-slate-400"/>
+                                <span>Custom Item</span>
                               </span>
                               <button
                                 type="button"
@@ -5168,10 +5170,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   setLinkingLineIndex(index);
                                   setShowCatalogModal(true);
                                 }}
-                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200/70 transition cursor-pointer whitespace-nowrap"
                               >
                                 <Link2 className="w-2.5 h-2.5"/>
-                                <span>Link Catalog SKU</span>
+                                <span>Link SKU</span>
                               </button>
                               <button
                                 type="button"
@@ -5195,7 +5197,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     itemIndex: index
                                   });
                                 }}
-                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer whitespace-nowrap"
                                 title="Register this custom line item into the master Products Catalog and link it"
                               >
                                 <BookmarkPlus className="w-2.5 h-2.5" />
@@ -5208,20 +5210,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       <button
                         type="button"
                         onClick={() => handleRemoveLineItem(index)}
-                        className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-sans font-medium cursor-pointer"
+                        className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
                         title="Remove Line Item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        <span>Remove Line</span>
+                        <span>Remove</span>
                       </button>
                     </div>
 
-                    {/* Tier 1: Classification & Type */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                          Classification
-                        </label>
+                    {/* Tier 1: Classification & Product Category */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between h-5 mb-1">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                            Classification
+                          </label>
+                        </div>
                         <select
                           value={
                             (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
@@ -5239,12 +5243,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </select>
                       </div>
 
-                      <div>
+                      <div className="min-w-0">
                         {item.item_type === 'charge' || item.item_type === 'discount' ? (
                           <>
-                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                              Charge Type
-                            </label>
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                                Charge Type
+                              </label>
+                            </div>
                             <select
                               value={item.charge_type || 'Transportation'}
                               onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
@@ -5260,9 +5266,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </>
                         ) : (
                           <>
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                Product Type
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                                Product Category
                               </label>
                               {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
                             </div>
@@ -5271,7 +5277,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               value={item.product_type}
                               onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
                               onCreateOption={(val: string) => {
-                                // Strictly local to this line item; does not pollute master dropdowns
                                 handleLineItemChange(index, 'product_type', val);
                               }}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
@@ -5281,12 +5286,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     </div>
 
-                    {/* Tier 2: Qty, Unit, Selling Price, Cost Price & Margin */}
-                    <div className="grid grid-cols-12 gap-3 mb-3">
-                      <div className="col-span-3 sm:col-span-2">
-                        <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                          Qty
-                        </label>
+                    {/* Tier 2: Qty, Unit, Selling Price, Unit Cost & Live Margin — Strictly Aligned Labels */}
+                    <div className="grid grid-cols-12 gap-3">
+                      <div className="col-span-6 sm:col-span-2 min-w-0">
+                        <div className="flex items-center justify-between h-5 mb-1">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                            Qty
+                          </label>
+                        </div>
                         <input
                           type="number"
                           required
@@ -5296,9 +5303,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="col-span-3 sm:col-span-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      <div className="col-span-6 sm:col-span-2 min-w-0">
+                        <div className="flex items-center justify-between h-5 mb-1">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                             Unit
                           </label>
                           {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
@@ -5314,18 +5321,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="col-span-6 sm:col-span-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                            Selling Price ({formCurrency})
+                      <div className="col-span-6 sm:col-span-4 min-w-0">
+                        <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
+                            Selling ({formCurrency})
                           </label>
                           {formCurrency === 'USD' ? (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums">
-                              ≈ {(item.unit_price * 3.6725).toFixed(2)} AED
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                              ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
                             </span>
                           ) : (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums">
-                              ≈ ${(item.unit_price / 3.6725).toFixed(2)} USD
+                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                              ≈ ${(item.unit_price / 3.6725).toFixed(1)}
                             </span>
                           )}
                         </div>
@@ -5337,10 +5344,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="col-span-12 sm:col-span-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                            Unit Cost ({formCurrency})
+                      <div className="col-span-6 sm:col-span-4 min-w-0">
+                        <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
+                            Cost ({formCurrency})
                           </label>
                           {(() => {
                             const sell = Number(item.unit_price) || 0;
@@ -5351,7 +5358,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               const isThin = marginPct >= 0 && marginPct < 20;
                               return (
                                 <span
-                                  className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
                                     isHealthy
                                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
                                       : isThin
@@ -5360,12 +5367,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   }`}
                                   title="Gross Margin: (Selling - Cost) / Selling"
                                 >
-                                  Margin: {marginPct.toFixed(1)}%
+                                  {marginPct.toFixed(1)}% Margin
                                 </span>
                               );
                             }
                             return (
-                              <span className="text-[10px] font-mono text-slate-400">
+                              <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
                                 Base Cost
                               </span>
                             );
@@ -5380,12 +5387,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
-                      <div className="sm:col-span-1 lg:col-span-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                            ITEM NAME / HEADING
-                          </MarqueeLabel>
+                    {/* Tier 3: Item Name / Heading, Lead Time & Option Scope (Row A) + Full-Width Description (Row B) */}
+                    <div className="grid grid-cols-12 gap-3">
+                      <div className="col-span-12 sm:col-span-6 min-w-0">
+                        <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                            Item Name / Heading
+                          </label>
                           {!item.item_name?.trim() && item.description?.trim() && (
                             <button
                               type="button"
@@ -5399,10 +5407,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 };
                                 setLineItems(updated);
                               }}
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0"
                               title="Split leading title from description"
                             >
-                              <Scissors className="w-2.5 h-2.5" />
+                              <Scissors className="w-2.5 h-2.5 shrink-0" />
                               <span>Split Title & Spec</span>
                             </button>
                           )}
@@ -5416,50 +5424,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         />
                       </div>
 
-                      <div className="sm:col-span-1 lg:col-span-4">
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">ITEM DESCRIPTION & SPECS</MarqueeLabel>
-                        <input
-                          type="text"
-                          placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
-                          value={item.description ?? ''}
-                          onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                        />
-                      </div>
-
                       {(() => {
                         const isDiscount = (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
                         const isService = (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge' || (item.item_type as string) === 'service';
 
                         if (isDiscount) {
-                          return <div className="lg:col-span-2 opacity-0 pointer-events-none" />;
-                        }
-
-                        if (isService) {
-                          return (
-                            <div className="lg:col-span-2">
-                              <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                                SERVICE TIMELINE / DURATION
-                              </MarqueeLabel>
-                              <input
-                                type="text"
-                                placeholder="e.g. 1–2 Days on site / Scheduled"
-                                value={item.lead_time_note ?? ''}
-                                onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                              />
-                            </div>
-                          );
+                          return <div className="col-span-6 sm:col-span-3 opacity-0 pointer-events-none" />;
                         }
 
                         return (
-                          <div className="lg:col-span-2">
-                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                              LEAD TIME
-                            </MarqueeLabel>
+                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                {isService ? 'Duration' : 'Lead Time'}
+                              </label>
+                            </div>
                             <input
                               type="text"
-                              placeholder="e.g. 8–10 Weeks Ex-Factory"
+                              placeholder={isService ? 'e.g. 1–2 Days' : 'e.g. Ex-Stock / 2-3 Wks'}
                               value={item.lead_time_note ?? ''}
                               onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
@@ -5468,8 +5450,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         );
                       })()}
 
-                      <div className="lg:col-span-2">
-                        <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">OPTION DESIGNATION</MarqueeLabel>
+                      <div className="col-span-6 sm:col-span-3 min-w-0">
+                        <div className="flex items-center justify-between h-5 mb-1">
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                            Option Scope
+                          </label>
+                        </div>
                         <select
                           value={(item as any).option_designation || item.option || 'Default / Included'}
                           onChange={(e) => {
@@ -5479,7 +5465,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           }}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                         >
-                          <option value="Default / Included">Default / Included</option>
+                          <option value="Default / Included">Baseline / Included</option>
                           <option value="Option A">Option A (Baseline)</option>
                           <option value="Option B">Option B (Alternative)</option>
                           <option value="Option C">Option C (Alternative)</option>
@@ -5493,6 +5479,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             )}
                         </select>
                       </div>
+
+                      <div className="col-span-12 min-w-0">
+                        <div className="flex items-center justify-between h-5 mb-1">
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                            Item Description & Technical Specifications
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
+                          value={item.description ?? ''}
+                          onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                        />
+                      </div>
                     </div>
 
                     {/* Tier 3B: Brand/Make, Model/Part No, Country of Origin, Product Image & Datasheet */}
@@ -5501,11 +5502,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
                       const effectiveDatasheet = item.datasheet_attachment || matchedProd?.datasheet_attachment;
                       return (
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                          <div className="sm:col-span-3">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                              Brand / Make
-                            </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-12 gap-3 pt-1">
+                          <div className="col-span-1 sm:col-span-3 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                                Brand / Make
+                              </label>
+                            </div>
                             <input
                               type="text"
                               placeholder="e.g. Hydranautics, FIP"
@@ -5514,10 +5517,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                             />
                           </div>
-                          <div className="sm:col-span-3">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                              Model / Part No.
-                            </label>
+                          <div className="col-span-1 sm:col-span-3 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                                Model / Part No.
+                              </label>
+                            </div>
                             <input
                               type="text"
                               placeholder="e.g. SWC5-LD"
@@ -5526,10 +5531,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
                             />
                           </div>
-                          <div className="sm:col-span-2">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                              Origin
-                            </label>
+                          <div className="col-span-1 sm:col-span-2 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                                Origin
+                              </label>
+                            </div>
                             <input
                               type="text"
                               placeholder="e.g. USA, UAE"
@@ -5538,22 +5545,27 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                             />
                           </div>
-                          <div className="sm:col-span-4 flex flex-col justify-end">
-                            <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 px-2.5">
+                          <div className="col-span-1 sm:col-span-4 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                                Media & Datasheet
+                              </label>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 min-h-[32px]">
                               <div className="flex items-center gap-2 min-w-0">
                                 {effectiveImageUrl ? (
                                   <img
                                     src={effectiveImageUrl}
                                     alt="Item"
-                                    className="w-7 h-7 rounded object-contain bg-white border border-slate-200 shrink-0"
+                                    className="w-6 h-6 rounded object-contain bg-white border border-slate-200 shrink-0"
                                     referrerPolicy="no-referrer"
                                   />
                                 ) : (
-                                  <div className="w-7 h-7 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                  <div className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
                                     <Package className="w-3.5 h-3.5" />
                                   </div>
                                 )}
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex items-center gap-2">
                                   <label className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer block truncate">
                                     {effectiveImageUrl ? 'Change Photo' : '+ Product Photo'}
                                     <input
@@ -5580,7 +5592,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     />
                                   </label>
                                   {effectiveDatasheet && (
-                                    <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-medium cursor-pointer truncate">
+                                    <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-medium cursor-pointer truncate border-l border-slate-200 pl-2">
                                       <input
                                         type="checkbox"
                                         checked={item.include_datasheet_in_quote !== false}
@@ -5590,7 +5602,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         className="w-3 h-3 rounded text-indigo-600"
                                       />
                                       <span className="truncate" title={effectiveDatasheet.name}>
-                                        Annex Datasheet
+                                        Annex PDF
                                       </span>
                                     </label>
                                   )}
@@ -5600,7 +5612,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <button
                                   type="button"
                                   onClick={() => handleLineItemChange(index, 'image_url', '')}
-                                  className="text-slate-400 hover:text-rose-500 p-0.5"
+                                  className="text-slate-400 hover:text-rose-500 p-0.5 shrink-0"
                                   title="Clear item photo"
                                 >
                                   <X className="w-3.5 h-3.5" />
@@ -5792,53 +5804,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Deal Profitability & Gross Margin Summary Strip */}
               {(() => {
-                const totalSelling = lineItems.reduce((sum, li) => {
+                const baselineList = lineItems.filter((li) => {
+                  const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
+                  return !opt || opt === 'Default / Included' || opt === 'Baseline / All' || opt === 'Option A' || opt.startsWith('Option A ');
+                });
+                const calcList = baselineList.length > 0 ? baselineList : lineItems;
+                const totalSelling = calcList.reduce((sum, li) => {
                   const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
                   const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
                   return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
                 }, 0);
-                const totalCost = lineItems.reduce((sum, li) => {
+                const totalCost = calcList.reduce((sum, li) => {
                   const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
                   if (isDisc) return sum;
                   return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
                 }, 0);
-                const hasAnyCost = lineItems.some((li) => (Number(li.cost_price) || 0) > 0);
+                const vatAmount = Math.round(totalSelling * 0.05 * 100) / 100;
+                const grandTotalInclVat = totalSelling + vatAmount;
+                const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
                 const grossProfit = totalSelling - totalCost;
                 const marginPct = totalSelling > 0 && hasAnyCost ? (grossProfit / totalSelling) * 100 : null;
 
                 return (
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 font-mono">
-                        Deal Profitability Summary
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs font-mono tabular-nums">
-                      <div>
-                        <span className="text-slate-400 mr-1.5">Total Cost:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {hasAnyCost
-                            ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : '—'}
-                        </span>
-                      </div>
-                      <span className="text-slate-300 dark:text-slate-700">·</span>
-                      <div>
-                        <span className="text-slate-400 mr-1.5">Total Selling:</span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {formCurrency} {totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 font-mono">
+                          Deal Profitability & VAT Summary
                         </span>
                       </div>
                       {marginPct !== null && (
-                        <>
-                          <span className="text-slate-300 dark:text-slate-700">·</span>
-                          <div>
-                            <span className="text-slate-400 mr-1.5">Est. Profit:</span>
+                        <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
+                          <span>
+                            <span className="text-slate-400 mr-1">Est. Profit:</span>
                             <span className={`font-bold ${grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                               {formCurrency} {grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
-                          </div>
+                          </span>
                           <span
                             className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
                               marginPct >= 20
@@ -5850,8 +5853,36 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           >
                             {marginPct.toFixed(1)}% Gross Margin
                           </span>
-                        </>
+                        </div>
                       )}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs font-mono tabular-nums">
+                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {hasAnyCost
+                            ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] text-slate-400 uppercase block truncate">Subtotal (Excl. VAT)</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {formCurrency} {totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] text-slate-400 uppercase block truncate">5% VAT</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block truncate">Grand Total (Incl. VAT)</span>
+                        <span className="font-bold text-blue-700 dark:text-blue-300">
+                          {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -5889,9 +5920,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Status</MarqueeLabel>
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPreviewActive ? '' : 'xl:grid-cols-4'} gap-4`}>
+              <div className="min-w-0">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Enquiry Status
+                </label>
                 <select
                   value={normalizeEnquiryStatus(status)}
                   onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
@@ -5914,7 +5947,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       ))}
                     </optgroup>
                   ))}
-                  {/* Fallback for legacy or custom status */}
                   {status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(status))) && (
                     <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
                       <option value={status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
@@ -5925,8 +5957,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </select>
               </div>
 
-              <div>
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Estimated Order Date</MarqueeLabel>
+              <div className="min-w-0">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Estimated Order Date
+                </label>
                 <input
                   type="date"
                   placeholder="YYYY-MM-DD"
@@ -5937,8 +5971,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div>
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Next Follow-up Date</MarqueeLabel>
+              <div className="min-w-0">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                  Next Follow-up Date
+                </label>
                 <input
                   type="date"
                   placeholder="YYYY-MM-DD"
@@ -5951,21 +5987,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               {/* Package total value */}
               <div id="field-value" className="flex flex-col min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-0.5 mb-1.5 min-w-0">
-                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                <div className="flex items-center justify-between gap-2 mb-1.5 min-w-0">
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                     Package Total ({formCurrency})
                   </span>
                   {formCurrency === 'USD' ? (
-                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
+                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] font-mono tabular-nums whitespace-nowrap shrink-0">
                       ≈ AED {Number((Number(isLumpSum ? manualValue : computedValue) || 0) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   ) : (
-                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] tracking-normal whitespace-nowrap">
+                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] font-mono tabular-nums whitespace-nowrap shrink-0">
                       ≈ ${Number((Number(isLumpSum ? manualValue : computedValue) || 0) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                     </span>
                   )}
                 </div>
-                <div className={`p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 font-mono ${getHighlightClasses('value')}`}>
+                <div className={`p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 font-mono tabular-nums ${getHighlightClasses('value')}`}>
                   {isLumpSum ? (
                     <FormattedNumberInput
                       value={manualValue}

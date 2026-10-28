@@ -2173,7 +2173,7 @@ export default function EnquiryDetail({
 
   return (
     <div id="enquiry-detail-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
-      <div className={`w-full ${isExpandedWidth ? 'max-w-6xl lg:max-w-7xl' : 'max-w-3xl lg:max-w-4xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
+      <div className={`w-full ${isExpandedWidth ? 'max-w-6xl xl:max-w-7xl' : 'max-w-4xl lg:max-w-5xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Two-Tier Sticky Header Block */}
         <div className="border-b border-slate-200/80 bg-white sticky top-0 z-20">
@@ -4195,28 +4195,27 @@ export default function EnquiryDetail({
                     const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct) : false;
 
                     return (
-                      <div key={item.id || idx} className="bg-white border border-blue-200 rounded-xl p-3.5 space-y-3 shadow-2xs">
+                      <div key={item.id || idx} className="bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs">
                         {/* Row 1: Thumbnail, Item Name / Heading, Legacy Split Helper, Catalog Sync & Move/Delete */}
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center justify-between gap-2.5 flex-wrap pb-2.5 border-b border-slate-100">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
-                            {thumbUrl ? (
+                            <span className="text-[11px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md shrink-0">
+                              #{idx + 1}
+                            </span>
+                            {thumbUrl && (
                               <img
                                 src={thumbUrl}
                                 alt={item.item_name || 'Item'}
-                                className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                className="w-8 h-8 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
                                 referrerPolicy="no-referrer"
                               />
-                            ) : (
-                              <span className="text-xs font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded shrink-0">
-                                #{idx + 1}
-                              </span>
                             )}
                             <input
                               type="text"
                               value={item.item_name ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'item_name', e.target.value)}
-                              placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading'}
-                              className="flex-1 min-w-[180px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
+                              placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading (e.g. FRP Vessel 30x72)'}
+                              className="flex-1 min-w-[180px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                             />
                             {canSplitLegacy && (
                               <button
@@ -4225,7 +4224,7 @@ export default function EnquiryDetail({
                                   handleDraftItemChange(idx, 'item_name', parsedLegacy.title);
                                   handleDraftItemChange(idx, 'description', parsedLegacy.spec);
                                 }}
-                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap cursor-pointer shrink-0"
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap cursor-pointer shrink-0 transition"
                                 title="Split combined description into Item Name and Technical Spec"
                               >
                                 Split Title & Spec
@@ -4238,7 +4237,7 @@ export default function EnquiryDetail({
                               <button
                                 type="button"
                                 onClick={() => setSaveToCatalogState({ isOpen: true, item, itemIndex: idx, isFromDraft: true })}
-                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
                                 title="Register this custom line item in the Products Catalog"
                               >
                                 <Plus className="w-3 h-3" />
@@ -4253,40 +4252,42 @@ export default function EnquiryDetail({
                                   await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast);
                                   setSyncingCatalogIdx(null);
                                 }}
-                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 transition"
                                 title="Push updated price, cost, brand, or specs back to Products Catalog"
                               >
                                 <RefreshCw className={`w-3 h-3 ${syncingCatalogIdx === idx ? 'animate-spin' : ''}`} />
                                 <span>Sync to Catalog</span>
                               </button>
                             ) : (
-                              <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                              <span className="text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
                                 Linked: {matchedProduct.sku || 'Catalog'}
                               </span>
                             )}
 
-                            <button
-                              type="button"
-                              disabled={idx === 0}
-                              onClick={() => handleMoveDraftItem(idx, 'up')}
-                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                              title="Move Up"
-                            >
-                              <ArrowUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === draftLineItems.length - 1}
-                              onClick={() => handleMoveDraftItem(idx, 'down')}
-                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                              title="Move Down"
-                            >
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveDraftItem(idx, 'up')}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
+                                title="Move Up"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === draftLineItems.length - 1}
+                                onClick={() => handleMoveDraftItem(idx, 'down')}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white rounded-md disabled:opacity-30 cursor-pointer transition"
+                                title="Move Down"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                             <button
                               type="button"
                               onClick={() => handleRemoveDraftItem(idx)}
-                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
                               title="Remove Line Item"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -4294,42 +4295,49 @@ export default function EnquiryDetail({
                           </div>
                         </div>
 
-                        {/* Row 2: Commercial Qty, Unit, Selling Price, Unit Cost, Lead Time, Option Group */}
-                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Qty</label>
+                        {/* Row 2: Commercial Pricing Grid (4 Balanced Columns with Aligned Labels) */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-start">
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Quantity</label>
+                            </div>
                             <input
                               type="number"
                               value={item.quantity ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'quantity', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Unit</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Unit (UOM)</label>
+                            </div>
                             <input
                               type="text"
                               value={item.unit ?? ''}
+                              placeholder="Nos / Set"
                               onChange={(e) => handleDraftItemChange(idx, 'unit', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Selling Price</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center justify-between mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Selling Price</label>
+                            </div>
                             <input
                               type="number"
                               step="0.01"
                               value={item.unit_price ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'unit_price', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <div className="flex items-center justify-between mb-0.5">
-                              <label className="text-[10px] font-mono uppercase text-slate-400">Unit Cost</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center justify-between gap-1 mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Unit Cost</label>
                               {marginPct !== null && (
-                                <span className={`text-[9px] font-mono font-bold ${marginPct >= 20 ? 'text-emerald-600' : marginPct >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>
-                                  {marginPct.toFixed(0)}%
+                                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${marginPct >= 20 ? 'bg-emerald-50 text-emerald-700' : marginPct >= 0 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                                  {marginPct.toFixed(0)}% Margin
                                 </span>
                               )}
                             </div>
@@ -4339,28 +4347,36 @@ export default function EnquiryDetail({
                               value={item.cost_price ?? ''}
                               placeholder="0.00"
                               onChange={(e) => handleDraftItemChange(idx, 'cost_price', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono tabular-nums"
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-700 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Lead Time</label>
+                        </div>
+
+                        {/* Row 3: Lead Time, Option Scope, Brand / Make, Model / Part # */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-start">
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Lead Time</label>
+                            </div>
                             <input
                               type="text"
                               value={item.lead_time_note ?? ''}
                               placeholder="Ex-Stock / 2-3 Wks"
                               onChange={(e) => handleDraftItemChange(idx, 'lead_time_note', e.target.value)}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Option Scope</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Option Scope</label>
+                            </div>
                             <select
                               value={((item as any).option_designation || item.option || 'Default / Included') ?? 'Default / Included'}
                               onChange={(e) => {
                                 handleDraftItemChange(idx, 'option', e.target.value);
                                 handleDraftItemChange(idx, 'option_designation' as any, e.target.value);
                               }}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             >
                               <option value="Default / Included">Baseline / Included</option>
                               <option value="Option A">Option A (Baseline)</option>
@@ -4369,120 +4385,131 @@ export default function EnquiryDetail({
                               <option value="Optional / Add-On">Optional / Add-On</option>
                             </select>
                           </div>
-                        </div>
-
-                        {/* Row 3: Brand / Make, Model / Part #, Country of Origin, HS Code */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Brand / Make</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Brand / Make</label>
+                            </div>
                             <input
                               type="text"
                               value={item.brand_make ?? ''}
                               placeholder="e.g. Pentair, Grundfos"
                               onChange={(e) => handleDraftItemChange(idx, 'brand_make', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-sans"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Model / Part #</label>
+                          <div className="min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Model / Part #</label>
+                            </div>
                             <input
                               type="text"
                               value={item.model_part_no ?? ''}
                               placeholder="e.g. Structural 30x72"
                               onChange={(e) => handleDraftItemChange(idx, 'model_part_no', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Origin</label>
+                        </div>
+
+                        {/* Row 4: Country of Origin, HS Code & Technical Description */}
+                        <div className="grid grid-cols-12 gap-3 items-start">
+                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Country of Origin</label>
+                            </div>
                             <input
                               type="text"
                               value={item.country_of_origin ?? ''}
                               placeholder="e.g. USA, Italy, UAE"
                               onChange={(e) => handleDraftItemChange(idx, 'country_of_origin', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-sans"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">HS Code</label>
+                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">HS Code</label>
+                            </div>
                             <input
                               type="text"
                               value={item.hs_code ?? ''}
                               placeholder="e.g. 8421.21.00"
                               onChange={(e) => handleDraftItemChange(idx, 'hs_code', e.target.value)}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                        </div>
-
-                        {/* Row 4: Technical Description, Media (Image + Datasheet) & Line Total */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-start">
-                          <div className="sm:col-span-2">
+                          <div className="col-span-12 sm:col-span-6 min-w-0">
+                            <div className="h-4 flex items-center mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Technical Description & Notes</label>
+                            </div>
                             <textarea
                               rows={2}
                               value={item.description ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'description', e.target.value)}
                               placeholder="Technical description & specification notes..."
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 resize-y"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 resize-y focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                             />
                           </div>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <label className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[10px] font-semibold cursor-pointer flex items-center gap-1 border border-slate-200">
-                                {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'image' ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <ImageIcon className="w-3 h-3 text-blue-600" />
-                                )}
-                                <span>{item.image_url ? 'Change Image' : '+ Image'}</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    if (f) handleInlineItemMediaUpload(idx, f, 'image');
-                                    e.target.value = '';
-                                  }}
-                                />
-                              </label>
+                        </div>
 
-                              <label className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[10px] font-semibold cursor-pointer flex items-center gap-1 border border-slate-200">
-                                {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <FileText className="w-3 h-3 text-indigo-600" />
-                                )}
-                                <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
-                                <input
-                                  type="file"
-                                  accept=".pdf,image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    if (f) handleInlineItemMediaUpload(idx, f, 'datasheet');
-                                    e.target.value = '';
-                                  }}
-                                />
-                              </label>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2">
-                              {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
-                                <label className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.include_datasheet_in_quote !== false}
-                                    onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
-                                    className="rounded border-indigo-300 text-indigo-600"
-                                  />
-                                  <span>Annex Datasheet</span>
-                                </label>
+                        {/* Row 4B: Media Upload Actions, Annex Datasheet Toggle & Line Total Bar */}
+                        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
+                              {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'image' ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                              ) : (
+                                <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
                               )}
-                              <span className="text-xs font-mono tabular-nums font-bold text-blue-600 ml-auto">
-                                {formatCurrency(item.total_price)}
-                              </span>
-                            </div>
+                              <span>{item.image_url ? 'Change Image' : '+ Image'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleInlineItemMediaUpload(idx, f, 'image');
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+
+                            <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
+                              {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                              ) : (
+                                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                              )}
+                              <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
+                              <input
+                                type="file"
+                                accept=".pdf,image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleInlineItemMediaUpload(idx, f, 'datasheet');
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+
+                            {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                              <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-200/80 px-2.5 py-1 rounded-lg cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={item.include_datasheet_in_quote !== false}
+                                  onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
+                                  className="rounded border-indigo-300 text-indigo-600"
+                                />
+                                <span>Annex Datasheet</span>
+                              </label>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 ml-auto">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">Line Total:</span>
+                            <span className="text-sm font-mono tabular-nums font-bold text-blue-600">
+                              {formatCurrency(item.total_price)}
+                            </span>
                           </div>
                         </div>
 
