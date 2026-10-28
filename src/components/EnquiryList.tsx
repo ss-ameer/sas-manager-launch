@@ -27,7 +27,7 @@ import SearchResultCounter from './common/SearchResultCounter';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
-import { releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
+import { reserveEnquiryStock, releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
 import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { PageHeader, PageBody } from './layout/UiContainer';
 import {
@@ -660,10 +660,14 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             const fileCount = (e.attachments || []).length;
             let marginText: string | null = null;
             if (canEdit && itemCount > 0) {
-              const hasCost = items.some((li) => (Number(li.cost_price) || 0) > 0);
+              const baselineItems = items.filter(
+                (li) => !li.option || li.option === 'Baseline / All' || li.option === 'Option A'
+              );
+              const calcItems = baselineItems.length > 0 ? baselineItems : items;
+              const hasCost = calcItems.some((li) => (Number(li.cost_price) || 0) > 0);
               if (hasCost) {
-                const sellSum = items.reduce((s, li) => s + (Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)), 0);
-                const costSum = items.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0), 0);
+                const sellSum = calcItems.reduce((s, li) => s + (Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)), 0);
+                const costSum = calcItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0), 0);
                 if (sellSum > 0) {
                   marginText = `${(((sellSum - costSum) / sellSum) * 100).toFixed(0)}% margin`;
                 }
@@ -1182,7 +1186,10 @@ export default function EnquiryList({
       if (!e || e.is_gap_placeholder) return;
       const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
       const normStatus = normalizeEnquiryStatus(e.status);
-      const valAed = Number(quote?.grand_total || e.value_aed || 0);
+      const quoteGrandTotal = Number(quote?.grand_total || 0);
+      const quoteValAed =
+        quoteGrandTotal > 0 ? (quote?.currency === 'USD' ? quoteGrandTotal * 3.6725 : quoteGrandTotal) : 0;
+      const valAed = quoteValAed > 0 ? quoteValAed : Number(e.value_aed || 0);
 
       const isWon =
         quote?.status === 'Approved' ||
@@ -1762,6 +1769,25 @@ export default function EnquiryList({
 
     let linkedProjectCancelled = false;
     let releasedStockCount = 0;
+    let reservedStockCount = 0;
+    let nextStockReserved = enquiry.stock_reserved;
+    let nextStockReservedAt = enquiry.stock_reserved_at;
+
+    if (isWon && !enquiry.stock_reserved && enquiry.line_items?.some((it) => it.product_id)) {
+      try {
+        const resResult = await reserveEnquiryStock(enquiry, user);
+        if (resResult.reservedCount > 0) {
+          reservedStockCount = resResult.reservedCount;
+          nextStockReserved = true;
+          nextStockReservedAt = now;
+          if (onStockUpdated) {
+            onStockUpdated();
+          }
+        }
+      } catch (resErr) {
+        console.warn('Failed reserving stock on status change to Won:', resErr);
+      }
+    }
 
     if (isLost) {
       // 1. Linked Project Status Cascade on Proposal Cancellation
@@ -1803,6 +1829,8 @@ export default function EnquiryList({
         try {
           const relResult = await releaseEnquiryStock(enquiry, user);
           releasedStockCount = relResult.releasedCount;
+          nextStockReserved = false;
+          nextStockReservedAt = undefined;
           if (onStockUpdated) {
             onStockUpdated();
           }
@@ -1815,8 +1843,8 @@ export default function EnquiryList({
     const updatedEnquiry: Enquiry = {
       ...enquiry,
       status: newStatus,
-      stock_reserved: isLost ? false : enquiry.stock_reserved,
-      stock_reserved_at: isLost ? undefined : enquiry.stock_reserved_at,
+      stock_reserved: isLost ? false : nextStockReserved,
+      stock_reserved_at: isLost ? undefined : nextStockReservedAt,
       statusUpdatedAt: now,
       statusUpdatedBy: userName,
       sentAt: (isSent && !enquiry.sentAt) ? now : enquiry.sentAt,
@@ -1840,6 +1868,8 @@ export default function EnquiryList({
           triggerToast(`Status updated to "${newStatus}". Linked project cancelled and stock released.`, 'info');
         } else if (releasedStockCount > 0) {
           triggerToast(`Status updated to "${newStatus}". Released reserved stock for ${releasedStockCount} item(s).`, 'info');
+        } else if (reservedStockCount > 0) {
+          triggerToast(`Status updated to "${newStatus}". Reserved stock for ${reservedStockCount} catalog item(s).`, 'success');
         } else {
           triggerToast(`Status updated to "${newStatus}"`, 'success');
         }

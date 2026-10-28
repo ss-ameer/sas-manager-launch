@@ -37,6 +37,11 @@ import {
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
+import SaveToCatalogModal, {
+  parseLineItemTitleAndSpec,
+  hasCatalogDrift,
+  syncLineItemToCatalogProduct
+} from '../SaveToCatalogModal';
 import { db } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
@@ -119,6 +124,8 @@ export interface QuotationStudioModalProps {
   ) => void;
   onQuotationCreated?: (quotation: Quotation) => void;
   onEnquirySync?: (syncPayload: EnquiryQuotationSyncPayload) => void;
+  products?: Product[];
+  setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -183,6 +190,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   onProfileAndPresetSaved,
   onQuotationCreated,
   onEnquirySync,
+  products: propProducts,
+  setProducts: propSetProducts,
   triggerToast
 }) => {
   if (!isOpen) return null;
@@ -778,13 +787,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   const [itemImageOverrides, setItemImageOverrides] = useState<Record<string, string>>({});
   // Per-item technical datasheet inclusion toggle mapping: itemId -> boolean
   const [itemDatasheetToggles, setItemDatasheetToggles] = useState<Record<string, boolean>>({});
+  // Per-item optional toggle override mapping: itemId -> boolean
+  const [itemOptionalOverrides, setItemOptionalOverrides] = useState<Record<string, boolean>>({});
+  // Per-item newly linked product ID mapping: itemId -> string
+  const [itemLinkedProductIds, setItemLinkedProductIds] = useState<Record<string, string>>({});
+  // Save to Catalog modal state
+  const [catalogModalTarget, setCatalogModalTarget] = useState<{ itemKey: string; item: QuotationLineItem } | null>(null);
   // Workspace catalog products for automatic image/datasheet/stock lookup
-  const [workspaceProducts, setWorkspaceProducts] = useState<Product[]>([]);
+  const [workspaceProducts, setWorkspaceProducts] = useState<Product[]>(() => propProducts || []);
 
   useEffect(() => {
+    if (propProducts && propProducts.length > 0) {
+      setWorkspaceProducts(propProducts.filter((p) => !p.is_deleted));
+      return;
+    }
     let isMounted = true;
     if (!activeWorkspaceId) return;
-    getDocs(query(collection(db, 'products'), where('workspaceId', '==', activeWorkspaceId)))
+    getDocs(query(collection(db, 'products'), where('workspace_id', '==', activeWorkspaceId)))
       .then((snap) => {
         if (!isMounted) return;
         const loaded: Product[] = [];
@@ -794,13 +813,15 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             loaded.push({ ...data, id: docSnap.id });
           }
         });
-        setWorkspaceProducts(loaded);
+        if (loaded.length > 0) {
+          setWorkspaceProducts(loaded);
+        }
       })
       .catch(() => {});
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, propProducts]);
 
   const handleUploadLineItemImage = async (itemKey: string, file?: File) => {
     if (!file) return;
@@ -1871,10 +1892,18 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
               ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
               : QuotationRepository.roundCurrency(qty * uPrice);
 
+          const parsedLegacy = parseLineItemTitleAndSpec(li.item_name, li.description);
+          const resolvedTitle =
+            (li.item_name && li.item_name.trim()) ||
+            parsedLegacy.title ||
+            (li.product_type && li.product_type !== 'Custom' ? li.product_type : `Item ${idx + 1}`);
+          const resolvedRawDesc =
+            !li.item_name && parsedLegacy.wasSplit ? parsedLegacy.spec : li.description || '';
+
           const { cleanDescription, extractedSpecsAttrs } =
             extractLineItemAttributesAndCleanDescription({
-              item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
-              description: li.description || '',
+              item_name: resolvedTitle,
+              description: resolvedRawDesc,
               quantity: qty,
               unit: li.unit || 'pcs',
               unit_price: uPrice,
@@ -1907,22 +1936,32 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
             itemAttrs = extractedSpecsAttrs;
           }
 
+          const optLabel = (li.option || (li as any).option_designation || '').trim();
+          const isOptionalFromOption =
+            Boolean((li as any).is_optional) ||
+            optLabel === 'Optional / Add-On' ||
+            optLabel === 'Option B' ||
+            optLabel === 'Option C' ||
+            /^option\s+[b-z]/i.test(optLabel);
+
           return {
             id: li.id || `item_${idx}`,
             product_id: li.product_id,
             sku: li.sku,
-            item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
+            item_name: resolvedTitle,
             description: cleanDescription,
             quantity: qty,
             unit: li.unit || 'pcs',
             unit_price: uPrice,
+            cost_price: li.cost_price,
             total_price: tPrice,
             brand_make: brandAttr || undefined,
             model_part_no: modelAttr || undefined,
             country_of_origin: originAttr || undefined,
             hs_code: li.hs_code || undefined,
             availability: li.lead_time_note || 'Ex-Stock / Standard',
-            is_optional: Boolean((li as any).is_optional),
+            is_optional: isOptionalFromOption,
+            option_group: optLabel || undefined,
             attributes: itemAttrs,
             image_url: li.image_url,
             datasheet_attachment: li.datasheet_attachment,
@@ -1936,9 +1975,10 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
     return baseItems.map((item, idx) => {
       const itemKey = item.id || `item_${idx}`;
+      const effectiveProductId = itemLinkedProductIds[itemKey] || item.product_id;
       const matchedCatalogProduct = workspaceProducts.find(
         (p) =>
-          (item.product_id && p.id === item.product_id) ||
+          (effectiveProductId && p.id === effectiveProductId) ||
           (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
           (item.item_name &&
             (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
@@ -1959,10 +1999,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         itemDatasheetToggles[itemKey] !== undefined
           ? itemDatasheetToggles[itemKey]
           : item.include_datasheet_in_quote !== false;
+      const resolvedOptional =
+        itemOptionalOverrides[itemKey] !== undefined
+          ? itemOptionalOverrides[itemKey]
+          : Boolean(item.is_optional);
 
       return {
         ...item,
-        product_id: item.product_id || matchedCatalogProduct?.id,
+        product_id: effectiveProductId || matchedCatalogProduct?.id,
         sku: item.sku || matchedCatalogProduct?.sku,
         brand_make: item.brand_make || matchedCatalogProduct?.brand_make,
         model_part_no: item.model_part_no || matchedCatalogProduct?.model_part_no,
@@ -1971,6 +2015,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         image_url: resolvedImageUrl,
         datasheet_attachment: resolvedDatasheet,
         include_datasheet_in_quote: resolvedIncludeDatasheet,
+        is_optional: resolvedOptional,
         visible_attributes: customVisible,
         page_break_after: customPageBreak
       };
@@ -1983,6 +2028,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     itemPageBreaks,
     itemImageOverrides,
     itemDatasheetToggles,
+    itemOptionalOverrides,
+    itemLinkedProductIds,
     workspaceProducts
   ]);
 
@@ -7656,8 +7703,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* Per-Item Image Upload, Datasheet Annex Toggle & Live Stock Badges */}
-                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5 pt-1">
+                      {/* Per-Item Image Upload, Datasheet Annex Toggle, Catalog Sync & Live Stock Badges */}
+                      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5 pt-1">
                         {quotationLineItems.map((item, idx) => {
                           const itemKey = item.id || `item_${idx}`;
                           const matchedProd = workspaceProducts.find(
@@ -7674,6 +7721,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                               Number(matchedProd?.stock_reserved ?? 0)
                           );
                           const reorderLvl = Number(matchedProd?.reorder_level || 0);
+                          const itemDrifted = matchedProd ? hasCatalogDrift(item, matchedProd) : false;
 
                           return (
                             <div
@@ -7687,6 +7735,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                       src={item.image_url}
                                       alt={item.item_name}
                                       className="w-8 h-8 rounded border border-slate-200 bg-white object-contain p-0.5 shrink-0"
+                                      referrerPolicy="no-referrer"
                                     />
                                   ) : (
                                     <div className="w-8 h-8 rounded border border-dashed border-slate-300 bg-white flex items-center justify-center text-slate-400 shrink-0">
@@ -7697,21 +7746,40 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
                                       #{idx + 1} {item.item_name}
                                     </span>
-                                    {isTracked && (
-                                      <span
-                                        className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
-                                          currentStock <= 0
-                                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                            : reorderLvl > 0 && currentStock <= reorderLvl
-                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                      {isTracked && (
+                                        <span
+                                          className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded ${
+                                            currentStock <= 0
+                                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                              : reorderLvl > 0 && currentStock <= reorderLvl
+                                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                          }`}
+                                        >
+                                          {currentStock <= 0
+                                            ? 'Out of Stock (0)'
+                                            : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setItemOptionalOverrides((prev) => ({
+                                            ...prev,
+                                            [itemKey]: !item.is_optional
+                                          }))
+                                        }
+                                        className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
+                                          item.is_optional
+                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
                                         }`}
+                                        title="Toggle whether this item is Optional / Excluded from Baseline Subtotal"
                                       >
-                                        {currentStock <= 0
-                                          ? 'Out of Stock (0)'
-                                          : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
-                                      </span>
-                                    )}
+                                        {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -7745,6 +7813,44 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                     </button>
                                   )}
                                 </div>
+                              </div>
+
+                              {/* Two-Way Catalog Sync Actions */}
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                                {!matchedProd ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCatalogModalTarget({ itemKey, item })}
+                                    className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold transition cursor-pointer"
+                                  >
+                                    + Save to Catalog
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 font-mono truncate">
+                                    Catalog SKU: {matchedProd.sku || matchedProd.id?.slice(0, 8)}
+                                  </span>
+                                )}
+                                {matchedProd && itemDrifted && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const updated = await syncLineItemToCatalogProduct(
+                                        item,
+                                        matchedProd,
+                                        setWorkspaceProducts,
+                                        triggerToast
+                                      );
+                                      if (updated && propSetProducts) {
+                                        propSetProducts((prev) =>
+                                          prev.map((p) => (p.id === updated.id ? updated : p))
+                                        );
+                                      }
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer shrink-0"
+                                  >
+                                    Sync to Catalog
+                                  </button>
+                                )}
                               </div>
 
                               {item.datasheet_attachment && item.datasheet_attachment.url && (
@@ -10794,6 +10900,29 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
           </div>
         </div>
       )}
+      {/* Save Line Item to Catalog Modal */}
+      <SaveToCatalogModal
+        isOpen={Boolean(catalogModalTarget)}
+        onClose={() => setCatalogModalTarget(null)}
+        lineItem={catalogModalTarget?.item || null}
+        activeWorkspace={activeWorkspace}
+        user={user}
+        products={workspaceProducts}
+        setProducts={setWorkspaceProducts}
+        onSaved={(newProd) => {
+          if (propSetProducts) {
+            propSetProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newProd.id)]);
+          }
+          if (catalogModalTarget?.itemKey && newProd.id) {
+            setItemLinkedProductIds((prev) => ({
+              ...prev,
+              [catalogModalTarget.itemKey]: newProd.id!
+            }));
+          }
+        }}
+        triggerToast={triggerToast}
+      />
+
       {/* Root-Level Print Portal mounted directly to document.body */}
       {typeof document !== 'undefined' && createPortal(
         <div id="quotation-print-portal" className="hidden print:block">

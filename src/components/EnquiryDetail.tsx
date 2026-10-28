@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
+import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
@@ -20,6 +20,7 @@ import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
+import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -87,6 +88,10 @@ interface EnquiryDetailProps {
   auditLogs: AuditLog[];
   salespersons: Salesperson[];
   products?: Product[];
+  setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
+  productCategories?: DropdownOption[];
+  units?: DropdownOption[];
+  setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   user: UserProfile;
   enquiries?: Enquiry[];
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
@@ -123,6 +128,10 @@ export default function EnquiryDetail({
   auditLogs,
   salespersons,
   products = [],
+  setProducts,
+  productCategories = [],
+  units = [],
+  setProductCategories,
   user,
   enquiries = [],
   setEnquiries,
@@ -160,6 +169,16 @@ export default function EnquiryDetail({
   const [isSavingInlineItems, setIsSavingInlineItems] = useState(false);
   const [showQuickCatalogPicker, setShowQuickCatalogPicker] = useState(false);
   const [quickCatalogSearch, setQuickCatalogSearch] = useState('');
+  const [quickCatalogCategory, setQuickCatalogCategory] = useState('ALL');
+  const [quickCatalogStockFilter, setQuickCatalogStockFilter] = useState<'all' | 'in_stock' | 'low_stock'>('all');
+  const [saveToCatalogState, setSaveToCatalogState] = useState<{
+    isOpen: boolean;
+    item: any;
+    itemIndex: number;
+    isFromDraft: boolean;
+  }>({ isOpen: false, item: null, itemIndex: -1, isFromDraft: false });
+  const [syncingCatalogIdx, setSyncingCatalogIdx] = useState<number | null>(null);
+  const [uploadingInlineItemMedia, setUploadingInlineItemMedia] = useState<{ idx: number; type: 'image' | 'datasheet' } | null>(null);
   const [showQuoteSyncPrompt, setShowQuoteSyncPrompt] = useState(false);
   const [isSyncingQuoteItems, setIsSyncingQuoteItems] = useState(false);
   const [isUploadingDetailAttachment, setIsUploadingDetailAttachment] = useState(false);
@@ -233,8 +252,9 @@ export default function EnquiryDetail({
         setViewingQuotation({ ...viewingQuotation, status: 'Approved' });
       }
 
-      // 2. Sync deal value, status, and quote ref to parent enquiry
-      const dealValueAed = Number(quote.grand_total || 0);
+      // 2. Sync deal value, status, and quote ref to parent enquiry (converting USD -> AED if needed)
+      const rawGrandTotal = Number(quote.grand_total || 0);
+      const dealValueAed = quote.currency === 'USD' ? Math.round(rawGrandTotal * 3.6725 * 100) / 100 : rawGrandTotal;
       const updatedEnquiry = await EnquiryRepository.syncAcceptedQuotation(
         currentEnquiry.id,
         quote.formatted_quote_ref,
@@ -1544,35 +1564,94 @@ export default function EnquiryDetail({
     }
   };
 
+  // Upload Product Image or Technical Datasheet for a Draft Line Item in Quick Edit
+  const handleInlineItemMediaUpload = async (idx: number, file: File, mediaType: 'image' | 'datasheet') => {
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || activeWorkspace?.id || 'default';
+    setUploadingInlineItemMedia({ idx, type: mediaType });
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(
+        file,
+        wsId,
+        mediaType === 'image' ? 'product_images' : 'product_datasheets',
+        { uid: user?.uid, name: user?.full_name || user?.username }
+      );
+      if (mediaType === 'image') {
+        handleDraftItemChange(idx, 'image_url', uploaded.url);
+        if (triggerToast) triggerToast('Product image uploaded to Custom Bucket.', 'success');
+      } else {
+        handleDraftItemChange(idx, 'datasheet_attachment', uploaded);
+        handleDraftItemChange(idx, 'include_datasheet_in_quote', true);
+        if (triggerToast) triggerToast('Technical datasheet uploaded to Custom Bucket.', 'success');
+      }
+    } catch (err: any) {
+      console.error('Inline item media upload failed:', err);
+      if (triggerToast) triggerToast(err?.message || 'Failed uploading media file.', 'error');
+    } finally {
+      setUploadingInlineItemMedia(null);
+    }
+  };
+
+  // Bulk clean up legacy line items that have empty item_name and full text in description
+  const handleCleanUpLegacyTitles = () => {
+    const source = isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || []);
+    let splitCount = 0;
+    const cleaned = source.map((li) => {
+      if (!(li.item_name || '').trim() && (li.description || '').trim()) {
+        const parsed = parseLineItemTitleAndSpec(li.item_name, li.description);
+        if (parsed.title) {
+          splitCount++;
+          return {
+            ...li,
+            item_name: parsed.title,
+            description: parsed.spec
+          };
+        }
+      }
+      return li;
+    });
+    setDraftLineItems(cleaned);
+    setIsInlineEditingItems(true);
+    if (triggerToast) {
+      triggerToast(`Cleaned up ${splitCount} legacy item title(s). Click Save Items to persist.`, 'info');
+    }
+  };
+
   // Sync updated Enquiry Line Items into an active Draft Quotation or fork a new Revision (R2 / R(N+1))
   const handleSyncLineItemsToQuote = async (mode: 'sync_draft' | 'new_revision') => {
     if (quotations.length === 0) return;
     setIsSyncingQuoteItems(true);
     try {
-      const mappedQuoteItems: QuotationLineItem[] = (currentEnquiry.line_items || []).map((li, idx) => ({
-        id: li.id || `item_${idx + 1}`,
-        sn: idx + 1,
-        product_id: li.product_id,
-        sku: li.sku,
-        item_name: li.item_name || li.product_type || `Item ${idx + 1}`,
-        description: li.description || li.item_name || '',
-        brand_make: li.brand_make,
-        model_part_no: li.model_part_no,
-        country_of_origin: li.country_of_origin,
-        hs_code: li.hs_code,
-        availability: li.lead_time_note || 'Ex-Stock / Standard',
-        quantity: Number(li.quantity) || 1,
-        unit: li.unit || 'Nos',
-        unit_price: Number(li.unit_price) || 0,
-        line_total: Number(li.total_price) || (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-        is_optional: Boolean(
-          ((li as any).option_designation || li.option || '').toLowerCase().includes('optional')
-        ),
-        attributes: li.attributes || [],
-        image_url: li.image_url,
-        datasheet_attachment: li.datasheet_attachment,
-        include_datasheet_in_quote: li.include_datasheet_in_quote !== false
-      }));
+      const mappedQuoteItems: QuotationLineItem[] = (currentEnquiry.line_items || []).map((li, idx) => {
+        const rawOpt = String((li as any).option_designation || li.option || '').trim();
+        const isOptionalOrAlt =
+          rawOpt.toLowerCase().includes('optional') ||
+          rawOpt.toLowerCase().includes('add-on') ||
+          /option\s+[b-z]/i.test(rawOpt);
+        const parsed = parseLineItemTitleAndSpec(li.item_name, li.description);
+        return {
+          id: li.id || `item_${idx + 1}`,
+          sn: idx + 1,
+          product_id: li.product_id,
+          sku: li.sku,
+          item_name: parsed.title || li.product_type || `Item ${idx + 1}`,
+          description: parsed.spec || '',
+          brand_make: li.brand_make,
+          model_part_no: li.model_part_no,
+          country_of_origin: li.country_of_origin,
+          hs_code: li.hs_code,
+          availability: li.lead_time_note || 'Ex-Stock / Standard',
+          quantity: Number(li.quantity) || 1,
+          unit: li.unit || 'Nos',
+          unit_price: Number(li.unit_price) || 0,
+          line_total: Number(li.total_price) || (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
+          is_optional: isOptionalOrAlt,
+          option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
+          attributes: li.attributes || [],
+          image_url: li.image_url,
+          datasheet_attachment: li.datasheet_attachment,
+          include_datasheet_in_quote: li.include_datasheet_in_quote !== false
+        };
+      });
 
       const targetDraft = quotations.find((q) => q.status === 'Draft') || quotations[0];
 
@@ -1659,10 +1738,11 @@ export default function EnquiryDetail({
   };
 
   const toggleExpandAllItems = () => {
-    const targetItems = filteredLineItems.length > 0 ? filteredLineItems : (enquiry.line_items || []);
+    const baseItems = currentEnquiry.line_items || [];
+    const targetItems = filteredLineItems.length > 0 ? filteredLineItems : baseItems;
     if (targetItems.length === 0) return;
     const allExpanded = targetItems.every((item) => {
-      const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+      const origIdx = baseItems.indexOf(item);
       return origIdx >= 0 ? !!expandedItemIndices[origIdx] : false;
     });
 
@@ -1670,7 +1750,7 @@ export default function EnquiryDetail({
       setExpandedItemIndices((prev) => {
         const next = { ...prev };
         targetItems.forEach((item) => {
-          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+          const origIdx = baseItems.indexOf(item);
           if (origIdx >= 0) delete next[origIdx];
         });
         return next;
@@ -1679,7 +1759,7 @@ export default function EnquiryDetail({
       setExpandedItemIndices((prev) => {
         const next = { ...prev };
         targetItems.forEach((item) => {
-          const origIdx = enquiry.line_items ? enquiry.line_items.indexOf(item) : -1;
+          const origIdx = baseItems.indexOf(item);
           if (origIdx >= 0) next[origIdx] = true;
         });
         return next;
@@ -1787,9 +1867,9 @@ export default function EnquiryDetail({
     const rootId = root.id;
     if (!rootId) return [enquiry];
 
-    // Find all linked enquiries sharing this root or having this parent
-    const linked = enquiries.filter((e) => e.id === rootId || e.parent_id === rootId);
-    if (linked.length === 0) return [enquiry];
+    // Find all non-deleted linked enquiries sharing this root or having this parent
+    const linked = enquiries.filter((e) => !e.is_deleted && (e.id === rootId || e.parent_id === rootId));
+    if (linked.length === 0) return [currentEnquiry];
 
     return linked.sort((a, b) => {
       const revA = a.revision_number ?? 0;
@@ -1797,48 +1877,66 @@ export default function EnquiryDetail({
       if (revA !== revB) return revA - revB;
       return (a.sn || 0) - (b.sn || 0);
     });
-  }, [enquiries, enquiry]);
+  }, [enquiries, enquiry, currentEnquiry]);
 
   const handleCreateRevision = () => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
     if (!currentWsId) {
-      alert('Critical Error: Active workspace context lost. Cannot save record.');
-      throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
+      if (triggerToast) triggerToast('Active workspace context lost. Cannot clone enquiry.', 'error');
+      return;
     }
     const userRole = getUserWorkspaceRole(user, currentWsId, activeWorkspace);
     if (userRole === 'Viewer') {
-      alert('Access Denied: Viewers do not have permission to generate or mutate proposals.');
+      if (triggerToast) triggerToast('Access Denied: Viewers do not have permission to generate or mutate proposals.', 'error');
       return;
     }
 
-    const rootId = enquiry.parent_id || enquiry.id || (enquiry as any)._id;
+    const rootId = currentEnquiry.parent_id || currentEnquiry.id || (currentEnquiry as any)._id;
     if (!rootId) {
-      alert('Cannot create revision: Original enquiry ID missing.');
+      if (triggerToast) triggerToast('Cannot create revision: Original enquiry ID missing.', 'error');
       return;
     }
 
-    // Find all linked revisions
+    // Find all linked non-deleted revisions
     const linked = (enquiries || []).filter(
-      (e) => e.id === rootId || e.parent_id === rootId
+      (e) => !e.is_deleted && (e.id === rootId || e.parent_id === rootId)
     );
 
     // Calculate next revision number
     const maxExistingRev = linked.reduce(
       (max, e) => Math.max(max, e.revision_number || 0),
-      enquiry.revision_number || 0
+      currentEnquiry.revision_number || 0
     );
     const nextRevNumber = maxExistingRev + 1;
 
     // Clean base quote ref
-    const baseQuoteRef = (enquiry.quote_ref_no || '').replace(/-R\d+$/i, '');
+    const baseQuoteRef = (currentEnquiry.quote_ref_no || '').replace(/-R\d+$/i, '');
     const revisionQuoteRef = `${baseQuoteRef}-R${nextRevNumber}`;
 
     // Find next SN across enquiries
-    const maxSn = (enquiries || []).reduce((max, e) => Math.max(max, e.sn || 0), enquiry.sn || 0);
+    const maxSn = (enquiries || []).reduce((max, e) => Math.max(max, e.sn || 0), currentEnquiry.sn || 0);
     const nextSn = maxSn + 1;
 
-    // Clone payload without ID so EnquiryForm creates a NEW enquiry record
-    const { id, _id, createdAt, updatedAt, ...clonedData } = enquiry as any;
+    // Clone payload without ID and reset lifecycle/fulfillment fields so EnquiryForm creates a clean NEW enquiry record
+    const {
+      id,
+      _id,
+      createdAt,
+      updatedAt,
+      stock_reserved,
+      stock_reserved_at,
+      project_id,
+      project_number,
+      active_quotation_id,
+      quotation_status,
+      latest_quote_ref,
+      latest_revision_number,
+      wonAt,
+      lostAt,
+      sentAt,
+      statusHistory,
+      ...clonedData
+    } = currentEnquiry as any;
 
     const revisionPayload: Enquiry = {
       ...clonedData,
@@ -1847,6 +1945,8 @@ export default function EnquiryDetail({
       parent_id: rootId,
       revision_number: nextRevNumber,
       quote_ref_no: revisionQuoteRef,
+      status: 'Active',
+      stock_reserved: false,
       sn: nextSn,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -1862,20 +1962,20 @@ export default function EnquiryDetail({
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date().getTime()); // Newest first
 
   const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
-  const isOwnerOrAttributed = isRecordOwner(user, enquiry);
+  const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
   const isMaskedForBasic = isBasicTier && !isOwnerOrAttributed;
 
   const formatCurrency = (val: number) => {
     if (isMaskedForBasic) return 'AED *** (Basic View)';
-    const isUSD = enquiry.currency === 'USD';
+    const isUSD = currentEnquiry.currency === 'USD';
     const converted = isUSD ? val / 3.6725 : val;
     const symbol = isUSD ? '$' : 'AED ';
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  // Dynamic Option Extraction & Aggregation
+  // Dynamic Option Extraction & Aggregation (reactive to currentEnquiry.line_items)
   const optionAnalysis = React.useMemo(() => {
-    const items = enquiry.line_items || [];
+    const items = currentEnquiry.line_items || [];
     const groupMap: Record<string, { count: number; total: number; items: typeof items }> = {};
     let baselineTotal = 0;
     let baselineCount = 0;
@@ -1886,7 +1986,9 @@ export default function EnquiryDetail({
     items.forEach((item) => {
       const rawOpt = ((item as any).option_designation || item.option || '').trim();
       const optKey = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
-      const price = Number(item.total_price !== undefined ? item.total_price : ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))) || 0;
+      const isDisc = item.item_type === 'discount' || (item as any).classification === 'Discount / Rebate';
+      const rawPrice = Number(item.total_price !== undefined ? item.total_price : ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))) || 0;
+      const price = isDisc ? -Math.abs(rawPrice) : rawPrice;
 
       if (!groupMap[optKey]) {
         groupMap[optKey] = { count: 0, total: 0, items: [] };
@@ -1896,7 +1998,7 @@ export default function EnquiryDetail({
       groupMap[optKey].items.push(item);
 
       const isOptional = optKey === 'Optional / Add-On' || optKey.toLowerCase().includes('optional') || optKey.toLowerCase().includes('add-on');
-      const isBaseline = optKey === 'Default / Included' || optKey === 'Option A' || optKey.startsWith('Option A ');
+      const isBaseline = optKey === 'Default / Included' || optKey === 'Baseline / All' || optKey === 'Option A' || optKey.startsWith('Option A ');
 
       if (isOptional) {
         optionalTotal += price;
@@ -1926,10 +2028,10 @@ export default function EnquiryDetail({
       optionalCount,
       hasMultipleOptions,
     };
-  }, [enquiry.line_items]);
+  }, [currentEnquiry.line_items]);
 
   const filteredLineItems = React.useMemo(() => {
-    const items = enquiry.line_items || [];
+    const items = currentEnquiry.line_items || [];
     if (activeOptionTab !== 'ALL') {
       return items.filter((item) => {
         const rawOpt = ((item as any).option_designation || item.option || '').trim();
@@ -1944,7 +2046,7 @@ export default function EnquiryDetail({
 
     // Stable sort by option group for clean contiguous sections in 'ALL' view
     const optionPriority = (opt: string) => {
-      if (opt === 'Default / Included') return 1;
+      if (opt === 'Default / Included' || opt === 'Baseline / All') return 1;
       if (opt.startsWith('Option A')) return 2;
       if (opt.startsWith('Option B')) return 3;
       if (opt.startsWith('Option C')) return 4;
@@ -1958,7 +2060,7 @@ export default function EnquiryDetail({
       const optB = ((b as any).option_designation || b.option || 'Default / Included').trim();
       return optionPriority(optA) - optionPriority(optB);
     });
-  }, [enquiry.line_items, activeOptionTab, optionAnalysis.hasMultipleOptions]);
+  }, [currentEnquiry.line_items, activeOptionTab, optionAnalysis.hasMultipleOptions]);
 
   const handleRevert = async (log: AuditLog) => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
@@ -2405,15 +2507,53 @@ export default function EnquiryDetail({
                   </div>
                 </div>
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Total Package Price</span>
-                    {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200" title="Selected Option">
-                        {currentEnquiry.proposal_option || enquiry.proposal_option}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-base font-bold font-mono text-blue-600 mt-1">{formatCurrency(currentEnquiry.value_aed)}</span>
+                  {(() => {
+                    const activeQ = quotations.find((q) => q.status === 'Approved') || quotations.find((q) => q.status === 'Sent') || quotations[0];
+                    const hasLineItems = (currentEnquiry.line_items || []).length > 0;
+                    const isUSD = currentEnquiry.currency === 'USD';
+                    const subtotalAed = activeQ
+                      ? (activeQ.currency === 'USD' ? Number(activeQ.subtotal || 0) * 3.6725 : Number(activeQ.subtotal || 0))
+                      : hasLineItems && !currentEnquiry.is_lump_sum
+                      ? (isUSD ? optionAnalysis.baselineTotal * 3.6725 : optionAnalysis.baselineTotal)
+                      : Number(currentEnquiry.value_aed || 0);
+                    const vatAed = activeQ
+                      ? (activeQ.currency === 'USD' ? Number(activeQ.tax_amount || 0) * 3.6725 : Number(activeQ.tax_amount || 0))
+                      : Math.round(subtotalAed * 0.05 * 100) / 100;
+                    const grandTotalAed = activeQ
+                      ? (activeQ.currency === 'USD' ? Number(activeQ.grand_total || 0) * 3.6725 : Number(activeQ.grand_total || 0))
+                      : subtotalAed + vatAed;
+
+                    return (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                            Package Value (Excl. & Incl. VAT)
+                          </span>
+                          {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200" title="Selected Option">
+                              {currentEnquiry.proposal_option || enquiry.proposal_option}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1.5 flex items-baseline justify-between gap-2 flex-wrap">
+                          <div>
+                            <span className="text-[10px] font-mono text-slate-400 block">Subtotal (Excl. VAT)</span>
+                            <span className="text-sm font-bold font-mono tabular-nums text-slate-800">
+                              {formatCurrency(subtotalAed)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-mono text-slate-400 block">
+                              Grand Total (+5% VAT: {formatCurrency(vatAed)})
+                            </span>
+                            <span className="text-base font-bold font-mono tabular-nums text-blue-600">
+                              {formatCurrency(grandTotalAed)}
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -3590,53 +3730,52 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Deal Profitability & Gross Margin Summary Strip */}
+              {/* Deal Profitability, Subtotal Excl. VAT, 5% VAT & Gross Margin Summary Strip */}
               {!isMaskedForBasic && (
                 (() => {
                   const sourceList = isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || []);
                   if (sourceList.length === 0) return null;
                   const currSymbol = currentEnquiry.currency === 'USD' ? '$' : 'AED ';
-                  const totalSelling = sourceList.reduce((sum, li) => {
+                  const baselineList = sourceList.filter((li) => {
+                    const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
+                    return !opt || opt === 'Default / Included' || opt === 'Baseline / All' || opt === 'Option A' || opt.startsWith('Option A ');
+                  });
+                  const calcList = baselineList.length > 0 ? baselineList : sourceList;
+
+                  const totalSelling = calcList.reduce((sum, li) => {
                     const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
                     const tot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
                     return isDisc ? sum - Math.abs(tot) : sum + tot;
                   }, 0);
-                  const totalCost = sourceList.reduce((sum, li) => {
+                  const totalCost = calcList.reduce((sum, li) => {
                     const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
                     if (isDisc) return sum;
                     return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
                   }, 0);
-                  const hasAnyCost = sourceList.some((li) => (Number(li.cost_price) || 0) > 0);
+                  const vatAmount = Math.round(totalSelling * 0.05 * 100) / 100;
+                  const grandTotalInclVat = totalSelling + vatAmount;
+                  const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
                   const estProfit = totalSelling - totalCost;
                   const marginPct = totalSelling > 0 && hasAnyCost ? (estProfit / totalSelling) * 100 : null;
 
                   return (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-emerald-600" />
-                        <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700">
-                          Deal Profitability & Margin
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs font-mono tabular-nums">
-                        <span>
-                          <span className="text-slate-400 mr-1">Cost:</span>
-                          <span className="font-semibold text-slate-700">
-                            {hasAnyCost ? `${currSymbol}${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <DollarSign className="w-4 h-4 text-emerald-600" />
+                          <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700">
+                            Baseline Commercial Summary & Margin
                           </span>
-                        </span>
-                        <span className="text-slate-300">·</span>
-                        <span>
-                          <span className="text-slate-400 mr-1">Selling:</span>
-                          <span className="font-bold text-slate-900">
-                            {currSymbol}{totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </span>
+                          {baselineList.length < sourceList.length && (
+                            <span className="text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                              Excludes {sourceList.length - baselineList.length} Optional/Alt item(s)
+                            </span>
+                          )}
+                        </div>
                         {marginPct !== null && (
-                          <>
-                            <span className="text-slate-300">·</span>
+                          <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
                             <span>
-                              <span className="text-slate-400 mr-1">Profit:</span>
+                              <span className="text-slate-400 mr-1">Est. Profit:</span>
                               <span className={`font-bold ${estProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                 {currSymbol}{estProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
@@ -3650,10 +3789,37 @@ export default function EnquiryDetail({
                                   : 'bg-rose-50 text-rose-700 border-rose-200'
                               }`}
                             >
-                              {marginPct.toFixed(1)}% Margin
+                              {marginPct.toFixed(1)}% Gross Margin
                             </span>
-                          </>
+                          </div>
                         )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/80 text-xs font-mono tabular-nums">
+                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">Total Cost (Excl. VAT)</span>
+                          <span className="font-semibold text-slate-700">
+                            {hasAnyCost ? `${currSymbol}${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </span>
+                        </div>
+                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">Subtotal (Excl. VAT)</span>
+                          <span className="font-bold text-slate-900">
+                            {currSymbol}{totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">5% VAT</span>
+                          <span className="font-semibold text-slate-700">
+                            {currSymbol}{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="bg-blue-50/60 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-blue-600 uppercase font-bold block">Grand Total (Incl. VAT)</span>
+                          <span className="font-bold text-blue-700">
+                            {currSymbol}{grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -3715,6 +3881,19 @@ export default function EnquiryDetail({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                       <>
+                        {(isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || [])).some(
+                          (li) => !(li.item_name || '').trim() && (li.description || '').trim()
+                        ) && (
+                          <button
+                            type="button"
+                            onClick={handleCleanUpLegacyTitles}
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                            title="Split combined description strings into clean Item Name + Technical Spec"
+                          >
+                            <Wrench className="w-3.5 h-3.5" />
+                            <span>Clean Up Legacy Titles</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowQuickCatalogPicker(!showQuickCatalogPicker)}
@@ -3789,32 +3968,90 @@ export default function EnquiryDetail({
                   </div>
                 </div>
 
-                {/* Inline Quick Catalog Picker Drawer */}
+                {/* Inline Quick Catalog Picker Drawer (Upgraded with Category & Stock Filters) */}
                 {showQuickCatalogPicker && (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="relative flex-1">
                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                         <input
                           type="text"
                           value={quickCatalogSearch ?? ''}
                           onChange={(e) => setQuickCatalogSearch(e.target.value)}
-                          placeholder="Search Products Catalog by name, SKU, brand, model..."
+                          placeholder="Search Products Catalog by name, SKU, brand, model, or specs..."
                           className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
                         />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowQuickCatalogPicker(false)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {(['all', 'in_stock', 'low_stock'] as const).map((filterKey) => (
+                          <button
+                            key={filterKey}
+                            type="button"
+                            onClick={() => setQuickCatalogStockFilter(filterKey)}
+                            className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition cursor-pointer ${
+                              quickCatalogStockFilter === filterKey
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {filterKey === 'all' ? 'All Stock' : filterKey === 'in_stock' ? 'In Stock' : 'Low Stock'}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickCatalogPicker(false)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+                    {/* Category Filter Pills */}
+                    {(() => {
+                      const cats = Array.from(new Set((products || []).filter((p) => !p.is_deleted).map((p) => p.product_type || 'Other')));
+                      if (cats.length <= 1) return null;
+                      return (
+                        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                          <button
+                            type="button"
+                            onClick={() => setQuickCatalogCategory('ALL')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-sans font-semibold whitespace-nowrap transition cursor-pointer ${
+                              quickCatalogCategory === 'ALL'
+                                ? 'bg-slate-800 text-white'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            All Categories
+                          </button>
+                          {cats.map((cat) => (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => setQuickCatalogCategory(cat)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-sans font-semibold whitespace-nowrap transition cursor-pointer ${
+                                quickCatalogCategory === cat
+                                  ? 'bg-slate-800 text-white'
+                                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {cat}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(products || [])
                         .filter((p) => {
                           if (p.is_deleted) return false;
+                          if (quickCatalogCategory !== 'ALL' && (p.product_type || 'Other') !== quickCatalogCategory) return false;
+                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                          if (quickCatalogStockFilter === 'in_stock' && (!p.is_inventoried || avail <= 0)) return false;
+                          if (quickCatalogStockFilter === 'low_stock' && !isLow) return false;
+
                           const q = quickCatalogSearch.toLowerCase().trim();
                           if (!q) return true;
                           return (
@@ -3822,13 +4059,18 @@ export default function EnquiryDetail({
                             (p.sku || '').toLowerCase().includes(q) ||
                             (p.brand_make || '').toLowerCase().includes(q) ||
                             (p.model_part_no || '').toLowerCase().includes(q) ||
-                            (p.description || '').toLowerCase().includes(q)
+                            (p.description || '').toLowerCase().includes(q) ||
+                            (p.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
                           );
                         })
-                        .slice(0, 20)
+                        .slice(0, 30)
                         .map((p) => {
                           const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
                           const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                          const sell = Number(p.unit_price) || 0;
+                          const cost = Number(p.cost_price ?? p.cost_price_aed) || 0;
+                          const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                          const cleanUnit = !p.unit || p.unit === 'Custom Unit' ? 'Nos' : p.unit;
                           return (
                             <div
                               key={p.id}
@@ -3840,11 +4082,11 @@ export default function EnquiryDetail({
                                   <img
                                     src={p.image_url}
                                     alt={p.name}
-                                    className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                    className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
                                     referrerPolicy="no-referrer"
                                   />
                                 ) : (
-                                  <div className="w-9 h-9 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                  <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
                                     <Package className="w-4 h-4" />
                                   </div>
                                 )}
@@ -3853,23 +4095,36 @@ export default function EnquiryDetail({
                                   <div className="text-[10px] font-mono text-slate-500 truncate">
                                     {[p.brand_make, p.model_part_no, p.sku ? `SKU: ${p.sku}` : ''].filter(Boolean).join(' · ') || p.product_type}
                                   </div>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                    <span className="text-[9px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                      Unit: {cleanUnit}
+                                    </span>
                                     {p.is_inventoried ? (
                                       <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${isLow ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                                        Avail: {avail} {p.unit}
+                                        Avail: {avail} {cleanUnit}
                                       </span>
                                     ) : (
                                       <span className="text-[9px] font-mono text-slate-400">
                                         {p.default_availability || 'Order / Non-Stock'}
                                       </span>
                                     )}
+                                    {(p.attributes || []).slice(0, 2).map((attr, aIdx) => (
+                                      <span key={aIdx} className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 rounded truncate max-w-[110px]">
+                                        {attr.key}: {attr.value}
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
                               </div>
                               <div className="text-right font-mono tabular-nums shrink-0">
-                                <span className="text-xs font-bold text-emerald-600 block">
-                                  {p.unit_price ? `AED ${Number(p.unit_price).toLocaleString()}` : 'Custom'}
+                                <span className={`text-xs font-bold block ${sell > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                  {sell > 0 ? `AED ${sell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'AED 0.00 (Custom)'}
                                 </span>
+                                {marginPct !== null && (
+                                  <span className="text-[9px] text-slate-400 block">
+                                    {marginPct.toFixed(0)}% Margin
+                                  </span>
+                                )}
                                 <span className="text-[10px] text-blue-600 font-sans font-semibold">+ Add</span>
                               </div>
                             </div>
@@ -3923,7 +4178,7 @@ export default function EnquiryDetail({
               </div>
 
               {isInlineEditingItems ? (
-                /* Inline Editor Mode for Line Items */
+                /* Full-Parity Inline Editor Mode for Line Items */
                 <div className="space-y-3">
                   {draftLineItems.map((item, idx) => {
                     const matchedProduct = (products || []).find(
@@ -3935,10 +4190,14 @@ export default function EnquiryDetail({
                     const sell = Number(item.unit_price) || 0;
                     const cost = Number(item.cost_price) || 0;
                     const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                    const parsedLegacy = parseLineItemTitleAndSpec(item.item_name, item.description);
+                    const canSplitLegacy = !(item.item_name || '').trim() && (item.description || '').trim();
+                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct) : false;
 
                     return (
                       <div key={item.id || idx} className="bg-white border border-blue-200 rounded-xl p-3.5 space-y-3 shadow-2xs">
-                        <div className="flex items-center justify-between gap-2">
+                        {/* Row 1: Thumbnail, Item Name / Heading, Legacy Split Helper, Catalog Sync & Move/Delete */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             {thumbUrl ? (
                               <img
@@ -3956,11 +4215,56 @@ export default function EnquiryDetail({
                               type="text"
                               value={item.item_name ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'item_name', e.target.value)}
-                              placeholder="Item Name / Heading"
-                              className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
+                              placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading'}
+                              className="flex-1 min-w-[180px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
                             />
+                            {canSplitLegacy && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleDraftItemChange(idx, 'item_name', parsedLegacy.title);
+                                  handleDraftItemChange(idx, 'description', parsedLegacy.spec);
+                                }}
+                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap cursor-pointer shrink-0"
+                                title="Split combined description into Item Name and Technical Spec"
+                              >
+                                Split Title & Spec
+                              </button>
+                            )}
                           </div>
-                          <div className="flex items-center gap-1 shrink-0">
+
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                            {!matchedProduct ? (
+                              <button
+                                type="button"
+                                onClick={() => setSaveToCatalogState({ isOpen: true, item, itemIndex: idx, isFromDraft: true })}
+                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 cursor-pointer"
+                                title="Register this custom line item in the Products Catalog"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Save to Catalog</span>
+                              </button>
+                            ) : isDrifted ? (
+                              <button
+                                type="button"
+                                disabled={syncingCatalogIdx === idx}
+                                onClick={async () => {
+                                  setSyncingCatalogIdx(idx);
+                                  await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast);
+                                  setSyncingCatalogIdx(null);
+                                }}
+                                className="px-2 py-1 rounded-md text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                title="Push updated price, cost, brand, or specs back to Products Catalog"
+                              >
+                                <RefreshCw className={`w-3 h-3 ${syncingCatalogIdx === idx ? 'animate-spin' : ''}`} />
+                                <span>Sync to Catalog</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                Linked: {matchedProduct.sku || 'Catalog'}
+                              </span>
+                            )}
+
                             <button
                               type="button"
                               disabled={idx === 0}
@@ -3990,7 +4294,8 @@ export default function EnquiryDetail({
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                        {/* Row 2: Commercial Qty, Unit, Selling Price, Unit Cost, Lead Time, Option Group */}
+                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                           <div>
                             <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Qty</label>
                             <input
@@ -4047,34 +4352,197 @@ export default function EnquiryDetail({
                               className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
                             />
                           </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Option Scope</label>
+                            <select
+                              value={((item as any).option_designation || item.option || 'Default / Included') ?? 'Default / Included'}
+                              onChange={(e) => {
+                                handleDraftItemChange(idx, 'option', e.target.value);
+                                handleDraftItemChange(idx, 'option_designation' as any, e.target.value);
+                              }}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-sans"
+                            >
+                              <option value="Default / Included">Baseline / Included</option>
+                              <option value="Option A">Option A (Baseline)</option>
+                              <option value="Option B">Option B (Alternative)</option>
+                              <option value="Option C">Option C (Alternative)</option>
+                              <option value="Optional / Add-On">Optional / Add-On</option>
+                            </select>
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
-                          <div className="sm:col-span-2">
+                        {/* Row 3: Brand / Make, Model / Part #, Country of Origin, HS Code */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Brand / Make</label>
                             <input
                               type="text"
+                              value={item.brand_make ?? ''}
+                              placeholder="e.g. Pentair, Grundfos"
+                              onChange={(e) => handleDraftItemChange(idx, 'brand_make', e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-sans"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Model / Part #</label>
+                            <input
+                              type="text"
+                              value={item.model_part_no ?? ''}
+                              placeholder="e.g. Structural 30x72"
+                              onChange={(e) => handleDraftItemChange(idx, 'model_part_no', e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">Origin</label>
+                            <input
+                              type="text"
+                              value={item.country_of_origin ?? ''}
+                              placeholder="e.g. USA, Italy, UAE"
+                              onChange={(e) => handleDraftItemChange(idx, 'country_of_origin', e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-sans"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-mono uppercase text-slate-400 mb-0.5">HS Code</label>
+                            <input
+                              type="text"
+                              value={item.hs_code ?? ''}
+                              placeholder="e.g. 8421.21.00"
+                              onChange={(e) => handleDraftItemChange(idx, 'hs_code', e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Row 4: Technical Description, Media (Image + Datasheet) & Line Total */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-start">
+                          <div className="sm:col-span-2">
+                            <textarea
+                              rows={2}
                               value={item.description ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'description', e.target.value)}
                               placeholder="Technical description & specification notes..."
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 resize-y"
                             />
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
-                              <label className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 cursor-pointer">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <label className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[10px] font-semibold cursor-pointer flex items-center gap-1 border border-slate-200">
+                                {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'image' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <ImageIcon className="w-3 h-3 text-blue-600" />
+                                )}
+                                <span>{item.image_url ? 'Change Image' : '+ Image'}</span>
                                 <input
-                                  type="checkbox"
-                                  checked={item.include_datasheet_in_quote !== false}
-                                  onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
-                                  className="rounded border-indigo-300 text-indigo-600"
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleInlineItemMediaUpload(idx, f, 'image');
+                                    e.target.value = '';
+                                  }}
                                 />
-                                <span>Annex Datasheet</span>
                               </label>
-                            )}
-                            <span className="text-xs font-mono tabular-nums font-bold text-blue-600 ml-auto">
-                              {formatCurrency(item.total_price)}
-                            </span>
+
+                              <label className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[10px] font-semibold cursor-pointer flex items-center gap-1 border border-slate-200">
+                                {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <FileText className="w-3 h-3 text-indigo-600" />
+                                )}
+                                <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
+                                <input
+                                  type="file"
+                                  accept=".pdf,image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleInlineItemMediaUpload(idx, f, 'datasheet');
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2">
+                              {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                                <label className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.include_datasheet_in_quote !== false}
+                                    onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
+                                    className="rounded border-indigo-300 text-indigo-600"
+                                  />
+                                  <span>Annex Datasheet</span>
+                                </label>
+                              )}
+                              <span className="text-xs font-mono tabular-nums font-bold text-blue-600 ml-auto">
+                                {formatCurrency(item.total_price)}
+                              </span>
+                            </div>
                           </div>
+                        </div>
+
+                        {/* Row 5: Technical Specification Attributes (Key/Value Pills) */}
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase text-slate-400">
+                              Technical Specification Attributes ({(item.attributes || []).length})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextAttrs = [...(item.attributes || []), { key: '', value: '' }];
+                                handleDraftItemChange(idx, 'attributes', nextAttrs);
+                              }}
+                              className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+                            >
+                              + Add Spec Attribute
+                            </button>
+                          </div>
+                          {(item.attributes || []).length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {(item.attributes || []).map((attr, attrIdx) => (
+                                <div key={attrIdx} className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={attr.key ?? ''}
+                                    placeholder="Parameter (e.g. Flow Rate)"
+                                    onChange={(e) => {
+                                      const nextAttrs = [...(item.attributes || [])];
+                                      nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], key: e.target.value };
+                                      handleDraftItemChange(idx, 'attributes', nextAttrs);
+                                    }}
+                                    className="w-2/5 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-mono"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={attr.value ?? ''}
+                                    placeholder="Value (e.g. 15 m3/hr)"
+                                    onChange={(e) => {
+                                      const nextAttrs = [...(item.attributes || [])];
+                                      nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], value: e.target.value };
+                                      handleDraftItemChange(idx, 'attributes', nextAttrs);
+                                    }}
+                                    className="flex-1 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-sans"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextAttrs = (item.attributes || []).filter((_, i) => i !== attrIdx);
+                                      handleDraftItemChange(idx, 'attributes', nextAttrs);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -4099,6 +4567,8 @@ export default function EnquiryDetail({
                     const sell = Number(item.unit_price) || 0;
                     const cost = Number(item.cost_price) || 0;
                     const lineMarginPct = !isMaskedForBasic && sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                    const parsedDisplay = parseLineItemTitleAndSpec(item.item_name, item.description);
+                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct) : false;
 
                     const rawOpt = ((item as any).option_designation || item.option || '').trim();
                     const currentOpt = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
@@ -4116,17 +4586,17 @@ export default function EnquiryDetail({
                               <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-800">
                                 {currentOpt}
                               </span>
-                              {currentOpt === 'Default / Included' || currentOpt === 'Option A' || currentOpt.startsWith('Option A ') ? (
+                              {currentOpt === 'Default / Included' || currentOpt === 'Baseline / All' || currentOpt === 'Option A' || currentOpt.startsWith('Option A ') ? (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-mono font-semibold">
                                   Baseline Scope
                                 </span>
                               ) : currentOpt.toLowerCase().includes('optional') ? (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono font-semibold">
-                                  Elective Add-On
+                                  Elective Add-On (Excl. Baseline)
                                 </span>
                               ) : (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-mono font-semibold">
-                                  Alternative Option
+                                  Alternative Option (Excl. Baseline)
                                 </span>
                               )}
                             </div>
@@ -4160,7 +4630,7 @@ export default function EnquiryDetail({
                               {thumbUrl ? (
                                 <img
                                   src={thumbUrl}
-                                  alt={item.item_name || 'Product'}
+                                  alt={parsedDisplay.title || 'Product'}
                                   className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
                                   referrerPolicy="no-referrer"
                                 />
@@ -4178,7 +4648,7 @@ export default function EnquiryDetail({
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="font-semibold text-slate-900 text-sm truncate">
-                                      {item.item_name || item.description || item.product_type || 'Line Item'}
+                                      {parsedDisplay.title || item.product_type || 'Line Item'}
                                     </span>
                                     {matchedProduct?.is_inventoried && availStock !== null && (
                                       <span
@@ -4196,6 +4666,43 @@ export default function EnquiryDetail({
                                         Datasheet
                                       </span>
                                     )}
+                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && !matchedProduct && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSaveToCatalogState({
+                                            isOpen: true,
+                                            item,
+                                            itemIndex: origIdx >= 0 ? origIdx : idx,
+                                            isFromDraft: false
+                                          });
+                                        }}
+                                        className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-0.5 cursor-pointer shrink-0"
+                                        title="Register this custom line item in the Products Catalog"
+                                      >
+                                        <Plus className="w-2.5 h-2.5" />
+                                        <span>Save to Catalog</span>
+                                      </button>
+                                    )}
+                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && isDrifted && (
+                                      <button
+                                        type="button"
+                                        disabled={syncingCatalogIdx === (origIdx >= 0 ? origIdx : idx)}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const targetIdx = origIdx >= 0 ? origIdx : idx;
+                                          setSyncingCatalogIdx(targetIdx);
+                                          await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast);
+                                          setSyncingCatalogIdx(null);
+                                        }}
+                                        className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-0.5 cursor-pointer shrink-0"
+                                        title="Push modified price, cost, or specs to master Catalog Product"
+                                      >
+                                        <RefreshCw className={`w-2.5 h-2.5 ${syncingCatalogIdx === (origIdx >= 0 ? origIdx : idx) ? 'animate-spin' : ''}`} />
+                                        <span>Sync to Catalog</span>
+                                      </button>
+                                    )}
                                   </div>
                                   <div className="text-xs text-slate-500 truncate flex items-center gap-1.5">
                                     {(item.brand_make || matchedProduct?.brand_make) && (
@@ -4204,8 +4711,8 @@ export default function EnquiryDetail({
                                     {(item.model_part_no || matchedProduct?.model_part_no) && (
                                       <span>· {item.model_part_no || matchedProduct?.model_part_no}</span>
                                     )}
-                                    {item.item_name && item.description && item.description !== item.item_name && (
-                                      <span className="truncate">· {item.description}</span>
+                                    {parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title && (
+                                      <span className="truncate">· {parsedDisplay.spec}</span>
                                     )}
                                   </div>
                                 </div>
@@ -4271,11 +4778,11 @@ export default function EnquiryDetail({
                                 </div>
                               )}
 
-                              {item.description && (
+                              {(parsedDisplay.spec || item.description) && (
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Description / Spec Notes</span>
                                   <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-150">
-                                    {item.description}
+                                    {parsedDisplay.spec || item.description}
                                   </p>
                                 </div>
                               )}
@@ -5048,6 +5555,8 @@ export default function EnquiryDetail({
             user={user}
             profile={documentProfile}
             editingQuotation={editingQuotation}
+            products={products}
+            setProducts={setProducts}
             onEnquirySync={(syncPayload) => {
               setCurrentEnquiry((prev) =>
                 prev
@@ -5512,6 +6021,74 @@ export default function EnquiryDetail({
         onCompanyCreated={handlePairCompany}
         onCompanyPaired={handlePairCompany}
         triggerToast={triggerToast}
+      />
+
+      {/* Save Custom Line Item to Products Catalog Modal */}
+      <SaveToCatalogModal
+        isOpen={saveToCatalogState.isOpen}
+        onClose={() => setSaveToCatalogState({ isOpen: false, item: null, itemIndex: -1, isFromDraft: false })}
+        lineItem={saveToCatalogState.item}
+        activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || activeWorkspace?.id}
+        user={user}
+        products={products}
+        setProducts={setProducts}
+        productCategories={productCategories}
+        units={units}
+        setProductCategories={setProductCategories}
+        triggerToast={triggerToast}
+        onProductSaved={async (newProduct) => {
+          const idx = saveToCatalogState.itemIndex;
+          if (idx < 0) return;
+          if (saveToCatalogState.isFromDraft) {
+            setDraftLineItems((prev) => {
+              const next = [...prev];
+              if (next[idx]) {
+                next[idx] = {
+                  ...next[idx],
+                  product_id: newProduct.id,
+                  sku: newProduct.sku || next[idx].sku,
+                  item_name: newProduct.name || next[idx].item_name,
+                  product_type: newProduct.product_type || next[idx].product_type,
+                  brand_make: newProduct.brand_make || next[idx].brand_make,
+                  model_part_no: newProduct.model_part_no || next[idx].model_part_no,
+                  country_of_origin: newProduct.country_of_origin || next[idx].country_of_origin,
+                  hs_code: newProduct.hs_code || next[idx].hs_code,
+                  image_url: newProduct.image_url || next[idx].image_url,
+                  datasheet_attachment: newProduct.datasheet_attachment || next[idx].datasheet_attachment
+                };
+              }
+              return next;
+            });
+          } else if (currentEnquiry.id && currentEnquiry.line_items) {
+            const nextItems = [...currentEnquiry.line_items];
+            if (nextItems[idx]) {
+              nextItems[idx] = {
+                ...nextItems[idx],
+                product_id: newProduct.id,
+                sku: newProduct.sku || nextItems[idx].sku,
+                item_name: newProduct.name || nextItems[idx].item_name,
+                product_type: newProduct.product_type || nextItems[idx].product_type,
+                brand_make: newProduct.brand_make || nextItems[idx].brand_make,
+                model_part_no: newProduct.model_part_no || nextItems[idx].model_part_no,
+                country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
+                hs_code: newProduct.hs_code || nextItems[idx].hs_code,
+                image_url: newProduct.image_url || nextItems[idx].image_url,
+                datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment
+              };
+              const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
+              setCurrentEnquiry(updatedEnq);
+              setDraftLineItems(nextItems);
+              if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+              if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
+              try {
+                await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: nextItems, updatedAt: updatedEnq.updatedAt });
+                await EnquiryRepository.save(updatedEnq);
+              } catch (err) {
+                console.warn('Failed linking saved product back to enquiry line item:', err);
+              }
+            }
+          }
+        }}
       />
     </div>
   );

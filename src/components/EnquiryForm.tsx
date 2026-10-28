@@ -59,8 +59,16 @@ import {
   Pencil,
   Package,
   Wrench,
-  Link2
+  Link2,
+  RefreshCw,
+  Scissors,
+  BookmarkPlus
 } from 'lucide-react';
+import SaveToCatalogModal, {
+  parseLineItemTitleAndSpec,
+  hasCatalogDrift,
+  syncLineItemToCatalogProduct
+} from './SaveToCatalogModal';
 
 // Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
 
@@ -314,6 +322,7 @@ interface EnquiryFormProps {
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
+  setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
   setAuditLogs?: React.Dispatch<React.SetStateAction<any[]>>;
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setEnquirySources?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
@@ -340,6 +349,7 @@ export default function EnquiryForm({
   setEnquiries,
   setCompanies,
   setContacts,
+  setProducts,
   setAuditLogs,
   setProductCategories,
   setEnquirySources,
@@ -532,6 +542,15 @@ export default function EnquiryForm({
   const [linkingLineIndex, setLinkingLineIndex] = useState<number | null>(null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('All');
+  const [catalogStockFilter, setCatalogStockFilter] = useState<'all' | 'in_stock' | 'low_stock'>('all');
+  const [saveToCatalogState, setSaveToCatalogState] = useState<{
+    isOpen: boolean;
+    item: any;
+    itemIndex: number;
+  }>({ isOpen: false, item: null, itemIndex: -1 });
+  const [syncingCatalogIdx, setSyncingCatalogIdx] = useState<number | null>(null);
+  const [customContactInput, setCustomContactInput] = useState('');
+  const [isCreatingContactInline, setIsCreatingContactInline] = useState(false);
 
   const combinedCatalog = React.useMemo(() => {
     return (products || [])
@@ -544,6 +563,8 @@ export default function EnquiryForm({
             : p.is_inventoried && (p.stock_on_hand || 0) - (p.stock_reserved || 0) > 0
             ? 'Ex-Stock'
             : '');
+        const cleanUnit =
+          !p.unit || String(p.unit).toLowerCase() === 'custom unit' ? ('Nos' as UnitType) : p.unit;
         return {
           id: p.id,
           name: p.name || p.product_type,
@@ -560,7 +581,7 @@ export default function EnquiryForm({
           reorder_level: p.reorder_level,
           product_type: p.product_type,
           description: p.description,
-          unit: p.unit,
+          unit: cleanUnit,
           unit_price_aed: p.unit_price,
           cost_price_aed: p.cost_price ?? p.cost_price_aed,
           lead_time_note: defaultLeadTime,
@@ -583,9 +604,15 @@ export default function EnquiryForm({
         catalogCategory === 'All' ||
         item.product_type === catalogCategory ||
         (catalogCategory === 'Filter Media' && item.product_type === 'Sand Media');
-      return matchesSearch && matchesCategory;
+      const avail = (item.stock_on_hand || 0) - (item.stock_reserved || 0);
+      const isLow = Boolean(item.is_inventoried) && avail <= (item.reorder_level || 0);
+      const matchesStock =
+        catalogStockFilter === 'all' ||
+        (catalogStockFilter === 'in_stock' && Boolean(item.is_inventoried) && avail > 0) ||
+        (catalogStockFilter === 'low_stock' && isLow);
+      return matchesSearch && matchesCategory && matchesStock;
     });
-  }, [combinedCatalog, catalogSearch, catalogCategory]);
+  }, [combinedCatalog, catalogSearch, catalogCategory, catalogStockFilter]);
 
   // Attachments state
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -978,6 +1005,54 @@ export default function EnquiryForm({
       }
     } finally {
       setIsCreatingCompanyInline(false);
+    }
+  };
+
+  // Inline contact creation from contact field or on submit
+  const handleCreateContactInline = async (rawName: string, targetCompId?: string): Promise<string | null> => {
+    const trimmed = rawName.trim();
+    const resolvedCompId = targetCompId || companyId;
+    if (!trimmed || !resolvedCompId || !activeWorkspace?.id) return null;
+
+    const existing = contacts.find(
+      (ct) => ct.company_id === resolvedCompId && ct.full_name.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing && existing.id) {
+      setContactId(existing.id);
+      setCustomContactInput('');
+      return existing.id;
+    }
+
+    setIsCreatingContactInline(true);
+    try {
+      const hasPrimary = contacts.some((ct) => ct.company_id === resolvedCompId && ct.is_primary);
+      const newContactPayload = {
+        workspace_id: activeWorkspace.id,
+        company_id: resolvedCompId,
+        full_name: trimmed,
+        is_primary: !hasPrimary,
+        createdAt: new Date().toISOString()
+      };
+      const docRef = await safeAddDoc('contacts', newContactPayload);
+      await logAudit(docRef.id, 'contact', 'create', null, newContactPayload, []);
+      if (setContacts) {
+        const created: Contact = { id: docRef.id, ...newContactPayload };
+        setContacts((prev) => [created, ...prev.filter((c) => c.id !== docRef.id)]);
+      }
+      setContactId(docRef.id);
+      setCustomContactInput('');
+      if (triggerToast) {
+        triggerToast(`Saved contact "${trimmed}" to registry!`, 'success');
+      }
+      return docRef.id;
+    } catch (err: any) {
+      console.error('Failed to create contact inline:', err);
+      if (triggerToast) {
+        triggerToast(`Failed to save contact: ${err?.message || 'Unknown error'}`, 'error');
+      }
+      return null;
+    } finally {
+      setIsCreatingContactInline(false);
     }
   };
 
@@ -2238,17 +2313,74 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
 
         const rawOpt = String(item.option_designation || item.option || 'Default / Included').trim();
+        const rawDesc = String(item.description || '').trim();
+        const rawName = String(item.item_name || item.name || '').trim();
+        const parsedTitleSpec = parseLineItemTitleAndSpec(rawDesc, rawName);
+        const extractedBrand =
+          item.brand_make ||
+          normalizedAttrMap.get('Brand / Make') ||
+          '';
+        const extractedModel =
+          item.model_part_no ||
+          normalizedAttrMap.get('Model') ||
+          '';
+
+        // Auto-match against workspace Products Catalog by SKU, Model, or Name
+        const matchedCatalogProd = (products || []).find((p) => {
+          if (p.is_deleted) return false;
+          if (item.sku && p.sku && p.sku.toLowerCase() === String(item.sku).toLowerCase()) return true;
+          if (extractedModel && p.model_part_no && p.model_part_no.toLowerCase() === extractedModel.toLowerCase()) return true;
+          const pName = (p.name || '').toLowerCase().trim();
+          const cTitle = (parsedTitleSpec.title || '').toLowerCase().trim();
+          return Boolean(pName && cTitle && (pName === cTitle || (cTitle.length > 5 && pName.includes(cTitle))));
+        });
+
+        const finalUnitPrice =
+          price > 0
+            ? Number(price.toFixed(2))
+            : matchedCatalogProd?.unit_price
+            ? Number(
+                (formCurrency === 'USD'
+                  ? matchedCatalogProd.unit_price / 3.6725
+                  : matchedCatalogProd.unit_price
+                ).toFixed(2)
+              )
+            : 0;
+
+        const rawCostAed =
+          Number(item.cost_price) ||
+          matchedCatalogProd?.cost_price ||
+          matchedCatalogProd?.cost_price_aed ||
+          0;
+        const finalCostPrice =
+          rawCostAed > 0
+            ? Number((formCurrency === 'USD' ? rawCostAed / 3.6725 : rawCostAed).toFixed(2))
+            : undefined;
+
         return {
+          product_id: matchedCatalogProd?.id || undefined,
+          sku: item.sku || matchedCatalogProd?.sku || undefined,
+          item_name: parsedTitleSpec.title || matchedCatalogProd?.name || '',
           item_type: itemType,
           charge_type: chargeType,
-          product_type: productType,
-          description: item.description || '',
+          product_type: matchedCatalogProd?.product_type || productType,
+          description: parsedTitleSpec.spec || rawDesc || matchedCatalogProd?.description || '',
           quantity: qty,
-          unit: item.unit || 'Pcs',
-          unit_price: Number(price.toFixed(2)),
-          total_price: Number((qty * price).toFixed(2)),
+          unit: item.unit || matchedCatalogProd?.unit || 'Nos',
+          unit_price: finalUnitPrice,
+          cost_price: finalCostPrice,
+          total_price: Number((qty * finalUnitPrice).toFixed(2)),
+          brand_make: extractedBrand || matchedCatalogProd?.brand_make || undefined,
+          model_part_no: extractedModel || matchedCatalogProd?.model_part_no || undefined,
+          country_of_origin: item.country_of_origin || matchedCatalogProd?.country_of_origin || undefined,
+          hs_code: item.hs_code || matchedCatalogProd?.hs_code || undefined,
+          lead_time_note: item.lead_time_note || matchedCatalogProd?.default_availability || '',
+          image_url: item.image_url || matchedCatalogProd?.image_url || undefined,
+          datasheet_attachment: item.datasheet_attachment || matchedCatalogProd?.datasheet_attachment || undefined,
+          include_datasheet_in_quote:
+            item.datasheet_attachment || matchedCatalogProd?.datasheet_attachment ? true : undefined,
           option: rawOpt,
-          attributes: mergedAttributes
+          attributes: mergedAttributes.length > 0 ? mergedAttributes : (matchedCatalogProd?.attributes || [])
         };
       });
       setLineItems(formattedItems);
@@ -2405,13 +2537,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           if (pressMatch) attributes.push({ key: normalizeAttributeKey('Design Pressure'), value: pressMatch[1].trim() });
 
           const firstLine = trimmed.split(/\r?\n/)[0].replace(/^["'\s\t]+/, '').slice(0, 500);
+          const parsedBlock = parseLineItemTitleAndSpec(firstLine);
 
           lineItemsArr.push({
+            item_name: parsedBlock.title,
             product_type: productType,
-            description: firstLine,
+            description: parsedBlock.spec || firstLine,
             quantity: qty,
             unit: unit === 'Nos' ? 'Nos' : unit === 'Set' ? 'Set' : 'Nos',
             unit_price_aed: 0,
+            brand_make: makeMatch ? makeMatch[1].trim() : undefined,
+            model_part_no: modelMatch ? modelMatch[1].trim() : undefined,
             attributes
           });
         });
@@ -2422,9 +2558,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         for (const line of lines) {
           const trimmed = line.trim();
           if (trimmed.length > 5 && (/\d+\s*(nos|pcs|set|kg|mtr|lot|unit)/i.test(trimmed) || /^\d+[\.\)]\s+/.test(trimmed))) {
+            const parsedLine = parseLineItemTitleAndSpec(trimmed);
             lineItemsArr.push({
+              item_name: parsedLine.title,
               product_type: 'General',
-              description: trimmed,
+              description: parsedLine.spec || trimmed,
               quantity: 1,
               unit: 'Lot',
               unit_price_aed: extractedValue || 0,
@@ -2820,9 +2958,73 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     const isGapReserved = status === 'Gap / Reserved' || status === 'GAP / RESERVED';
 
-    if (!companyId && !isGapReserved) {
-      alert('Please search and select a valid client company first.');
-      return;
+    let activeCompanyId = companyId;
+    let activeContactId = contactId;
+
+    if (!activeCompanyId && !isGapReserved) {
+      const typedComp = companySearch.trim();
+      if (typedComp) {
+        const existingComp = companies.find(
+          (c) =>
+            c.display_name.toLowerCase() === typedComp.toLowerCase() ||
+            (c.canonical_name && c.canonical_name.toLowerCase() === typedComp.toLowerCase())
+        );
+        if (existingComp && existingComp.id) {
+          activeCompanyId = existingComp.id;
+          setCompanyId(existingComp.id);
+        } else {
+          const shouldCreateComp = window.confirm(
+            `Company "${typedComp}" is not in your Companies Registry yet.\n\nClick OK to save "${typedComp}" to your Companies Registry and continue submitting this enquiry.`
+          );
+          if (!shouldCreateComp) {
+            return;
+          }
+          try {
+            const newCompPayload: Omit<Company, 'id'> = {
+              workspace_id: activeWorkspace.id,
+              display_name: typedComp,
+              canonical_name: typedComp,
+              aliases: [typedComp],
+              legal_suffix: 'None / To Be Added Later',
+              city: projectLocation?.trim() || 'Dubai',
+              country: country?.trim() || 'UAE',
+              notes: 'Auto-registered on Enquiry submit',
+              created_by_uid: user?.uid || '',
+              created_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+              last_modified_by_uid: user?.uid || '',
+              last_modified_by_name: user?.username || user?.full_name || user?.email || 'Unknown User',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            const docRef = await safeAddDoc('companies', newCompPayload);
+            await logAudit(docRef.id, 'company', 'create', null, newCompPayload, []);
+            if (setCompanies) {
+              setCompanies((prev) => [{ id: docRef.id, ...newCompPayload }, ...prev]);
+            }
+            activeCompanyId = docRef.id;
+            setCompanyId(docRef.id);
+          } catch (compErr: any) {
+            alert('Failed to register company: ' + (compErr?.message || 'Unknown error'));
+            return;
+          }
+        }
+      } else {
+        alert('Please search and select or enter a client company name first.');
+        return;
+      }
+    }
+
+    if (activeCompanyId && !activeContactId && customContactInput.trim()) {
+      const typedContact = customContactInput.trim();
+      const shouldCreateContact = window.confirm(
+        `Save new contact "${typedContact}" to this company's Contacts Registry as well?`
+      );
+      if (shouldCreateContact) {
+        const createdCtId = await handleCreateContactInline(typedContact, activeCompanyId);
+        if (createdCtId) {
+          activeContactId = createdCtId;
+        }
+      }
     }
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -2881,7 +3083,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const currentUserId = user?.uid || user?.id || 'system';
     const repIdOrInitials = spInitialsOrName || spId || selectedSp?.initials || '';
 
-    const selectedCompany = companies.find((c) => c.id === companyId);
+    const selectedCompany = companies.find((c) => c.id === activeCompanyId);
     const resolvedCompanyName = selectedCompany?.display_name || (selectedCompany as any)?.name || companySearch?.trim();
 
     const payload: any = {
@@ -2901,9 +3103,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       shared_with_names: enquiryToEdit?.shared_with_names || [],
       additional_team: enquiryToEdit?.additional_team || [],
       concerned_persons: concernedPersons,
-      company_id: companyId || '',
-      company_name: selectedCompany?.display_name || (selectedCompany as any)?.name || (!companyId && isGapReserved ? (companySearch?.trim() || '[Reserved Sequence / Missing File]') : (companySearch?.trim() || ((enquiryToEdit as any)?.company_name && !(enquiryToEdit as any)?.company_name.includes('[Reserved Sequence') ? (enquiryToEdit as any)?.company_name : undefined))),
-      contact_id: contactId || undefined,
+      company_id: activeCompanyId || '',
+      company_name: selectedCompany?.display_name || (selectedCompany as any)?.name || (!activeCompanyId && isGapReserved ? (companySearch?.trim() || '[Reserved Sequence / Missing File]') : (companySearch?.trim() || ((enquiryToEdit as any)?.company_name && !(enquiryToEdit as any)?.company_name.includes('[Reserved Sequence') ? (enquiryToEdit as any)?.company_name : undefined))),
+      contact_id: activeContactId || undefined,
       country,
       project_location: projectLocation,
       enquiry_source: enquirySource,
@@ -3776,6 +3978,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             )}
 
+            {/* Sticky Quick-Jump Section Bar */}
+            <div className="px-6 py-2 bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto shrink-0 z-10">
+              {[
+                { label: '1. Metadata & Client', target: 'company' },
+                { label: '2. Scope & Specs', target: 'country' },
+                { label: `3. Line Items (${lineItems.length})`, target: 'line_items' },
+                { label: `4. Terms & Files (${attachments.length})`, target: 'value' }
+              ].map((sec) => (
+                <button
+                  key={sec.target}
+                  type="button"
+                  onClick={() => scrollToField(sec.target)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700 transition whitespace-nowrap cursor-pointer shadow-2xs"
+                >
+                  {sec.label}
+                </button>
+              ))}
+            </div>
+
             {/* Scrollable Form body */}
             <fieldset disabled={isReadOnly} className="flex-1 overflow-x-hidden overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
             
@@ -4296,19 +4517,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     )}
                   </div>
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex space-x-2 items-center">
                   <input
                     type="text"
                     required={status !== 'Gap / Reserved'}
                     placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
-                    value={companySearch || ''}
+                    value={companySearch ?? ''}
                     onChange={(e) => {
                       setCompanySearch(e.target.value);
+                      if (companyId) setCompanyId('');
                       setShowCompanyList(true);
                     }}
                     onFocus={() => setShowCompanyList(true)}
                     className={`flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
                   />
+                  {companySearch.trim().length > 0 && !companyId && (
+                    <button
+                      type="button"
+                      disabled={isCreatingCompanyInline}
+                      onClick={() => handleCreateCompanyInline(companySearch)}
+                      className="px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                      title="Save typed company name directly to Companies Registry"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Save Company</span>
+                    </button>
+                  )}
                 </div>
 
                 {showCompanyList && companySearch.trim().length > 0 && (
@@ -4453,19 +4687,64 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
                 </div>
-                <select
-                  value={contactId}
-                  onChange={(e) => setContactId(e.target.value)}
-                  disabled={!companyId}
-                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
-                >
-                  <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
-                  {companyContacts.map((ct) => (
-                    <option key={ct.id} value={ct.id}>
-                      {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={contactId ?? ''}
+                      onChange={(e) => setContactId(e.target.value)}
+                      disabled={!companyId}
+                      className={`flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
+                    >
+                      <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
+                      {companyContacts.map((ct) => (
+                        <option key={ct.id} value={ct.id}>
+                          {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {companyId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubContactName('');
+                          setSubContactDesignation('');
+                          setSubContactMobile('');
+                          setSubContactEmail('');
+                          setSubContactIsPrimary(false);
+                          setIsEditingContact(false);
+                          setShowNewContactModal(true);
+                        }}
+                        className="px-2.5 py-2 bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer"
+                        title="Open full New Contact modal"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="hidden sm:inline">+ Modal</span>
+                      </button>
+                    )}
+                  </div>
+                  {companyId && !contactId && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Or type new contact name to quick-save..."
+                        value={customContactInput ?? ''}
+                        onChange={(e) => setCustomContactInput(e.target.value)}
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                      />
+                      {customContactInput.trim().length > 0 && (
+                        <button
+                          type="button"
+                          disabled={isCreatingContactInline}
+                          onClick={() => handleCreateContactInline(customContactInput)}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Save Contact</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -4689,7 +4968,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </span>
                 {renderConfidenceBadge('line_items')}
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                {lineItems.some((li) => !li.item_name?.trim() && li.description?.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLineItems((prev) =>
+                        prev.map((li) => {
+                          if (li.item_name?.trim() || !li.description?.trim()) return li;
+                          const parsed = parseLineItemTitleAndSpec(li.description, li.item_name);
+                          return {
+                            ...li,
+                            item_name: parsed.title,
+                            description: parsed.spec
+                          };
+                        })
+                      );
+                      if (triggerToast) {
+                        triggerToast('Cleaned up and split legacy item titles & specs!', 'success');
+                      }
+                    }}
+                    className="py-1 px-2.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-amber-800 dark:text-amber-300 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1 shadow-2xs cursor-pointer"
+                    title="Automatically split combined description text into Item Name and Technical Spec across all items"
+                  >
+                    <Scissors className="w-3.5 h-3.5" />
+                    <span>Clean Up Legacy Titles</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -4755,6 +5060,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           if (matchedProduct) {
                             const availStock = (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
                             const isLow = Boolean(matchedProduct.is_inventoried) && availStock <= (matchedProduct.reorder_level || 0);
+                            const drifted = hasCatalogDrift(
+                              {
+                                ...item,
+                                unit_price: formCurrency === 'USD' ? (Number(item.unit_price) || 0) * 3.6725 : item.unit_price,
+                                cost_price:
+                                  item.cost_price !== undefined
+                                    ? formCurrency === 'USD'
+                                      ? Number(item.cost_price) * 3.6725
+                                      : item.cost_price
+                                    : undefined
+                              },
+                              matchedProduct
+                            );
                             return (
                               <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
@@ -4779,6 +5097,54 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     {matchedProduct.default_availability || 'Order / Non-Stock'}
                                   </span>
                                 )}
+                                {drifted && (
+                                  <button
+                                    type="button"
+                                    disabled={syncingCatalogIdx === index}
+                                    onClick={async () => {
+                                      setSyncingCatalogIdx(index);
+                                      try {
+                                        const normalizedItem = {
+                                          ...item,
+                                          unit_price:
+                                            formCurrency === 'USD'
+                                              ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
+                                              : item.unit_price,
+                                          cost_price:
+                                            item.cost_price !== undefined
+                                              ? formCurrency === 'USD'
+                                                ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
+                                                : item.cost_price
+                                              : undefined
+                                        };
+                                        const updatedProd = await syncLineItemToCatalogProduct(
+                                          normalizedItem,
+                                          matchedProduct,
+                                          user
+                                        );
+                                        if (setProducts) {
+                                          setProducts((prev) =>
+                                            prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
+                                          );
+                                        }
+                                        if (triggerToast) {
+                                          triggerToast(`Synced changes back to catalog product "${updatedProd.name}"!`, 'success');
+                                        }
+                                      } catch (err: any) {
+                                        if (triggerToast) {
+                                          triggerToast('Failed to sync to catalog: ' + (err?.message || 'Error'), 'error');
+                                        }
+                                      } finally {
+                                        setSyncingCatalogIdx(null);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50"
+                                    title="Push updated price, cost, brand, model, or specs back to the master Product Catalog"
+                                  >
+                                    <RefreshCw className={`w-2.5 h-2.5 ${syncingCatalogIdx === index ? 'animate-spin' : ''}`} />
+                                    <span>Sync to Catalog</span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleUnlinkCatalogItem(index)}
@@ -4791,7 +5157,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             );
                           }
                           return (
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                               <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
                                 <Wrench className="w-3 h-3 text-slate-400"/>
                                 <span>Custom / Non-Stock</span>
@@ -4806,6 +5172,34 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               >
                                 <Link2 className="w-2.5 h-2.5"/>
                                 <span>Link Catalog SKU</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const itemInAed = {
+                                    ...item,
+                                    unit_price:
+                                      formCurrency === 'USD'
+                                        ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
+                                        : item.unit_price,
+                                    cost_price:
+                                      item.cost_price !== undefined
+                                        ? formCurrency === 'USD'
+                                          ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
+                                          : item.cost_price
+                                        : undefined
+                                  };
+                                  setSaveToCatalogState({
+                                    isOpen: true,
+                                    item: itemInAed,
+                                    itemIndex: index
+                                  });
+                                }}
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer"
+                                title="Register this custom line item into the master Products Catalog and link it"
+                              >
+                                <BookmarkPlus className="w-2.5 h-2.5" />
+                                <span>+ Save to Catalog</span>
                               </button>
                             </div>
                           );
@@ -4986,8 +5380,43 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+                      <div className="sm:col-span-1 lg:col-span-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                            ITEM NAME / HEADING
+                          </MarqueeLabel>
+                          {!item.item_name?.trim() && item.description?.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parsed = parseLineItemTitleAndSpec(item.description, item.item_name);
+                                const updated = [...lineItems];
+                                updated[index] = {
+                                  ...updated[index],
+                                  item_name: parsed.title,
+                                  description: parsed.spec
+                                };
+                                setLineItems(updated);
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                              title="Split leading title from description"
+                            >
+                              <Scissors className="w-2.5 h-2.5" />
+                              <span>Split Title & Spec</span>
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="e.g. FRP Vessel 30x72 / Sand Media"
+                          value={item.item_name ?? ''}
+                          onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-1 lg:col-span-4">
                         <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">ITEM DESCRIPTION & SPECS</MarqueeLabel>
                         <input
                           type="text"
@@ -5003,19 +5432,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         const isService = (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge' || (item.item_type as string) === 'service';
 
                         if (isDiscount) {
-                          return <div className="opacity-0 pointer-events-none" />;
+                          return <div className="lg:col-span-2 opacity-0 pointer-events-none" />;
                         }
 
                         if (isService) {
                           return (
-                            <div>
+                            <div className="lg:col-span-2">
                               <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                                 SERVICE TIMELINE / DURATION
                               </MarqueeLabel>
                               <input
                                 type="text"
                                 placeholder="e.g. 1–2 Days on site / Scheduled"
-                                value={item.lead_time_note || ''}
+                                value={item.lead_time_note ?? ''}
                                 onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                               />
@@ -5024,14 +5453,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         }
 
                         return (
-                          <div>
+                          <div className="lg:col-span-2">
                             <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                               LEAD TIME
                             </MarqueeLabel>
                             <input
                               type="text"
                               placeholder="e.g. 8–10 Weeks Ex-Factory"
-                              value={item.lead_time_note || ''}
+                              value={item.lead_time_note ?? ''}
                               onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                             />
@@ -5039,7 +5468,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         );
                       })()}
 
-                      <div>
+                      <div className="lg:col-span-2">
                         <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">OPTION DESIGNATION</MarqueeLabel>
                         <select
                           value={(item as any).option_designation || item.option || 'Default / Included'}
@@ -6704,7 +7133,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 )}
               </div>
 
-              <div className="w-full sm:w-56">
+              <div className="w-full sm:w-52">
                 <select
                   value={catalogCategory}
                   onChange={(e) => setCatalogCategory(e.target.value)}
@@ -6715,6 +7144,27 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shrink-0">
+                {[
+                  { id: 'all', label: 'All Stock' },
+                  { id: 'in_stock', label: 'In Stock' },
+                  { id: 'low_stock', label: 'Low Stock' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setCatalogStockFilter(tab.id as any)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      catalogStockFilter === tab.id
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -6727,6 +7177,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     const convertedPrice = formCurrency === 'USD' ? priceAed / 3.6725 : priceAed;
                     const availStock = (item.stock_on_hand || 0) - (item.stock_reserved || 0);
                     const isLowStock = Boolean(item.is_inventoried) && availStock <= (item.reorder_level || 0);
+                    const cleanUom = !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
                     return (
                       <div
                         key={item.id || item.name}
@@ -6760,7 +7211,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                           : 'bg-emerald-100 text-emerald-800'
                                       }`}
                                     >
-                                      Avail: {availStock} {item.unit}
+                                      Avail: {availStock} {cleanUom}
                                     </span>
                                   ) : (
                                     <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-mono bg-slate-100 text-slate-600">
@@ -6790,7 +7241,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               <span className="text-sm font-bold text-emerald-600 block">
                                 {priceAed > 0
                                   ? `${formCurrency} ${Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                  : 'On Request'}
+                                  : `${formCurrency} 0.00 (Custom)`}
                               </span>
                               {item.cost_price_aed && item.cost_price_aed > 0 && priceAed > 0 && (
                                 <span className="text-[10px] text-slate-500 block mt-0.5">
@@ -6804,9 +7255,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             {item.description}
                           </p>
 
+                          {item.attributes && item.attributes.filter((a) => a.key && a.value).length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {item.attributes
+                                .filter((a) => a.key && a.value)
+                                .slice(0, 3)
+                                .map((attr, aIdx) => (
+                                  <span
+                                    key={aIdx}
+                                    className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono border border-slate-200/80"
+                                  >
+                                    {attr.key}: {attr.value}
+                                  </span>
+                                ))}
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-slate-100 font-mono text-slate-400">
                             <div>
-                              <span className="font-semibold text-slate-500">Unit:</span> {item.unit}
+                              <span className="font-semibold text-slate-500">Unit:</span> {cleanUom}
                               {item.country_of_origin ? ` • Origin: ${item.country_of_origin}` : ''}
                             </div>
                             {item.lead_time_note && (
@@ -6819,7 +7286,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                         <button
                           type="button"
-                          onClick={() => handleAddCatalogItem(item)}
+                          onClick={() => handleAddCatalogItem({ ...item, unit: cleanUom as UnitType })}
                           className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -7154,6 +7621,68 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         triggerToast={triggerToast}
         onKeySaved={() => {
           setExtractionError(null);
+        }}
+      />
+
+      {/* Save Custom Line Item to Catalog Modal */}
+      <SaveToCatalogModal
+        isOpen={saveToCatalogState.isOpen}
+        onClose={() => setSaveToCatalogState({ isOpen: false, item: null, itemIndex: -1 })}
+        initialItem={saveToCatalogState.item}
+        products={products}
+        setProducts={setProducts}
+        productCategories={activeCategories}
+        units={activeUnits}
+        setProductCategories={setProductCategories}
+        activeWorkspace={activeWorkspace}
+        user={user}
+        triggerToast={triggerToast}
+        onSaved={(newProduct) => {
+          const idx = saveToCatalogState.itemIndex;
+          if (idx >= 0 && idx < lineItems.length) {
+            setLineItems((prev) => {
+              const next = [...prev];
+              const current = next[idx];
+              const unitPriceInFormCurrency =
+                formCurrency === 'USD'
+                  ? Number(((newProduct.unit_price || 0) / 3.6725).toFixed(2))
+                  : newProduct.unit_price || 0;
+              const costPriceInFormCurrency =
+                newProduct.cost_price !== undefined
+                  ? formCurrency === 'USD'
+                    ? Number((newProduct.cost_price / 3.6725).toFixed(2))
+                    : newProduct.cost_price
+                  : current.cost_price;
+              next[idx] = {
+                ...current,
+                product_id: newProduct.id,
+                sku: newProduct.sku || current.sku,
+                item_name: newProduct.name || current.item_name,
+                product_type: newProduct.product_type || current.product_type,
+                description: newProduct.description || current.description,
+                unit: newProduct.unit || current.unit,
+                unit_price: current.unit_price > 0 ? current.unit_price : unitPriceInFormCurrency,
+                cost_price: costPriceInFormCurrency,
+                total_price: Number(
+                  ((current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : unitPriceInFormCurrency)).toFixed(2)
+                ),
+                brand_make: newProduct.brand_make || current.brand_make,
+                model_part_no: newProduct.model_part_no || current.model_part_no,
+                country_of_origin: newProduct.country_of_origin || current.country_of_origin,
+                hs_code: newProduct.hs_code || current.hs_code,
+                image_url: newProduct.image_url || current.image_url,
+                datasheet_attachment: newProduct.datasheet_attachment || current.datasheet_attachment,
+                include_datasheet_in_quote:
+                  newProduct.datasheet_attachment || current.datasheet_attachment ? true : undefined,
+                lead_time_note: newProduct.default_availability || current.lead_time_note,
+                attributes:
+                  newProduct.attributes && newProduct.attributes.length > 0
+                    ? newProduct.attributes
+                    : current.attributes
+              };
+              return next;
+            });
+          }
         }}
       />
 

@@ -1967,6 +1967,7 @@ export default function App() {
             activeWorkspace={activeWorkspace}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             companies={workspaceCompanies}
+            triggerToast={triggerToast}
           />
         )}
 
@@ -2034,6 +2035,10 @@ export default function App() {
           contacts={workspaceContacts}
           salespersons={workspaceSalespersons}
           products={workspaceProducts}
+          setProducts={setProducts}
+          productCategories={workspaceProductCategories.map(c => c.name)}
+          units={units.map(u => u.name)}
+          setProductCategories={setProductCategories}
           auditLogs={auditLogs}
           user={user}
           enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
@@ -2086,6 +2091,7 @@ export default function App() {
           contacts={workspaceContacts}
           salespersons={workspaceSalespersons}
           products={workspaceProducts}
+          setProducts={setProducts}
           enquirySources={enquirySources.map(s => s.name)}
           productCategories={workspaceProductCategories.map(c => c.name)}
           units={units.map(u => u.name)}
