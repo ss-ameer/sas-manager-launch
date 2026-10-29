@@ -3075,17 +3075,17 @@ export default function CompanyModal({
 
       {/* MODAL: ADD COMPANY WITH DUPLICATE FUZZY WARNING */}
       {showAddCompany && (
-        <div id="company-form-modal" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="max-w-3xl w-full max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
+        <div id="company-form-modal" className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="max-w-3xl w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
             {/* Header */}
-            <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 rounded-xl">
+                <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+                    <h2 className="text-base font-bold text-slate-900 font-sans">
                       {editingCompany ? 'Edit Company' : 'Add Company'}
                     </h2>
                     {canonicalName.trim() && (
@@ -3093,7 +3093,7 @@ export default function CompanyModal({
                         href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/50 hover:bg-blue-100 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
                         title="Search Company on Google"
                       >
                         <Search className="w-3 h-3" />

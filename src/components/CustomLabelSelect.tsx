@@ -53,7 +53,7 @@ export function CustomLabelSelect({
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-800 text-slate-100 focus:border-amber-500 focus:outline-none font-medium ${className}`}
+        className={`w-full px-2.5 py-1.5 text-xs rounded-xl bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none font-medium ${className}`}
       />
       <datalist id={listId}>
         {options.map((opt) => (

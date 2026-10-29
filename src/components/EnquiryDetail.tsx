@@ -2289,7 +2289,7 @@ export default function EnquiryDetail({
   };
 
   return (
-    <div id="enquiry-detail-drawer" className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex justify-end">
+    <div id="enquiry-detail-drawer" className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end">
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl xl:max-w-7xl' : 'max-w-4xl lg:max-w-5xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Two-Tier Sticky Header Block */}

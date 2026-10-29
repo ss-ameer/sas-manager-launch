@@ -550,27 +550,27 @@ export default function ContactModal({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
       }}
     >
       <div
-        className="max-w-3xl w-full max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150"
+        className="max-w-3xl w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 rounded-xl">
+            <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
               <User className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+              <h2 className="text-base font-bold text-slate-900 font-sans">
                 {isEditing ? 'Edit Contact Person' : 'Create New Contact Person'}
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
+              <p className="text-xs text-slate-500 font-sans">
                 {selectedCompany
                   ? `Linking personnel directly to ${selectedCompany.display_name}`
                   : 'Specify contact details'}
@@ -580,7 +580,7 @@ export default function ContactModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

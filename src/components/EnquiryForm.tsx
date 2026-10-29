@@ -3487,7 +3487,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   return (
     <div 
       id="enquiry-form-drawer" 
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex justify-end"
+      className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -3497,7 +3497,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       <div 
         className={`fixed inset-y-0 right-0 w-full ${
           isPreviewActive ? 'max-w-[96vw] xl:max-w-[1440px]' : 'max-w-5xl'
-        } z-50 bg-white dark:bg-slate-900 shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200/80 dark:border-slate-800 overflow-hidden`}
+        } z-50 bg-white shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200 overflow-hidden`}
       >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
@@ -4093,28 +4093,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
 
                   <div id="field-received_date">
-                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
+                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
                     <input
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
                       value={enquiryDate || ''}
                       onChange={(e) => setEnquiryDate(e.target.value)}
-                      style={{ colorScheme: 'dark' }}
-                      className={`[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
+                      className={`w-full bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
                     />
                   </div>
 
                   <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
                     <input
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
                       value={loggedDate || ''}
                       onChange={(e) => setLoggedDate(e.target.value)}
-                      style={{ colorScheme: 'dark' }}
-                      className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                      className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 px-3 py-2 transition-all font-mono"
                     />
                   </div>
 

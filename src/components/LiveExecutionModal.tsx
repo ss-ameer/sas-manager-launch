@@ -3004,24 +3004,24 @@ export default function LiveExecutionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
-      <div className={`relative w-full ${isHistoryExpanded ? 'max-w-6xl' : 'max-w-3xl'} bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[95vh] overflow-hidden transition-all duration-200`}>
+    <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className={`relative w-full ${isHistoryExpanded ? 'max-w-6xl' : 'max-w-3xl'} bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all duration-200`}>
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 shrink-0">
+        <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
+            <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
               <Activity className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
+                <h2 className="font-bold text-slate-900 text-base leading-tight">
                   Live Execution Command Center
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
                   {activeQueue.length > 0 ? `${currentIndex + 1} of ${activeQueue.length} In Queue` : 'Queue Lead'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500">
                 High-speed dialing, 1-click dispositions & rapid notes
               </p>
             </div>

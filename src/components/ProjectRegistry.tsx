@@ -826,24 +826,24 @@ export default function ProjectRegistry({
 
       {/* Project Details & Fulfillment Modal */}
       {selectedProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 sm:p-8 md:p-10 lg:px-16 lg:py-8">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-3xl xl:max-w-4xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] w-full max-w-3xl xl:max-w-4xl animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="px-6 sm:px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <span className="p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+                <span className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600">
                   <Briefcase className="w-5 h-5" />
                 </span>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white font-sans">
+                    <h3 className="text-base font-bold text-slate-900 font-sans">
                       {selectedProject.project_number}
                     </h3>
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 text-slate-600">
                       {selectedProject.project_type}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-sans">{selectedProject.title}</p>
+                  <p className="text-xs text-slate-500 font-sans">{selectedProject.title}</p>
                 </div>
               </div>
 
@@ -852,7 +852,7 @@ export default function ProjectRegistry({
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>

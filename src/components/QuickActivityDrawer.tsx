@@ -236,7 +236,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     defaultPreset: 'tomorrow',
     defaultIntent: 'Follow-up on discussion',
     activeClass: 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-500/30',
-    inactiveClass: 'bg-emerald-950/20 text-emerald-300 border-emerald-900/60 hover:bg-emerald-900/30',
+    inactiveClass: 'bg-emerald-50/70 text-emerald-700 border-emerald-200 hover:bg-emerald-100/70',
     icon: CheckCircle2
   },
   {
@@ -248,7 +248,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     defaultPreset: 'tomorrow',
     defaultIntent: 'Scheduled outreach follow-up',
     activeClass: 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/30',
-    inactiveClass: 'bg-blue-950/20 text-blue-300 border-blue-900/60 hover:bg-blue-900/30',
+    inactiveClass: 'bg-blue-50/70 text-blue-700 border-blue-200 hover:bg-blue-100/70',
     icon: CalendarClock
   },
   {
@@ -260,7 +260,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     defaultPreset: 'tomorrow',
     defaultIntent: 'Retry call - No answer or line busy',
     activeClass: 'bg-amber-500 text-white border-amber-400 shadow-md ring-2 ring-amber-400/30',
-    inactiveClass: 'bg-amber-950/20 text-amber-300 border-amber-900/60 hover:bg-amber-900/30',
+    inactiveClass: 'bg-amber-50/70 text-amber-700 border-amber-200 hover:bg-amber-100/70',
     icon: PhoneMissed
   },
   {
@@ -272,7 +272,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     defaultPreset: 'laterToday',
     defaultIntent: 'Call dropped / disconnected - Retry callback',
     activeClass: 'bg-amber-600 text-white border-amber-500 shadow-md ring-2 ring-amber-500/30',
-    inactiveClass: 'bg-amber-950/20 text-amber-300 border-amber-900/60 hover:bg-amber-900/30',
+    inactiveClass: 'bg-amber-50/70 text-amber-800 border-amber-200 hover:bg-amber-100/70',
     icon: PhoneOff
   },
   {
@@ -284,7 +284,7 @@ export const QUICK_CALL_DISPOSITIONS: QuickDispositionItem[] = [
     defaultPreset: 'clear',
     defaultIntent: '',
     activeClass: 'bg-rose-600 text-white border-rose-500 shadow-md ring-2 ring-rose-500/30',
-    inactiveClass: 'bg-rose-950/20 text-rose-300 border-rose-900/60 hover:bg-rose-900/30',
+    inactiveClass: 'bg-rose-50/70 text-rose-700 border-rose-200 hover:bg-rose-100/70',
     icon: Ban
   }
 ];
@@ -1752,13 +1752,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       <button
         type="button"
         onClick={handleAction}
-        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
+        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
         title={isMsg ? `WhatsApp ${trimmed}` : `Call ${trimmed}`}
       >
         {isMsg ? (
-          <MessageSquare className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+          <MessageSquare className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
         ) : (
-          <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+          <Phone className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
         )}
         <span>{isMsg ? 'WhatsApp' : 'Call'}</span>
       </button>
@@ -3235,8 +3235,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
       <div
         className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-[80] overflow-hidden ${
           isLayeredAboveModal
-            ? 'bg-slate-950/20 backdrop-blur-[1px]'
-            : 'bg-slate-900/50 backdrop-blur-xs'
+            ? 'bg-slate-950/30 backdrop-blur-[1px]'
+            : 'bg-slate-950/40 backdrop-blur-xs'
         } flex justify-end items-end sm:items-start`}
       >
         {/* Backdrop click to close */}
@@ -3249,26 +3249,26 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-slate-900 sm:border-l border-t sm:border-t-0 border-slate-800 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[80] text-slate-100 transform-gpu will-change-transform`}
+          } bg-white border-l border-slate-200 text-slate-900 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[80] transform-gpu will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+          <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-lg border ${
+              <div className={`p-2.5 rounded-xl border ${
                 isInternalOps
-                  ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400'
-                  : 'bg-blue-600/20 border-blue-500/30 text-blue-400'
+                  ? 'bg-indigo-50 border-indigo-200/80 text-indigo-600'
+                  : 'bg-blue-50 border-blue-200/80 text-blue-600'
               }`}>
                 {isInternalOps ? <Briefcase className="h-5 w-5" /> : <PhoneCall className="h-5 w-5" />}
               </div>
               <div>
-                <h2 className="text-base font-bold text-slate-100">
+                <h2 className="text-base font-bold text-slate-900">
                   {isInternalOps
                     ? (existingLog || logToEdit ? 'Edit Internal Ops Task' : 'Internal Ops Task Logger')
                     : (existingLog || logToEdit ? 'Edit Activity Log' : 'Activity Logger')}
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500">
                   {isInternalOps
                     ? 'Log administrative, development, design, and internal tasks'
                     : 'Record calls, emails, or visits with instant CRM auto-registration'}
@@ -3280,21 +3280,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsHistoryDrawerOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950/70 hover:bg-blue-900 text-blue-300 hover:text-blue-200 border border-blue-800/80 transition shadow-2xs cursor-pointer group"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 border border-blue-200 transition shadow-2xs cursor-pointer group"
                   title={isHistoryDrawerOpen ? "Close past activity timeline" : "View past activity timeline"}
                 >
                   <span>⏱️</span>
                   <span>Activity History</span>
                   <span className="font-bold">({combinedHistoryCount})</span>
-                  <span className="text-blue-500 font-light mx-0.5">|</span>
-                  <span className="text-blue-400 group-hover:translate-x-0.5 transition-transform text-xs">
+                  <span className="text-blue-300 font-light mx-0.5">|</span>
+                  <span className="text-blue-600 group-hover:translate-x-0.5 transition-transform text-xs">
                     {isHistoryDrawerOpen ? '⇱' : '⇲'}
                   </span>
                 </button>
               )}
               <button
                 onClick={onClose}
-                className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3304,27 +3304,27 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           {/* Form & Retractable History Side-by-Side Area */}
           <div className="flex-1 flex flex-col sm:flex-row overflow-hidden relative min-h-0">
             {/* Form Body */}
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4 min-w-0">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 min-w-0">
             {drawerMode === 'execute' && (
-              <div className="mb-5 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center space-x-3">
+              <div className="mb-5 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center space-x-3">
                 <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
                 </span>
-                <span className="text-red-400 text-xs font-bold tracking-wider uppercase">Live Execution Mode</span>
+                <span className="text-rose-700 text-xs font-bold tracking-wider uppercase">Live Execution Mode</span>
               </div>
             )}
 
             {/* Validation Error Alert */}
             {validationError && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800/80 flex items-center gap-2.5 text-xs text-rose-300">
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2.5 text-xs text-rose-700">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
                 <span>{validationError}</span>
               </div>
             )}
 
             {/* Primary Mode Toggle: Sales & CRM Activity vs Internal Ops Task */}
-            <div className="bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <div className="bg-slate-100 p-1 rounded-xl border border-slate-200/80">
               <div className="grid grid-cols-2 gap-1">
                 <button
                   type="button"
@@ -3335,7 +3335,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     !isInternalOps
                       ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   <PhoneCall className="w-3.5 h-3.5" />
@@ -3350,7 +3350,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     isInternalOps
                       ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
                   <Briefcase className="w-3.5 h-3.5" />
@@ -3363,8 +3363,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <div className="space-y-4 pt-1">
                 {/* Task Summary / Title (Required) */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Task Summary / Title <span className="text-rose-400">*</span>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                    Task Summary / Title <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -3374,7 +3374,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       if (validationError) setValidationError(null);
                     }}
                     placeholder="e.g. Design Proposal Deck, Fix CRM Pagination Bug, Prepare Social Post..."
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-semibold text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-sm font-semibold focus:outline-none"
                     autoFocus
                   />
                 </div>
@@ -3383,13 +3383,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Category dropdown */}
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                      Category <span className="text-rose-400">*</span>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                      Category <span className="text-rose-500">*</span>
                     </label>
                     <select
                       value={internalCategory}
                       onChange={(e) => setInternalCategory(e.target.value as InternalOpsCategory)}
-                      className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      className="w-full px-3 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs font-semibold focus:outline-none cursor-pointer"
                     >
                       <option value="Development">💻 Development</option>
                       <option value="Design / Document Prep">🎨 Design / Document Prep</option>
@@ -3401,8 +3401,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Requester Selector Pills & Team Member Dropdown */}
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                      Requester <span className="text-rose-400">*</span>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                      Requester <span className="text-rose-500">*</span>
                     </label>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
@@ -3411,7 +3411,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
                           isSelf
                             ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:text-slate-900'
                         }`}
                       >
                         Self
@@ -3426,7 +3426,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer border ${
                           !isSelf
                             ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xs'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:text-slate-900'
                         }`}
                       >
                         Assigned
@@ -3436,7 +3436,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         <select
                           value={['Management / Team', 'Management / Boss', 'Team Member', 'Assigned'].includes(internalRequester) ? 'Management / Team' : internalRequester}
                           onChange={(e) => setInternalRequester(e.target.value)}
-                          className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:border-indigo-500 focus:outline-none cursor-pointer flex-1 min-w-[180px]"
+                          className="bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs px-2.5 py-1.5 focus:outline-none cursor-pointer flex-1 min-w-[180px]"
                         >
                           <option value="Management / Team">Management / Team (General)</option>
                           {salespersons && salespersons.length > 0 && (
@@ -3459,19 +3459,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                 {/* Time Spent / Effort Duration */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
                     Time Spent / Effort
                   </label>
-                  <div className="flex items-center gap-2 flex-wrap bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-2 flex-wrap bg-slate-50/70 border border-slate-200/80 rounded-2xl p-3">
                     <input
                       type="number"
                       min="1"
                       step="5"
                       value={internalDurationMinutes}
                       onChange={(e) => setInternalDurationMinutes(Math.max(1, parseInt(e.target.value) || 0))}
-                      className="w-20 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-sm font-semibold text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center"
+                      className="w-20 px-3 py-1.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-sm font-semibold focus:outline-none text-center"
                     />
-                    <span className="text-xs text-slate-400 font-medium">Minutes</span>
+                    <span className="text-xs text-slate-500 font-medium">Minutes</span>
                     <div className="flex items-center gap-1.5 flex-wrap ml-auto">
                       {[15, 30, 45, 60, 90, 120].map((mins) => (
                         <button
@@ -3481,7 +3481,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                             internalDurationMinutes === mins
                               ? 'bg-indigo-600 text-white'
-                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                           }`}
                         >
                           {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
@@ -3493,8 +3493,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                 {/* Deliverable / Reference Link */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Deliverable / Reference Link <span className="text-slate-500 font-normal lowercase">(optional)</span>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                    Deliverable / Reference Link <span className="text-slate-400 font-normal lowercase">(optional)</span>
                   </label>
                   <div className="relative flex items-center">
                     <input
@@ -3502,14 +3502,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       value={internalDeliverableUrl}
                       onChange={(e) => setInternalDeliverableUrl(e.target.value)}
                       placeholder="https://github.com/... or Figma, Canva, Drive link"
-                      className="w-full pl-3.5 pr-20 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-3.5 pr-20 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs font-mono focus:outline-none"
                     />
                     {internalDeliverableUrl && (
                       <a
                         href={internalDeliverableUrl.startsWith('http') ? internalDeliverableUrl : `https://${internalDeliverableUrl}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="absolute right-2 px-2 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 text-[10px] font-bold flex items-center gap-1 border border-indigo-800 transition cursor-pointer"
+                        className="absolute right-2 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center gap-1 border border-indigo-200 transition cursor-pointer"
                       >
                         <span>Open</span>
                         <ExternalLink className="w-2.5 h-2.5" />
@@ -3521,7 +3521,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {/* Detailed Notes / Description */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Detailed Notes / Task Findings
                     </label>
                     <button
@@ -3529,11 +3529,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       onClick={toggleListening}
                       className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg border transition cursor-pointer ${
                         isListening
-                          ? 'bg-rose-950 text-rose-300 border-rose-800 animate-pulse'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
+                          : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                       }`}
                     >
-                      {isListening ? <MicOff className="w-3 h-3 text-rose-400" /> : <Mic className="w-3 h-3 text-blue-400" />}
+                      {isListening ? <MicOff className="w-3 h-3 text-rose-500" /> : <Mic className="w-3 h-3 text-blue-600" />}
                       <span>{isListening ? 'Stop' : 'Voice'}</span>
                     </button>
                   </div>
@@ -3543,20 +3543,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Provide details, blockers, technical context, or deliverables accomplished..."
-                    className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                    className="w-full p-3 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs focus:outline-none resize-y"
                   />
                 </div>
 
                 {/* Task Execution Date & Time */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
                     Task Date & Time
                   </label>
                   <input
                     type="datetime-local"
                     value={activityDate}
                     onChange={(e) => setActivityDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs font-semibold focus:outline-none"
                   />
                 </div>
               </div>
@@ -3564,7 +3564,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <>
             {/* Target Link Mode Toggle */}
             {!companyId && (
-              <div className="bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <div className="bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                 <div className="grid grid-cols-2 gap-1">
                   <button
                     type="button"
@@ -3575,7 +3575,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                       linkMode === 'crm'
                         ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                     }`}
                   >
                     <Building2 className="w-3.5 h-3.5" />
@@ -3590,7 +3590,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                       linkMode === 'unsaved'
                         ? 'bg-amber-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                     }`}
                   >
                     <Zap className="w-3.5 h-3.5" />
@@ -3604,33 +3604,33 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             {linkMode === 'crm' || companyId ? (
               <>
                 {companyId ? (
-                  <div className="rounded-xl bg-slate-800/80 p-3.5 border border-slate-700/80 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       <span>Target Account</span>
-                      <span className="text-[10px] text-blue-400 font-mono">Fixed Context</span>
+                      <span className="text-[10px] text-blue-600 font-mono">Fixed Context</span>
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
-                        <Building2 className="h-4 w-4 text-blue-400 shrink-0" />
+                      <div className="flex items-center gap-2 font-bold text-sm text-slate-900">
+                        <Building2 className="h-4 w-4 text-blue-600 shrink-0" />
                         <span>{selectedCompanyName || companyName || 'Company Account'}</span>
-                        <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || companyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
+                        <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || companyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
                       </div>
                       {selectedEnquiryQuoteRef && (
-                        <div className="flex items-center gap-1.5 text-xs text-purple-300 bg-purple-950/60 px-2.5 py-1 rounded-md border border-purple-800/60 font-mono">
-                          <FileText className="h-3.5 w-3.5 text-purple-400" />
+                        <div className="flex items-center gap-1.5 text-xs text-purple-700 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
+                          <FileText className="h-3.5 w-3.5 text-purple-600" />
                           <span>Quote Ref: <strong>{selectedEnquiryQuoteRef}</strong></span>
                         </div>
                       )}
                     </div>
 
                     {/* Company Temperature Control */}
-                    <div className="flex items-center justify-end flex-wrap gap-2 pt-1 border-t border-slate-700/60">
+                    <div className="flex items-center justify-end flex-wrap gap-2 pt-1 border-t border-slate-200/80">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Temp:</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Temp:</span>
                         <select
                           value={selectedCompanyObj?.is_dnc ? 'DNC' : (selectedCompanyObj?.temperature || 'Cold')}
                           onChange={(e) => handleUpdateCompanyTemperature(e.target.value as any)}
-                          className="px-2 py-0.5 text-[11px] font-bold rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:border-blue-500 focus:outline-hidden cursor-pointer"
+                          className="px-2 py-0.5 text-[11px] font-bold rounded-xl bg-white border border-slate-300 text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-hidden cursor-pointer"
                         >
                           <option value="Cold">Cold ❄️</option>
                           <option value="Warm">Warm 🌤️</option>
@@ -3642,21 +3642,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-2 relative">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Target Company <span className="text-rose-400">*</span>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Target Company <span className="text-rose-500">*</span>
                     </label>
 
                     {selectedCompanyId ? (
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-blue-500/50 text-xs">
+                        <div className="flex items-center justify-between bg-slate-50/70 p-3 rounded-2xl border border-slate-200/80 text-xs">
                           <div className="flex items-center gap-2">
-                            <Building2 className="h-4 w-4 text-blue-400 shrink-0" />
+                            <Building2 className="h-4 w-4 text-blue-600 shrink-0" />
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-100">{selectedCompanyName}</span>
-                                <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 border border-blue-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
+                                <span className="font-bold text-slate-900">{selectedCompanyName}</span>
+                                <a href={`https://www.google.com/search?q=${encodeURIComponent(selectedCompanyName || '')}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
                               </div>
-                              <p className="text-[10px] text-slate-400 font-mono">Selected Account</p>
+                              <p className="text-[10px] text-slate-500 font-mono">Selected Account</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -3664,10 +3664,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               <button
                                 type="button"
                                 onClick={() => openEditCompany(selectedCompanyId)}
-                                className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
                                 title="Edit Company Profile & Contacts"
                               >
-                                <Edit2 className="w-3 h-3 text-indigo-400" />
+                                <Edit2 className="w-3 h-3 text-indigo-600" />
                                 <span>Edit</span>
                               </button>
                             )}
@@ -3683,7 +3683,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                 setSelectedEnquiryQuoteRef('');
                                 setIsComboboxOpen(true);
                               }}
-                              className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+                              className="px-2.5 py-1 text-[11px] font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors cursor-pointer"
                             >
                               Change
                             </button>
@@ -3697,7 +3697,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               <button
                                 type="button"
                                 onClick={() => openEditCompany(selectedCompanyId)}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline transition cursor-pointer"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline transition cursor-pointer"
                                 title="Edit Company Profile in Universal Modal"
                               >
                                 <Edit2 className="w-3 h-3" />
@@ -3707,11 +3707,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Temp:</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Temp:</span>
                             <select
                               value={selectedCompanyObj?.is_dnc ? 'DNC' : (selectedCompanyObj?.temperature || 'Cold')}
                               onChange={(e) => handleUpdateCompanyTemperature(e.target.value as any)}
-                              className="px-2 py-0.5 text-[11px] font-bold rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:border-blue-500 focus:outline-hidden cursor-pointer"
+                              className="px-2 py-0.5 text-[11px] font-bold rounded-xl bg-white border border-slate-300 text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-hidden cursor-pointer"
                             >
                               <option value="Cold">Cold ❄️</option>
                               <option value="Warm">Warm 🌤️</option>
@@ -3724,13 +3724,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     ) : (
                       <div className="relative">
                         {isInternalTaskChannel(channel) && internalCompaniesList.length > 0 && (
-                          <div className="mb-2 p-2 rounded-xl bg-purple-950/30 border border-purple-800/40 space-y-1.5">
+                          <div className="mb-2 p-2.5 rounded-2xl bg-purple-50/80 border border-purple-200/80 space-y-1.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1">
                                 <span>🏢</span>
                                 <span>Quick Select Internal Entity:</span>
                               </span>
-                              <span className="text-[10px] text-purple-400 font-mono">1-Click</span>
+                              <span className="text-[10px] text-purple-600 font-mono">1-Click</span>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                               {internalCompaniesList.map((ic) => (
@@ -3738,7 +3738,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                   key={ic.id}
                                   type="button"
                                   onClick={() => handleSelectCompany(ic)}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-900/60 hover:bg-purple-800 border border-purple-700/60 text-xs font-semibold text-purple-100 transition cursor-pointer shadow-xs"
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-purple-100 border border-purple-200 text-xs font-semibold text-purple-800 transition cursor-pointer shadow-2xs"
                                 >
                                   <span>🏢</span>
                                   <span>{ic.display_name || ic.canonical_name}</span>
@@ -3749,7 +3749,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         )}
 
                         <div className="relative flex items-center">
-                          <Search className="absolute left-3 h-4 w-4 text-slate-500 pointer-events-none" />
+                          <Search className="absolute left-3 h-4 w-4 text-slate-400 pointer-events-none" />
                           <input
                             type="text"
                             value={companySearchQuery}
@@ -3760,12 +3760,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             }}
                             onFocus={() => setIsComboboxOpen(true)}
                             placeholder="Search company name, alias, contact person, or phone..."
-                            className="w-full rounded-xl bg-slate-950 border border-slate-800 pl-9 pr-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                            className="w-full rounded-xl bg-white border border-slate-300 pl-9 pr-3 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-hidden"
                           />
                         </div>
 
                         {isComboboxOpen && (
-                          <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 shadow-xl p-1 space-y-0.5">
+                          <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-2xl bg-white border border-slate-200 shadow-xl p-1 space-y-0.5">
                             {filteredCompanyResults.length > 0 ? (
                               filteredCompanyResults.map(({ company: c, matchedContact, contactMatchSnippet }, idx) => {
                                 const snippetToDisplay = contactMatchSnippet || (matchedContact ? (matchedContact.designation ? `(${matchedContact.designation})` : `(Contact)`) : '');
@@ -3777,13 +3777,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                 return (
                                   <React.Fragment key={c.id ? `${c.id}_${idx}` : `comp_${idx}`}>
                                     {isFirstInternal && (
-                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5 bg-purple-950/60 border border-purple-800/40 rounded-lg mb-1">
+                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-lg mb-1">
                                         <span>🏢</span>
                                         <span>Our Internal Companies</span>
                                       </div>
                                     )}
                                     {isFirstNonInternalAfterInternal && (
-                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/50 rounded-lg my-1">
+                                      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg my-1">
                                         <Building2 className="w-3 h-3 text-slate-400" />
                                         <span>Other Accounts</span>
                                       </div>
@@ -3793,35 +3793,35 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       onClick={() => handleSelectCompany(c, matchedContact)}
                                       className={`w-full text-left p-2.5 rounded-lg border transition-colors flex items-start justify-between cursor-pointer group ${
                                         c.isInternalCompany
-                                          ? 'hover:bg-purple-900/30 hover:border-purple-600/40 border-purple-900/30 bg-purple-950/20'
-                                          : 'hover:bg-blue-600/20 hover:border-blue-500/30 border-transparent'
+                                          ? 'hover:bg-purple-50 hover:border-purple-300 border-purple-200/80 bg-purple-50/40'
+                                          : 'hover:bg-blue-50/80 hover:border-blue-200 border-transparent'
                                       }`}
                                     >
                                       <div className="flex items-start gap-2.5 min-w-0">
-                                        <Building2 className={`h-4 w-4 shrink-0 mt-0.5 ${c.isInternalCompany ? 'text-purple-400' : 'text-blue-400'}`} />
+                                        <Building2 className={`h-4 w-4 shrink-0 mt-0.5 ${c.isInternalCompany ? 'text-purple-600' : 'text-blue-600'}`} />
                                         <div className="min-w-0">
                                           <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="text-xs font-semibold text-slate-100 truncate">
+                                            <span className="text-xs font-semibold text-slate-900 truncate">
                                               {c.display_name || c.canonical_name}
                                             </span>
                                             {c.isInternalCompany && (
-                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-900/70 border border-purple-700/70 text-purple-200 shrink-0">
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 border border-purple-200 text-purple-700 shrink-0">
                                                 <span>🏢</span>
                                                 <span>Our Company</span>
                                               </span>
                                             )}
                                           </div>
                                           {(c.city || c.country) && (
-                                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                                            <span className="text-[10px] text-slate-500 block font-mono mt-0.5">
                                               {[c.city, c.country].filter(Boolean).join(', ')}
                                             </span>
                                           )}
                                           {matchedContact && (
                                             <div className="mt-1">
-                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 text-[10px] font-medium">
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium">
                                                 <span>👤</span>
                                                 <span>
-                                                  Matched Contact: <strong className="text-emerald-200">{matchedContact.full_name}</strong>
+                                                  Matched Contact: <strong className="text-emerald-900">{matchedContact.full_name}</strong>
                                                   {snippetToDisplay ? ` ${snippetToDisplay}` : ''}
                                                 </span>
                                               </span>
@@ -3829,7 +3829,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                           )}
                                         </div>
                                       </div>
-                                      <Check className="h-3.5 w-3.5 text-slate-600 group-hover:text-blue-400 transition shrink-0 ml-2 mt-1" />
+                                      <Check className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-600 transition shrink-0 ml-2 mt-1" />
                                     </button>
                                   </React.Fragment>
                                 );
@@ -3848,7 +3848,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                 {/* Target Selection Toggle (Contact Person vs. Company Mainline) */}
                 {selectedCompanyId && (
-                  <div className="flex items-center gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 my-1">
+                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200/80 my-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -3860,7 +3860,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                         crmTargetType === 'contact'
                           ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-slate-200'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                       }`}
                     >
                       <User className="w-3.5 h-3.5" />
@@ -3890,7 +3890,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                         crmTargetType === 'company_mainline'
                           ? 'bg-amber-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-slate-200'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                       }`}
                     >
                       <Building2 className="w-3.5 h-3.5" />
@@ -3906,10 +3906,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       {crmTargetType === 'contact' ? (
                         <div>
                           {isAddingNewContact ? (
-                            <div className="space-y-2.5 p-3 rounded-xl bg-slate-900/80 border border-blue-500/40">
+                            <div className="space-y-2.5 p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80">
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5 text-xs font-bold text-blue-300">
-                                  <UserPlus className="w-3.5 h-3.5 text-blue-400" />
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-blue-700">
+                                  <UserPlus className="w-3.5 h-3.5 text-blue-600" />
                                   <span>New Contact Person</span>
                                 </div>
                                 <button
@@ -3920,7 +3920,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     setSelectedContactName('');
                                     setSelectedContactPhone('');
                                   }}
-                                  className="text-[10px] font-semibold text-slate-400 hover:text-rose-300 cursor-pointer"
+                                  className="text-[10px] font-semibold text-slate-500 hover:text-rose-600 cursor-pointer"
                                 >
                                   &larr; Select Existing
                                 </button>
@@ -3928,8 +3928,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                               <div className="flex flex-col gap-2.5 pt-1">
                                 <div>
-                                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                                    Full Name <span className="text-blue-400">*</span>
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                                    Full Name <span className="text-blue-600">*</span>
                                   </label>
                                   <input
                                     type="text"
@@ -3939,12 +3939,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       setSelectedContactId('');
                                     }}
                                     placeholder="Enter full name..."
-                                    className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
                                     Designation / Role
                                   </label>
                                   <input
@@ -3952,12 +3952,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     value={newContactDesignation}
                                     onChange={(e) => setNewContactDesignation(e.target.value)}
                                     placeholder="e.g. Procurement Manager, General Manager..."
-                                    className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
                                     Phone Number
                                   </label>
                                   <input
@@ -3965,12 +3965,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     value={selectedContactPhone}
                                     onChange={(e) => setSelectedContactPhone(e.target.value)}
                                     placeholder="+971 50 123 4567"
-                                    className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-blue-500 focus:outline-hidden"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
                                     Contact Tag / Label
                                   </label>
                                   <select
@@ -3979,7 +3979,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       setNewPhoneTag(e.target.value);
                                       setNewContactPhoneTag(e.target.value);
                                     }}
-                                    className="w-full rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden cursor-pointer"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden cursor-pointer"
                                   >
                                     <option value="Mobile">Mobile</option>
                                     <option value="Work">Work</option>
@@ -3993,7 +3993,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           ) : (
                             <div>
                               <div className="flex items-center justify-between mb-1.5">
-                                <label className="block text-xs font-medium text-slate-300">
+                                <label className="block text-xs font-medium text-slate-600">
                                   Contact Person
                                 </label>
                                 <div className="flex items-center gap-2">
@@ -4001,7 +4001,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => openEditContact(selectedCompanyId, selectedContactId)}
-                                      className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer"
+                                      className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer"
                                       title="Edit Contact Person Details"
                                     >
                                       <Edit2 className="w-3 h-3" />
@@ -4012,7 +4012,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => openEditContact(selectedCompanyId)}
-                                      className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer"
+                                      className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
                                       title="Add New Contact Person via Modal"
                                     >
                                       <Plus className="w-3 h-3" />
@@ -4047,7 +4047,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     setSelectedContactEmail('');
                                   }
                                 }}
-                                className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden cursor-pointer"
                               >
                                 <option value="">-- Select Contact Person --</option>
                                 {availableCompanyContacts.map((c) => {
@@ -4076,7 +4076,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                   !availableCompanyContacts.some((c) => (c.full_name || (c as any).name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()) && (
                                   <option value="CUSTOM">{selectedContactName} (Custom/Unsaved)</option>
                                 )}
-                                <option value="CREATE_NEW" className="font-bold text-blue-400 bg-slate-900">+ Create New Contact Person</option>
+                                <option value="CREATE_NEW" className="font-bold text-blue-600">+ Create New Contact Person</option>
                               </select>
                             </div>
                           )}
@@ -4084,21 +4084,21 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       ) : (
                         <div className="col-span-full">
                           {isAddingNewCompanyLine ? (
-                            <div className="space-y-2">
+                            <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80">
                               <div className="flex items-center justify-between">
-                                <label className="block text-xs font-semibold text-amber-300">New Company Line Details</label>
+                                <label className="block text-xs font-semibold text-amber-700">New Company Line Details</label>
                                 <button
                                   type="button"
                                   onClick={() => setIsAddingNewCompanyLine(false)}
-                                  className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                                  className="text-[10px] text-amber-600 hover:underline cursor-pointer"
                                 >
                                   &larr; Select Saved Line
                                 </button>
                               </div>
                               <div className="flex flex-col gap-2.5">
                                 <div>
-                                  <label className="block text-[11px] font-medium text-amber-200/80 mb-1">
-                                    Line Phone Number <span className="text-amber-400">*</span>
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                                    Line Phone Number <span className="text-amber-600">*</span>
                                   </label>
                                   <div className="flex items-center gap-1.5 w-full">
                                     <input
@@ -4106,13 +4106,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       value={selectedContactPhone}
                                       onChange={(e) => setSelectedContactPhone(e.target.value)}
                                       placeholder="Enter line phone number (e.g. +971 4 123 4567)..."
-                                      className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-amber-500/50 px-3 py-2 text-xs text-amber-100 font-mono placeholder-slate-500 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
+                                      className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden"
                                     />
                                     {renderPhoneActionButton(selectedContactPhone)}
                                   </div>
                                 </div>
                                 <div>
-                                  <label className="block text-[11px] font-medium text-amber-200/80 mb-1">
+                                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
                                     Line Tag / Label
                                   </label>
                                   <input
@@ -4120,14 +4120,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     value={mainlineTag}
                                     onChange={(e) => setMainlineTag(e.target.value)}
                                     placeholder="Line tag (e.g. Main, Front Desk, Switchboard, Reception)..."
-                                    className="w-full rounded-lg bg-slate-950 border border-amber-500/50 px-3 py-2 text-xs text-amber-100 placeholder-slate-500 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                                   />
                                 </div>
                               </div>
                             </div>
                           ) : (
                             <div>
-                              <label className="block text-xs font-medium text-amber-300 mb-1.5">
+                              <label className="block text-xs font-medium text-slate-600 mb-1.5">
                                 Company Line
                               </label>
                               <div className="flex items-center gap-1.5 w-full">
@@ -4148,7 +4148,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       }
                                     }
                                   }}
-                                  className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-amber-100 focus:border-amber-400 focus:outline-hidden focus:ring-1 focus:ring-amber-400 font-mono cursor-pointer"
+                                  className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden cursor-pointer"
                                 >
                                   <option value="">-- Select Company Line --</option>
                                   {companyMainlines.map((m, idx) => {
@@ -4172,7 +4172,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       })()}
                                     </option>
                                   )}
-                                  <option value="ADD_NEW_LINE" className="font-bold text-amber-400 bg-slate-900">+ Add New Company Line</option>
+                                  <option value="ADD_NEW_LINE" className="font-bold text-amber-600">+ Add New Company Line</option>
                                 </select>
                                 {renderPhoneActionButton(selectedContactPhone)}
                               </div>
@@ -4187,19 +4187,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           {isAddingNewContactPhone || isAddingNewContact ? (
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
-                                <label className="block text-xs font-semibold text-slate-300">New Phone Number / Contact Detail</label>
+                                <label className="block text-xs font-semibold text-slate-600">New Phone Number / Contact Detail</label>
                                 {!isAddingNewContact && (
                                   <button
                                     type="button"
                                     onClick={() => setIsAddingNewContactPhone(false)}
-                                    className="text-[10px] text-blue-400 hover:underline cursor-pointer"
+                                    className="text-[10px] text-blue-600 hover:underline cursor-pointer"
                                   >
                                     &larr; Select Saved Number
                                   </button>
                                 )}
                               </div>
                               <div className="flex flex-col gap-2">
-                                <label className="block text-[11px] font-medium text-slate-300 mb-0.5">
+                                <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
                                   Phone Number
                                 </label>
                                 <div className="flex items-center gap-1.5 w-full">
@@ -4208,13 +4208,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                     value={selectedContactPhone}
                                     onChange={(e) => setSelectedContactPhone(e.target.value)}
                                     placeholder="Enter phone number (e.g. +971 50 123 4567)..."
-                                    className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-blue-500/50 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono"
+                                    className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden"
                                     autoFocus={isAddingNewContactPhone}
                                   />
                                   <select
                                     value={newPhoneTag}
                                     onChange={(e) => setNewPhoneTag(e.target.value)}
-                                    className="shrink-0 rounded-lg bg-slate-950 border border-blue-500/50 px-2.5 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium cursor-pointer"
+                                    className="shrink-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-2 text-xs font-medium focus:outline-hidden cursor-pointer"
                                   >
                                     <option value="Mobile">Mobile</option>
                                     <option value="Work">Work</option>
@@ -4228,7 +4228,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             </div>
                           ) : (
                             <div>
-                              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                              <label className="block text-xs font-medium text-slate-600 mb-1.5">
                                 Contact Detail / Phone
                               </label>
                               <div className="flex items-center gap-1.5">
@@ -4244,7 +4244,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       setSelectedContactPhone(val);
                                     }
                                   }}
-                                  className="flex-1 min-w-0 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono cursor-pointer"
+                                  className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden cursor-pointer"
                                 >
                                   <option value="">-- Select Phone Number --</option>
                                   {selectedContactSavedNumbers.map((p, idx) => {
@@ -4270,7 +4270,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                                       })()}
                                     </option>
                                   )}
-                                  <option value="ADD_NEW_DETAIL" className="font-bold text-blue-400 bg-slate-900">+ Add New Contact Detail</option>
+                                  <option value="ADD_NEW_DETAIL" className="font-bold text-blue-600">+ Add New Contact Detail</option>
                                 </select>
                                 {renderPhoneActionButton(selectedContactPhone)}
                               </div>
@@ -4282,7 +4282,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       {channel === 'Email' && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 col-span-full">
                           <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                            <label className="block text-xs font-medium text-slate-600 mb-1.5">
                               Email Address
                             </label>
                             <input
@@ -4291,7 +4291,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               value={selectedContactEmail}
                               onChange={(e) => setSelectedContactEmail(e.target.value)}
                               placeholder="Type or select Email..."
-                              className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-mono"
+                              className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs font-mono focus:outline-hidden"
                             />
                             <datalist id="crm-email-suggestions">
                               {(() => {
@@ -4307,7 +4307,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           </div>
 
                           <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                            <label className="block text-xs font-medium text-slate-600 mb-1.5">
                               Email Subject
                             </label>
                             <input
@@ -4315,7 +4315,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               value={emailSubject}
                               onChange={(e) => setEmailSubject(e.target.value)}
                               placeholder="e.g. Revised Quotation for Ref #1234..."
-                              className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                              className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                             />
                           </div>
                         </div>
@@ -4323,7 +4323,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                       {(channel === 'Meeting' || channel === 'Site Visit') && (
                         <div className="col-span-full">
-                          <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                          <label className="block text-xs font-medium text-slate-600 mb-1.5">
                             Location / Meeting Link
                           </label>
                           <input
@@ -4331,7 +4331,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             value={locationOrLink}
                             onChange={(e) => setLocationOrLink(e.target.value)}
                             placeholder="e.g. Client HQ / Google Meet link..."
-                            className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                            className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                           />
                         </div>
                       )}
@@ -4346,12 +4346,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         (c.full_name || (c as any).name || '').trim().toLowerCase() === selectedContactName.trim().toLowerCase()
                     ) &&
                     !isAddingNewContact && (
-                    <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-xs text-blue-200 flex items-center justify-between gap-2.5">
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-800 flex items-center justify-between gap-2.5">
                       <div className="flex items-center gap-2">
-                        <UserPlus className="w-4 h-4 text-blue-400 shrink-0" />
+                        <UserPlus className="w-4 h-4 text-blue-600 shrink-0" />
                         <div>
-                          <span className="font-bold text-white">New Contact Detected:</span>{" "}
-                          <span className="font-semibold text-blue-300">{selectedContactName.trim()}</span> will be created and assigned to company.
+                          <span className="font-bold text-slate-900">New Contact Detected:</span>{" "}
+                          <span className="font-semibold text-blue-700">{selectedContactName.trim()}</span> will be created and assigned to company.
                         </div>
                       </div>
                     </div>
@@ -4362,10 +4362,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 {/* Linked Enquiry / Quote Reference Selector */}
                 {selectedCompanyId && (
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
                       <span>Linked Proposal / Enquiry</span>
                       {selectedEnquiryQuoteRef && (
-                        <span className="text-[10px] text-blue-400 font-mono">
+                        <span className="text-[10px] text-blue-600 font-mono">
                           Ref: {selectedEnquiryQuoteRef}
                         </span>
                       )}
@@ -4374,7 +4374,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       value={selectedEnquiryId}
                       onChange={(e) => handleSelectEnquiry(e.target.value)}
                       disabled={availableCompanyEnquiries.length === 0}
-                      className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-medium"
+                      className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-medium"
                     >
                       {availableCompanyEnquiries.length > 0 ? (
                         <>
@@ -4421,19 +4421,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </datalist>
 
                 {/* SECTION 1: COMPANY INFORMATION */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                  <div className="flex items-center gap-2 pb-1 border-b border-slate-800/80">
-                    <Building2 className="h-4 w-4 text-amber-400 shrink-0" />
-                    <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 pb-1 border-b border-slate-200/80">
+                    <Building2 className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">
                       1. Company Information
                     </span>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-semibold text-slate-300">Company Name <span className="text-amber-400">*</span></label>
+                      <label className="block text-xs font-semibold text-slate-600">Company Name <span className="text-amber-600">*</span></label>
                       {expressCompanyName.trim() && (
-                        <a href={`https://www.google.com/search?q=${encodeURIComponent(expressCompanyName.trim())}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-amber-900/50 hover:bg-amber-800 text-amber-300 border border-amber-700/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
+                        <a href={`https://www.google.com/search?q=${encodeURIComponent(expressCompanyName.trim())}`} target="_blank" rel="noopener noreferrer" className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer" title="Search Company on Google"><Search className="w-3 h-3" /><span>Google Search</span></a>
                       )}
                     </div>
                     <input
@@ -4444,11 +4444,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         setValidationError(null);
                       }}
                       placeholder="e.g. Acme Industrial Solutions FZE"
-                      className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+                      className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                     />
                     {expressCompanyDup && (
-                      <div className="mt-2 p-2 rounded-lg bg-amber-950/70 border border-amber-600/50 flex items-center gap-2 text-xs text-amber-300">
-                        <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+                      <div className="mt-2 p-2 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-2 text-xs text-amber-800">
+                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
                         <span>⚠️ Existing Company Detected: <strong>{expressCompanyDup.canonical_name || expressCompanyDup.display_name}</strong> - Log details will append to this record</span>
                       </div>
                     )}
@@ -4457,13 +4457,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   {/* Legal Suffix, City, Country Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Legal Suffix
                       </label>
                       <select
                         value={expressLegalSuffix}
                         onChange={(e) => setExpressLegalSuffix(e.target.value)}
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none"
                       >
                         <option value="None / To Be Added Later">None / To Be Added Later</option>
                         <option value="LLC">LLC</option>
@@ -4479,7 +4479,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         City
                       </label>
                       <input
@@ -4487,11 +4487,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         value={expressCity}
                         onChange={(e) => setExpressCity(e.target.value)}
                         placeholder="e.g. Dubai"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Country
                       </label>
                       <input
@@ -4499,7 +4499,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         value={expressCountry}
                         onChange={(e) => setExpressCountry(e.target.value)}
                         placeholder="e.g. United Arab Emirates"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none"
                       />
                     </div>
                   </div>
@@ -4511,7 +4511,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     subTypeValue={expressIndustryType}
                     onSubTypeChange={setExpressIndustryType}
                     userIdentifier={user?.email || user?.full_name || 'Operator'}
-                    variant="dark"
+                    variant="light"
                     size="sm"
                     idPrefix="express-lead-ind"
                     className="pt-1"
@@ -4520,13 +4520,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   {/* Relationship and Temperature Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Relationship
                       </label>
                       <select
                         value={expressRelationship}
                         onChange={(e) => setExpressRelationship(e.target.value)}
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 focus:border-amber-500 focus:outline-none font-semibold"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none font-semibold"
                       >
                         <option value="Prospect">Prospect</option>
                         <option value="Client">Client</option>
@@ -4537,18 +4537,18 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Temperature (Click to Cycle)
                       </label>
                       <button
                         type="button"
                         onClick={handleCycleTemperature}
-                        className={`w-full py-1.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-between cursor-pointer shadow-xs ${
+                        className={`w-full py-1.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-between cursor-pointer shadow-2xs ${
                           expressTemperature === 'Cold'
-                            ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/60 hover:bg-cyan-900/80'
+                            ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
                             : expressTemperature === 'Warm'
-                            ? 'bg-amber-950/80 text-amber-300 border-amber-500/60 hover:bg-amber-900/80'
-                            : 'bg-rose-950/80 text-rose-300 border-rose-500/60 hover:bg-rose-900/80'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                         }`}
                         title="Click to cycle Lead Temperature: Cold -> Warm -> Hot"
                       >
@@ -4565,7 +4565,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Company Phones */}
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-300">
+                    <label className="block text-xs font-medium text-slate-600">
                       Company Phone Numbers
                     </label>
                     {expressCompanyPhones.map((phoneItem, idx) => (
@@ -4581,23 +4581,23 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           value={phoneItem.number}
                           onChange={(e) => handleCompanyPhoneChange(phoneItem.id, 'number', e.target.value)}
                           placeholder="+971 4 123 4567"
-                          className="flex-1 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-amber-500 focus:outline-hidden"
+                          className="flex-1 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:outline-hidden"
                         />
                         {/* Primary Dialed Radio Toggle */}
                         <button
                           type="button"
                           onClick={() => setPrimaryDialedPhoneId(phoneItem.id)}
-                          className={`shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold transition cursor-pointer ${
+                          className={`shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-xl border text-[10px] font-bold transition cursor-pointer ${
                             primaryDialedPhoneId === phoneItem.id
-                              ? 'bg-blue-600/30 text-blue-200 border-blue-400 font-extrabold shadow-sm'
-                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                              ? 'bg-blue-50 text-blue-700 border-blue-300 font-extrabold shadow-2xs'
+                              : 'bg-white text-slate-500 border-slate-200 hover:text-slate-800 hover:border-slate-300'
                           }`}
                           title="Set as primary dialed target number for this activity log"
                         >
                           <span className={`w-2.5 h-2.5 rounded-full border flex items-center justify-center shrink-0 ${
-                            primaryDialedPhoneId === phoneItem.id ? 'border-blue-400 bg-blue-400' : 'border-slate-500'
+                            primaryDialedPhoneId === phoneItem.id ? 'border-blue-600 bg-blue-600' : 'border-slate-400'
                           }`}>
-                            {primaryDialedPhoneId === phoneItem.id && <span className="w-1 h-1 rounded-full bg-slate-950" />}
+                            {primaryDialedPhoneId === phoneItem.id && <span className="w-1 h-1 rounded-full bg-white" />}
                           </span>
                           <span>{primaryDialedPhoneId === phoneItem.id ? '🎯 Dialed' : 'Set Dialed'}</span>
                         </button>
@@ -4606,7 +4606,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           <button
                             type="button"
                             onClick={() => handleRemoveCompanyPhone(phoneItem.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Remove Phone"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -4617,7 +4617,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleAddCompanyPhone}
-                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-600 hover:text-amber-700 transition-colors cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
                       <span>+ Add Company Phone</span>
@@ -4626,7 +4626,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Company Emails */}
                   <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-medium text-slate-300">
+                    <label className="block text-xs font-medium text-slate-600">
                       Company Emails
                     </label>
                     {expressCompanyEmails.map((emailItem, idx) => (
@@ -4642,13 +4642,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           value={emailItem.email}
                           onChange={(e) => handleCompanyEmailChange(emailItem.id, 'email', e.target.value)}
                           placeholder="info@company.com"
-                          className="flex-1 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-amber-500 focus:outline-hidden"
+                          className="flex-1 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:outline-hidden"
                         />
                         {expressCompanyEmails.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveCompanyEmail(emailItem.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Remove Email"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -4659,7 +4659,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleAddCompanyEmail}
-                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-600 hover:text-amber-700 transition-colors cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
                       <span>+ Add Company Email</span>
@@ -4668,7 +4668,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Company Links */}
                   <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-medium text-slate-300">Company Portals & Links</label>
+                    <label className="block text-xs font-medium text-slate-600">Company Portals & Links</label>
                     <datalist id="express-link-tags">
                       <option value="Website" />
                       <option value="LinkedIn" />
@@ -4684,20 +4684,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           value={linkItem.label}
                           onChange={(e) => handleCompanyLinkChange(linkItem.id, 'label', e.target.value)}
                           placeholder="Tag (e.g. Website)"
-                          className="w-28 sm:w-32 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none shrink-0"
+                          className="w-28 sm:w-32 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none shrink-0"
                         />
                         <input
                           type="url"
                           value={linkItem.url}
                           onChange={(e) => handleCompanyLinkChange(linkItem.id, 'url', e.target.value)}
                           placeholder="https://..."
-                          className="flex-1 min-w-0 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+                          className="flex-1 min-w-0 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:outline-none"
                         />
                         {expressCompanyLinks.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveCompanyLink(linkItem.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
                           >
                             <Trash2 className="h-3.5 w-3.5"/>
                           </button>
@@ -4707,7 +4707,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleAddCompanyLink}
-                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-600 hover:text-amber-700 transition-colors cursor-pointer"
                     >
                       <Plus className="h-3 w-3"/>
                       <span>+ Add Link</span>
@@ -4716,17 +4716,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </div>
 
                 {/* SECTION 2: CONTACT PERSON DETAILS */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                  <div className="flex items-center gap-2 pb-1 border-b border-slate-800/80">
-                    <User className="h-4 w-4 text-blue-400 shrink-0" />
-                    <span className="text-xs font-bold text-blue-300 uppercase tracking-wider">
+                <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 pb-1 border-b border-slate-200/80">
+                    <User className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span className="text-xs font-bold text-blue-700 uppercase tracking-wider">
                       2. Contact Person Info (Optional)
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
                         Person Name
                       </label>
                       <input
@@ -4734,11 +4734,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         value={expressContactName}
                         onChange={(e) => setExpressContactName(e.target.value)}
                         placeholder="e.g. John Doe"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
                         Designation / Role
                       </label>
                       <input
@@ -4746,14 +4746,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         value={expressContactRole}
                         onChange={(e) => setExpressContactRole(e.target.value)}
                         placeholder="e.g. Procurement Manager"
-                        className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
                       />
                     </div>
                   </div>
 
                   {/* Direct Phones */}
                   <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-medium text-slate-300">
+                    <label className="block text-xs font-medium text-slate-600">
                       Direct Phones
                     </label>
                     {expressContactPhones.map((phoneItem, idx) => (
@@ -4769,23 +4769,23 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           value={phoneItem.number}
                           onChange={(e) => handleContactPhoneChange(phoneItem.id, 'number', e.target.value)}
                           placeholder="+971 50 123 4567"
-                          className="flex-1 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-blue-500 focus:outline-hidden"
+                          className="flex-1 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:outline-hidden"
                         />
                         {/* Primary Dialed Radio Toggle */}
                         <button
                           type="button"
                           onClick={() => setPrimaryDialedPhoneId(phoneItem.id)}
-                          className={`shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold transition cursor-pointer ${
+                          className={`shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-xl border text-[10px] font-bold transition cursor-pointer ${
                             primaryDialedPhoneId === phoneItem.id
-                              ? 'bg-blue-600/30 text-blue-200 border-blue-400 font-extrabold shadow-sm'
-                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                              ? 'bg-blue-50 text-blue-700 border-blue-300 font-extrabold shadow-2xs'
+                              : 'bg-white text-slate-500 border-slate-200 hover:text-slate-800 hover:border-slate-300'
                           }`}
                           title="Set as primary dialed target number for this activity log"
                         >
                           <span className={`w-2.5 h-2.5 rounded-full border flex items-center justify-center shrink-0 ${
-                            primaryDialedPhoneId === phoneItem.id ? 'border-blue-400 bg-blue-400' : 'border-slate-500'
+                            primaryDialedPhoneId === phoneItem.id ? 'border-blue-600 bg-blue-600' : 'border-slate-400'
                           }`}>
-                            {primaryDialedPhoneId === phoneItem.id && <span className="w-1 h-1 rounded-full bg-slate-950" />}
+                            {primaryDialedPhoneId === phoneItem.id && <span className="w-1 h-1 rounded-full bg-white" />}
                           </span>
                           <span>{primaryDialedPhoneId === phoneItem.id ? '🎯 Dialed' : 'Set Dialed'}</span>
                         </button>
@@ -4794,7 +4794,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           <button
                             type="button"
                             onClick={() => handleRemoveContactPhone(phoneItem.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Remove Phone"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -4805,7 +4805,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleAddContactPhone}
-                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
                       <span>+ Add Direct Phone</span>
@@ -4814,7 +4814,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Direct Emails */}
                   <div className="space-y-1.5 pt-1">
-                    <label className="block text-xs font-medium text-slate-300">
+                    <label className="block text-xs font-medium text-slate-600">
                       Direct Emails
                     </label>
                     {expressContactEmails.map((emailItem, idx) => (
@@ -4830,13 +4830,13 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           value={emailItem.email}
                           onChange={(e) => handleContactEmailChange(emailItem.id, 'email', e.target.value)}
                           placeholder="direct@company.com"
-                          className="flex-1 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs text-slate-100 font-mono placeholder-slate-500 focus:border-blue-500 focus:outline-hidden"
+                          className="flex-1 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-2.5 py-1.5 text-xs font-mono focus:outline-hidden"
                         />
                         {expressContactEmails.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveContactEmail(emailItem.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Remove Email"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -4847,7 +4847,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleAddContactEmail}
-                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+                      className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
                     >
                       <Plus className="h-3 w-3" />
                       <span>+ Add Direct Email</span>
@@ -4859,10 +4859,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Channel Selector */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
                 Interaction Channel
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                 {CHANNELS.map((ch) => {
                   const isSelected =
                     channel === ch ||
@@ -4889,8 +4889,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       onClick={() => handleChannelSelect(ch as any)}
                       className={`flex items-center justify-center space-x-1.5 py-2.5 px-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                          ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                       }`}
                     >
                       {renderIcon()}
@@ -4904,7 +4904,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             {/* Dynamic Status / Disposition Toggle */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
                   {(isMessageChannel(interactionChannel) ? "MESSAGE" : isInternalTask ? "TASK" : interactionChannel.toUpperCase())} STATUS / DISPOSITION
                 </label>
                 {isPhoneChannel(interactionChannel) && (
@@ -4943,7 +4943,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           <div className="font-bold text-xs leading-tight">
                             {disp.label}
                           </div>
-                          <div className={`text-[10px] mt-0.5 leading-tight ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                          <div className={`text-[10px] mt-0.5 leading-tight ${isActive ? 'text-white/80' : 'text-slate-500'}`}>
                             {disp.sublabel}
                           </div>
                         </div>
@@ -4952,7 +4952,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   })}
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                <div className="flex flex-wrap gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                   {getStatusesForChannel(interactionChannel).map((st) => {
                     const isActive =
                       status === st ||
@@ -4995,8 +4995,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         }}
                         className={`flex-1 min-w-[100px] py-2 px-2 rounded-lg text-xs font-medium transition-all text-center cursor-pointer ${
                           isActive
-                            ? 'bg-slate-800 text-blue-400 border border-blue-500/40 shadow-xs font-semibold'
-                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
+                            ? 'bg-white text-blue-700 border border-blue-200 shadow-2xs font-semibold'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                         }`}
                       >
                         {st}
@@ -5012,7 +5012,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <div className={`grid gap-3 ${showOutcomeSelector ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                 {showOutcomeSelector && (
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
                       {interactionChannel.toUpperCase()} OUTCOME
                     </label>
                     <select
@@ -5021,7 +5021,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         setOutcome(e.target.value);
                         setValidationError(null);
                       }}
-                      className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
+                      className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-semibold cursor-pointer"
                     >
                       <option value="" disabled>
                         Select an outcome...
@@ -5057,7 +5057,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 )}
 
                 <div>
-                  <label htmlFor="quick-activity-purpose-select" className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <label htmlFor="quick-activity-purpose-select" className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
                     {interactionChannel.toUpperCase()} PURPOSE
                   </label>
                   <select
@@ -5075,7 +5075,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         }
                       }
                     }}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-semibold cursor-pointer"
+                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-semibold cursor-pointer"
                   >
                     {(() => {
                       const legacyOption = purpose && !availablePurposes.includes(purpose) ? purpose : null;
@@ -5102,7 +5102,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             {/* Requirement Notes & Voice Dictation */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   {isInternalTask ? 'Task Details & Requirement Notes' : 'Activity & Requirement Notes'}
                 </label>
                 <div className="flex items-center gap-2">
@@ -5113,7 +5113,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                       className={`px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                         isListening
                           ? 'bg-rose-600 text-white animate-pulse'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
                       }`}
                     >
                       {isListening ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
@@ -5124,12 +5124,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     type="button"
                     onClick={() => handleAiAssist('summarize_notes')}
                     disabled={isSummarizing || !notes.trim()}
-                    className="px-2 py-1 rounded-md bg-purple-950/80 hover:bg-purple-900 border border-purple-800/80 text-purple-300 text-[11px] font-semibold flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer"
+                    className="px-2 py-1 rounded-md bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-[11px] font-semibold flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer"
                   >
                     {isSummarizing ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-purple-400" />
+                      <Loader2 className="h-3 w-3 animate-spin text-purple-600" />
                     ) : (
-                      <Sparkles className="h-3 w-3 text-purple-400" />
+                      <Sparkles className="h-3 w-3 text-purple-600" />
                     )}
                     <span>AI Polish</span>
                   </button>
@@ -5142,7 +5142,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 onChange={(e) => setNotes(e.target.value)}
                 rows={isInternalTask ? 5 : 3}
                 placeholder={isInternalTask ? "Document task details, internal checklist, admin progress, or deliverables..." : "Log discussion points, customer feedback, project specifications..."}
-                className={`w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 transition-all ${
+                className={`w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl p-3 text-xs focus:outline-hidden transition-all ${
                   isInternalTask ? 'min-h-[120px]' : 'min-h-[80px]'
                 }`}
               />
@@ -5150,7 +5150,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* Activity Date & Time */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
                 Activity Date & Time
               </label>
               <input
@@ -5158,8 +5158,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 value={activityDate}
                 onChange={(e) => setActivityDate(e.target.value)}
                 max={getLocalDateTimeString()}
-                style={{ colorScheme: 'dark' }}
-                className="[color-scheme:dark] w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-blue-500 focus:outline-hidden font-mono"
+                className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-mono"
               />
             </div>
 
@@ -5177,10 +5176,10 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               const isFollowupMissing = isFollowupEncouraged && !followupDate;
 
               return (
-                <div className="p-3.5 bg-slate-950/90 border border-slate-800 rounded-xl space-y-3">
+                <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <CalendarClock className="w-4 h-4 text-blue-400" />
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <CalendarClock className="w-4 h-4 text-blue-600" />
                       <span>{isCurScheduled ? 'Scheduled Date & Time *' : 'Next Follow-Up Scheduling'}</span>
                     </label>
                     {followupDate && (
@@ -5191,7 +5190,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           setFollowupDate('');
                           setActiveFollowUpPreset(null);
                         }}
-                        className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 cursor-pointer"
+                        className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 cursor-pointer"
                       >
                         Clear Schedule
                       </button>
@@ -5200,8 +5199,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {isFollowupMissing && (
                     <div className="w-full">
-                      <span className="text-[10px] font-bold text-amber-400 inline-flex items-center gap-1.5 bg-amber-950/80 px-2.5 py-1 rounded-md border border-amber-500/50 animate-pulse">
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="text-[10px] font-bold text-amber-800 inline-flex items-center gap-1.5 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200 animate-pulse">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span>Required for {isCurScheduled ? 'Scheduled tasks' : status === 'Busy' || status === 'No Answer' ? status : outcome || 'this disposition'}</span>
                       </span>
                     </div>
@@ -5210,7 +5209,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   {/* Target Channel Selector */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-semibold text-slate-300">
+                      <span className="text-[11px] font-semibold text-slate-600">
                         Follow-up via:
                       </span>
                       <span className="text-[10px] text-slate-500">
@@ -5237,7 +5236,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             className={`flex items-center justify-center space-x-1.5 py-1.5 px-2 rounded-lg text-xs font-semibold transition cursor-pointer border ${
                               isSelected
                                 ? 'bg-blue-600 text-white border-blue-500 shadow-xs ring-1 ring-blue-400/40'
-                                : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                             }`}
                           >
                             <IconComp className="w-3.5 h-3.5 shrink-0" />
@@ -5250,7 +5249,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
                   {/* Preset Buttons Row */}
                   <div>
-                    <div className="text-[11px] font-semibold text-slate-300 mb-1.5">
+                    <div className="text-[11px] font-semibold text-slate-600 mb-1.5">
                       Quick Date Presets:
                     </div>
                     <div className="flex flex-wrap gap-1.5">
@@ -5261,7 +5260,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === 'laterToday'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         Later Today (+2h)
@@ -5273,7 +5272,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === 'thisAfternoon'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         This Afternoon (4:00 PM)
@@ -5285,7 +5284,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === 'tomorrow'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         +1 Day
@@ -5297,7 +5296,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === '3days'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         +3 Days
@@ -5309,7 +5308,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === '1week'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         +1 Week
@@ -5321,7 +5320,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                           activeFollowUpPreset === 'custom'
                             ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
-                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800 hover:text-white'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         Custom
@@ -5334,7 +5333,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                             setFollowupDate('');
                             setActiveFollowUpPreset(null);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border border-rose-500/30 bg-rose-950/40 text-rose-300 hover:bg-rose-900/60 hover:text-rose-100 flex items-center justify-center gap-1"
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 flex items-center justify-center gap-1"
                         >
                           <X className="w-3 h-3" />
                           <span>Clear</span>
@@ -5347,7 +5346,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label htmlFor="drawer-next-followup-datetime" className="block text-[11px] font-semibold text-slate-300">
+                        <label htmlFor="drawer-next-followup-datetime" className="block text-[11px] font-semibold text-slate-600">
                           Scheduled Date & Time
                         </label>
                         {followupDate && (
@@ -5358,7 +5357,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                               setFollowupDate('');
                               setActiveFollowUpPreset(null);
                             }}
-                            className="text-[10px] font-medium text-rose-400 hover:text-rose-300 transition-colors cursor-pointer flex items-center gap-1"
+                            className="text-[10px] font-medium text-rose-600 hover:text-rose-700 transition-colors cursor-pointer flex items-center gap-1"
                           >
                             <X className="w-3 h-3" />
                             <span>Clear</span>
@@ -5373,18 +5372,17 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           setFollowupDate(e.target.value);
                           setActiveFollowUpPreset('custom');
                         }}
-                        style={{ colorScheme: 'dark' }}
-                        className={`[color-scheme:dark] w-full px-3 py-2 text-xs rounded-lg bg-slate-950 font-mono transition-all focus:outline-hidden ${
+                        className={`w-full px-3 py-2 text-xs rounded-xl bg-white text-slate-900 font-mono transition-all focus:outline-hidden ${
                           isFollowupMissing
-                            ? 'border-2 border-amber-500/80 ring-2 ring-amber-500/30 text-amber-100'
+                            ? 'border-2 border-amber-400 ring-2 ring-amber-500/20'
                             : followupDate
-                            ? 'border-2 border-blue-500/80 text-blue-100 font-bold'
-                            : 'border border-slate-800 text-slate-100 focus:border-blue-500'
+                            ? 'border-2 border-blue-500 text-blue-900 font-bold'
+                            : 'border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
                         }`}
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                         Follow-Up Intent / Next Step
                       </label>
                       <input
@@ -5393,19 +5391,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                         value={followupIntent}
                         onChange={(e) => setFollowupIntent(e.target.value)}
                         placeholder="e.g. Call back regarding quote revisions..."
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-800 bg-slate-950 text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium transition"
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl focus:outline-hidden font-medium transition"
                       />
                     </div>
                   </div>
 
                   {/* Persistent Selected Date & Channel Confirmation Badge */}
                   {followupDate && (
-                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-blue-950/80 border border-blue-500/60 text-blue-200 text-xs font-mono font-bold shadow-xs">
+                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-mono font-bold shadow-2xs">
                       <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>Scheduled: {new Date(followupDate).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })} via {followUpChannel}</span>
                       </div>
-                      <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     </div>
                   )}
                 </div>
@@ -5414,20 +5412,20 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
             {/* DNC Opt-Out Checkbox */}
             <div className="pt-1">
-              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:bg-slate-900/80 transition-colors">
+              <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-200/80 cursor-pointer hover:bg-slate-100/70 transition-colors">
                 <input
                   type="checkbox"
                   checked={isDnc}
                   onChange={(e) => setIsDnc(e.target.checked)}
-                  className="rounded-md border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500 h-4 w-4"
+                  className="rounded-md border-slate-300 bg-white text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
                 <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-rose-400 shrink-0" />
+                  <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
                   <div>
-                    <span className="text-xs font-bold text-rose-300 block">
+                    <span className="text-xs font-bold text-rose-700 block">
                       Mark as Do-Not-Contact (DNC) / Opt-Out
                     </span>
-                    <span className="text-[10px] text-slate-400 block">
+                    <span className="text-[10px] text-slate-500 block">
                       Suppresses contact from future dialer queues and outreach lists
                     </span>
                   </div>
@@ -5436,11 +5434,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             </div>
 
             {/* AI WhatsApp Draft Generator Section */}
-            <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-800/40 space-y-2">
+            <div className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs font-bold text-purple-200">
+                  <MessageSquare className="h-4 w-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-800">
                     WhatsApp Follow-Up Draft
                   </span>
                 </div>
@@ -5448,12 +5446,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   type="button"
                   onClick={() => handleAiAssist('draft_whatsapp')}
                   disabled={isDraftingWhatsapp || !notes.trim()}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {isDraftingWhatsapp ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
                   ) : (
-                    <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
                   )}
                   <span>Generate Draft</span>
                 </button>
@@ -5465,7 +5463,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     value={whatsappDraft}
                     onChange={(e) => setWhatsappDraft(e.target.value)}
                     rows={3}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-hidden font-sans"
+                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl p-2.5 text-xs focus:outline-hidden font-sans"
                   />
                   <div className="flex items-center justify-end gap-2">
                     <button
@@ -5479,19 +5477,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                   </div>
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-400 italic">
+                <p className="text-[11px] text-slate-500 italic">
                   Click 'Generate Draft' to create a personalized WhatsApp follow-up based on your notes.
                 </p>
               )}
             </div>
 
             {aiError && (
-              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-800/80 flex items-center justify-between text-xs text-rose-300">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs text-rose-700">
                 <span>{aiError}</span>
                 <button
                   type="button"
                   onClick={() => setShowGeminiKeyModal(true)}
-                  className="px-2 py-1 rounded-md bg-rose-900/80 hover:bg-rose-800 text-white text-[10px] font-semibold flex items-center gap-1 transition-colors shrink-0 ml-2 cursor-pointer"
+                  className="px-2 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-semibold flex items-center gap-1 transition-colors shrink-0 ml-2 cursor-pointer"
                 >
                   <KeyRound className="h-3 w-3" />
                   <span>Config Key</span>
@@ -5504,7 +5502,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
 
           {/* Retractable Activity History Timeline (side-by-side on sm+, slide-over on mobile) */}
           {isHistoryDrawerOpen && (
-            <div className="w-full sm:w-[480px] lg:w-[520px] border-t sm:border-t-0 sm:border-l border-slate-800 flex flex-col h-full bg-slate-900 shrink-0 absolute sm:relative inset-0 sm:inset-auto z-20">
+            <div className="w-full sm:w-[480px] lg:w-[520px] border-t sm:border-t-0 sm:border-l border-slate-200 flex flex-col h-full bg-white shrink-0 absolute sm:relative inset-0 sm:inset-auto z-20">
               <CompanyActivityTimeline
                 historyLogs={activeCompanyLogs}
                 enquiries={activeCompanyEnquiries}
@@ -5526,11 +5524,11 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         </div>
 
           {/* Drawer Footer Actions */}
-          <div className="p-4 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">
+          <div className="bg-slate-50/90 border-t border-slate-200 px-6 py-4 flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={handleReset}
-              className="px-3 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
             >
               Reset Form
             </button>
@@ -5539,7 +5537,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -5549,8 +5547,8 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 disabled={isSubmitting}
                 className={`px-5 py-2 rounded-xl text-white text-xs font-bold shadow-lg flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer ${
                   isInternalOps
-                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
-                    : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+                    ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'
+                    : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20'
                 }`}
               >
                 {isSubmitting ? (

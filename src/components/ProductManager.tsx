@@ -1557,41 +1557,41 @@ export default function ProductManager({
         {showFormModal && (
           <div
             id="product-form-modal"
-            className="fixed inset-0 bg-slate-950/55 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4"
           >
             <form
               onSubmit={handleSaveProduct}
-              className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full ${
+              className={`bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] w-full ${
                 formIsCompositeSet ? 'max-w-5xl' : 'max-w-3xl'
-              } shadow-2xl relative flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-all`}
+              } relative animate-in fade-in zoom-in-95 duration-150 transition-all`}
             >
-              {/* Pinned Modal Header + Live Product Summary Banner */}
-              <div className="p-5 px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 shrink-0 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-blue-600 text-white shadow-xs">
-                      <Package className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
-                        {editingProduct ? 'Edit Catalog Product' : 'Register New Catalog Product'}
-                      </h3>
-                      <p className="text-[11px] text-slate-500 font-sans">
-                        Synced across Enquiries, Quotation Studio Line Items, and Warehouse Stock
-                      </p>
-                    </div>
+              {/* Standardized Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600">
+                    <Package className="w-5 h-5" />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowFormModal(false)}
-                    className="text-slate-400 hover:text-slate-800 transition p-1.5 rounded-xl hover:bg-slate-200/60 cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 font-sans">
+                      {editingProduct ? 'Edit Catalog Product' : 'Register New Catalog Product'}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-sans">
+                      Synced across Enquiries, Quotation Studio Line Items, and Warehouse Stock
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFormModal(false)}
+                  className="text-slate-400 hover:text-slate-700 transition p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-                {/* Live Header Summary Card */}
-                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Live Header Summary Banner */}
+              <div className="px-6 py-3 border-b border-slate-200/80 bg-slate-50/70 shrink-0">
+                <div className="p-3.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     {formImageUrl ? (
                       <img
@@ -1607,7 +1607,7 @@ export default function ProductManager({
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        <span className="text-sm font-bold text-slate-900 truncate">
                           {formName.trim() || 'Untitled Catalog Product'}
                         </span>
                         {formProductType && (
