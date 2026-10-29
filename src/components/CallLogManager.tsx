@@ -2825,7 +2825,7 @@ export default function CallLogManager({
                 value={queueSearchTerm}
                 onChange={(e) => setQueueSearchTerm(e.target.value)}
                 placeholder="Search queue by company, ref #, contact name, phone, or follow-up notes..."
-                className="w-full pl-10 pr-9 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition font-sans"
+                className="w-full h-10 pl-10 pr-9 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition font-sans"
               />
               {queueSearchTerm && (
                 <button
@@ -3224,8 +3224,8 @@ export default function CallLogManager({
       {subTab === 'log' && (
         <div className="space-y-4">
           {/* Top-Level Scope View Toggle: Sales Outreach vs Internal Ops */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-2xl shadow-2xs">
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-950 rounded-xl">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white border border-slate-200/80 p-2.5 rounded-2xl shadow-xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
               <button
                 type="button"
                 onClick={() => {
@@ -3235,7 +3235,7 @@ export default function CallLogManager({
                 className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
                   historyActivityType === 'sales'
                     ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <PhoneCall className="w-3.5 h-3.5" />
@@ -3250,48 +3250,11 @@ export default function CallLogManager({
                 className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
                   historyActivityType === 'internal'
                     ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Briefcase className="w-3.5 h-3.5" />
                 <span>⚙️ Internal Ops ({opsHistoryCount})</span>
-              </button>
-            </div>
-
-            {/* Quick Action Button for current scope */}
-            <div className="flex items-center justify-end px-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawerMode('create');
-                  setEditingLog(null);
-                  if (onOpenActivityDrawer) {
-                    onOpenActivityDrawer({
-                      channel: historyActivityType === 'internal' ? 'Internal Task' : 'Call',
-                      drawerMode: 'create',
-                      initialIsInternalOps: historyActivityType === 'internal'
-                    });
-                  } else {
-                    setIsActivityDrawerOpen(true);
-                  }
-                }}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                  historyActivityType === 'internal'
-                    ? 'bg-indigo-600 hover:bg-indigo-500'
-                    : 'bg-blue-600 hover:bg-blue-500'
-                }`}
-              >
-                {historyActivityType === 'internal' ? (
-                  <>
-                    <Briefcase className="w-3.5 h-3.5" />
-                    <span>+ Log Internal Task</span>
-                  </>
-                ) : (
-                  <>
-                    <PhoneCall className="w-3.5 h-3.5" />
-                    <span>+ Log Call / Outreach</span>
-                  </>
-                )}
               </button>
             </div>
           </div>
@@ -3391,19 +3354,19 @@ export default function CallLogManager({
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
               {/* 1. Fast Search Input */}
               <div className="relative lg:col-span-2">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Search company, contact, phone, notes..."
-                  className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                  className="w-full h-10 pl-9 pr-8 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 />
                 {searchTerm && (
                   <button
                     type="button"
                     onClick={() => setSearchTerm('')}
-                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                     title="Clear search"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -3416,7 +3379,7 @@ export default function CallLogManager({
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Statuses</option>
                   <option value="Connected">Connected</option>
@@ -3456,7 +3419,7 @@ export default function CallLogManager({
                 <select
                   value={outcomeFilter}
                   onChange={(e) => setOutcomeFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Outcomes</option>
                   {activeOutcomes.map((oc) => (
@@ -3472,7 +3435,7 @@ export default function CallLogManager({
                 <select
                   value={datePresetFilter}
                   onChange={(e) => setDatePresetFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs sm:text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Time</option>
                   <option value="today">Today</option>
@@ -3524,13 +3487,13 @@ export default function CallLogManager({
             )}
 
             {/* Secondary Controls: Agent, Industry, Geography, and Sort Order */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 border-t border-slate-100 dark:border-slate-800/40">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 border-t border-slate-100">
               {/* 6. Agent / User Filter */}
               <div>
                 <select
                   value={agentFilter}
                   onChange={(e) => setAgentFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Agents / Operators</option>
                   {availableAgents.map((ag, idx) => (
@@ -3546,7 +3509,7 @@ export default function CallLogManager({
                 <select
                   value={industryFilter}
                   onChange={(e) => setIndustryFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Industries</option>
                   {PARENT_INDUSTRIES.map((pi) => (
@@ -3562,7 +3525,7 @@ export default function CallLogManager({
                 <select
                   value={geographyFilter}
                   onChange={(e) => setGeographyFilter(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="all">All Locations</option>
                   {(activeWorkspace.geography_options || []).map((g) => (
@@ -3578,7 +3541,7 @@ export default function CallLogManager({
                 <select
                   value={historySortOrder}
                   onChange={(e) => setHistorySortOrder(e.target.value as 'newest' | 'oldest')}
-                  className="w-full px-2.5 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium cursor-pointer"
+                  className="w-full h-10 px-2.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 >
                   <option value="newest">🕒 Newest First</option>
                   <option value="oldest">🕒 Oldest First</option>

@@ -714,24 +714,15 @@ export default function SalespersonProfiles({
         }
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
       <div id="sales-tab" className="text-slate-800 flex flex-col lg:flex-row gap-8">
       {/* Left panel: List of all Salespersons */}
-      <div className="w-full lg:w-1/3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm h-fit">
+      <div className="w-full lg:w-1/3 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs h-fit">
         <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
           <div className="flex items-center space-x-3">
             <Users2 className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 font-sans">Team Roster</h2>
           </div>
-          {canManageTeam && (
-            <button
-              onClick={openAddModal}
-              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition cursor-pointer"
-              title="Add Team Member"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         {/* Current User Roster Status Banner / Add Myself Trigger */}

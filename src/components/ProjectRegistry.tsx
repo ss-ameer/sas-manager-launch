@@ -5,6 +5,7 @@ import { updateProjectStatus } from '../services/projectService';
 import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
+import SearchResultCounter from './common/SearchResultCounter';
 import {
   Briefcase,
   Search,
@@ -635,24 +636,17 @@ export default function ProjectRegistry({
           />
         </div>
 
-        {/* Unified Search, Filters & Projects Directory Card */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl md:rounded-3xl p-6 shadow-xs space-y-6">
-          {/* Section Tag */}
-          <div className="flex items-center space-x-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">
-            <Filter className="w-3.5 h-3.5" />
-            <span>Operational Search & Filters</span>
-          </div>
-
-          {/* Search Bar & Status Filter Pills */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+        {/* Standalone Filter Toolbar Card */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search projects by reference, client, title..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs sm:text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
               />
             </div>
 
@@ -662,10 +656,10 @@ export default function ProjectRegistry({
                   key={tab}
                   type="button"
                   onClick={() => setStatusFilter(tab)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition whitespace-nowrap cursor-pointer ${
                     statusFilter === tab
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   {tab}
@@ -673,7 +667,24 @@ export default function ProjectRegistry({
               ))}
             </div>
           </div>
+        </div>
 
+        <SearchResultCounter
+          totalCount={workspaceProjects.length}
+          filteredCount={filteredProjects.length}
+          searchQuery={searchTerm}
+          entityLabel="Projects"
+          singularEntityLabel="Project"
+          activeFiltersCount={statusFilter !== 'All' ? 1 : 0}
+          activeFilterLabels={statusFilter !== 'All' ? [`Status: ${statusFilter}`] : []}
+          onClear={() => {
+            setSearchTerm('');
+            setStatusFilter('All');
+          }}
+        />
+
+        {/* Standalone Table Card */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
           {/* Projects Table */}
           <div className="overflow-x-auto">
             {filteredProjects.length === 0 ? (
@@ -797,9 +808,9 @@ export default function ProjectRegistry({
           </div>
 
           {/* Standardized Card Footer & Item Counter */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-sans">
+          <div className="px-4 py-3.5 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs text-slate-500 font-sans">
             <div>
-              Showing <span className="font-bold text-slate-800 dark:text-slate-200">{filteredProjects.length}</span> of <span className="font-bold text-slate-800 dark:text-slate-200">{workspaceProjects.length}</span> projects
+              Showing <span className="font-bold text-slate-800">{filteredProjects.length}</span> of <span className="font-bold text-slate-800">{workspaceProjects.length}</span> projects
             </div>
             <div className="text-[11px] font-mono text-slate-400">
               Active Workspace Registry

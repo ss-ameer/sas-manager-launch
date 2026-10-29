@@ -2001,15 +2001,16 @@ export default function CompanyModal({
         />
       </div>
 
-      {/* Top View Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex items-center space-x-2">
+      {/* Top View Switcher & Right-Side View/Action Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
           <button
+            type="button"
             onClick={() => setViewMode('companies')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
               viewMode === 'companies'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <Building2 className="w-4 h-4" />
@@ -2017,11 +2018,12 @@ export default function CompanyModal({
           </button>
 
           <button
+            type="button"
             onClick={() => setViewMode('contacts')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
               viewMode === 'contacts'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <Users2 className="w-4 h-4" />
@@ -2029,237 +2031,280 @@ export default function CompanyModal({
           </button>
 
           <button
+            type="button"
             onClick={() => setViewMode('phones')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
               viewMode === 'phones'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
             }`}
           >
             <Phone className="w-4 h-4" />
             <span>Phone & Tel Directory ({allPhoneEntries.length})</span>
           </button>
         </div>
+
+        {/* Right-side view/action controls */}
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          {viewMode === 'companies' && (
+            <>
+              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setCompanyViewStyle('table')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
+                    companyViewStyle === 'table'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompanyViewStyle('cards')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
+                    companyViewStyle === 'cards'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+              </div>
+
+              <div className="relative" ref={exportDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsExportDropdownOpen((prev) => !prev)}
+                  className="py-2 px-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  title="Export company directory in PDF or CSV format"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export CSV</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isExportDropdownOpen && (
+                  <div className="absolute right-0 mt-1.5 w-56 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExportDropdownOpen(false);
+                        setShowExportModal(true);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-600 flex items-center space-x-2 transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      <div>
+                        <div className="font-semibold">Export Hub</div>
+                        <div className="text-[10px] text-slate-500">Custom fields, PDF & CSV</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExportDropdownOpen(false);
+                        handleExportDirectoryCSV();
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100 flex items-center space-x-2 transition cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold">Quick CSV Export</div>
+                        <div className="text-[10px] text-slate-500">Download current directory</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExportDropdownOpen(false);
+                        handlePrintDirectoryPDF();
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100 flex items-center space-x-2 transition cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold">Print / Save PDF</div>
+                        <div className="text-[10px] text-slate-500">Print-ready PDF report</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {viewMode === 'contacts' && (
+            <>
+              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setContactViewStyle('table')}
+                  title="Table View"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
+                    contactViewStyle === 'table'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContactViewStyle('cards')}
+                  title="Card Grid View"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer ${
+                    contactViewStyle === 'cards'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !isContactMarkingMode;
+                  setIsContactMarkingMode(next);
+                  if (!next) setSelectedContactIds([]);
+                }}
+                title="Toggle marking checkboxes for bulk contact operations"
+                className={`px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 border cursor-pointer ${
+                  isContactMarkingMode
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>{isContactMarkingMode ? 'Done Selecting' : 'Select Rows'}</span>
+                {isContactMarkingMode && selectedContactIds.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
+                    {selectedContactIds.length}
+                  </span>
+                )}
+              </button>
+
+              {isEditable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContactToEdit(null);
+                    setSelectedCompanyForContact(selectedCompanyId || '');
+                    setContactModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs transition shadow-2xs flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Contact</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* VIEW 1: COMPANIES REGISTRY */}
       {viewMode === 'companies' && (
-        <div id="companies-tab" className="text-slate-200 flex flex-col gap-6 w-full">
-          {/* Companies Registry Main Container */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm w-full">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center space-x-3">
-                <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Companies Registry</h2>
-                    <span className="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-md">
-                      {filteredCompanies.length !== totalActiveCompanies
-                        ? `${filteredCompanies.length} of ${totalActiveCompanies} registered`
-                        : `${totalActiveCompanies} registered`}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">Canonical directory of account entities and relationships</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2.5">
-                {/* Unified [Export Directory ▾] Dropdown */}
-                <div className="relative" ref={exportDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => setIsExportDropdownOpen((prev) => !prev)}
-                    className="py-2 px-3.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-xs cursor-pointer"
-                    title="Export company directory in PDF or CSV format"
-                  >
-                    <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                    <span>Export Directory</span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {isExportDropdownOpen && (
-                    <div className="absolute right-0 mt-1.5 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsExportDropdownOpen(false);
-                          setShowExportModal(true);
-                        }}
-                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 flex items-center space-x-2 transition cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <div>
-                          <div className="font-semibold">Export Hub</div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Custom fields, PDF & CSV</div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsExportDropdownOpen(false);
-                          handleExportDirectoryCSV();
-                        }}
-                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 transition cursor-pointer"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <div>
-                          <div className="font-semibold">Quick CSV Export</div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Download current directory</div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsExportDropdownOpen(false);
-                          handlePrintDirectoryPDF();
-                        }}
-                        className="w-full px-3.5 py-2 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-2 transition cursor-pointer"
-                      >
-                        <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <div>
-                          <div className="font-semibold">Print / Save PDF</div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400">Print-ready PDF report</div>
-                        </div>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Primary [+ Add Company] Button */}
-                {isEditable && (
-                  <button
-                    type="button"
-                    onClick={handleOpenAddCompany}
-                    className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition duration-150 flex items-center space-x-1.5 shadow-sm cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Company</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-              {/* Faceted Search & Filters */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4 mb-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                  <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-                    <Filter className="w-4 h-4" />
-                    <span>Faceted Search & Filters</span>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => setCompanyViewStyle('cards')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                        companyViewStyle === 'cards'
-                          ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm'
-                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>Cards</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCompanyViewStyle('table')}
-                      className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition ${
-                        companyViewStyle === 'table'
-                          ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm'
-                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span>Table</span>
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mb-4">
-                  <div className="relative md:col-span-12 lg:col-span-4">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
-                      className="w-full pl-9 pr-3.5 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 transition"
-                    />
-                  </div>
-
-                  <div className="md:col-span-6 lg:col-span-2">
-                    <select
-                      value={industryFilter}
-                      onChange={(e) => setIndustryFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
-                    >
-                      <option value="ALL">All Macro Industries</option>
-                      {liveTaxonomySectors.map((pi) => (
-                        <option key={pi.id} value={pi.id}>
-                          {pi.icon} {pi.label || pi.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="md:col-span-6 lg:col-span-2">
-                    <select
-                      value={relationshipFilter}
-                      onChange={(e) => setRelationshipFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
-                    >
-                      <option value="ALL">All Relationships</option>
-                      {(companyRelationships || []).map((r) => (
-                        <option key={r.id} value={r.name}>{r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="md:col-span-6 lg:col-span-2">
-                    <select
-                      value={temperatureFilter}
-                      onChange={(e) => setTemperatureFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
-                    >
-                      <option value="ALL">All Temperatures</option>
-                      {(companyTemperatures || []).map((t) => (
-                        <option key={t.id} value={t.name}>{t.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="md:col-span-6 lg:col-span-2">
-                    <select
-                      id="company-outreach-cadence-filter-select"
-                      value={outreachCadenceFilter}
-                      onChange={(e) => setOutreachCadenceFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-sans"
-                      title="Filter companies by outreach cadence"
-                    >
-                      <option value="ALL">All Accounts</option>
-                      <option value="never">Never Contacted</option>
-                      <option value="stale">Needs Follow-Up / Stale (&gt;14 Days)</option>
-                      <option value="recent">Recently Active (≤14 Days)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Standard Search Result Counter & Filter Status Banner */}
-                <SearchResultCounter
-                  totalCount={totalActiveCompanies}
-                  filteredCount={filteredCompanies.length}
-                  searchQuery={searchQuery}
-                  entityLabel="Companies"
-                  singularEntityLabel="Company"
-                  onClear={handleClearCompanyFilters}
-                  activeFilterLabels={activeCompanyFilterLabels}
+        <div id="companies-tab" className="flex flex-col gap-4 w-full">
+          {/* Standalone Filter Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3">
+              <div className="relative md:col-span-12 lg:col-span-4">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
+                  className="w-full h-10 pl-9 pr-3.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 />
               </div>
 
-              {filteredCompanies.length > 0 ? (
-                <>
-                  {companyViewStyle === 'table' ? (
-                  <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
-                    <table className="w-full text-left text-xs border-collapse font-sans">
+              <div className="relative md:col-span-6 lg:col-span-2">
+                <select
+                  value={industryFilter}
+                  onChange={(e) => setIndustryFilter(e.target.value)}
+                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+                >
+                  <option value="ALL">All Macro Industries</option>
+                  {liveTaxonomySectors.map((pi) => (
+                    <option key={pi.id} value={pi.id}>
+                      {pi.icon} {pi.label || pi.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              
+              <div className="relative md:col-span-6 lg:col-span-2">
+                <select
+                  value={relationshipFilter}
+                  onChange={(e) => setRelationshipFilter(e.target.value)}
+                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+                >
+                  <option value="ALL">All Relationships</option>
+                  {(companyRelationships || []).map((r) => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              
+              <div className="relative md:col-span-6 lg:col-span-2">
+                <select
+                  value={temperatureFilter}
+                  onChange={(e) => setTemperatureFilter(e.target.value)}
+                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+                >
+                  <option value="ALL">All Temperatures</option>
+                  {(companyTemperatures || []).map((t) => (
+                    <option key={t.id} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+
+              <div className="relative md:col-span-6 lg:col-span-2">
+                <select
+                  id="company-outreach-cadence-filter-select"
+                  value={outreachCadenceFilter}
+                  onChange={(e) => setOutreachCadenceFilter(e.target.value)}
+                  className="w-full h-10 pl-3 pr-8 appearance-none rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition font-sans"
+                  title="Filter companies by outreach cadence"
+                >
+                  <option value="ALL">All Accounts</option>
+                  <option value="never">Never Contacted</option>
+                  <option value="stale">Needs Follow-Up / Stale (&gt;14 Days)</option>
+                  <option value="recent">Recently Active (≤14 Days)</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Standard Search Result Counter & Filter Status Banner */}
+            <SearchResultCounter
+              totalCount={totalActiveCompanies}
+              filteredCount={filteredCompanies.length}
+              searchQuery={searchQuery}
+              entityLabel="Companies"
+              singularEntityLabel="Company"
+              onClear={handleClearCompanyFilters}
+              activeFilterLabels={activeCompanyFilterLabels}
+            />
+          </div>
+
+          {filteredCompanies.length > 0 ? (
+            <>
+              {companyViewStyle === 'table' ? (
+              <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                <table className="w-full text-left text-xs border-collapse font-sans">
                       <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
                         <tr>
                           <th className="py-3.5 px-4">Ref ID</th>
@@ -2455,13 +2500,13 @@ export default function CompanyModal({
                 )}
               </>
             ) : (
-                <div className="py-12 text-center text-slate-400 dark:text-slate-500 font-sans text-sm">
+                <div className="py-12 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-400 font-sans text-sm">
                   <p className="italic">No matching companies found in your database.</p>
                   {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL' || outreachCadenceFilter !== 'ALL') && (
                     <button
                       type="button"
                       onClick={handleClearCompanyFilters}
-                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
+                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       <span>Reset all filters and search</span>
@@ -2469,115 +2514,35 @@ export default function CompanyModal({
                   )}
                 </div>
               )}
-            </div>
-      </div>
+        </div>
       )}
 
       {/* VIEW 2: PEOPLE & CONTACTS DIRECTORY */}
       {viewMode === 'contacts' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-            <div className="flex items-center space-x-3">
-              <Users2 className="w-6 h-6 text-blue-600" />
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 font-sans">People & Key Contacts Directory</h2>
-                <p className="text-xs text-slate-500">
-                  Comprehensive listing of key contact decision-makers across all registered companies.
-                </p>
-              </div>
+        <div className="flex flex-col gap-4 w-full">
+          {/* Standalone Filter Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="relative w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Filter by person name, role, company, email, phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+              />
             </div>
-            <div className="flex items-center space-x-2 w-full md:w-auto">
-              <div className="relative flex-1 md:w-72">
-                <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filter by person name, role, email, phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 pl-10 pr-4 text-xs text-slate-800"
-                />
-              </div>
-              {isEditable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setContactToEdit(null);
-                    setSelectedCompanyForContact(selectedCompanyId || '');
-                    setContactModalOpen(true);
-                  }}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center space-x-1 shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Contact</span>
-                </button>
-              )}
 
-              {/* View Switcher Toggle for Contacts */}
-              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-xl p-0.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setContactViewStyle('table')}
-                  title="Table View"
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
-                    contactViewStyle === 'table'
-                      ? 'bg-white text-blue-600 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <Table className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Table</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setContactViewStyle('cards')}
-                  title="Card Grid View"
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
-                    contactViewStyle === 'cards'
-                      ? 'bg-white text-blue-600 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Cards</span>
-                </button>
-
-                <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isContactMarkingMode;
-                    setIsContactMarkingMode(next);
-                    if (!next) setSelectedContactIds([]);
-                  }}
-                  title="Toggle marking checkboxes for bulk contact operations"
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 border cursor-pointer ${
-                    isContactMarkingMode
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>{isContactMarkingMode ? 'Done Marking' : 'Marking'}</span>
-                  {isContactMarkingMode && selectedContactIds.length > 0 && (
-                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
-                      {selectedContactIds.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-            </div>
+            {/* Standard Search Result Counter for Contacts */}
+            <SearchResultCounter
+              totalCount={allContactsWithCompany.length}
+              filteredCount={filteredContacts.length}
+              searchQuery={searchQuery}
+              entityLabel="Contacts"
+              singularEntityLabel="Contact"
+              onClear={() => setSearchQuery('')}
+            />
           </div>
-
-          {/* Standard Search Result Counter for Contacts */}
-          <SearchResultCounter
-            totalCount={allContactsWithCompany.length}
-            filteredCount={filteredContacts.length}
-            searchQuery={searchQuery}
-            entityLabel="Contacts"
-            singularEntityLabel="Contact"
-            onClear={() => setSearchQuery('')}
-          />
 
           {/* Bulk Actions Toolbar for Contacts */}
           {isContactMarkingMode && selectedContactIds.length > 0 && (
@@ -2963,40 +2928,32 @@ export default function CompanyModal({
 
       {/* VIEW 3: TELECOM & PHONE NUMBER DIRECTORY */}
       {viewMode === 'phones' && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center space-x-3">
-              <Phone className="w-6 h-6 text-blue-600" />
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white font-sans">Telecom & Phone Number Directory</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Consolidated registry of switchboards, direct mobiles, and landline extensions.
-                </p>
-              </div>
-            </div>
-            <div className="relative w-full md:w-80">
-              <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+        <div className="flex flex-col gap-4 w-full">
+          {/* Standalone Filter Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="relative w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search phone numbers, companies, people..."
+                placeholder="Search phone numbers, companies, people, locations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 pl-10 pr-4 text-xs text-slate-800 dark:text-slate-200"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
               />
             </div>
+
+            {/* Standard Search Result Counter for Phones */}
+            <SearchResultCounter
+              totalCount={allPhoneEntries.length}
+              filteredCount={filteredPhones.length}
+              searchQuery={searchQuery}
+              entityLabel="Phone Numbers"
+              singularEntityLabel="Phone Number"
+              onClear={() => setSearchQuery('')}
+            />
           </div>
 
-          {/* Standard Search Result Counter for Phones */}
-          <SearchResultCounter
-            totalCount={allPhoneEntries.length}
-            filteredCount={filteredPhones.length}
-            searchQuery={searchQuery}
-            entityLabel="Phone Numbers"
-            singularEntityLabel="Phone Number"
-            onClear={() => setSearchQuery('')}
-          />
-
-          <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+          <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
             <table className="w-full text-left border-collapse text-xs font-sans">
               <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
                 <tr>
