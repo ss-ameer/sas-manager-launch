@@ -490,6 +490,11 @@ export async function prepareAttachmentsForSave(
         storageProvider: att.storageProvider || 'supabase',
         include_in_quote_annex: att.include_in_quote_annex,
         render_as_annex_page: att.render_as_annex_page,
+        custom_title: att.custom_title,
+        show_title_on_annex: att.show_title_on_annex,
+        page_placement: att.page_placement,
+        full_bleed: att.full_bleed,
+        exclude_from_page_count: att.exclude_from_page_count,
         uploadedByUserName: att.uploadedByUserName
       });
       continue;
@@ -527,6 +532,11 @@ export async function prepareAttachmentsForSave(
       storageProvider: att.storageProvider || 'local',
       include_in_quote_annex: att.include_in_quote_annex,
       render_as_annex_page: att.render_as_annex_page,
+      custom_title: att.custom_title,
+      show_title_on_annex: att.show_title_on_annex,
+      page_placement: att.page_placement,
+      full_bleed: att.full_bleed,
+      exclude_from_page_count: att.exclude_from_page_count,
       uploadedByUserName: att.uploadedByUserName
     });
   }

@@ -5122,19 +5122,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           if (matchedProduct) {
                             const availStock = (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
                             const isLow = Boolean(matchedProduct.is_inventoried) && availStock <= (matchedProduct.reorder_level || 0);
-                            const drifted = hasCatalogDrift(
-                              {
-                                ...item,
-                                unit_price: formCurrency === 'USD' ? (Number(item.unit_price) || 0) * 3.6725 : item.unit_price,
-                                cost_price:
-                                  item.cost_price !== undefined
-                                    ? formCurrency === 'USD'
-                                      ? Number(item.cost_price) * 3.6725
-                                      : item.cost_price
-                                    : undefined
-                              },
-                              matchedProduct
-                            );
+                            const drifted = hasCatalogDrift(item, matchedProduct, formCurrency);
                             return (
                               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[220px] truncate" title={`${matchedProduct.name} ${matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}`}>
@@ -5166,32 +5154,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     onClick={async () => {
                                       setSyncingCatalogIdx(index);
                                       try {
-                                        const normalizedItem = {
-                                          ...item,
-                                          unit_price:
-                                            formCurrency === 'USD'
-                                              ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
-                                              : item.unit_price,
-                                          cost_price:
-                                            item.cost_price !== undefined
-                                              ? formCurrency === 'USD'
-                                                ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
-                                                : item.cost_price
-                                              : undefined
-                                        };
-                                        const updatedProd = await syncLineItemToCatalogProduct(
-                                          normalizedItem,
+                                        await syncLineItemToCatalogProduct(
+                                          item,
                                           matchedProduct,
-                                          user
+                                          setProducts,
+                                          triggerToast,
+                                          formCurrency
                                         );
-                                        if (setProducts) {
-                                          setProducts((prev) =>
-                                            prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
-                                          );
-                                        }
-                                        if (triggerToast) {
-                                          triggerToast(`Synced changes back to catalog product "${updatedProd.name}"!`, 'success');
-                                        }
                                       } catch (err: any) {
                                         if (triggerToast) {
                                           triggerToast('Failed to sync to catalog: ' + (err?.message || 'Error'), 'error');
@@ -7794,6 +7763,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         isOpen={saveToCatalogState.isOpen}
         onClose={() => setSaveToCatalogState({ isOpen: false, item: null, itemIndex: -1 })}
         initialItem={saveToCatalogState.item}
+        currency={formCurrency || 'AED'}
         products={products}
         setProducts={setProducts}
         productCategories={activeCategories}

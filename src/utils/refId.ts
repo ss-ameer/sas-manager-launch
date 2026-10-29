@@ -134,7 +134,7 @@ export function getReferenceId(
     if (index !== -1) {
       // Offset by maxExplicitNum if items exist with higher explicit IDs, ensuring uniqueness
       const seq = index + 1;
-      const finalNum = maxExplicitNum >= seq ? maxExplicitNum + 1 : seq;
+      const finalNum = maxExplicitNum > 0 ? maxExplicitNum + seq : seq;
       return `${type}-${String(finalNum).padStart(4, '0')}`;
     }
   }

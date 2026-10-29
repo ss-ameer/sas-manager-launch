@@ -3167,21 +3167,63 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
             )}
             {(() => {
+              let sharedBaselineSubtotal = 0;
+              let combinedNonAddonSubtotal = 0;
               const optionSummaryMap = new Map<string, number>();
+
               rawLineItems.forEach((it) => {
                 const rawOpt = String(it.option || it.option_group || '').trim();
+                const optLower = rawOpt.toLowerCase();
+                const rawVal = Number(
+                  it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
+                );
+                const lineVal = (it as any).item_type === 'discount' ? -Math.abs(rawVal) : rawVal;
+
                 if (/^option\s*[a-z0-9]/i.test(rawOpt)) {
-                  const lineVal = Number(
-                    it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
-                  );
                   optionSummaryMap.set(rawOpt, (optionSummaryMap.get(rawOpt) || 0) + lineVal);
+                  combinedNonAddonSubtotal += lineVal;
+                } else if (
+                  !optLower.includes('optional') &&
+                  (!it.is_optional ||
+                    !rawOpt ||
+                    rawOpt === 'Default' ||
+                    rawOpt === 'Default / Included' ||
+                    rawOpt === 'Baseline / All')
+                ) {
+                  sharedBaselineSubtotal += lineVal;
+                  combinedNonAddonSubtotal += lineVal;
                 }
               });
 
               const hasMultiOptions = optionSummaryMap.size > 1;
               const showCombinedGrandTotal = !hasMultiOptions || Boolean(quotation.show_combined_options_total);
-              const taxRate = Number(quotation.tax_rate_percent || 5);
-              const isTaxCalculated = quotation.tax_mode === 'tax_calculated';
+              const taxRate = Number(quotation.tax_rate_percent ?? 5);
+              const taxMode = quotation.tax_mode || 'taxes_extra';
+              const isTaxCalculated = taxMode === 'tax_calculated';
+              const cleanFreight = Math.round((Number(quotation.freight_amount) || 0) * 100) / 100;
+
+              const computeTotalsForSubtotal = (subVal: number) => {
+                const cleanSub = Math.round(subVal * 100) / 100;
+                const taxableBase = Math.round((cleanSub + cleanFreight) * 100) / 100;
+                let vatVal = 0;
+                let grandVal = taxableBase;
+                if (taxMode === 'tax_exempt' || taxRate <= 0) {
+                  vatVal = 0;
+                  grandVal = taxableBase;
+                } else if (taxMode === 'tax_calculated') {
+                  vatVal = Math.round((taxableBase - taxableBase / (1 + taxRate / 100)) * 100) / 100;
+                  grandVal = taxableBase;
+                } else if (taxMode === 'taxes_extra') {
+                  vatVal = Math.round(taxableBase * (taxRate / 100) * 100) / 100;
+                  grandVal = Math.round((taxableBase + vatVal) * 100) / 100;
+                }
+                return { subtotal: cleanSub, vat: vatVal, grandTotal: grandVal };
+              };
+
+              const combinedTotals = computeTotalsForSubtotal(combinedNonAddonSubtotal);
+              const displaySubtotal = hasMultiOptions ? combinedTotals.subtotal : Number(quotation.subtotal || 0);
+              const displayTaxAmount = hasMultiOptions ? combinedTotals.vat : Number(quotation.tax_amount || 0);
+              const displayGrandTotal = hasMultiOptions ? combinedTotals.grandTotal : Number(quotation.grand_total || 0);
 
               return (
                 <>
@@ -3190,13 +3232,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
                         Commercial Summary by Option
                       </div>
+                      {sharedBaselineSubtotal > 0 && (
+                        <div className="flex justify-between items-center px-2 py-1 rounded bg-slate-100/80 border border-slate-200/80 text-[calc(var(--block-base)*0.9)] text-slate-700">
+                          <span className="font-semibold">Shared Baseline Scope (Included in each option):</span>
+                          <span className="font-mono tabular-nums font-bold">
+                            {formatCurrency(sharedBaselineSubtotal)}
+                          </span>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 gap-1.5">
-                        {Array.from(optionSummaryMap.entries()).map(([optName, optSubtotal], oIdx) => {
+                        {Array.from(optionSummaryMap.entries()).map(([optName, optOnlySubtotal], oIdx) => {
                           const customOptTitle = quotation.option_group_titles?.[optName]?.trim();
-                          const optVat = isTaxCalculated
-                            ? Math.round(optSubtotal * (taxRate / 100) * 100) / 100
-                            : 0;
-                          const optGrandTotal = Math.round((optSubtotal + optVat) * 100) / 100;
+                          const optEffectiveSubtotal = Math.round((optOnlySubtotal + sharedBaselineSubtotal) * 100) / 100;
+                          const optCalc = computeTotalsForSubtotal(optEffectiveSubtotal);
                           return (
                             <div
                               key={optName}
@@ -3210,13 +3258,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                   className="font-mono tabular-nums font-extrabold text-[calc(var(--block-base)*1.08)]"
                                   style={{ color: themePalette.textAccent }}
                                 >
-                                  {formatCurrency(optGrandTotal)}
+                                  {formatCurrency(optCalc.grandTotal)}
                                 </span>
                               </div>
-                              {isTaxCalculated && (
-                                <div className="flex items-center justify-between text-[calc(var(--block-base)*0.86)] text-slate-500 font-mono">
-                                  <span>Subtotal Excl. VAT: {formatCurrency(optSubtotal)}</span>
-                                  <span>VAT ({taxRate}%): {formatCurrency(optVat)}</span>
+                              {(isTaxCalculated || taxMode === 'taxes_extra' || sharedBaselineSubtotal > 0 || cleanFreight > 0) && (
+                                <div className="flex items-center justify-between flex-wrap gap-x-2 text-[calc(var(--block-base)*0.86)] text-slate-500 font-mono">
+                                  <span>
+                                    Subtotal: {formatCurrency(optCalc.subtotal)}
+                                    {sharedBaselineSubtotal > 0 ? ` (Option: ${formatCurrency(optOnlySubtotal)} + Shared: ${formatCurrency(sharedBaselineSubtotal)})` : ''}
+                                  </span>
+                                  {taxMode !== 'tax_exempt' && taxRate > 0 && (
+                                    <span>VAT ({taxRate}%): {formatCurrency(optCalc.vat)}</span>
+                                  )}
+                                </div>
+                              )}
+                              {showAmountInWords !== false && !showCombinedGrandTotal && optCalc.grandTotal > 0 && (
+                                <div className="text-[calc(var(--block-base)*0.84)] text-slate-600 pt-0.5 border-t border-slate-200/60">
+                                  <span className="font-semibold">In Words ({currency || 'AED'}): </span>
+                                  <span>{amountToWords(optCalc.grandTotal, currency)}</span>
                                 </div>
                               )}
                             </div>
@@ -3232,7 +3291,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
                           <span>{labels.subtotal || 'Subtotal'}:</span>
                           <span className="font-mono tabular-nums font-semibold text-slate-800">
-                            {formatCurrency(quotation.subtotal)}
+                            {formatCurrency(displaySubtotal)}
                           </span>
                         </div>
                       )}
@@ -3271,7 +3330,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         >
                           <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
                           <span className="font-mono tabular-nums font-semibold text-slate-800">
-                            {formatCurrency(quotation.tax_amount)}
+                            {formatCurrency(displayTaxAmount)}
                           </span>
                         </div>
                       )}
@@ -3283,7 +3342,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           <div className="flex justify-between">
                             <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
                             <span className="font-mono tabular-nums font-semibold text-slate-800">
-                              {formatCurrency(quotation.tax_amount)}
+                              {formatCurrency(displayTaxAmount)}
                             </span>
                           </div>
                           <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
@@ -3317,27 +3376,27 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
                           style={{ color: themePalette.textAccent }}
                         >
-                          {formatCurrency(quotation.grand_total)}
+                          {formatCurrency(displayGrandTotal)}
                         </span>
                       </div>
+
+                      {/* Amount in Words */}
+                      {showAmountInWords !== false && displayGrandTotal > 0 && (
+                        <div
+                          className={`text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic ${rowBorderClass} pt-1.5 mt-1.5 break-words`}
+                        >
+                          <span className="font-semibold text-slate-800 not-italic">
+                            Amount in Words ({currency || 'AED'}):{' '}
+                          </span>
+                          <span className="not-italic">{amountToWords(displayGrandTotal, currency)}</span>
+                        </div>
+                      )}
                     </>
                   )}
                 </>
               );
             })()}
           </div>
-
-          {/* Amount in Words */}
-          {showAmountInWords !== false && (quotation.grand_total ?? 0) > 0 && (
-            <div
-              className={`text-[calc(var(--block-base)*0.95)] font-medium text-slate-700 not-italic ${rowBorderClass} pt-1.5 mt-1.5 break-words`}
-            >
-              <span className="font-semibold text-slate-800 not-italic">
-                Amount in Words ({currency || 'AED'}):{' '}
-              </span>
-              <span className="not-italic">{amountToWords(quotation.grand_total, currency)}</span>
-            </div>
-          )}
         </div>
       );
     };

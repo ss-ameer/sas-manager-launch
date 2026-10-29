@@ -4316,7 +4316,7 @@ export default function EnquiryDetail({
                     const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
                     const parsedLegacy = parseLineItemTitleAndSpec(item.item_name, item.description);
                     const canSplitLegacy = !(item.item_name || '').trim() && (item.description || '').trim();
-                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct) : false;
+                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct, currentEnquiry.currency) : false;
 
                     return (
                       <div key={item.id || idx} className="bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs">
@@ -4373,7 +4373,7 @@ export default function EnquiryDetail({
                                 disabled={syncingCatalogIdx === idx}
                                 onClick={async () => {
                                   setSyncingCatalogIdx(idx);
-                                  await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast);
+                                  await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast, currentEnquiry.currency);
                                   setSyncingCatalogIdx(null);
                                 }}
                                 className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 transition"
@@ -4778,7 +4778,7 @@ export default function EnquiryDetail({
                     const cost = Number(item.cost_price) || 0;
                     const lineMarginPct = !isMaskedForBasic && sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
                     const parsedDisplay = parseLineItemTitleAndSpec(item.item_name, item.description);
-                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct) : false;
+                    const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct, currentEnquiry.currency) : false;
 
                     const rawOpt = ((item as any).option_designation || item.option || '').trim();
                     const currentOpt = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
@@ -4903,7 +4903,7 @@ export default function EnquiryDetail({
                                           e.stopPropagation();
                                           const targetIdx = origIdx >= 0 ? origIdx : idx;
                                           setSyncingCatalogIdx(targetIdx);
-                                          await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast);
+                                          await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast, currentEnquiry.currency);
                                           setSyncingCatalogIdx(null);
                                         }}
                                         className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-0.5 cursor-pointer shrink-0"
@@ -6526,6 +6526,7 @@ export default function EnquiryDetail({
         isOpen={saveToCatalogState.isOpen}
         onClose={() => setSaveToCatalogState({ isOpen: false, item: null, itemIndex: -1, isFromDraft: false })}
         lineItem={saveToCatalogState.item}
+        currency={currentEnquiry.currency || 'AED'}
         activeWorkspaceId={currentEnquiry.workspace_id || activeWorkspaceId || activeWorkspace?.id}
         user={user}
         products={products}

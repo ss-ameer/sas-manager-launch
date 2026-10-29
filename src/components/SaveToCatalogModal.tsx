@@ -111,16 +111,20 @@ export function parseLineItemTitleAndSpec(
  * Checks whether a catalog-linked line item has commercial, technical, or media
  * modifications compared to its master Product in the catalog.
  */
-export function hasCatalogDrift(item: any, product?: Product | null): boolean {
+export function hasCatalogDrift(item: any, product?: Product | null, currency?: string): boolean {
   if (!item || !product || !item.product_id) return false;
 
-  const itemSell = Number(item.unit_price ?? 0);
-  const prodSell = Number(product.unit_price ?? 0);
-  if (Math.abs(itemSell - prodSell) > 0.005) return true;
+  const effectiveCurrency = String(currency || item?.currency || 'AED').toUpperCase();
+  const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
+  const priceTolerance = effectiveCurrency === 'USD' ? 0.05 : 0.005;
 
-  const itemCost = Number(item.cost_price ?? 0);
+  const itemSell = Math.round(Number(item.unit_price ?? 0) * fxMultiplier * 100) / 100;
+  const prodSell = Number(product.unit_price ?? 0);
+  if (Math.abs(itemSell - prodSell) > priceTolerance) return true;
+
+  const itemCost = Math.round(Number(item.cost_price ?? 0) * fxMultiplier * 100) / 100;
   const prodCost = Number(product.cost_price ?? 0);
-  if (itemCost > 0 && Math.abs(itemCost - prodCost) > 0.005) return true;
+  if (itemCost > 0 && Math.abs(itemCost - prodCost) > priceTolerance) return true;
 
   const itemUnit = (item.unit ?? '').trim();
   const prodUnit = (product.unit ?? '').trim();
@@ -169,7 +173,14 @@ export function hasCatalogDrift(item: any, product?: Product | null): boolean {
   }
 
   if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
-    const itemSubsJson = JSON.stringify(item.sub_components);
+    const normalizedItemSubs = item.sub_components.map((sub: any) => ({
+      ...sub,
+      unit_price: sub.is_included_accessory ? 0 : Math.round(Number(sub.unit_price || 0) * fxMultiplier * 100) / 100,
+      cost_price: sub.is_included_accessory ? 0 : Math.round(Number(sub.cost_price || 0) * fxMultiplier * 100) / 100,
+      total_price: sub.is_included_accessory ? 0 : Math.round(Number(sub.total_price || 0) * fxMultiplier * 100) / 100,
+      line_total: sub.is_included_accessory ? 0 : Math.round(Number(sub.line_total || 0) * fxMultiplier * 100) / 100
+    }));
+    const itemSubsJson = JSON.stringify(normalizedItemSubs);
     const prodSubsJson = JSON.stringify(product.sub_components || []);
     if (itemSubsJson !== prodSubsJson) return true;
   }
@@ -180,14 +191,19 @@ export function hasCatalogDrift(item: any, product?: Product | null): boolean {
 /**
  * Pushes updated line item fields (price, cost, unit, brand, model, origin, specs, image, datasheet)
  * directly back to the master Product record in Firestore and local state.
+ * Automatically converts USD prices to AED (* 3.6725) when currency === 'USD'.
  */
 export async function syncLineItemToCatalogProduct(
   item: any,
   product: Product,
-  setProducts?: React.Dispatch<React.SetStateAction<Product[]>>,
-  triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void
+  setProducts?: React.Dispatch<React.SetStateAction<Product[]>> | any,
+  triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void,
+  currency?: string
 ): Promise<Product | null> {
   if (!product?.id) return null;
+
+  const effectiveCurrency = String(currency || item?.currency || 'AED').toUpperCase();
+  const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
 
   const parsed = parseLineItemTitleAndSpec(item.item_name || item.title, item.description);
   const updatedName = (item.item_name || item.title || product.name || parsed.title || '').trim();
@@ -197,11 +213,11 @@ export async function syncLineItemToCatalogProduct(
   const updatedUnit = (item.unit || product.unit || 'Nos').trim();
   const updatedSell =
     item.unit_price !== undefined && item.unit_price !== null && !isNaN(Number(item.unit_price))
-      ? Number(item.unit_price)
+      ? Math.round(Number(item.unit_price) * fxMultiplier * 100) / 100
       : product.unit_price;
   const updatedCost =
     item.cost_price !== undefined && item.cost_price !== null && !isNaN(Number(item.cost_price)) && Number(item.cost_price) > 0
-      ? Number(item.cost_price)
+      ? Math.round(Number(item.cost_price) * fxMultiplier * 100) / 100
       : product.cost_price;
   const updatedLead = (item.lead_time_note ?? item.availability ?? product.default_availability ?? '').trim() || undefined;
   const updatedOrigin = (item.country_of_origin ?? item.origin ?? product.country_of_origin ?? '').trim() || undefined;
@@ -213,6 +229,26 @@ export async function syncLineItemToCatalogProduct(
         .map((a: any) => ({ key: String(a.key ?? '').trim(), value: String(a.value ?? '').trim() }))
         .filter((a: ProductAttribute) => a.key !== '' && a.value !== '')
     : product.attributes || [];
+
+  const updatedSubComponents = Array.isArray(item.sub_components)
+    ? item.sub_components.map((sub: any) => {
+        const subSell = sub.is_included_accessory
+          ? 0
+          : Math.round(Number(sub.unit_price || 0) * fxMultiplier * 100) / 100;
+        const subCost = sub.is_included_accessory
+          ? 0
+          : Math.round(Number(sub.cost_price || 0) * fxMultiplier * 100) / 100;
+        const subQty = Number(sub.quantity) || 0;
+        const subTotal = sub.is_included_accessory ? 0 : Math.round(subSell * subQty * 100) / 100;
+        return {
+          ...sub,
+          unit_price: subSell,
+          cost_price: subCost,
+          total_price: subTotal,
+          line_total: subTotal
+        };
+      })
+    : undefined;
 
   const searchTerms = generateProductSearchTerms(
     updatedName,
@@ -236,7 +272,7 @@ export async function syncLineItemToCatalogProduct(
     datasheet_attachment: updatedDatasheet,
     attributes: updatedAttributes,
     ...(item.is_composite_set !== undefined ? { is_composite_set: Boolean(item.is_composite_set) } : {}),
-    ...(Array.isArray(item.sub_components) ? { sub_components: item.sub_components } : {}),
+    ...(updatedSubComponents ? { sub_components: updatedSubComponents } : {}),
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
     ...(item.option_scope_notes !== undefined ? { option_scope_notes: item.option_scope_notes } : {}),
     search_terms: searchTerms,
@@ -250,8 +286,8 @@ export async function syncLineItemToCatalogProduct(
     ...patch
   };
 
-  if (setProducts) {
-    setProducts((prev) => prev.map((p) => (p.id === product.id ? mergedProduct : p)));
+  if (typeof setProducts === 'function') {
+    setProducts((prev: Product[]) => prev.map((p) => (p.id === product.id ? mergedProduct : p)));
   }
 
   if (triggerToast) {
@@ -284,6 +320,7 @@ export interface SaveToCatalogLineItemInput {
   sub_components?: any[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
   option_scope_notes?: string;
+  currency?: string;
 }
 
 interface SaveToCatalogModalProps {
@@ -291,6 +328,7 @@ interface SaveToCatalogModalProps {
   onClose: () => void;
   lineItem?: SaveToCatalogLineItemInput | null;
   initialItem?: SaveToCatalogLineItemInput | null;
+  currency?: string;
   activeWorkspace?: Workspace;
   activeWorkspaceId?: string;
   user?: any;
@@ -309,6 +347,7 @@ export default function SaveToCatalogModal({
   onClose,
   lineItem: propLineItem,
   initialItem,
+  currency: propCurrency,
   activeWorkspace,
   activeWorkspaceId,
   user,
@@ -394,9 +433,20 @@ export default function SaveToCatalogModal({
       setSku(`${prefix}-${suffix}`);
     }
 
+    const effectiveCurrency = String(propCurrency || lineItem.currency || 'AED').toUpperCase();
+    const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
+    const scaledSell =
+      lineItem.unit_price != null && lineItem.unit_price >= 0
+        ? Math.round(Number(lineItem.unit_price) * fxMultiplier * 100) / 100
+        : null;
+    const scaledCost =
+      lineItem.cost_price != null && lineItem.cost_price > 0
+        ? Math.round(Number(lineItem.cost_price) * fxMultiplier * 100) / 100
+        : null;
+
     setUnit(lineItem.unit || (lineItem.is_composite_set ? 'Set' : 'Nos'));
-    setUnitPrice(lineItem.unit_price != null && lineItem.unit_price >= 0 ? String(lineItem.unit_price) : '');
-    setCostPrice(lineItem.cost_price != null && lineItem.cost_price > 0 ? String(lineItem.cost_price) : '');
+    setUnitPrice(scaledSell !== null ? String(scaledSell) : '');
+    setCostPrice(scaledCost !== null ? String(scaledCost) : '');
     setLeadTime(lineItem.lead_time_note || lineItem.availability || '');
     setCountryOfOrigin(lineItem.country_of_origin || lineItem.origin || '');
     setHsCode(lineItem.hs_code || '');
@@ -405,7 +455,7 @@ export default function SaveToCatalogModal({
     setAttributes(attrs.map((a) => ({ key: a.key ?? '', value: a.value ?? '' })));
     setIsCreatingCategory(false);
     setNewCategoryInput('');
-  }, [isOpen, lineItem, availableCategories]);
+  }, [isOpen, lineItem, availableCategories, propCurrency]);
 
   const suggestedChips = useMemo(() => {
     const known = category ? CATEGORY_SUGGESTED_ATTRIBUTES[category] || [] : [];
@@ -519,12 +569,34 @@ export default function SaveToCatalogModal({
         brandMake.trim() || modelPartNo.trim()
       );
 
+      const effectiveCurrency = String(propCurrency || lineItem.currency || 'AED').toUpperCase();
+      const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
       const numSell = unitPrice !== '' && !isNaN(Number(unitPrice)) ? Number(unitPrice) : undefined;
       const numCost = costPrice !== '' && !isNaN(Number(costPrice)) ? Number(costPrice) : undefined;
       const isComposite = Boolean(
         lineItem.is_composite_set ||
           (Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0)
       );
+      const scaledSubComponents =
+        Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0
+          ? lineItem.sub_components.map((sub: any) => {
+              const subSell = sub.is_included_accessory
+                ? 0
+                : Math.round(Number(sub.unit_price || 0) * fxMultiplier * 100) / 100;
+              const subCost = sub.is_included_accessory
+                ? 0
+                : Math.round(Number(sub.cost_price || 0) * fxMultiplier * 100) / 100;
+              const subQty = Number(sub.quantity) || 0;
+              const subTotal = sub.is_included_accessory ? 0 : Math.round(subSell * subQty * 100) / 100;
+              return {
+                ...sub,
+                unit_price: subSell,
+                cost_price: subCost,
+                total_price: subTotal,
+                line_total: subTotal
+              };
+            })
+          : undefined;
 
       const productPayload: Partial<Product> = {
         workspace_id: activeWorkspace?.id || activeWorkspaceId || 'ws_default',
@@ -544,9 +616,7 @@ export default function SaveToCatalogModal({
         datasheet_attachment: datasheetAttachment || undefined,
         attributes: cleanAttrs,
         ...(isComposite ? { is_composite_set: true } : {}),
-        ...(Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0
-          ? { sub_components: lineItem.sub_components }
-          : {}),
+        ...(scaledSubComponents ? { sub_components: scaledSubComponents } : {}),
         ...(lineItem.package_pricing_mode ? { package_pricing_mode: lineItem.package_pricing_mode } : {}),
         ...(lineItem.option_scope_notes ? { option_scope_notes: lineItem.option_scope_notes } : {}),
         search_terms: searchTerms,

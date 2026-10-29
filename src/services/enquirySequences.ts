@@ -480,8 +480,8 @@ export async function claimNextEnquirySequence(
   let maxSeq = 0;
   let isTargetSnTaken = false;
 
+  let candidateEnquiries: Enquiry[] = options?.enquiries || [];
   try {
-    let candidateEnquiries: Enquiry[] = options?.enquiries || [];
     if (!candidateEnquiries || candidateEnquiries.length === 0) {
       const local = await getFromLocalStore<Enquiry>('enquiries');
       if (local && local.length > 0) candidateEnquiries = local;
@@ -494,7 +494,14 @@ export async function claimNextEnquirySequence(
     }
 
     if (candidateEnquiries && candidateEnquiries.length > 0) {
-      const ceilings = getWorkspaceActiveCeilings(candidateEnquiries, workspaceId);
+      const defaultPeriodKey = getSequencePeriodKey('monthly', now);
+      const ceilings = getWorkspaceActiveCeilings(
+        candidateEnquiries,
+        workspaceId,
+        '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+        defaultPeriodKey,
+        'monthly'
+      );
       maxSn = ceilings.maxSn;
       maxSeq = ceilings.maxSeq;
 
@@ -576,7 +583,20 @@ export async function claimNextEnquirySequence(
         };
       }
 
-      const periodKey = getSequencePeriodKey(counters.resetCadence, now);
+      const currentPeriodKey = getSequencePeriodKey(counters.resetCadence, now);
+      if (candidateEnquiries && candidateEnquiries.length > 0) {
+        const scopedCeilings = getWorkspaceActiveCeilings(
+          candidateEnquiries,
+          workspaceId,
+          counters.pattern,
+          currentPeriodKey,
+          counters.resetCadence
+        );
+        maxSn = scopedCeilings.maxSn;
+        maxSeq = scopedCeilings.maxSeq;
+      }
+
+      const periodKey = currentPeriodKey;
       const baseSeq = counters.sequences?.[periodKey] || 0;
 
       // Respect the higher of configured counter baselines and active records ceiling

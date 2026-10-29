@@ -7933,7 +7933,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               Number(matchedProd?.stock_reserved ?? 0)
                           );
                           const reorderLvl = Number(matchedProd?.reorder_level || 0);
-                          const itemDrifted = matchedProd ? hasCatalogDrift(item, matchedProd) : false;
+                          const itemDrifted = matchedProd ? hasCatalogDrift(item, matchedProd, liveQuotation.currency) : false;
 
                           return (
                             <div
@@ -8050,7 +8050,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         item,
                                         matchedProd,
                                         setWorkspaceProducts,
-                                        triggerToast
+                                        triggerToast,
+                                        liveQuotation.currency
                                       );
                                       if (updated && propSetProducts) {
                                         propSetProducts((prev) =>
@@ -11192,6 +11193,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         isOpen={Boolean(catalogModalTarget)}
         onClose={() => setCatalogModalTarget(null)}
         lineItem={catalogModalTarget?.item || null}
+        currency={liveQuotation.currency || 'AED'}
         activeWorkspace={activeWorkspace}
         user={user}
         products={workspaceProducts}
