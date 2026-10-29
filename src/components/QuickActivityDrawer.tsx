@@ -40,6 +40,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
+import { quickAssistClientSide } from '../utils/aiExtractionClient';
 import {
   Company,
   Contact,
@@ -1806,42 +1807,65 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     if (action === 'draft_whatsapp') setIsDraftingWhatsapp(true);
     setAiError(null);
 
+    const assistParams = {
+      apiKey: localStorage.getItem('omni_user_gemini_api_key')?.trim() || undefined,
+      companyName: selectedCompanyName || companyName || expressCompanyName,
+      contactName: selectedContactName || contactName || expressContactName,
+      channel,
+      outcome,
+      purpose,
+      notes,
+      salespersonName: currentUserInitials
+    };
+
     try {
-      const response = await fetch('/api/ai/quick-activity-assist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          companyName: selectedCompanyName || companyName || expressCompanyName,
-          contactName: selectedContactName || contactName || expressContactName,
-          channel,
-          outcome,
-          purpose,
-          notes,
-          salespersonName: currentUserInitials
-        })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        if (data.needsApiKey || response.status === 429) {
-          setAiError('Gemini API quota depleted. Please configure a personal API key.');
-          setShowGeminiKeyModal(true);
-        } else {
-          setAiError(data.error || 'AI request failed. Please try again.');
+      let resultText = '';
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (assistParams.apiKey) {
+          headers['x-user-gemini-api-key'] = assistParams.apiKey;
         }
-        return;
+        const response = await fetch('/api/ai/quick-activity-assist', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            action,
+            ...assistParams
+          })
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const data = await response.json();
+          if (data.success && data.result) {
+            resultText = data.result;
+          } else if (data.needsApiKey || response.status === 429) {
+            throw new Error('QUOTA_OR_KEY_NEEDED');
+          } else {
+            throw new Error(data.error || 'Server endpoint returned error');
+          }
+        } else {
+          throw new Error(`Endpoint returned ${response.status}`);
+        }
+      } catch (serverErr: any) {
+        // Fallback to client-side Gemini execution when server route is unreachable or fails
+        resultText = await quickAssistClientSide(action, assistParams);
       }
 
-      if (action === 'summarize_notes' && data.result) {
-        setNotes(data.result);
-      } else if (action === 'draft_whatsapp' && data.result) {
-        setWhatsappDraft(data.result);
+      if (action === 'summarize_notes' && resultText) {
+        setNotes(resultText);
+      } else if (action === 'draft_whatsapp' && resultText) {
+        setWhatsappDraft(resultText);
       }
     } catch (err: any) {
-      console.error('Error during AI Assist fetch:', err);
-      setAiError('Network error or server unavailable. Please try again.');
+      console.error('Error during AI Assist:', err);
+      const msg = String(err?.message || '');
+      if (msg.includes('GEMINI_API_KEY_MISSING') || msg.includes('QUOTA_OR_KEY_NEEDED') || msg.includes('429')) {
+        setAiError('Gemini API key required or quota depleted. Please configure a personal API key.');
+        setShowGeminiKeyModal(true);
+      } else {
+        setAiError(err?.message || 'AI request failed. Please try again.');
+      }
     } finally {
       setIsSummarizing(false);
       setIsDraftingWhatsapp(false);

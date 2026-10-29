@@ -2,14 +2,17 @@ import { Product, Salesperson, Workspace, DropdownOption, AuditLog } from '../..
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { safeGetDocs } from '../../firebase';
+import { where } from 'firebase/firestore';
 
 export class MetadataRepository {
   private static PRODUCT_STORE = 'products';
 
   // Static Metadata - fetched once on boot, cached in IndexedDB
-  public static async fetchProductsOnce(): Promise<Product[]> {
+  public static async fetchProductsOnce(workspaceId?: string): Promise<Product[]> {
     try {
-      const snap = await safeGetDocs('products');
+      const snap = workspaceId
+        ? await safeGetDocs('products', where('workspace_id', '==', workspaceId))
+        : await safeGetDocs('products');
       if (!snap || snap.empty) return getFromLocalStore<Product>(this.PRODUCT_STORE);
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
       await saveToLocalStore(this.PRODUCT_STORE, docs);
@@ -77,9 +80,11 @@ export class MetadataRepository {
   }
 
   // Audit Logs - Write-only + On-Demand Query (Zero Real-Time Sockets)
-  public static async fetchAuditLogsOnce(): Promise<AuditLog[]> {
+  public static async fetchAuditLogsOnce(workspaceId?: string): Promise<AuditLog[]> {
     try {
-      const snap = await safeGetDocs('audit_logs');
+      const snap = workspaceId
+        ? await safeGetDocs('audit_logs', where('workspace_id', '==', workspaceId))
+        : await safeGetDocs('audit_logs');
       if (!snap || snap.empty) return [];
       return snap.docs.map((d) => ({ id: d.id, ...d.data() } as AuditLog));
     } catch (e) {

@@ -7,18 +7,42 @@ import { LineItem, LineItemComponent } from '../types';
 export const recalculateCompositeItemTotals = (
   components: LineItemComponent[],
   parentQty: number = 1
-): { unit_price: number; cost_price: number; total_price: number; line_total: number } => {
+): {
+  unit_price: number;
+  cost_price: number;
+  total_price: number;
+  line_total: number;
+  unitSellingPrice: number;
+  unitCostPrice: number;
+  totalSellingPrice: number;
+  normalizedComponents: LineItemComponent[];
+} => {
   const safeParentQty = Math.max(1, Number(parentQty) || 1);
   let totalUnitSelling = 0;
   let totalUnitCost = 0;
 
-  (components || []).forEach((comp) => {
-    if (comp.is_included_accessory) return;
-    const compQty = Number(comp.quantity) || 0;
-    const compUnitPrice = Number(comp.unit_price) || 0;
-    const compCostPrice = Number(comp.cost_price) || 0;
-    totalUnitSelling += compQty * compUnitPrice;
-    totalUnitCost += compQty * compCostPrice;
+  let pricedSn = 1;
+  const normalizedComponents: LineItemComponent[] = (components || []).map((comp) => {
+    const isAcc = Boolean(comp.is_included_accessory);
+    const compQty = Math.max(0, Number(comp.quantity) || 0);
+    const compUnitPrice = isAcc ? 0 : Math.max(0, Number(comp.unit_price) || 0);
+    const compCostPrice = isAcc ? 0 : Math.max(0, Number(comp.cost_price) || 0);
+    const compTotal = isAcc ? 0 : Math.round(compQty * compUnitPrice * 100) / 100;
+
+    if (!isAcc) {
+      totalUnitSelling += compTotal;
+      totalUnitCost += compQty * compCostPrice;
+    }
+
+    return {
+      ...comp,
+      sn: isAcc ? undefined : String(pricedSn++),
+      quantity: compQty || 1,
+      unit_price: compUnitPrice,
+      cost_price: compCostPrice,
+      total_price: compTotal,
+      line_total: compTotal,
+    };
   });
 
   const roundedUnitSelling = Math.round(totalUnitSelling * 100) / 100;
@@ -30,6 +54,10 @@ export const recalculateCompositeItemTotals = (
     cost_price: roundedUnitCost,
     total_price: totalPrice,
     line_total: totalPrice,
+    unitSellingPrice: roundedUnitSelling,
+    unitCostPrice: roundedUnitCost,
+    totalSellingPrice: totalPrice,
+    normalizedComponents,
   };
 };
 
@@ -247,7 +275,7 @@ export const getNextOptionLabel = (
 export const cloneLineItemToNextOption = <T extends LineItem>(
   sourceItem: T,
   existingItems: T[] = []
-): { clonedItem: T; updatedSourceOption?: string } => {
+): { clonedItem: T; updatedSourceOption?: string; targetOption: string } => {
   const currentOpt = (
     sourceItem.option ||
     sourceItem.item_option ||
@@ -282,7 +310,7 @@ export const cloneLineItemToNextOption = <T extends LineItem>(
     specifications: sourceItem.specifications ? { ...sourceItem.specifications } : {},
   };
 
-  return { clonedItem, updatedSourceOption };
+  return { clonedItem, updatedSourceOption, targetOption };
 };
 
 /**

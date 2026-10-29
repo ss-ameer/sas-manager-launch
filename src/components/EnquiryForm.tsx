@@ -633,9 +633,24 @@ export default function EnquiryForm({
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
     const saved = localStorage.getItem('omni_gemini_model_preference');
-    if (!saved || saved === 'gemini-2.5-flash' || saved === 'gemini-3.1-pro') return 'auto';
-    return saved;
+    if (!saved || saved.startsWith('gemini-3.')) return 'auto';
+    if (AVAILABLE_GEMINI_MODELS.some((m) => m.id === saved)) return saved;
+    return 'auto';
   });
+
+  // Revoke cached blob object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      dataUrlBlobCache.forEach((blobUrl) => {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {
+          // ignore
+        }
+      });
+      dataUrlBlobCache.clear();
+    };
+  }, []);
   const [aiConfidence, setAiConfidence] = useState<{
     company_name?: 'high' | 'medium' | 'low';
     contact_name?: 'high' | 'medium' | 'low';
@@ -2677,7 +2692,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
       const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-2.5-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -2848,7 +2863,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel === 'auto' ? 'gemini-2.5-flash' : selectedAiModel;
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,

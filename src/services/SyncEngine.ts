@@ -1,5 +1,5 @@
-import { safeAddDoc, safeUpdateDoc, safeDeleteDoc, safeSetDoc, safeGetDocs } from '../firebase';
-import { where } from 'firebase/firestore';
+import { db, cleanUndefined, safeGetDocs, safeSetDoc, safeDeleteDoc, safeAddDoc } from '../firebase';
+import { doc, setDoc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { enqueueLocalMutation, getPendingMutations, removeLocalMutation, MutationItem } from './db';
 import { sanitizeFirestorePayload } from './attachmentStorage';
 
@@ -137,13 +137,14 @@ class SyncEngine {
         if (!this.isOnline) break;
 
         try {
-          const payload = item.payload ? sanitizeFirestorePayload(item.payload) : item.payload;
+          const payload = item.payload ? cleanUndefined(sanitizeFirestorePayload(item.payload)) : item.payload;
+          const docRef = doc(db, item.entity, item.docId);
           if (item.action === 'create' || item.action === 'set') {
-            await safeSetDoc(item.entity, item.docId, payload);
+            await setDoc(docRef, payload, { merge: true });
           } else if (item.action === 'update') {
-            await safeUpdateDoc(item.entity, item.docId, payload);
+            await updateDoc(docRef, payload);
           } else if (item.action === 'delete') {
-            await safeDeleteDoc(item.entity, item.docId);
+            await deleteDoc(docRef);
           }
 
           // Successfully synchronized to Firestore
@@ -153,13 +154,15 @@ class SyncEngine {
         } catch (err: any) {
           console.warn(`[SyncEngine] Failed to sync item ${item.id} (${item.entity}:${item.action}):`, err);
           
-          item.retryCount += 1;
+          item.retryCount = (item.retryCount || 0) + 1;
           this.lastError = err?.message || 'Sync error occurred';
 
-          // If item fails repeatedly with non-retryable error, drop or pause
+          // If item fails repeatedly with non-retryable error, drop or persist updated retryCount
           if (item.retryCount > 10) {
             console.error(`[SyncEngine] Dropping un-syncable mutation ${item.id} after 10 attempts.`);
             await removeLocalMutation(item.id);
+          } else {
+            await enqueueLocalMutation(item);
           }
           break; // Stop loop and retry in next cycle
         }

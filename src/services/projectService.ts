@@ -1,6 +1,7 @@
 import { Project, ProjectMilestone, Enquiry, UserProfile } from '../types';
 import { safeAddDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
-import { reserveEnquiryStock } from './inventoryService';
+import { where } from 'firebase/firestore';
+import { reserveEnquiryStock, isOptionActiveForInventoryAndBaseline } from './inventoryService';
 
 export interface ProjectConversionOptions {
   project_type?: 'Supply Only' | 'Turnkey / Installation';
@@ -10,6 +11,7 @@ export interface ProjectConversionOptions {
   site_location?: string;
   milestones?: ProjectMilestone[];
   operational_notes?: string;
+  selected_option?: string;
 }
 
 export function getDefaultMilestones(projectType: 'Supply Only' | 'Turnkey / Installation'): ProjectMilestone[] {
@@ -33,7 +35,9 @@ export async function generateNextProjectNumber(workspaceId: string): Promise<st
   let maxSeq = 0;
 
   try {
-    const snap = await safeGetDocs('projects');
+    const snap = workspaceId
+      ? await safeGetDocs('projects', where('workspace_id', '==', workspaceId))
+      : await safeGetDocs('projects');
     if (snap && !snap.empty) {
       snap.docs.forEach((d) => {
         const data = d.data();
@@ -66,7 +70,26 @@ export async function createProjectFromEnquiry(
   const projectNumber = await generateNextProjectNumber(wsId);
   const nowIso = new Date().toISOString();
 
-  const isTurnkeyDetected = (enquiry.line_items || []).some(
+  const winningOption = (options?.selected_option || enquiry.proposal_option || '').trim();
+  const rawLineItems = enquiry.line_items || [];
+
+  // Filter line items to the winning option (plus Default / Included baseline items) when multiple options exist
+  const distinctAlternativeOptions = Array.from(
+    new Set(
+      rawLineItems
+        .map((it) => ((it as any).option_designation || it.option || 'Default / Included').trim())
+        .filter((opt) => opt && opt !== 'Default / Included' && opt !== 'Baseline / All')
+    )
+  );
+  const confirmedLineItems =
+    distinctAlternativeOptions.length > 1
+      ? rawLineItems.filter((it) => {
+          const itemOpt = (it as any).option_designation || it.option;
+          return isOptionActiveForInventoryAndBaseline(itemOpt, winningOption || 'Option A');
+        })
+      : rawLineItems;
+
+  const isTurnkeyDetected = confirmedLineItems.some(
     (it) =>
       (it.description || '').toLowerCase().includes('installation') ||
       (it.product_type || '').toLowerCase().includes('fabrication')
@@ -96,6 +119,18 @@ export async function createProjectFromEnquiry(
   const operationalNotes =
     options?.operational_notes !== undefined ? options.operational_notes : (enquiry.remarks || '');
 
+  // Calculate contract value for the confirmed option if multi-option and not overridden
+  const confirmedItemsValue = confirmedLineItems.reduce(
+    (sum, it) => sum + (Number(it.total_price) || (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)),
+    0
+  );
+  const resolvedContractValue =
+    distinctAlternativeOptions.length > 1 && confirmedItemsValue > 0
+      ? enquiry.currency === 'USD'
+        ? confirmedItemsValue * 3.6725
+        : confirmedItemsValue
+      : enquiry.value_aed || 0;
+
   const projectPayload: Omit<Project, 'id'> = {
     project_number: projectNumber,
     workspace_id: wsId,
@@ -105,9 +140,9 @@ export async function createProjectFromEnquiry(
     title: enquiry.subject || `Fulfillment for ${enquiry.company_name || enquiry.quote_ref_no || 'Enquiry'}`,
     status: 'In Progress',
     project_type: finalProjectType,
-    contract_value: enquiry.value_aed || 0,
+    contract_value: resolvedContractValue,
     currency: enquiry.currency || 'AED',
-    line_items: enquiry.line_items || [],
+    line_items: confirmedLineItems,
     operational_notes: operationalNotes,
     assigned_engineer_name: assignedEngineerName || undefined,
     assigned_engineer_id: assignedEngineerId || undefined,
@@ -123,11 +158,12 @@ export async function createProjectFromEnquiry(
   const createdId = res?.id || `prj_${Date.now()}`;
   const createdProject: Project = { id: createdId, ...projectPayload };
 
-  // Tag enquiry with project reference
+  // Tag enquiry with project reference & winning option
   if (enquiry.id) {
     await safeUpdateDoc('enquiries', enquiry.id, {
       project_id: createdId,
       project_number: projectNumber,
+      ...(winningOption ? { proposal_option: winningOption } : {}),
       stock_reserved: true,
       stock_reserved_at: nowIso,
       updatedAt: nowIso
@@ -135,9 +171,19 @@ export async function createProjectFromEnquiry(
   }
 
   // Ensure stock is reserved for inventoried line items if not already tagged (idempotent guard)
-  if (enquiry.stock_reserved !== true && !enquiry.stock_reserved && enquiry.line_items && enquiry.line_items.some((it) => it.product_id)) {
+  const enquiryForStock: Enquiry = {
+    ...enquiry,
+    ...(winningOption ? { proposal_option: winningOption } : {})
+  };
+  if (
+    enquiry.stock_reserved !== true &&
+    !enquiry.stock_reserved &&
+    confirmedLineItems.some(
+      (it) => it.product_id || (Array.isArray(it.sub_components) && it.sub_components.some((s) => s.product_id))
+    )
+  ) {
     try {
-      const res = await reserveEnquiryStock(enquiry, user);
+      const res = await reserveEnquiryStock(enquiryForStock, user);
       if (res && res.reservedCount > 0) {
         enquiry.stock_reserved = true;
       }
@@ -152,9 +198,9 @@ export async function createProjectFromEnquiry(
 export async function getProjectForEnquiry(enquiryId: string): Promise<Project | null> {
   if (!enquiryId) return null;
   try {
-    const snap = await safeGetDocs('projects');
+    const snap = await safeGetDocs('projects', where('enquiry_id', '==', enquiryId));
     if (snap && !snap.empty) {
-      const match = snap.docs.find((d) => d.data().enquiry_id === enquiryId);
+      const match = snap.docs[0];
       if (match) {
         return { id: match.id, ...match.data() } as Project;
       }
@@ -168,7 +214,7 @@ export async function getProjectForEnquiry(enquiryId: string): Promise<Project |
 export async function getWorkspaceProjects(workspaceId: string): Promise<Project[]> {
   if (!workspaceId) return [];
   try {
-    const snap = await safeGetDocs('projects');
+    const snap = await safeGetDocs('projects', where('workspace_id', '==', workspaceId));
     if (snap && !snap.empty) {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Project))
@@ -209,4 +255,5 @@ export async function updateProjectStatus(
     return false;
   }
 }
+
 

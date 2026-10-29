@@ -45,17 +45,7 @@ export class ActivityLogRepository {
   }
 
   public static async saveLocalOnly(entry: ActivityLogEntry): Promise<void> {
-    const current = await this.getAllLocal();
-    const idx = current.findIndex((item) => item.id === entry.id);
-    let updated: ActivityLogEntry[];
-
-    if (idx >= 0) {
-      updated = [...current];
-      updated[idx] = entry;
-    } else {
-      updated = [entry, ...current];
-    }
-    await this.saveLocalCache(updated);
+    return this.save(entry);
   }
 
   /**
@@ -353,6 +343,7 @@ export class ActivityLogRepository {
     }
     await this.saveLocalCache(updated);
     await syncEngine.enqueue('activity_logs', 'set', entry.id, entry);
+    await syncEngine.enqueue('call_logs', 'set', entry.id, entry);
   }
 
   /**
@@ -451,6 +442,7 @@ export class ActivityLogRepository {
     const updated = current.filter((item) => item.id !== id);
     await this.saveLocalCache(updated);
     await syncEngine.enqueue('activity_logs', 'delete', id);
+    await syncEngine.enqueue('call_logs', 'delete', id);
   }
 
   public static async convertUnsavedLeadToClient(params: ConvertLeadParams): Promise<ConvertLeadResult> {

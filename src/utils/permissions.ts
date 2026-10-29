@@ -109,11 +109,28 @@ export function getEffectiveWorkspaceRole(
   activeWorkspace: any
 ): 'admin' | 'member' | 'viewer' {
   if (!currentUser) return 'member';
-  // Only superadmin bypasses workspace assignment
-  if ((currentUser.role || '').toLowerCase() === 'superadmin') return 'admin';
+  // Superadmin always resolves to admin
+  if (isSuperAdmin(currentUser)) return 'admin';
 
   const currentUserId = (currentUser.uid || currentUser.id || '').trim();
   const currentUserEmail = (currentUser.email || '').toLowerCase().trim();
+
+  // Check if user is the explicit workspace owner / creator
+  if (activeWorkspace && currentUserId) {
+    const ownerFields = [
+      activeWorkspace.owner_uid,
+      activeWorkspace.owner_id,
+      activeWorkspace.ownerId,
+      activeWorkspace.created_by_uid,
+      activeWorkspace.created_by,
+      activeWorkspace.createdBy
+    ]
+      .filter(Boolean)
+      .map((v: any) => String(v).trim());
+    if (ownerFields.includes(currentUserId)) {
+      return 'admin';
+    }
+  }
 
   let member: any = null;
   if (Array.isArray(activeWorkspace?.members)) {

@@ -132,9 +132,9 @@ export function getReferenceId(
 
     const index = sorted.findIndex((x) => x.id === rawId);
     if (index !== -1) {
-      // Offset by maxExplicitNum if items exist with higher IDs, ensuring uniqueness
+      // Offset by maxExplicitNum if items exist with higher explicit IDs, ensuring uniqueness
       const seq = index + 1;
-      const finalNum = Math.max(seq, maxExplicitNum ? seq : index + 1);
+      const finalNum = maxExplicitNum >= seq ? maxExplicitNum + 1 : seq;
       return `${type}-${String(finalNum).padStart(4, '0')}`;
     }
   }

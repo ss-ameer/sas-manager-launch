@@ -142,21 +142,15 @@ Extract the details accurately into the requested JSON format.${salespersonExclu
 
 export const AVAILABLE_GEMINI_MODELS = [
   { id: 'auto', label: '⚡ Auto-Cascade (Failover Pool)' },
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Flagship Default)' },
-  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
-  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
-  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
 ];
 
 export const DEFAULT_MODEL_CASCADE = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite'
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro'
 ];
 
 export async function extractEnquiryClientSide(
@@ -334,3 +328,69 @@ export async function extractEnquiryClientSide(
 
   throw lastError || new Error('All models in fallback cascade failed to extract enquiry.');
 }
+
+/**
+ * Client-side fallback for AI Quick Assist (summarize_notes and draft_whatsapp)
+ * when the Express backend endpoint is unreachable on static deployments.
+ */
+export async function quickAssistClientSide(
+  action: 'summarize_notes' | 'draft_whatsapp',
+  params: {
+    apiKey?: string;
+    companyName?: string;
+    contactName?: string;
+    channel?: string;
+    outcome?: string;
+    purpose?: string;
+    notes?: string;
+    salespersonName?: string;
+  }
+): Promise<string> {
+  const resolvedKey =
+    (params.apiKey && params.apiKey.trim()) ||
+    (typeof window !== 'undefined' ? localStorage.getItem('omni_user_gemini_api_key')?.trim() : '') ||
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    '';
+
+  if (!resolvedKey) {
+    throw new Error('GEMINI_API_KEY_MISSING: No active Gemini API key found. Please configure your personal API key in Settings.');
+  }
+
+  const genAI = new GoogleGenerativeAI(resolvedKey);
+  const prompt =
+    action === 'summarize_notes'
+      ? `You are an expert B2B CRM sales assistant.
+Refine and structure the following rough activity notes into a clean, professional, concise CRM log entry (2-4 bullet points or short sentences, preserving all key facts, pricing, or commitments).
+Company: ${params.companyName || 'Client'}
+Contact: ${params.contactName || 'N/A'}
+Channel: ${params.channel || 'Call'}
+Purpose: ${params.purpose || 'Follow-Up'}
+Outcome: ${params.outcome || 'Logged'}
+Raw Notes: ${params.notes || 'Discussed quotation status and next steps.'}
+
+Output ONLY the refined notes text without introductory filler.`
+      : `You are an expert B2B sales executive in the UAE/GCC.
+Draft a concise, polite, ready-to-send WhatsApp follow-up message based on this activity:
+Company: ${params.companyName || 'Valued Client'}
+Contact Name: ${params.contactName || 'Sir/Madam'}
+Purpose: ${params.purpose || 'Quotation Follow-Up'}
+Outcome: ${params.outcome || 'Follow-Up'}
+Context / Notes: ${params.notes || 'Following up on our submitted commercial quotation.'}
+Sender: ${params.salespersonName || 'Sales Team'}
+
+Keep it warm, professional, and brief (3-5 sentences max). Output ONLY the WhatsApp message text.`;
+
+  let lastErr: any = null;
+  for (const modelName of DEFAULT_MODEL_CASCADE) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+      if (text) return text;
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Failed to generate AI Quick Assist response.');
+}
+

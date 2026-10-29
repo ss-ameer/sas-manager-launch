@@ -8,7 +8,10 @@ import { getParentIndustry } from './taxonomy';
  */
 export function escapeCsvCell(val: any): string {
   if (val === null || val === undefined) return '""';
-  const str = String(val).trim();
+  let str = String(val).trim();
+  if (/^[=+\-@]/.test(str)) {
+    str = `'${str}`;
+  }
   return `"${str.replace(/"/g, '""')}"`;
 }
 

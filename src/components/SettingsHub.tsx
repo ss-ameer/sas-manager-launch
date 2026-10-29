@@ -643,7 +643,7 @@ export default function SettingsHub({
 
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(userApiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
       
       const response = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: "PING_API_KEY_HEALTH_TEST. Just reply 'OK'." }] }],

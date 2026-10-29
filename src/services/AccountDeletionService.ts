@@ -170,26 +170,34 @@ export async function executeFinalCascadeDeleteAndScrub(
       const wmSnap = await getDocs(
         query(collection(db, 'workspace_members'), where('workspace_id', '==', ws.id), where('email', '==', userEmail))
       );
-      wmSnap.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of wmSnap.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
     }
     if (userUid) {
       const wmSnap = await getDocs(
         query(collection(db, 'workspace_members'), where('workspace_id', '==', ws.id), where('user_id', '==', userUid))
       );
-      wmSnap.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of wmSnap.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
     }
 
     if (userEmail) {
       const spSnap = await getDocs(
         query(collection(db, 'salespersons'), where('workspace_id', '==', ws.id), where('email', '==', userEmail))
       );
-      spSnap.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of spSnap.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
     }
     if (userUid) {
       const spSnap = await getDocs(
         query(collection(db, 'salespersons'), where('workspace_id', '==', ws.id), where('uid', '==', userUid))
       );
-      spSnap.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of spSnap.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
     }
   }
 
@@ -227,10 +235,14 @@ export async function executeFinalCascadeDeleteAndScrub(
 
     for (const colName of targetCollections) {
       const snap1 = await getDocs(query(collection(db, colName), where('workspace_id', '==', wsId)));
-      snap1.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of snap1.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
 
       const snap2 = await getDocs(query(collection(db, colName), where('workspaceId', '==', wsId)));
-      snap2.forEach((d) => safeAddBatchOp('delete', d.ref));
+      for (const d of snap2.docs) {
+        await safeAddBatchOp('delete', d.ref);
+      }
     }
   }
 
@@ -270,40 +282,48 @@ export async function executeFinalCascadeDeleteAndScrub(
       const wmTargetSnap = await getDocs(
         query(collection(db, 'workspace_members'), where('workspace_id', '==', ws.id))
       );
-      wmTargetSnap.forEach((d) => {
+      for (const d of wmTargetSnap.docs) {
         const dData = d.data();
         if (
           dData.user_id === targetOwner ||
           dData.uid === targetOwner ||
           dData.email?.toLowerCase().trim() === targetOwner.toLowerCase().trim()
         ) {
-          safeAddBatchOp('update', d.ref, { role: 'Admin', status: 'active' });
+          await safeAddBatchOp('update', d.ref, { role: 'Admin', status: 'active' });
         }
         if (
           dData.user_id === userUid ||
           dData.uid === userUid ||
           dData.email?.toLowerCase().trim() === userEmail
         ) {
-          safeAddBatchOp('delete', d.ref);
+          await safeAddBatchOp('delete', d.ref);
         }
-      });
+      }
     }
   }
 
   // 4. Global Identity & Membership Scrub
   if (userEmail) {
     const wmSnap1 = await getDocs(query(collection(db, 'workspace_members'), where('email', '==', userEmail)));
-    wmSnap1.forEach((d) => safeAddBatchOp('delete', d.ref));
+    for (const d of wmSnap1.docs) {
+      await safeAddBatchOp('delete', d.ref);
+    }
 
     const spSnap1 = await getDocs(query(collection(db, 'salespersons'), where('email', '==', userEmail)));
-    spSnap1.forEach((d) => safeAddBatchOp('delete', d.ref));
+    for (const d of spSnap1.docs) {
+      await safeAddBatchOp('delete', d.ref);
+    }
   }
   if (userUid) {
     const wmSnap2 = await getDocs(query(collection(db, 'workspace_members'), where('user_id', '==', userUid)));
-    wmSnap2.forEach((d) => safeAddBatchOp('delete', d.ref));
+    for (const d of wmSnap2.docs) {
+      await safeAddBatchOp('delete', d.ref);
+    }
 
     const spSnap2 = await getDocs(query(collection(db, 'salespersons'), where('uid', '==', userUid)));
-    spSnap2.forEach((d) => safeAddBatchOp('delete', d.ref));
+    for (const d of spSnap2.docs) {
+      await safeAddBatchOp('delete', d.ref);
+    }
 
     await safeAddBatchOp('delete', doc(db, 'users', userUid));
   }

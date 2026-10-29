@@ -31,8 +31,8 @@ async function startServer() {
   // Helper for exponential backoff retries on transient errors with model rotation pool support
   async function retryWithBackoffAndFallback<T>(
     fn: (modelName: string) => Promise<T>,
-    modelsPool = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-flash-latest"],
-    retries = 2,
+    modelsPool = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
+    retries = 3,
     delayMs = 400
   ): Promise<T> {
     let attempt = 0;
@@ -64,7 +64,14 @@ async function startServer() {
           throw error;
         }
 
+        const isNotFound =
+          errStatus === 404 ||
+          errMsg.includes("404") ||
+          errMsg.includes("NOT_FOUND") ||
+          errMsg.toLowerCase().includes("not found");
+
         const isTransient =
+          isNotFound ||
           errMsg.includes("503") ||
           errMsg.includes("429") ||
           errMsg.includes("UNAVAILABLE") ||
@@ -77,7 +84,7 @@ async function startServer() {
         }
 
         const nextModel = modelsPool[attempt % modelsPool.length];
-        console.warn(`[retryWithBackoff] Transient error on "${currentModel}" (attempt ${attempt}/${retries}). Switching to fallback model "${nextModel}" and retrying in ${delayMs}ms... Error: ${errMsg}`);
+        console.warn(`[retryWithBackoff] Recoverable error on "${currentModel}" (attempt ${attempt}/${retries}). Switching to fallback model "${nextModel}" and retrying in ${delayMs}ms... Error: ${errMsg}`);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         delayMs *= 2; // exponential scaling
       }

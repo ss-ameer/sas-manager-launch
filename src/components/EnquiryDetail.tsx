@@ -231,18 +231,37 @@ export default function EnquiryDetail({
 
   // Prompt confirmation to mark quotation as Client Accepted & Win Enquiry
   const promptAcceptQuotation = (quote: Quotation) => {
+    const quoteItems = quote.line_items || [];
+    const distinctQuoteOptions = Array.from(
+      new Set([
+        ...quoteItems
+          .map((li) => (li.option_group || '').trim())
+          .filter((g) => g && g !== 'Default / Included' && g !== 'Baseline / All' && !g.toLowerCase().includes('optional')),
+        ...(currentEnquiry.line_items || [])
+          .map((li) => ((li as any).option_designation || li.option || '').trim())
+          .filter((g) => g && g !== 'Default / Included' && g !== 'Baseline / All' && !g.toLowerCase().includes('optional'))
+      ])
+    );
+
+    const initialWinningOption =
+      distinctQuoteOptions.length > 0
+        ? (currentEnquiry.proposal_option || distinctQuoteOptions[0])
+        : undefined;
+
     setConfirmDialog({
       isOpen: true,
       title: 'Accept Commercial Offer & Confirm Order',
-      message: `Mark ${quote.formatted_quote_ref} as Client Accepted? This will update the enquiry status and sync the deal value.`,
+      message: `Mark ${quote.formatted_quote_ref} as Client Accepted? This will update the enquiry status to Won / Approved, reserve applicable stock, and sync the deal value.`,
       confirmText: 'Accept Quote / Won',
       cancelText: 'Cancel',
       variant: 'success',
-      onConfirm: () => handleAcceptQuotation(quote)
+      selectableOptions: distinctQuoteOptions.length > 1 ? distinctQuoteOptions : undefined,
+      selectedOption: initialWinningOption,
+      onConfirm: (chosenOpt?: string) => handleAcceptQuotation(quote, chosenOpt || initialWinningOption)
     });
   };
 
-  const handleAcceptQuotation = async (quote: Quotation) => {
+  const handleAcceptQuotation = async (quote: Quotation, chosenOption?: string) => {
     if (!currentEnquiry?.id || !quote.id) return;
     try {
       // 1. Update quotation status to 'Approved'
@@ -254,6 +273,21 @@ export default function EnquiryDetail({
         setViewingQuotation({ ...viewingQuotation, status: 'Approved' });
       }
 
+      // Prompt or resolve winning option if quotation/enquiry has multiple option groups
+      const quoteItems = quote.line_items || [];
+      const distinctQuoteOptions = Array.from(
+        new Set(
+          quoteItems
+            .map((li) => (li.option_group || '').trim())
+            .filter((g) => g && g !== 'Default / Included' && g !== 'Baseline / All' && !g.toLowerCase().includes('optional'))
+        )
+      );
+      const selectedWinningOption =
+        chosenOption ||
+        (distinctQuoteOptions.length > 0
+          ? (currentEnquiry.proposal_option || distinctQuoteOptions[0])
+          : currentEnquiry.proposal_option);
+
       // 2. Sync deal value, status, and quote ref to parent enquiry (converting USD -> AED if needed)
       const rawGrandTotal = Number(quote.grand_total || 0);
       const dealValueAed = quote.currency === 'USD' ? Math.round(rawGrandTotal * 3.6725 * 100) / 100 : rawGrandTotal;
@@ -261,7 +295,8 @@ export default function EnquiryDetail({
         currentEnquiry.id,
         quote.formatted_quote_ref,
         dealValueAed,
-        user ? { uid: user.uid, name: user.full_name || user.username } : undefined
+        user ? { uid: user.uid, name: user.full_name || user.username } : undefined,
+        selectedWinningOption
       );
 
       if (updatedEnquiry) {
@@ -273,7 +308,10 @@ export default function EnquiryDetail({
 
       // Auto-reserve stock if applicable upon transition to Won
       try {
-        await reserveEnquiryStock(currentEnquiry, user);
+        await reserveEnquiryStock(
+          { ...currentEnquiry, ...(selectedWinningOption ? { proposal_option: selectedWinningOption } : {}) },
+          user
+        );
         if (onStockUpdated) {
           onStockUpdated();
         }
@@ -288,7 +326,7 @@ export default function EnquiryDetail({
         const formattedVal = `AED ${dealValueAed.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
         const noteText = `Commercial Offer ${quote.formatted_quote_ref} Accepted by Client. Confirmed Value: ${formattedVal}`;
 
-        await ActivityLogRepository.saveLocalOnly({
+        await ActivityLogRepository.save({
           id: activityId,
           workspace_id: wsId,
           company_id: currentEnquiry.company_id || '',
@@ -423,7 +461,7 @@ export default function EnquiryDetail({
 
       try {
         const activityId = `act_quote_declined_${Date.now()}`;
-        await ActivityLogRepository.saveLocalOnly({
+        await ActivityLogRepository.save({
           id: activityId,
           workspace_id: wsId,
           company_id: currentEnquiry.company_id || '',
@@ -747,6 +785,9 @@ export default function EnquiryDetail({
   // Operational Handoff / Project Conversion Modal State
   const [showConvertModal, setShowConvertModal] = useState(false);
   const [convertProjectType, setConvertProjectType] = useState<'Supply Only' | 'Turnkey / Installation'>('Supply Only');
+  const [convertSelectedOption, setConvertSelectedOption] = useState<string>(
+    currentEnquiry.proposal_option || 'Option A'
+  );
   const [modalMilestones, setModalMilestones] = useState<ProjectMilestone[]>([]);
   const [convertEngineerName, setConvertEngineerName] = useState(
     user?.full_name || (user as any)?.name || (user as any)?.displayName || ''
@@ -770,6 +811,16 @@ export default function EnquiryDetail({
     const initialType: 'Supply Only' | 'Turnkey / Installation' = isTurnkey ? 'Turnkey / Installation' : 'Supply Only';
     setConvertProjectType(initialType);
     setModalMilestones(getDefaultMilestones(initialType));
+    const distinctOptions = Array.from(
+      new Set(
+        (currentEnquiry.line_items || [])
+          .map((it) => ((it as any).option_designation || it.option || '').trim())
+          .filter((o) => o && o !== 'Default / Included' && o !== 'Baseline / All')
+      )
+    );
+    setConvertSelectedOption(
+      currentEnquiry.proposal_option || distinctOptions[0] || 'Option A'
+    );
     setConvertEngineerName(user?.full_name || (user as any)?.name || (user as any)?.displayName || '');
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -810,24 +861,38 @@ export default function EnquiryDetail({
     if (!currentEnquiry?.id || isCreatingProject) return;
     setIsCreatingProject(true);
     try {
+      const effectiveWinningOption = optionAnalysis.hasMultipleOptions ? convertSelectedOption : undefined;
       const conversionOptions: ProjectConversionOptions = {
         project_type: convertProjectType,
         assigned_engineer_name: convertEngineerName.trim() || undefined,
         target_delivery_date: convertTargetDate || undefined,
         site_location: convertSiteLocation.trim() || undefined,
         operational_notes: convertOperationalNotes.trim() || undefined,
-        milestones: modalMilestones
+        milestones: modalMilestones,
+        selected_option: effectiveWinningOption
       };
 
       // Ensure stock is reserved on project launch if not already reserved
       let isStockReserved = Boolean(currentEnquiry.stock_reserved);
       const hasInventoriedItems = Boolean(
-        currentEnquiry.line_items && currentEnquiry.line_items.some((it) => it.product_id)
+        currentEnquiry.line_items &&
+          currentEnquiry.line_items.some(
+            (it) =>
+              it.product_id ||
+              (it.is_composite_set &&
+                Array.isArray(it.sub_components) &&
+                it.sub_components.some((sc) => sc.product_id))
+          )
       );
+
+      const enquiryWithOption: Enquiry = {
+        ...currentEnquiry,
+        ...(effectiveWinningOption ? { proposal_option: effectiveWinningOption } : {})
+      };
 
       if (!isStockReserved && hasInventoriedItems) {
         try {
-          const res = await reserveEnquiryStock(currentEnquiry, user);
+          const res = await reserveEnquiryStock(enquiryWithOption, user);
           if (res.reservedCount > 0) {
             isStockReserved = true;
           }
@@ -837,14 +902,14 @@ export default function EnquiryDetail({
       }
 
       const newProject = await createProjectFromEnquiry(
-        { ...currentEnquiry, stock_reserved: isStockReserved },
+        { ...enquiryWithOption, stock_reserved: isStockReserved },
         user,
         conversionOptions
       );
       setLinkedProject(newProject);
 
       const updatedEnquiry: Enquiry = {
-        ...currentEnquiry,
+        ...enquiryWithOption,
         project_id: newProject.id,
         project_number: newProject.project_number,
         stock_reserved: isStockReserved,
@@ -1589,14 +1654,12 @@ export default function EnquiryDetail({
 
   // Upload Product Image or Technical Datasheet for a Draft Line Item in Quick Edit
   const handleInlineItemMediaUpload = async (idx: number, file: File, mediaType: 'image' | 'datasheet') => {
-    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || activeWorkspace?.id || 'default';
-    setUploadingInlineItemMedia({ idx, type: mediaType });
     try {
       const uploaded = await uploadWorkspaceMediaAsset(
         file,
-        wsId,
         mediaType === 'image' ? 'product_images' : 'product_datasheets',
-        { uid: user?.uid, name: user?.full_name || user?.username }
+        activeWorkspace,
+        { compressImage: mediaType === 'image', maxDimension: 1200, quality: 0.85 }
       );
       if (mediaType === 'image') {
         handleDraftItemChange(idx, 'image_url', uploaded.url);
@@ -1801,11 +1864,13 @@ export default function EnquiryDetail({
     isOpen: boolean;
     title: string;
     message: string;
-    onConfirm: () => void;
+    onConfirm: (selectedOption?: string) => void;
     confirmText?: string;
     cancelText?: string;
     isDestructive?: boolean;
     variant?: 'destructive' | 'warning' | 'success' | 'default';
+    selectableOptions?: string[];
+    selectedOption?: string;
   }>({
     isOpen: false,
     title: '',
@@ -5013,72 +5078,198 @@ export default function EnquiryDetail({
             </div>
           )}
 
-          {activeTab === 'history' && (
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono border-b border-slate-100 pb-2 mb-2">
-                <History className="w-4 h-4" />
-                <span>Enquiry Revision Registry & Audit trail</span>
-              </div>
+          {activeTab === 'history' && (() => {
+            const HIDDEN_AUDIT_FIELDS = new Set([
+              'id',
+              '_id',
+              'updated_at',
+              'updatedat',
+              'created_at',
+              'createdat',
+              'version',
+              'sync_status',
+              'workspace_id',
+              'workspaceid',
+              'createdby',
+              'created_by',
+              'created_by_uid',
+              'createdbyuid',
+              'created_by_name',
+              'createdbyusername',
+              'last_modified_by_uid',
+              'last_modified_by_name',
+              'updatedbyuid',
+              'updatedbyusername',
+              'assigned_to_id',
+              'sales_person_id',
+              'salesperson_id',
+              'statusupdatedat',
+              'statusupdatedby',
+              'statushistory'
+            ]);
 
-              {recordLogs.length > 0 ? (
-                <div className="space-y-4">
-                  {recordLogs.map((log) => (
-                    <div key={log.id} className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-150 pb-2.5">
-                        <div className="space-y-0.5">
-                          <span className="text-xs text-slate-800 font-semibold block font-sans">
-                            {log.changed_by_name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono block">
-                            {new Date(log.timestamp).toLocaleString()}
-                          </span>
-                        </div>
+            const CANONICAL_AUDIT_FIELD_MAP: Record<string, string> = {
+              salesperson: 'salesperson',
+              sales_person: 'salesperson',
+              assigned_salesperson: 'salesperson',
+              assignedsalesperson: 'salesperson',
+              assigned_to: 'salesperson',
+              quote_ref_no: 'quote_ref_no',
+              latest_quote_ref: 'quote_ref_no',
+              value_aed: 'value_aed',
+              quoted_amount: 'value_aed',
+              raw_source_text: 'raw_source_text',
+              projected_order_date: 'projected_order_date',
+              line_items: 'line_items',
+              company_name: 'company_name',
+              project_location: 'project_location',
+              concerned_person: 'concerned_person',
+              concerned_persons: 'concerned_person',
+              contact_person_name: 'concerned_person'
+            };
 
-                        {user.role !== 'Viewer' && (
-                          <button
-                            type="button"
-                            onClick={() => handleRevert(log)}
-                            disabled={reverting}
-                            className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Rollback</span>
-                          </button>
-                        )}
-                      </div>
+            const BUSINESS_FIELD_LABELS: Record<string, string> = {
+              salesperson: 'Salesperson',
+              quote_ref_no: 'Quote Ref No.',
+              value_aed: 'Package Value (AED)',
+              raw_source_text: 'Source Text',
+              projected_order_date: 'Est. Order Date',
+              line_items: 'Line Items',
+              company_name: 'Company Name',
+              project_location: 'Project Location',
+              concerned_person: 'Contact Person',
+              client_reference: 'Client Reference',
+              enquiry_date: 'Proposal Date',
+              status: 'Status',
+              remarks: 'Remarks & Notes',
+              subject: 'Subject',
+              currency: 'Currency',
+              payment_terms: 'Payment Terms',
+              delivery_terms: 'Delivery Terms',
+              validity_days: 'Validity (Days)',
+              proposal_option: 'Confirmed Option',
+              quotation_acceptance: 'Quotation Accepted',
+              quotation_declined: 'Quotation Declined',
+              version_rollback: 'Version Rollback',
+              attachments: 'Attachments'
+            };
 
-                      {log.changes && log.changes.length > 0 ? (
-                        <div className="space-y-2">
-                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Modified properties:</span>
-                          {log.changes.map((diff, idx) => (
-                            <div key={idx} className="bg-white border border-slate-200 rounded-lg p-3 text-xs space-y-1 font-mono">
-                              <span className="text-blue-600 font-semibold block">{diff.field}</span>
-                              <div className="flex flex-col space-y-0.5 text-[11px] text-slate-500 pl-2 border-l border-slate-100">
-                                <span className="line-through text-slate-400 shrink-0">
-                                  Was: {typeof diff.old_value === 'object' ? JSON.stringify(diff.old_value) : String(diff.old_value || 'none')}
-                                </span>
-                                <span className="text-emerald-600 font-semibold shrink-0">
-                                  Is: {typeof diff.new_value === 'object' ? JSON.stringify(diff.new_value) : String(diff.new_value || 'none')}
-                                </span>
-                              </div>
+            const isEmptyAuditVal = (v: any): boolean => {
+              if (v === null || v === undefined || v === '') return true;
+              if (Array.isArray(v) && v.length === 0) return true;
+              return false;
+            };
+
+            const formatAuditVal = (fieldKey: string, val: any): string => {
+              if (isEmptyAuditVal(val)) return 'None';
+              if (fieldKey === 'line_items' && Array.isArray(val)) {
+                return `${val.length} item${val.length === 1 ? '' : 's'}`;
+              }
+              if (fieldKey === 'attachments' && Array.isArray(val)) {
+                return `${val.length} file${val.length === 1 ? '' : 's'}`;
+              }
+              if (typeof val === 'object') {
+                if (Array.isArray(val)) {
+                  return val.map((x) => (typeof x === 'object' ? (x?.name || x?.item_name || JSON.stringify(x)) : String(x))).join(', ');
+                }
+                return JSON.stringify(val);
+              }
+              return String(val);
+            };
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono border-b border-slate-100 pb-2 mb-2">
+                  <History className="w-4 h-4" />
+                  <span>Enquiry Revision Registry & Audit trail</span>
+                </div>
+
+                {recordLogs.length > 0 ? (
+                  <div className="space-y-4">
+                    {recordLogs.map((log) => {
+                      const seenCanonical = new Set<string>();
+                      const businessChanges = (log.changes || []).filter((diff) => {
+                        const rawField = String(diff.field || '').trim();
+                        const lowerField = rawField.toLowerCase();
+                        if (!rawField || HIDDEN_AUDIT_FIELDS.has(lowerField)) return false;
+                        if (isEmptyAuditVal(diff.old_value) && isEmptyAuditVal(diff.new_value)) return false;
+                        const canonical = CANONICAL_AUDIT_FIELD_MAP[lowerField] || lowerField;
+                        if (seenCanonical.has(canonical)) return false;
+                        seenCanonical.add(canonical);
+                        const formattedOld = formatAuditVal(canonical, diff.old_value);
+                        const formattedNew = formatAuditVal(canonical, diff.new_value);
+                        if (formattedOld === formattedNew) return false;
+                        return true;
+                      });
+
+                      return (
+                        <div key={log.id} className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-150 pb-2.5">
+                            <div className="space-y-0.5">
+                              <span className="text-xs text-slate-800 font-semibold block font-sans">
+                                {log.changed_by_name}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono block">
+                                {new Date(log.timestamp).toLocaleString()}
+                              </span>
                             </div>
-                          ))}
+
+                            {user.role !== 'Viewer' && (
+                              <button
+                                type="button"
+                                onClick={() => handleRevert(log)}
+                                disabled={reverting}
+                                className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Rollback</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {businessChanges.length > 0 ? (
+                            <div className="space-y-2">
+                              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Modified properties:</span>
+                              {businessChanges.map((diff, idx) => {
+                                const lowerField = String(diff.field || '').toLowerCase();
+                                const canonical = CANONICAL_AUDIT_FIELD_MAP[lowerField] || lowerField;
+                                const label =
+                                  BUSINESS_FIELD_LABELS[canonical] ||
+                                  String(diff.field)
+                                    .replace(/_/g, ' ')
+                                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                                return (
+                                  <div key={idx} className="bg-white border border-slate-200 rounded-lg p-3 text-xs space-y-1 font-sans">
+                                    <span className="text-blue-600 font-semibold block">{label}</span>
+                                    <div className="flex flex-col space-y-0.5 text-[11px] text-slate-500 pl-2 border-l border-slate-100 font-mono">
+                                      <span className="line-through text-slate-400 break-words">
+                                        Was: {formatAuditVal(canonical, diff.old_value)}
+                                      </span>
+                                      <span className="text-emerald-600 font-semibold break-words">
+                                        Is: {formatAuditVal(canonical, diff.new_value)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="text-xs font-mono text-slate-400 italic block">
+                              {log.details || 'Record updated'}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-xs font-mono text-slate-400 italic block">
-                          Initial entry creation log
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-12 text-center text-slate-400 font-sans text-sm">
-                  This enquiry does not have any revision history records yet.
-                </div>
-              )}
-            </div>
-          )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-slate-400 font-sans text-sm">
+                    This enquiry does not have any revision history records yet.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'revisions' && (
             <div className="space-y-6">
@@ -5332,7 +5523,35 @@ export default function EnquiryDetail({
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 font-sans mb-2">{confirmDialog.title}</h3>
-            <p className="text-sm text-slate-500 font-sans mb-6">{confirmDialog.message}</p>
+            <p className="text-sm text-slate-500 font-sans mb-4">{confirmDialog.message}</p>
+            {confirmDialog.selectableOptions && confirmDialog.selectableOptions.length > 1 && (
+              <div className="mb-5 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
+                <label className="block text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
+                  Select Confirmed Winning Option
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {confirmDialog.selectableOptions.map((opt) => {
+                    const isSelected = confirmDialog.selectedOption === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() =>
+                          setConfirmDialog((prev) => ({ ...prev, selectedOption: opt }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-end space-x-3 font-sans">
               <button
                 type="button"
@@ -5344,7 +5563,7 @@ export default function EnquiryDetail({
               <button
                 type="button"
                 onClick={() => {
-                  confirmDialog.onConfirm();
+                  confirmDialog.onConfirm(confirmDialog.selectedOption);
                   setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
                 }}
                 className={`py-2 px-4 rounded-xl text-xs font-bold text-white transition cursor-pointer ${
@@ -5598,77 +5817,148 @@ export default function EnquiryDetail({
                 </div>
               </div>
 
+              {/* Winning Option Selector for Multi-Option Enquiries */}
+              {optionAnalysis.hasMultipleOptions && (() => {
+                const selectableOptions = optionAnalysis.detectedOptions.filter(
+                  (opt) => opt !== 'Default / Included' && opt !== 'Baseline / All'
+                );
+                if (selectableOptions.length === 0) return null;
+                return (
+                  <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/70 rounded-xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider">
+                        Confirmed Winning Option for Fulfillment
+                      </label>
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-300">
+                        Includes Default / Baseline items automatically
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectableOptions.map((opt) => {
+                        const isSelected = convertSelectedOption === opt;
+                        const optGroup = optionAnalysis.groupMap[opt];
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setConvertSelectedOption(opt)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer border ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300'
+                            }`}
+                          >
+                            <span>{opt}</span>
+                            {optGroup && (
+                              <span
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                  isSelected
+                                    ? 'bg-indigo-700 text-indigo-100'
+                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300'
+                                }`}
+                              >
+                                {optGroup.count} item{optGroup.count === 1 ? '' : 's'} • {formatCurrency(optGroup.total)}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Line Item Scope Summary */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    Scope of Line Items ({(currentEnquiry.line_items || []).length})
-                  </label>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    Contract Value: {formatCurrency(currentEnquiry.value_aed)}
-                  </span>
-                </div>
-                <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="py-2 px-3">#</th>
-                        <th className="py-2 px-3">Description</th>
-                        <th className="py-2 px-3 text-right">Qty</th>
-                        <th className="py-2 px-3 text-center">Inventory Type</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {(currentEnquiry.line_items || []).length > 0 ? (
-                        (currentEnquiry.line_items || []).map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                            <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">
-                              {idx + 1}
-                            </td>
-                            <td className="py-2 px-3">
-                              <div className="font-semibold text-slate-800 dark:text-slate-100">
-                                {item.item_name || item.description || 'Line Item'}
-                              </div>
-                              {item.item_name && item.description && item.description !== item.item_name && (
-                                <div className="text-xs text-slate-500 dark:text-slate-400">
-                                  {item.description}
-                                </div>
-                              )}
-                              {item.product_type && (
-                                <div className="text-[10px] text-slate-400 font-mono">
-                                  {item.product_type}
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                              {item.quantity || 1} {item.unit || 'EA'}
-                            </td>
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              {item.product_id ? (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  <Package className="w-3 h-3 text-emerald-600" />
-                                  <span>Catalog Stock</span>
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                                  <Wrench className="w-3 h-3 text-slate-400" />
-                                  <span>Custom / Scope</span>
-                                </span>
-                              )}
-                            </td>
+              {(() => {
+                const allItems = currentEnquiry.line_items || [];
+                const scopedItems = optionAnalysis.hasMultipleOptions
+                  ? allItems.filter((item) => {
+                      const rawOpt = ((item as any).option_designation || item.option || '').trim();
+                      if (!rawOpt || rawOpt === 'Default / Included' || rawOpt === 'Baseline / All') return true;
+                      return rawOpt.toLowerCase() === (convertSelectedOption || 'Option A').toLowerCase();
+                    })
+                  : allItems;
+                const scopedContractValue = optionAnalysis.hasMultipleOptions
+                  ? scopedItems.reduce((sum, it) => {
+                      const isDisc = it.item_type === 'discount' || (it as any).classification === 'Discount / Rebate';
+                      const lineTot = Number(it.total_price) || (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+                      return sum + (isDisc ? -Math.abs(lineTot) : lineTot);
+                    }, 0)
+                  : currentEnquiry.value_aed;
+
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        Scope of Line Items ({scopedItems.length})
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Contract Value: {formatCurrency(scopedContractValue)}
+                      </span>
+                    </div>
+                    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <tr>
+                            <th className="py-2 px-3">#</th>
+                            <th className="py-2 px-3">Description</th>
+                            <th className="py-2 px-3 text-right">Qty</th>
+                            <th className="py-2 px-3 text-center">Inventory Type</th>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="py-3 px-3 text-center text-slate-400 italic text-[11px]">
-                            No line items registered on this enquiry.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {scopedItems.length > 0 ? (
+                            scopedItems.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                <td className="py-2 px-3 font-mono text-slate-400 text-[11px]">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                    {item.item_name || item.description || 'Line Item'}
+                                  </div>
+                                  {item.item_name && item.description && item.description !== item.item_name && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                      {item.description}
+                                    </div>
+                                  )}
+                                  {item.product_type && (
+                                    <div className="text-[10px] text-slate-400 font-mono">
+                                      {item.product_type}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                  {item.quantity || 1} {item.unit || 'EA'}
+                                </td>
+                                <td className="py-2 px-3 text-center whitespace-nowrap">
+                                  {item.product_id || (item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.some((sc) => sc.product_id)) ? (
+                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                      <Package className="w-3 h-3 text-emerald-600" />
+                                      <span>Catalog Stock</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                                      <Wrench className="w-3 h-3 text-slate-400" />
+                                      <span>Custom / Scope</span>
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={4} className="py-3 px-3 text-center text-slate-400 italic text-[11px]">
+                                No line items registered for this option.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer */}
@@ -5856,7 +6146,7 @@ export default function EnquiryDetail({
                 const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
                 const formattedVal = `${newQuote.currency || 'AED'} ${Number(newQuote.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
-                await ActivityLogRepository.saveLocalOnly({
+                await ActivityLogRepository.save({
                   id: activityId,
                   workspace_id: wsId,
                   company_id: currentEnquiry.company_id || '',
@@ -6217,9 +6507,9 @@ export default function EnquiryDetail({
         user={user}
         products={products}
         setProducts={setProducts}
-        productCategories={productCategories}
-        units={units}
-        setProductCategories={setProductCategories}
+        productCategories={(productCategories || []).map((c: any) => typeof c === 'string' ? c : c.name)}
+        units={(units || []).map((u: any) => typeof u === 'string' ? u : u.name)}
+        setProductCategories={setProductCategories as any}
         triggerToast={triggerToast}
         onProductSaved={async (newProduct) => {
           const idx = saveToCatalogState.itemIndex;

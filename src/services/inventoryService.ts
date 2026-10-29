@@ -5,6 +5,8 @@ import { MetadataRepository } from './repositories/MetadataRepository';
 import { saveToLocalStore } from './db';
 import { isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 
+export { isOptionActiveForInventoryAndBaseline };
+
 export interface ReservationResult {
   success: boolean;
   reservedCount: number;

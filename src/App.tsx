@@ -712,31 +712,31 @@ export default function App() {
     return matched?.id || '';
   }, [user, salespersons]);
 
-  // Apply Role & Data Visibility Scope Filters (Admin sees everything; Member/Viewer sees filtered by ownership/attribution)
+  // Apply Role & Data Visibility Scope Filters (Admin or ALL_DATA sees everything; Member/Viewer sees filtered by ownership/attribution)
   const visibleEnquiries = useMemo(() => {
     if (!user) return [];
     const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
     const isUserAdmin = effectiveRole === 'admin';
 
-    if (isUserAdmin) {
+    if (isUserAdmin || dataVisibilityScope === 'ALL_DATA') {
       return workspaceEnquiries;
     }
 
     return workspaceEnquiries.filter((e) => canAccessEnquiry(user, e, activeWorkspace, salespersons));
-  }, [workspaceEnquiries, user, activeWorkspace, salespersons]);
+  }, [workspaceEnquiries, user, activeWorkspace, salespersons, dataVisibilityScope]);
 
   const visibleCallLogs = useMemo(() => {
     if (!user) return [];
     const effectiveRole = getEffectiveWorkspaceRole(user, activeWorkspace);
     const isUserAdmin = effectiveRole === 'admin';
 
-    if (isUserAdmin) {
+    if (isUserAdmin || dataVisibilityScope === 'ALL_DATA') {
       return workspaceCallLogs;
     }
 
     // Non-Admin: strictly isolate to activities attributed to them
     return workspaceCallLogs.filter((l) => isActivityAttributedToUser(user, l, salespersons));
-  }, [workspaceCallLogs, user, activeWorkspace, salespersons]);
+  }, [workspaceCallLogs, user, activeWorkspace, salespersons, dataVisibilityScope]);
 
   useEffect(() => { setLocalCache('omni_workspaces', workspaces); }, [workspaces]);
   useEffect(() => { 
@@ -927,6 +927,7 @@ export default function App() {
   const activeUnsubscribersRef = React.useRef<{
     userProfile: (() => void) | null;
     workspaces: (() => void) | null;
+    workspaceMembers: (() => void) | null;
     callLogs: (() => void) | null;
     companies: (() => void) | null;
     contacts: (() => void) | null;
@@ -945,6 +946,7 @@ export default function App() {
   }>({
     userProfile: null,
     workspaces: null,
+    workspaceMembers: null,
     callLogs: null,
     companies: null,
     contacts: null,
@@ -966,6 +968,7 @@ export default function App() {
     const refs = activeUnsubscribersRef.current;
     if (refs.userProfile) { refs.userProfile(); refs.userProfile = null; }
     if (refs.workspaces) { refs.workspaces(); refs.workspaces = null; }
+    if (refs.workspaceMembers) { refs.workspaceMembers(); refs.workspaceMembers = null; }
     if (refs.callLogs) { refs.callLogs(); refs.callLogs = null; }
     if (refs.companies) { refs.companies(); refs.companies = null; }
     if (refs.contacts) { refs.contacts(); refs.contacts = null; }
@@ -1094,15 +1097,6 @@ export default function App() {
       cleanupAllListeners();
     };
   }, []);
-
-  // Synchronize dropdown and metadata local storage caches whenever state changes
-  useEffect(() => { setLocalCache('omni_sources', enquirySources); }, [enquirySources]);
-  useEffect(() => { setLocalCache('omni_categories', productCategories); }, [productCategories]);
-  useEffect(() => { setLocalCache('omni_units', units); }, [units]);
-  useEffect(() => { setLocalCache('omni_call_statuses', callStatuses); }, [callStatuses]);
-  useEffect(() => { setLocalCache('omni_call_purposes', callPurposes); }, [callPurposes]);
-  useEffect(() => { setLocalCache('omni_call_outcomes', callOutcomes); }, [callOutcomes]);
-  useEffect(() => { setLocalCache('omni_products', products); }, [products]);
 
   // 1. Static Metadata & Dropdowns: Cached locally with 24-hour TTL (eliminates 7 continuous real-time listeners)
   const fetchMetadataAndDropdownsOnce = useCallback(async (force = false) => {

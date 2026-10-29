@@ -177,7 +177,7 @@ const getBlockMeta = (block: QuotationBlockConfig): { label: string; desc: strin
   );
 };
 
-export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
+const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   isOpen,
   onClose,
   enquiry,
@@ -196,8 +196,6 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   setProducts: propSetProducts,
   triggerToast
 }) => {
-  if (!isOpen) return null;
-
   const isEffectiveSandbox =
     Boolean(isSandboxMode) || editingQuotation?.id === 'sandbox_preview_quotation';
 
@@ -7638,11 +7636,11 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                       {/* Custom Option Group Banner Titles */}
                       {(() => {
-                        const detectedOpts = Array.from(
+                        const detectedOpts: string[] = Array.from(
                           new Set(
                             quotationLineItems
                               .map((it) => String(it.option || it.option_group || '').trim())
-                              .filter((o) => o && o !== 'Default / Included')
+                              .filter((o): o is string => Boolean(o && o !== 'Default / Included'))
                           )
                         );
                         if (detectedOpts.length === 0) return null;
@@ -11264,3 +11262,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     </div>
   );
 };
+
+export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = (props) => {
+  if (!props.isOpen) return null;
+  return <QuotationStudioModalInner {...props} />;
+};
+

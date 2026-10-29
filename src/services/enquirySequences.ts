@@ -1,6 +1,6 @@
 import { safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
 import { where, doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
-import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry } from '../types';
+import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry, SequenceResetCadence } from '../types';
 import { getFromLocalStore } from './db';
 
 /**
@@ -318,7 +318,9 @@ export function parseSequenceFromQuoteRef(quoteRef: string, pattern?: string): n
 export function getWorkspaceActiveCeilings(
   enquiries: Enquiry[],
   workspaceId: string,
-  pattern?: string
+  pattern?: string,
+  periodKey?: string,
+  resetCadence?: SequenceResetCadence
 ): { maxSn: number; maxSeq: number } {
   if (!enquiries || enquiries.length === 0) {
     return { maxSn: 0, maxSeq: 0 };
@@ -333,6 +335,18 @@ export function getWorkspaceActiveCeilings(
   const maxSn = active.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
 
   const maxSeq = active.reduce((max, e) => {
+    if (periodKey && resetCadence && resetCadence !== 'never') {
+      const rawDate = e.enquiry_date || e.createdAt || (e as any).created_at;
+      if (rawDate) {
+        const parsedDate = new Date(rawDate);
+        if (!isNaN(parsedDate.getTime())) {
+          const itemPeriodKey = getSequencePeriodKey(resetCadence, parsedDate);
+          if (itemPeriodKey !== periodKey) {
+            return max;
+          }
+        }
+      }
+    }
     const qRef = e.quote_ref_no || (e as any).quote_ref || '';
     const parsed = parseSequenceFromQuoteRef(qRef, pattern);
     // If parsed > 100000, disregard it as an invalid legacy date contamination
@@ -359,7 +373,6 @@ export async function healWorkspaceCounters(
     return { healedSn: 0, healedSeq: 0 };
   }
 
-  const { maxSn, maxSeq } = getWorkspaceActiveCeilings(enquiries, workspaceId, pattern);
   const docRef = getWorkspaceCountersDocRef(workspaceId);
 
   try {
@@ -369,8 +382,15 @@ export async function healWorkspaceCounters(
       currentData = snap.data();
     }
 
-    const cadence = currentData.resetCadence || 'monthly';
+    const cadence: SequenceResetCadence = currentData.resetCadence || 'monthly';
     const periodKey = getSequencePeriodKey(cadence, date);
+    const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
+      enquiries,
+      workspaceId,
+      pattern || currentData.pattern,
+      periodKey,
+      cadence
+    );
     const existingSequences = currentData.sequences ? { ...currentData.sequences } : {};
     existingSequences[periodKey] = maxSeq;
 
@@ -385,8 +405,9 @@ export async function healWorkspaceCounters(
     console.log(`[healWorkspaceCounters] Workspace ${workspaceId} counters healed: lastSn=${maxSn}, seq[${periodKey}]=${maxSeq}`);
     return { healedSn: maxSn, healedSeq: maxSeq };
   } catch (err) {
+    const fallback = getWorkspaceActiveCeilings(enquiries, workspaceId, pattern);
     console.warn(`[healWorkspaceCounters] Failed healing counters for workspace ${workspaceId}:`, err);
-    return { healedSn: maxSn, healedSeq: maxSeq };
+    return { healedSn: fallback.maxSn, healedSeq: fallback.maxSeq };
   }
 }
 
@@ -558,14 +579,9 @@ export async function claimNextEnquirySequence(
       const periodKey = getSequencePeriodKey(counters.resetCadence, now);
       const baseSeq = counters.sequences?.[periodKey] || 0;
 
-      // Clamped dynamic ceilings:
-      // If counters are ratcheted higher than actual active proposals, clamp them down to active ceilings
-      const currentMaxSn = maxSn > 0
-        ? Math.min(counters.lastSnNumber || 0, maxSn)
-        : (counters.lastSnNumber || 0);
-      const currentMaxSeq = maxSeq > 0
-        ? Math.min(baseSeq, maxSeq)
-        : baseSeq;
+      // Respect the higher of configured counter baselines and active records ceiling
+      const currentMaxSn = Math.max(counters.lastSnNumber || 0, maxSn);
+      const currentMaxSeq = Math.max(baseSeq, maxSeq);
 
       let nextSn: number;
       if (options?.targetSn && options.targetSn > 0) {

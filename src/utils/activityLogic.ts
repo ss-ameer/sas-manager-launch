@@ -19,33 +19,45 @@ export const PURPOSES = SYSTEM_CALL_PURPOSES;
 export type MasterPurpose = (typeof PURPOSES)[number];
 
 export const POSITIVE_OUTCOMES = [
+  'Lead Qualified',
   'Meeting Booked',
+  'Quote Requested',
+  'Deal Won',
   'Quote / Proposal Requested',
   'Interested / Send Info',
-  'Deal Closed / Won'
+  'Deal Closed / Won',
+  'Order Received'
 ] as const;
 
 export const NEUTRAL_OUTCOMES = [
   'Enquiry Received',
+  'Info Requested',
+  'Pending Review',
   'Active Negotiation',
+  'Requested Call Back',
+  'Status Update',
+  'Gathered Info',
+  'No Current Need',
   'Quote / Info Sent',
   'Message Sent / Awaiting Reply',
   'Collateral / Material Left',
   'Follow-up Scheduled',
-  'Requested Call Back',
   'Information Gathered',
-  'No Current Requirement',
-  'No Current Need'
+  'No Current Requirement'
 ] as const;
 
 export const NEGATIVE_OUTCOMES = [
+  'Not Interested',
+  'Lost to Competitor',
+  'Pricing / Timing Issue',
+  'Not Qualified',
   'No Response / Ghosted',
   'Under Contract / Bad Timing',
   'Price / Budget Objection',
   'Gatekeeper Blocked',
-  'Not Interested',
   'Using Competitor',
-  'Wrong Person / Unqualified'
+  'Wrong Person / Unqualified',
+  'Lost'
 ] as const;
 
 export const OUTCOMES = [

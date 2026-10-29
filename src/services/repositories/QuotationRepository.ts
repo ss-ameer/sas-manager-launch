@@ -1289,9 +1289,11 @@ export class QuotationRepository {
     const wsId = workspaceId || 'ws_default';
     let quotes: Quotation[] = [];
 
-    // Check remote Firestore
+    // Check remote Firestore (workspace-scoped when workspaceId is provided)
     try {
-      const snap = await safeGetDocs('quotations');
+      const snap = workspaceId
+        ? await safeGetDocs('quotations', where('workspace_id', '==', wsId))
+        : await safeGetDocs('quotations');
       if (snap && !snap.empty) {
         snap.forEach((d) => {
           const item = this.docToQuotation(d.id, d.data());
@@ -1424,9 +1426,11 @@ export class QuotationRepository {
     const wsId = workspaceId || 'ws_default';
     let quotes: Quotation[] = [];
 
-    // Query remote Firestore
+    // Query remote Firestore (scoped by workspace_id)
     try {
-      const snap = await safeGetDocs('quotations');
+      const snap = workspaceId
+        ? await safeGetDocs('quotations', where('workspace_id', '==', wsId))
+        : await safeGetDocs('quotations');
       if (snap && !snap.empty) {
         snap.forEach((d) => {
           const item = this.docToQuotation(d.id, d.data());
@@ -2153,7 +2157,7 @@ export class QuotationRepository {
     let presets: QuotationPreset[] = [];
 
     try {
-      const snap = await safeGetDocs('quotation_presets');
+      const snap = await safeGetDocs('quotation_presets', where('workspace_id', '==', workspaceId));
       if (snap && !snap.empty) {
         snap.forEach((d) => {
           const item = this.docToPreset(d.id, d.data());
@@ -2213,9 +2217,9 @@ export class QuotationRepository {
   ): Promise<WorkspaceDocumentProfile | null> {
     if (!workspaceId) return null;
 
-    // 1. Try Firestore fetch
+    // 1. Try Firestore fetch (scoped by workspace_id)
     try {
-      const snap = await safeGetDocs('workspace_document_profiles');
+      const snap = await safeGetDocs('workspace_document_profiles', where('workspace_id', '==', workspaceId));
       if (snap && !snap.empty) {
         let found: WorkspaceDocumentProfile | null = null;
         snap.forEach((d) => {

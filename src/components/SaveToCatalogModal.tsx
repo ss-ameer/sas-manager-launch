@@ -292,13 +292,15 @@ interface SaveToCatalogModalProps {
   lineItem?: SaveToCatalogLineItemInput | null;
   initialItem?: SaveToCatalogLineItemInput | null;
   activeWorkspace?: Workspace;
+  activeWorkspaceId?: string;
   user?: any;
   products: Product[];
   productCategories?: string[];
   units?: string[];
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
-  onSaved: (newProduct: Product) => void;
+  onSaved?: (newProduct: Product) => void;
+  onProductSaved?: (newProduct: Product) => void;
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -308,6 +310,7 @@ export default function SaveToCatalogModal({
   lineItem: propLineItem,
   initialItem,
   activeWorkspace,
+  activeWorkspaceId,
   user,
   products,
   productCategories: propCategories,
@@ -315,6 +318,7 @@ export default function SaveToCatalogModal({
   setProducts,
   setProductCategories,
   onSaved,
+  onProductSaved,
   triggerToast
 }: SaveToCatalogModalProps) {
   const lineItem = propLineItem || initialItem || null;
@@ -523,7 +527,7 @@ export default function SaveToCatalogModal({
       );
 
       const productPayload: Partial<Product> = {
-        workspace_id: activeWorkspace?.id || 'ws_default',
+        workspace_id: activeWorkspace?.id || activeWorkspaceId || 'ws_default',
         name: name.trim(),
         description: description.trim() || name.trim(),
         product_type: category || 'General Equipment',
@@ -571,7 +575,8 @@ export default function SaveToCatalogModal({
         );
       }
 
-      onSaved(createdProduct);
+      if (onSaved) onSaved(createdProduct);
+      if (onProductSaved) onProductSaved(createdProduct);
       onClose();
     } catch (err: any) {
       if (triggerToast) {

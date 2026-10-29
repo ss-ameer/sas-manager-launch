@@ -155,21 +155,22 @@ export class EnquiryRepository {
 
   /**
    * Syncs quotation acceptance onto the parent enquiry:
-   * Updates status to 'Won / Order Confirmed', pins quote_ref_no, updates value_aed,
+   * Updates status to 'Won / Approved', pins quote_ref_no, updates value_aed,
    * records status history and timestamps, and persists to local cache + sync engine.
    */
   public static async syncAcceptedQuotation(
     enquiryId: string,
     quoteRef: string,
     dealValueAed: number,
-    user?: { uid?: string; name?: string }
+    user?: { uid?: string; name?: string },
+    selectedOption?: string
   ): Promise<Enquiry | null> {
     const existing = await this.getEnquiryById(enquiryId);
     if (!existing) return null;
 
     const nowIso = new Date().toISOString();
     const oldStatus = existing.status;
-    const newStatus = 'Won / Order Confirmed';
+    const newStatus = 'Won / Approved';
 
     const historyEntry = {
       from: oldStatus,
@@ -183,6 +184,7 @@ export class EnquiryRepository {
       status: newStatus,
       quote_ref_no: quoteRef,
       value_aed: dealValueAed,
+      ...(selectedOption ? { proposal_option: selectedOption } : {}),
       wonAt: nowIso,
       statusUpdatedAt: nowIso,
       statusUpdatedBy: user?.name || user?.uid || 'User',

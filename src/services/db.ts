@@ -1,7 +1,23 @@
 // Local IndexedDB & Storage helper for Omni Suite
 
 const DB_NAME = 'omni_suite_db';
-const DB_VERSION = 2;
+const DB_VERSION = 4;
+
+const ALL_STORES = [
+  'enquiries',
+  'companies',
+  'contacts',
+  'call_logs',
+  'activity_logs',
+  'products',
+  'metadata',
+  'mutation_queue',
+  'attachment_blobs',
+  'quotations',
+  'quotation_presets',
+  'workspace_document_profiles',
+  'projects'
+];
 
 export interface MutationItem {
   id: string;
@@ -29,9 +45,7 @@ function getDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      
-      const stores = ['enquiries', 'companies', 'contacts', 'call_logs', 'activity_logs', 'products', 'metadata', 'mutation_queue', 'attachment_blobs'];
-      stores.forEach((storeName) => {
+      ALL_STORES.forEach((storeName) => {
         if (!db.objectStoreNames.contains(storeName)) {
           if (storeName === 'attachment_blobs') {
             db.createObjectStore(storeName, { keyPath: 'key' });
@@ -59,14 +73,18 @@ export async function saveToLocalStore(storeName: string, items: any[]): Promise
       localStorage.setItem(`omni_idb_fallback_${storeName}`, JSON.stringify(items));
       return;
     }
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    store.clear();
-    for (const item of items) {
-      if (item && item.id) {
-        store.put(item);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      store.clear();
+      for (const item of items) {
+        if (item && item.id) {
+          store.put(item);
+        }
       }
-    }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch (e) {
     // Fallback to localStorage
     try {
@@ -103,12 +121,21 @@ export async function getFromLocalStore<T>(storeName: string): Promise<T[]> {
 export async function enqueueLocalMutation(mutation: MutationItem): Promise<void> {
   try {
     const db = await getDB();
-    const tx = db.transaction('mutation_queue', 'readwrite');
-    const store = tx.objectStore('mutation_queue');
-    store.put(mutation);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('mutation_queue', 'readwrite');
+      const store = tx.objectStore('mutation_queue');
+      store.put(mutation);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch (e) {
     const queue = getFallbackQueue();
-    queue.push(mutation);
+    const existingIdx = queue.findIndex((m) => m.id === mutation.id);
+    if (existingIdx >= 0) {
+      queue[existingIdx] = mutation;
+    } else {
+      queue.push(mutation);
+    }
     saveFallbackQueue(queue);
   }
 }
@@ -131,9 +158,13 @@ export async function getPendingMutations(): Promise<MutationItem[]> {
 export async function removeLocalMutation(id: string): Promise<void> {
   try {
     const db = await getDB();
-    const tx = db.transaction('mutation_queue', 'readwrite');
-    const store = tx.objectStore('mutation_queue');
-    store.delete(id);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('mutation_queue', 'readwrite');
+      const store = tx.objectStore('mutation_queue');
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch (e) {
     let queue = getFallbackQueue();
     queue = queue.filter((m) => m.id !== id);
@@ -157,14 +188,18 @@ function saveFallbackQueue(queue: MutationItem[]) {
 }
 
 export async function clearAllLocalStores(): Promise<void> {
+  memoryBlobMap.clear();
   try {
     const db = await getDB();
-    const stores = ['enquiries', 'companies', 'contacts', 'call_logs', 'activity_logs', 'products', 'metadata', 'mutation_queue'];
-    for (const storeName of stores) {
+    for (const storeName of ALL_STORES) {
       if (db.objectStoreNames.contains(storeName)) {
         try {
-          const tx = db.transaction(storeName, 'readwrite');
-          tx.objectStore(storeName).clear();
+          await new Promise<void>((resolve) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            tx.objectStore(storeName).clear();
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+          });
         } catch (_) {}
       }
     }
@@ -183,9 +218,13 @@ export async function saveAttachmentBlob(key: string, dataUrl: string): Promise<
   try {
     const db = await getDB();
     if (!db.objectStoreNames.contains('attachment_blobs')) return;
-    const tx = db.transaction('attachment_blobs', 'readwrite');
-    const store = tx.objectStore('attachment_blobs');
-    store.put({ key, dataUrl, updatedAt: Date.now() });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('attachment_blobs', 'readwrite');
+      const store = tx.objectStore('attachment_blobs');
+      store.put({ key, dataUrl, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch (e) {
     console.warn('[saveAttachmentBlob] Storing in memory fallback:', e);
   }
@@ -224,10 +263,15 @@ export async function deleteAttachmentBlob(key: string): Promise<void> {
   try {
     const db = await getDB();
     if (!db.objectStoreNames.contains('attachment_blobs')) return;
-    const tx = db.transaction('attachment_blobs', 'readwrite');
-    const store = tx.objectStore('attachment_blobs');
-    store.delete(key);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('attachment_blobs', 'readwrite');
+      const store = tx.objectStore('attachment_blobs');
+      store.delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch (e) {
     console.warn('[deleteAttachmentBlob] Failed to delete from IndexedDB:', e);
   }
 }
+

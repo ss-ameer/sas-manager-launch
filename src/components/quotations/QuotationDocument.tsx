@@ -5541,7 +5541,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                               const kTrim = k.trim();
                                               const vTrim = String(v).trim();
                                               if (!isLegacySampleAttr(kTrim, vTrim)) {
-                                                rawAttrs.push({ key: kTrim, vTrim });
+                                                rawAttrs.push({ key: kTrim, value: vTrim });
                                               }
                                             }
                                           });
