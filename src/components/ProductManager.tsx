@@ -12,13 +12,16 @@ import {
   GrnReceiptData,
   StockAdjustmentData,
   StockAdjustmentMode,
-  Attachment
+  Attachment,
+  LineItemComponent
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import { processStockGrn, processStockAdjustment, subscribeStockMovements } from '../services/inventoryService';
 import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
+import CompositePackageEditor from './quotations/CompositePackageEditor';
+import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import {
   Package,
   Plus,
@@ -102,7 +105,7 @@ export default function ProductManager({
 }: ProductManagerProps) {
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
-  const [stockFilter, setStockFilter] = useState<'All' | 'Tracked' | 'LowStock' | 'WithDatasheet'>('All');
+  const [stockFilter, setStockFilter] = useState<'All' | 'Tracked' | 'LowStock' | 'WithDatasheet' | 'CompositeKit'>('All');
 
   // Inline Category & Unit Creation States
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -126,6 +129,10 @@ export default function ProductManager({
   const [formUnit, setFormUnit] = useState<string>('');
   const [formUnitPrice, setFormUnitPrice] = useState<number | undefined>(undefined);
   const [formCostPrice, setFormCostPrice] = useState<number | undefined>(undefined);
+  const [formIsCompositeSet, setFormIsCompositeSet] = useState<boolean>(false);
+  const [formSubComponents, setFormSubComponents] = useState<LineItemComponent[]>([]);
+  const [formPackagePricingMode, setFormPackagePricingMode] = useState<'itemized' | 'lump_sum'>('itemized');
+  const [formOptionScopeNotes, setFormOptionScopeNotes] = useState<string>('');
 
   // Tab 2: Specs, Image & Datasheet
   const [formDescription, setFormDescription] = useState('');
@@ -711,6 +718,8 @@ export default function ProductManager({
         matchesStock = Boolean(p.is_inventoried) && available <= (p.reorder_level || 0);
       } else if (stockFilter === 'WithDatasheet') {
         matchesStock = Boolean(p.datasheet_attachment?.url);
+      } else if (stockFilter === 'CompositeKit') {
+        matchesStock = Boolean(p.is_composite_set && p.sub_components && p.sub_components.length > 0);
       }
 
       return matchSearch && matchesCategory && matchesStock;
@@ -746,6 +755,10 @@ export default function ProductManager({
     setFormUnit(units[0] || 'Nos');
     setFormUnitPrice(undefined);
     setFormCostPrice(undefined);
+    setFormIsCompositeSet(false);
+    setFormSubComponents([]);
+    setFormPackagePricingMode('itemized');
+    setFormOptionScopeNotes('');
     setFormSku('');
     setFormBrandMake('');
     setFormModelPartNo('');
@@ -772,6 +785,10 @@ export default function ProductManager({
     setFormUnit(p.unit || units[0] || 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
+    setFormIsCompositeSet(Boolean(p.is_composite_set));
+    setFormSubComponents((p.sub_components || []).map((c) => ({ ...c })));
+    setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
+    setFormOptionScopeNotes(p.option_scope_notes || '');
     setFormSku(p.sku || '');
     const brandAttr = (p.attributes || []).find((a) => /^(brand|make|manufacturer|brand \/ make)$/i.test(a.key.trim()))?.value;
     const modelAttr = (p.attributes || []).find((a) => /^(model|model no|part no|model \/ part no)$/i.test(a.key.trim()))?.value;
@@ -801,6 +818,10 @@ export default function ProductManager({
     setFormUnit(p.unit || units[0] || 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
+    setFormIsCompositeSet(Boolean(p.is_composite_set));
+    setFormSubComponents((p.sub_components || []).map((c, idx) => ({ ...c, id: `comp_${Date.now()}_${idx}` })));
+    setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
+    setFormOptionScopeNotes(p.option_scope_notes || '');
     setFormSku(p.sku ? `${p.sku}-VAR` : '');
     setFormBrandMake(p.brand_make || '');
     setFormModelPartNo(p.model_part_no || '');
@@ -873,16 +894,35 @@ export default function ProductManager({
       resolvedBrand || resolvedModel
     );
 
+    const computedBomTotals =
+      formIsCompositeSet && formSubComponents.length > 0
+        ? recalculateCompositeItemTotals(formSubComponents, 1)
+        : null;
+
+    const finalSellingPrice = computedBomTotals
+      ? computedBomTotals.unitSellingPrice
+      : typeof formUnitPrice === 'number' && !isNaN(formUnitPrice) && formUnitPrice >= 0
+      ? formUnitPrice
+      : undefined;
+
+    const finalCostPrice = computedBomTotals
+      ? computedBomTotals.unitCostPrice
+      : typeof formCostPrice === 'number' && !isNaN(formCostPrice) && formCostPrice >= 0
+      ? formCostPrice
+      : undefined;
+
     const data: Partial<Product> = {
       workspace_id: activeWorkspace.id,
       name: formName.trim(),
       product_type: formProductType || 'General',
       description: formDescription.trim() || formName.trim(),
-      unit: formUnit || 'Nos',
-      unit_price:
-        typeof formUnitPrice === 'number' && !isNaN(formUnitPrice) && formUnitPrice >= 0 ? formUnitPrice : undefined,
-      cost_price:
-        typeof formCostPrice === 'number' && !isNaN(formCostPrice) && formCostPrice >= 0 ? formCostPrice : undefined,
+      unit: formUnit || (formIsCompositeSet ? 'SET' : 'Nos'),
+      unit_price: finalSellingPrice,
+      cost_price: finalCostPrice,
+      is_composite_set: formIsCompositeSet,
+      sub_components: formIsCompositeSet ? formSubComponents : undefined,
+      package_pricing_mode: formIsCompositeSet ? formPackagePricingMode : undefined,
+      option_scope_notes: formIsCompositeSet && formOptionScopeNotes.trim() ? formOptionScopeNotes.trim() : undefined,
       sku: formSku.trim() || undefined,
       brand_make: resolvedBrand,
       model_part_no: resolvedModel,
@@ -1166,10 +1206,11 @@ export default function ProductManager({
             </div>
 
             {/* Stock & Media Filter Segmented Control */}
-            <div className="md:col-span-3 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-11">
+            <div className="md:col-span-3 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-11 overflow-x-auto">
               {(
                 [
                   { id: 'All', label: 'All' },
+                  { id: 'CompositeKit', label: 'Kits / BOM' },
                   { id: 'Tracked', label: 'Tracked' },
                   { id: 'LowStock', label: `Low (${lowStockProducts.length})` },
                   { id: 'WithDatasheet', label: 'Datasheet' }
@@ -1179,7 +1220,7 @@ export default function ProductManager({
                   key={tab.id}
                   type="button"
                   onClick={() => setStockFilter(tab.id)}
-                  className={`flex-1 h-full rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap px-2 ${
+                  className={`flex-1 h-full rounded-lg text-[10px] font-bold transition cursor-pointer whitespace-nowrap px-1.5 ${
                     stockFilter === tab.id
                       ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-2xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -1258,6 +1299,12 @@ export default function ProductManager({
                                   <span className="font-semibold text-slate-900 dark:text-white font-sans">
                                     {p.name || p.product_type}
                                   </span>
+                                  {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                      <Layers className="w-3 h-3" />
+                                      <span>Kit / BOM • {p.sub_components.length} parts</span>
+                                    </span>
+                                  )}
                                   {p.datasheet_attachment?.url && (
                                     <a
                                       href={p.datasheet_attachment.url}
@@ -1547,7 +1594,9 @@ export default function ProductManager({
           >
             <form
               onSubmit={handleSaveProduct}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl relative flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+              className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full ${
+                formIsCompositeSet ? 'max-w-5xl' : 'max-w-3xl'
+              } shadow-2xl relative flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-all`}
             >
               {/* Pinned Modal Header + Live Product Summary Banner */}
               <div className="p-5 px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 shrink-0 space-y-4">
@@ -1940,6 +1989,50 @@ export default function ProductManager({
                         </div>
                       )}
                     </div>
+
+                    {/* Composite Package / Kit (BOM) Builder inside Products Catalog */}
+                    <CompositePackageEditor
+                      item={{
+                        id: editingProduct?.id || 'catalog_bom_draft',
+                        item_type: 'Product',
+                        product_type: formProductType || 'System Package',
+                        name: formName || 'Composite Package / Kit',
+                        description: formDescription || formName || 'Composite Package / Kit',
+                        quantity: 1,
+                        unit: formUnit || 'SET',
+                        unit_price: formUnitPrice,
+                        cost_price: formCostPrice,
+                        is_composite_set: formIsCompositeSet,
+                        sub_components: formSubComponents,
+                        package_pricing_mode: formPackagePricingMode,
+                        option_scope_notes: formOptionScopeNotes
+                      }}
+                      currency="AED"
+                      products={activeCatalogProducts.filter((p) => p.id !== editingProduct?.id)}
+                      onChange={(updates) => {
+                        if (updates.is_composite_set !== undefined) {
+                          setFormIsCompositeSet(updates.is_composite_set);
+                          if (updates.is_composite_set && (!formUnit || formUnit === 'Nos')) {
+                            setFormUnit('SET');
+                          }
+                        }
+                        if (updates.sub_components !== undefined) {
+                          setFormSubComponents(updates.sub_components);
+                        }
+                        if (updates.package_pricing_mode !== undefined) {
+                          setFormPackagePricingMode(updates.package_pricing_mode);
+                        }
+                        if (updates.option_scope_notes !== undefined) {
+                          setFormOptionScopeNotes(updates.option_scope_notes);
+                        }
+                        if (updates.unit_price !== undefined) {
+                          setFormUnitPrice(updates.unit_price);
+                        }
+                        if (updates.cost_price !== undefined) {
+                          setFormCostPrice(updates.cost_price);
+                        }
+                      }}
+                    />
 
                     {/* Default Lead Time / Availability */}
                     <div>

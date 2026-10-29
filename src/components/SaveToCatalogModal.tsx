@@ -289,7 +289,8 @@ export interface SaveToCatalogLineItemInput {
 interface SaveToCatalogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  lineItem: SaveToCatalogLineItemInput | null;
+  lineItem?: SaveToCatalogLineItemInput | null;
+  initialItem?: SaveToCatalogLineItemInput | null;
   activeWorkspace?: Workspace;
   user?: any;
   products: Product[];
@@ -304,7 +305,8 @@ interface SaveToCatalogModalProps {
 export default function SaveToCatalogModal({
   isOpen,
   onClose,
-  lineItem,
+  lineItem: propLineItem,
+  initialItem,
   activeWorkspace,
   user,
   products,
@@ -315,6 +317,7 @@ export default function SaveToCatalogModal({
   onSaved,
   triggerToast
 }: SaveToCatalogModalProps) {
+  const lineItem = propLineItem || initialItem || null;
   const [isSaving, setIsSaving] = useState(false);
 
   const availableCategories = useMemo(() => {
@@ -387,7 +390,7 @@ export default function SaveToCatalogModal({
       setSku(`${prefix}-${suffix}`);
     }
 
-    setUnit(lineItem.unit || 'Nos');
+    setUnit(lineItem.unit || (lineItem.is_composite_set ? 'Set' : 'Nos'));
     setUnitPrice(lineItem.unit_price != null && lineItem.unit_price >= 0 ? String(lineItem.unit_price) : '');
     setCostPrice(lineItem.cost_price != null && lineItem.cost_price > 0 ? String(lineItem.cost_price) : '');
     setLeadTime(lineItem.lead_time_note || lineItem.availability || '');
@@ -514,6 +517,10 @@ export default function SaveToCatalogModal({
 
       const numSell = unitPrice !== '' && !isNaN(Number(unitPrice)) ? Number(unitPrice) : undefined;
       const numCost = costPrice !== '' && !isNaN(Number(costPrice)) ? Number(costPrice) : undefined;
+      const isComposite = Boolean(
+        lineItem.is_composite_set ||
+          (Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0)
+      );
 
       const productPayload: Partial<Product> = {
         workspace_id: activeWorkspace?.id || 'ws_default',
@@ -532,7 +539,7 @@ export default function SaveToCatalogModal({
         image_url: imageUrl.trim() || undefined,
         datasheet_attachment: datasheetAttachment || undefined,
         attributes: cleanAttrs,
-        ...(lineItem.is_composite_set ? { is_composite_set: true } : {}),
+        ...(isComposite ? { is_composite_set: true } : {}),
         ...(Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0
           ? { sub_components: lineItem.sub_components }
           : {}),
@@ -558,7 +565,10 @@ export default function SaveToCatalogModal({
       }
 
       if (triggerToast) {
-        triggerToast(`Saved "${createdProduct.name}" to Products Catalog and linked to line item.`, 'success');
+        triggerToast(
+          `Saved ${isComposite ? 'Composite Kit / BOM' : 'Product'} "${createdProduct.name}" to Products Catalog.`,
+          'success'
+        );
       }
 
       onSaved(createdProduct);
@@ -578,6 +588,10 @@ export default function SaveToCatalogModal({
     numSellPreview > 0 && numCostPreview > 0
       ? (((numSellPreview - numCostPreview) / numSellPreview) * 100).toFixed(1)
       : null;
+  const isCompositePreview = Boolean(
+    lineItem.is_composite_set ||
+      (Array.isArray(lineItem.sub_components) && lineItem.sub_components.length > 0)
+  );
 
   return (
     <div
@@ -597,10 +611,12 @@ export default function SaveToCatalogModal({
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Save Line Item to Products Catalog
+                {isCompositePreview
+                  ? 'Save Composite Package / Kit (BOM) to Catalog'
+                  : 'Save Line Item to Products Catalog'}
               </h3>
               <p className="text-[11px] text-slate-500">
-                Creates a reusable Catalog Product and automatically links its ID back to this line item.
+                Creates a reusable Catalog {isCompositePreview ? 'Composite Kit (with all BOM sub-components)' : 'Product'} and links its ID back to this line item.
               </p>
             </div>
           </div>
@@ -615,6 +631,16 @@ export default function SaveToCatalogModal({
 
         {/* Body */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+          {isCompositePreview && (
+            <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between gap-2 text-xs">
+              <div className="font-semibold text-indigo-950">
+                📦 Composite Kit / BOM Breakdown Attached ({lineItem.sub_components?.length || 0} sub-components)
+              </div>
+              <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold">
+                Mode: {lineItem.package_pricing_mode === 'lump_sum' ? 'Single Lump-Sum' : 'Itemized Rates'}
+              </span>
+            </div>
+          )}
           {/* Name & Split Helper */}
           <div>
             <div className="flex items-center justify-between mb-1">

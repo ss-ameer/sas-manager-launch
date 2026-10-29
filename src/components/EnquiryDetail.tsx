@@ -22,7 +22,7 @@ import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
 import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
-import { getKingSaudStpLineItems } from '../utils/kingSaudTankPreset';
+import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -1455,6 +1455,23 @@ export default function EnquiryDetail({
       p.default_availability?.trim() ||
       (p.is_inventoried && availStock > 0 ? 'Ex-Stock' : '2–3 Weeks');
 
+    const clonedSubComponents =
+      p.is_composite_set && Array.isArray(p.sub_components) && p.sub_components.length > 0
+        ? p.sub_components.map((sc, idx) => ({
+            ...sc,
+            id: `comp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
+            unit_price:
+              sc.unit_price !== undefined
+                ? Math.round((isUSD ? Number(sc.unit_price) / 3.6725 : Number(sc.unit_price)) * 100) / 100
+                : 0,
+            cost_price:
+              sc.cost_price !== undefined
+                ? Math.round((isUSD ? Number(sc.cost_price) / 3.6725 : Number(sc.cost_price)) * 100) / 100
+                : undefined
+          }))
+        : undefined;
+    const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, 1) : null;
+
     const newItem: LineItem = {
       id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       product_id: p.id,
@@ -1465,9 +1482,9 @@ export default function EnquiryDetail({
       description: p.description || p.name || '',
       quantity: 1,
       unit: p.unit || 'Nos',
-      unit_price: unitPrice,
-      cost_price: costPrice,
-      total_price: unitPrice,
+      unit_price: bomRollup ? bomRollup.unitSellingPrice : unitPrice,
+      cost_price: bomRollup ? bomRollup.unitCostPrice : costPrice,
+      total_price: bomRollup ? bomRollup.totalSellingPrice : unitPrice,
       brand_make: p.brand_make || undefined,
       model_part_no: p.model_part_no || undefined,
       country_of_origin: p.country_of_origin || undefined,
@@ -1479,9 +1496,7 @@ export default function EnquiryDetail({
       option: activeOptionTab !== 'ALL' ? activeOptionTab : 'Default / Included',
       attributes: p.attributes ? [...p.attributes] : [],
       ...(p.is_composite_set ? { is_composite_set: true } : {}),
-      ...(Array.isArray(p.sub_components) && p.sub_components.length > 0
-        ? { sub_components: p.sub_components }
-        : {}),
+      ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
       ...(p.package_pricing_mode ? { package_pricing_mode: p.package_pricing_mode } : {}),
       ...(p.option_scope_notes ? { option_scope_notes: p.option_scope_notes } : {})
     };
@@ -1490,7 +1505,7 @@ export default function EnquiryDetail({
     setIsInlineEditingItems(true);
     setShowQuickCatalogPicker(false);
     if (triggerToast) {
-      triggerToast(`Added "${p.name || p.product_type}" to Line Items. Click Save Changes to persist.`, 'info');
+      triggerToast(`Added "${p.name || p.product_type}" to Line Items. Click Save Items to persist.`, 'info');
     }
   };
 
@@ -1657,7 +1672,13 @@ export default function EnquiryDetail({
           attributes: li.attributes || [],
           image_url: li.image_url,
           datasheet_attachment: li.datasheet_attachment,
-          include_datasheet_in_quote: li.include_datasheet_in_quote !== false
+          include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
+          ...(li.is_composite_set ? { is_composite_set: true } : {}),
+          ...(Array.isArray(li.sub_components) && li.sub_components.length > 0
+            ? { sub_components: li.sub_components }
+            : {}),
+          ...(li.package_pricing_mode ? { package_pricing_mode: li.package_pricing_mode } : {}),
+          ...(li.option_scope_notes ? { option_scope_notes: li.option_scope_notes } : {})
         };
       });
 
@@ -3904,29 +3925,6 @@ export default function EnquiryDetail({
                         )}
                         <button
                           type="button"
-                          onClick={() => {
-                            const curr = (currentEnquiry.currency as 'AED' | 'USD') || 'USD';
-                            const ksItems = getKingSaudStpLineItems(curr);
-                            const baseList = isInlineEditingItems
-                              ? draftLineItems
-                              : currentEnquiry.line_items || [];
-                            setDraftLineItems([...baseList, ...ksItems]);
-                            setIsInlineEditingItems(true);
-                            if (triggerToast) {
-                              triggerToast(
-                                'Loaded King Saud Air Base STP Option A (SST) & Option B (GFS) tank packages into Line Items. Click Save Items to persist!',
-                                'success'
-                              );
-                            }
-                          }}
-                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
-                          title="Load King Saud Air Base Development STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component tank sets"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>⚡ Load King Saud STP (SST + GFS)</span>
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => setShowQuickCatalogPicker(!showQuickCatalogPicker)}
                           className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
                         >
@@ -4122,7 +4120,14 @@ export default function EnquiryDetail({
                                   </div>
                                 )}
                                 <div className="min-w-0">
-                                  <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
+                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
+                                      <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
+                                        📦 Kit ({p.sub_components.length})
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="text-[10px] font-mono text-slate-500 truncate">
                                     {[p.brand_make, p.model_part_no, p.sku ? `SKU: ${p.sku}` : ''].filter(Boolean).join(' · ') || p.product_type}
                                   </div>
@@ -4294,6 +4299,39 @@ export default function EnquiryDetail({
                                 Linked: {matchedProduct.sku || 'Catalog'}
                               </span>
                             )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const { clonedItem, targetOption, updatedSourceOption } = cloneLineItemToNextOption(
+                                  item,
+                                  draftLineItems
+                                );
+                                setDraftLineItems((prev) => {
+                                  const next = [...prev];
+                                  if (updatedSourceOption) {
+                                    next[idx] = {
+                                      ...next[idx],
+                                      option: updatedSourceOption,
+                                      item_option: updatedSourceOption,
+                                      option_designation: updatedSourceOption
+                                    };
+                                  }
+                                  next.splice(idx + 1, 0, clonedItem);
+                                  return next;
+                                });
+                                if (triggerToast) {
+                                  triggerToast(
+                                    `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
+                                    'success'
+                                  );
+                                }
+                              }}
+                              className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
+                              title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
+                            >
+                              <span>🔀 Clone as Next Option</span>
+                            </button>
 
                             <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
                               <button
@@ -4615,6 +4653,7 @@ export default function EnquiryDetail({
                             optionScopeNotes={item.option_scope_notes || ''}
                             parentQuantity={item.quantity || 1}
                             currency={(currentEnquiry.currency as string) || 'USD'}
+                            products={products || []}
                             onChange={(patch) => {
                               setDraftLineItems((prev) => {
                                 const next = [...prev];

@@ -1901,6 +1901,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         })
         .map((it) => ({ ...it, is_optional: false }));
     }
+    if (resolvedOptionDisplayMode === 'option_c_only') {
+      return all
+        .filter((it) => {
+          const opt = String(it.option || it.option_group || '').trim();
+          return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
+        })
+        .map((it) => ({ ...it, is_optional: false }));
+    }
     return all;
   }, [quotation.line_items, resolvedOptionDisplayMode]);
 
@@ -3163,124 +3171,160 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               rawLineItems.forEach((it) => {
                 const rawOpt = String(it.option || it.option_group || '').trim();
                 if (/^option\s*[a-z0-9]/i.test(rawOpt)) {
-                  const lineVal = Number(it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0));
+                  const lineVal = Number(
+                    it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
+                  );
                   optionSummaryMap.set(rawOpt, (optionSummaryMap.get(rawOpt) || 0) + lineVal);
                 }
               });
-              if (optionSummaryMap.size > 1) {
-                return (
-                  <div className="mb-1.5 pb-1.5 border-b border-slate-200 space-y-1">
-                    <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
-                      Commercial Option Summary
+
+              const hasMultiOptions = optionSummaryMap.size > 1;
+              const showCombinedGrandTotal = !hasMultiOptions || Boolean(quotation.show_combined_options_total);
+              const taxRate = Number(quotation.tax_rate_percent || 5);
+              const isTaxCalculated = quotation.tax_mode === 'tax_calculated';
+
+              return (
+                <>
+                  {hasMultiOptions && (
+                    <div className="mb-2 pb-2 border-b border-slate-200 space-y-2">
+                      <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
+                        Commercial Summary by Option
+                      </div>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {Array.from(optionSummaryMap.entries()).map(([optName, optSubtotal], oIdx) => {
+                          const customOptTitle = quotation.option_group_titles?.[optName]?.trim();
+                          const optVat = isTaxCalculated
+                            ? Math.round(optSubtotal * (taxRate / 100) * 100) / 100
+                            : 0;
+                          const optGrandTotal = Math.round((optSubtotal + optVat) * 100) / 100;
+                          return (
+                            <div
+                              key={optName}
+                              className="p-2 rounded-lg bg-slate-50/90 border border-slate-200/90 space-y-0.5"
+                            >
+                              <div className="flex justify-between items-center text-[var(--block-base)]">
+                                <span className="font-bold text-slate-900">
+                                  {customOptTitle || `${optName} (${oIdx === 0 ? 'Baseline Offer' : 'Alternative Offer'})`}
+                                </span>
+                                <span
+                                  className="font-mono tabular-nums font-extrabold text-[calc(var(--block-base)*1.08)]"
+                                  style={{ color: themePalette.textAccent }}
+                                >
+                                  {formatCurrency(optGrandTotal)}
+                                </span>
+                              </div>
+                              {isTaxCalculated && (
+                                <div className="flex items-center justify-between text-[calc(var(--block-base)*0.86)] text-slate-500 font-mono">
+                                  <span>Subtotal Excl. VAT: {formatCurrency(optSubtotal)}</span>
+                                  <span>VAT ({taxRate}%): {formatCurrency(optVat)}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    {Array.from(optionSummaryMap.entries()).map(([optName, optTotal], oIdx) => (
+                  )}
+
+                  {showCombinedGrandTotal && (
+                    <>
+                      {vis.subtotal !== false && (
+                        <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
+                          <span>{labels.subtotal || 'Subtotal'}:</span>
+                          <span className="font-mono tabular-nums font-semibold text-slate-800">
+                            {formatCurrency(quotation.subtotal)}
+                          </span>
+                        </div>
+                      )}
+
+                      {vis.freight !== false && Number(quotation.freight_amount) > 0 && (
+                        <div
+                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+                        >
+                          <span>{labels.freight || 'Freight / Logistics'}:</span>
+                          <span className="font-mono tabular-nums font-semibold text-slate-800">
+                            {formatCurrency(quotation.freight_amount)}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Custom Financial Rows (e.g. Discount, Handling, Packing) */}
+                      {(blockConfig?.customRows || []).map((cr) => {
+                        if (cr.enabled === false || (!cr.label && !cr.value)) return null;
+                        return (
+                          <div
+                            key={cr.id}
+                            className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+                          >
+                            <span>{cr.label}:</span>
+                            <span className="font-mono tabular-nums font-semibold text-slate-800">
+                              {cr.value}
+                            </span>
+                          </div>
+                        );
+                      })}
+
+                      {/* Tax Mode Display */}
+                      {vis.tax !== false && quotation.tax_mode === 'tax_calculated' && (
+                        <div
+                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
+                        >
+                          <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                          <span className="font-mono tabular-nums font-semibold text-slate-800">
+                            {formatCurrency(quotation.tax_amount)}
+                          </span>
+                        </div>
+                      )}
+
+                      {vis.tax !== false && quotation.tax_mode === 'taxes_extra' && (
+                        <div
+                          className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
+                        >
+                          <div className="flex justify-between">
+                            <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                            <span className="font-mono tabular-nums font-semibold text-slate-800">
+                              {formatCurrency(quotation.tax_amount)}
+                            </span>
+                          </div>
+                          <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
+                            * Taxes EXTRA to client account as applicable
+                          </p>
+                        </div>
+                      )}
+
+                      {vis.tax !== false && quotation.tax_mode === 'tax_exempt' && (
+                        <div
+                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}
+                        >
+                          <span>Tax Status:</span>
+                          <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                            Tax Exempt (0%)
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Grand Total */}
                       <div
-                        key={optName}
-                        className="flex justify-between items-center py-0.5 text-[var(--block-base)]"
+                        className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
+                        style={{ borderColor: themePalette.primaryHex }}
                       >
-                        <span className="font-semibold text-slate-700">
-                          {optName} ({oIdx === 0 ? 'Baseline Offer' : 'Alternative Offer'}):
+                        <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">
+                          {hasMultiOptions
+                            ? 'Combined Grand Total:'
+                            : `${labels.grand_total || 'Grand Total'}:`}
                         </span>
-                        <span className="font-mono tabular-nums font-bold text-slate-900">
-                          {formatCurrency(optTotal)}
+                        <span
+                          className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
+                          style={{ color: themePalette.textAccent }}
+                        >
+                          {formatCurrency(quotation.grand_total)}
                         </span>
                       </div>
-                    ))}
-                  </div>
-                );
-              }
-              return null;
-            })()}
-            {vis.subtotal !== false && (
-              <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
-                <span>{labels.subtotal || 'Subtotal'}:</span>
-                <span className="font-mono tabular-nums font-semibold text-slate-800">
-                  {formatCurrency(quotation.subtotal)}
-                </span>
-              </div>
-            )}
-
-            {vis.freight !== false && Number(quotation.freight_amount) > 0 && (
-              <div
-                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-              >
-                <span>{labels.freight || 'Freight / Logistics'}:</span>
-                <span className="font-mono tabular-nums font-semibold text-slate-800">
-                  {formatCurrency(quotation.freight_amount)}
-                </span>
-              </div>
-            )}
-
-            {/* Custom Financial Rows (e.g. Discount, Handling, Packing) */}
-            {(blockConfig?.customRows || []).map((cr) => {
-              if (cr.enabled === false || (!cr.label && !cr.value)) return null;
-              return (
-                <div
-                  key={cr.id}
-                  className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-                >
-                  <span>{cr.label}:</span>
-                  <span className="font-mono tabular-nums font-semibold text-slate-800">
-                    {cr.value}
-                  </span>
-                </div>
+                    </>
+                  )}
+                </>
               );
-            })}
-
-            {/* Tax Mode Display */}
-            {vis.tax !== false && quotation.tax_mode === 'tax_calculated' && (
-              <div
-                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-              >
-                <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                <span className="font-mono tabular-nums font-semibold text-slate-800">
-                  {formatCurrency(quotation.tax_amount)}
-                </span>
-              </div>
-            )}
-
-            {vis.tax !== false && quotation.tax_mode === 'taxes_extra' && (
-              <div
-                className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
-              >
-                <div className="flex justify-between">
-                  <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                  <span className="font-mono tabular-nums font-semibold text-slate-800">
-                    {formatCurrency(quotation.tax_amount)}
-                  </span>
-                </div>
-                <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
-                  * Taxes EXTRA to client account as applicable
-                </p>
-              </div>
-            )}
-
-            {vis.tax !== false && quotation.tax_mode === 'tax_exempt' && (
-              <div
-                className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}
-              >
-                <span>Tax Status:</span>
-                <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                  Tax Exempt (0%)
-                </span>
-              </div>
-            )}
-
-            {/* Grand Total */}
-            <div
-              className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
-              style={{ borderColor: themePalette.primaryHex }}
-            >
-              <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">
-                {labels.grand_total || 'Grand Total'}:
-              </span>
-              <span
-                className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
-                style={{ color: themePalette.textAccent }}
-              >
-                {formatCurrency(quotation.grand_total)}
-              </span>
-            </div>
+            })()}
           </div>
 
           {/* Amount in Words */}
@@ -5139,10 +5183,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               (it) => String(it.option || it.option_group || '').trim().toLowerCase() === optGroup.toLowerCase()
             );
             if (groupItems.length > 0) {
+              const customTitle = quotation.option_group_titles?.[optGroup]?.trim();
               const firstTitle = groupItems[0]?.item_name || '';
               groups.push({
                 optionKey: optGroup,
-                optionBannerTitle: `OPTION ${gIdx + 1} (${optGroup.toUpperCase()})${firstTitle ? ` — ${firstTitle}` : ''}`,
+                optionBannerTitle:
+                  customTitle ||
+                  `OPTION ${gIdx + 1} (${optGroup.toUpperCase()})${firstTitle ? ` — ${firstTitle}` : ''}`,
                 items: groupItems
               });
             }
@@ -5154,7 +5201,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             optionKey: 'all',
             optionBannerTitle:
               distinctOptionGroups.length === 1 && resolvedOptionDisplayMode !== 'combined_table'
-                ? `${distinctOptionGroups[0].toUpperCase()} — ${pageItems[0]?.item_name || 'COMMERCIAL SCHEDULE'}`
+                ? quotation.option_group_titles?.[distinctOptionGroups[0]]?.trim() ||
+                  `${distinctOptionGroups[0].toUpperCase()} — ${pageItems[0]?.item_name || 'COMMERCIAL SCHEDULE'}`
                 : undefined,
             items: pageItems
           }

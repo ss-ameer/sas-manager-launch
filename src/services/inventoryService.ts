@@ -3,6 +3,7 @@ import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
 import { saveToLocalStore } from './db';
+import { isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 
 export interface ReservationResult {
   success: boolean;
@@ -16,6 +17,59 @@ export interface ReleaseResult {
   releasedCount: number;
   skippedCount: number;
   details: { productId: string; quantity: number; newReserved: number }[];
+}
+
+/**
+ * Resolves effective stock requirements across both top-level catalog products
+ * and Composite Package / Kit (BOM) sub-components that link to a catalog `product_id`.
+ * Respects multi-option rules: only `Default / Included` and `Option A` (or the explicitly
+ * designated `winningOption`) are included so mutually exclusive options don't double-reserve stock.
+ */
+export function extractEffectiveStockRequirements(
+  lineItems: LineItem[],
+  designatedWinningOption?: string
+): Array<{ product_id: string; quantity: number; description: string }> {
+  const aggregated = new Map<string, { quantity: number; description: string }>();
+
+  for (const item of lineItems || []) {
+    const itemOpt = item.option || item.item_option || item.option_designation;
+    if (!isOptionActiveForInventoryAndBaseline(itemOpt, designatedWinningOption)) {
+      continue;
+    }
+
+    const parentQty = Math.max(0, Number(item.quantity) || 0);
+    if (parentQty <= 0) continue;
+
+    const hasLinkedSubComponents =
+      Array.isArray(item.sub_components) &&
+      item.sub_components.some((sub) => Boolean(sub.product_id));
+
+    if (hasLinkedSubComponents && item.sub_components) {
+      for (const sub of item.sub_components) {
+        if (!sub.product_id) continue;
+        const subQty = Math.max(0, Number(sub.quantity) || 0);
+        const totalSubQty = parentQty * subQty;
+        if (totalSubQty <= 0) continue;
+        const existing = aggregated.get(sub.product_id);
+        aggregated.set(sub.product_id, {
+          quantity: (existing?.quantity || 0) + totalSubQty,
+          description: existing?.description || sub.item_name || item.item_name || item.description || 'BOM Sub-Component',
+        });
+      }
+    } else if (item.product_id) {
+      const existing = aggregated.get(item.product_id);
+      aggregated.set(item.product_id, {
+        quantity: (existing?.quantity || 0) + parentQty,
+        description: existing?.description || item.item_name || item.description || 'Product',
+      });
+    }
+  }
+
+  return Array.from(aggregated.entries()).map(([product_id, data]) => ({
+    product_id,
+    quantity: data.quantity,
+    description: data.description,
+  }));
 }
 
 export function isWonStatus(status?: string): boolean {
@@ -45,15 +99,16 @@ export function isLostOrCancelledStatus(status?: string): boolean {
 }
 
 /**
- * Reads all line items in the enquiry having a product_id.
+ * Reads all active line items (and linked BOM sub-components) in the enquiry having a product_id.
  * For each matching product where is_inventoried === true:
- * increments stock_reserved by item quantity and records a STOCK_RESERVE movement.
+ * increments stock_reserved by required quantity and records a STOCK_RESERVE movement.
  */
 export async function reserveEnquiryStock(
   enquiry: Enquiry,
   user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string }
 ): Promise<ReservationResult> {
   const lineItems: LineItem[] = enquiry.line_items || [];
+  const requirements = extractEffectiveStockRequirements(lineItems, enquiry.proposal_option);
   const result: ReservationResult = {
     success: true,
     reservedCount: 0,
@@ -73,15 +128,14 @@ export async function reserveEnquiryStock(
 
   const runningReservedMap = new Map<string, number>();
 
-  for (const item of lineItems) {
-    if (!item.product_id) {
+  for (const reqItem of requirements) {
+    if (!reqItem.product_id) {
       result.skippedCount++;
       continue;
     }
 
     try {
-      // Fetch product document
-      const prodRef = doc(db, 'products', item.product_id);
+      const prodRef = doc(db, 'products', reqItem.product_id);
       const prodSnap = await getDoc(prodRef);
 
       if (!prodSnap.exists()) {
@@ -91,37 +145,34 @@ export async function reserveEnquiryStock(
 
       const prodData = prodSnap.data() as Product;
 
-      // Safe constraint: Only lines with is_inventoried === true trigger reservation
       if (!prodData.is_inventoried) {
         result.skippedCount++;
         continue;
       }
 
-      const qty = Number(item.quantity) || 0;
+      const qty = Number(reqItem.quantity) || 0;
       if (qty <= 0) {
         result.skippedCount++;
         continue;
       }
 
-      const currentReserved = runningReservedMap.has(item.product_id)
-        ? runningReservedMap.get(item.product_id)!
+      const currentReserved = runningReservedMap.has(reqItem.product_id)
+        ? runningReservedMap.get(reqItem.product_id)!
         : Number(prodData.stock_reserved) || 0;
       const currentOnHand = Number(prodData.stock_on_hand) || 0;
       const newReserved = currentReserved + qty;
-      runningReservedMap.set(item.product_id, newReserved);
+      runningReservedMap.set(reqItem.product_id, newReserved);
 
-      // Update product document in Firestore
-      await safeUpdateDoc('products', item.product_id, {
+      await safeUpdateDoc('products', reqItem.product_id, {
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
 
-      // Update local storage in IndexedDB as well
       try {
         const cachedProducts = await MetadataRepository.fetchProductsOnce();
         if (cachedProducts && cachedProducts.length > 0) {
           const updatedCached = cachedProducts.map((p) =>
-            p.id === item.product_id ? { ...p, stock_reserved: newReserved } : p
+            p.id === reqItem.product_id ? { ...p, stock_reserved: newReserved } : p
           );
           await saveToLocalStore('products', updatedCached);
         }
@@ -129,11 +180,10 @@ export async function reserveEnquiryStock(
         // Non-critical local cache update
       }
 
-      // Append audit record to stock_movements
       const movement: StockMovement = {
         workspace_id: wsId,
-        product_id: item.product_id,
-        product_name: prodData.name || item.description || 'Product',
+        product_id: reqItem.product_id,
+        product_name: prodData.name || reqItem.description || 'Product',
         movement_type: 'STOCK_RESERVE',
         quantity: qty,
         previous_on_hand: currentOnHand,
@@ -150,16 +200,15 @@ export async function reserveEnquiryStock(
 
       result.reservedCount++;
       result.details.push({
-        productId: item.product_id,
+        productId: reqItem.product_id,
         quantity: qty,
         newReserved
       });
     } catch (err) {
-      console.warn(`[reserveEnquiryStock] Failed reserving product ${item.product_id}:`, err);
+      console.warn(`[reserveEnquiryStock] Failed reserving product ${reqItem.product_id}:`, err);
     }
   }
 
-  // Tag enquiry as stock_reserved
   if (enquiry.id && result.reservedCount > 0) {
     await safeUpdateDoc('enquiries', enquiry.id, {
       stock_reserved: true,
@@ -179,6 +228,7 @@ export async function releaseEnquiryStock(
   user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string }
 ): Promise<ReleaseResult> {
   const lineItems: LineItem[] = enquiry.line_items || [];
+  const requirements = extractEffectiveStockRequirements(lineItems, enquiry.proposal_option);
   const result: ReleaseResult = {
     success: true,
     releasedCount: 0,
@@ -196,14 +246,14 @@ export async function releaseEnquiryStock(
     'System';
   const userUid = user?.uid;
 
-  for (const item of lineItems) {
-    if (!item.product_id) {
+  for (const reqItem of requirements) {
+    if (!reqItem.product_id) {
       result.skippedCount++;
       continue;
     }
 
     try {
-      const prodRef = doc(db, 'products', item.product_id);
+      const prodRef = doc(db, 'products', reqItem.product_id);
       const prodSnap = await getDoc(prodRef);
 
       if (!prodSnap.exists()) {
@@ -217,7 +267,7 @@ export async function releaseEnquiryStock(
         continue;
       }
 
-      const qty = Number(item.quantity) || 0;
+      const qty = Number(reqItem.quantity) || 0;
       if (qty <= 0) {
         result.skippedCount++;
         continue;
@@ -227,15 +277,15 @@ export async function releaseEnquiryStock(
       const currentOnHand = Number(prodData.stock_on_hand) || 0;
       const newReserved = Math.max(0, currentReserved - qty);
 
-      await safeUpdateDoc('products', item.product_id, {
+      await safeUpdateDoc('products', reqItem.product_id, {
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
 
       const movement: StockMovement = {
         workspace_id: wsId,
-        product_id: item.product_id,
-        product_name: prodData.name || item.description || 'Product',
+        product_id: reqItem.product_id,
+        product_name: prodData.name || reqItem.description || 'Product',
         movement_type: 'STOCK_RELEASE',
         quantity: qty,
         previous_on_hand: currentOnHand,
@@ -252,16 +302,15 @@ export async function releaseEnquiryStock(
 
       result.releasedCount++;
       result.details.push({
-        productId: item.product_id,
+        productId: reqItem.product_id,
         quantity: qty,
         newReserved
       });
     } catch (err) {
-      console.warn(`[releaseEnquiryStock] Failed releasing product ${item.product_id}:`, err);
+      console.warn(`[releaseEnquiryStock] Failed releasing product ${reqItem.product_id}:`, err);
     }
   }
 
-  // Untag enquiry stock_reserved
   if (enquiry.id && result.releasedCount > 0) {
     await safeUpdateDoc('enquiries', enquiry.id, {
       stock_reserved: false,
@@ -288,7 +337,7 @@ export interface DispatchResult {
 
 /**
  * Dispatches a project's stock:
- * Decrements both stock_on_hand and stock_reserved for inventoried line items,
+ * Decrements both stock_on_hand and stock_reserved for inventoried line items (including linked BOM sub-components),
  * and appends immutable STOCK_OUT audit records in stock_movements.
  */
 export async function dispatchProjectStock(
@@ -296,6 +345,7 @@ export async function dispatchProjectStock(
   user?: any
 ): Promise<DispatchResult> {
   const lineItems: LineItem[] = project.line_items || [];
+  const requirements = extractEffectiveStockRequirements(lineItems);
   const result: DispatchResult = {
     success: true,
     dispatchedCount: 0,
@@ -314,14 +364,14 @@ export async function dispatchProjectStock(
     'System';
   const userUid = user?.uid;
 
-  for (const item of lineItems) {
-    if (!item.product_id) {
+  for (const reqItem of requirements) {
+    if (!reqItem.product_id) {
       result.skippedCount++;
       continue;
     }
 
     try {
-      const prodRef = doc(db, 'products', item.product_id);
+      const prodRef = doc(db, 'products', reqItem.product_id);
       const prodSnap = await getDoc(prodRef);
 
       if (!prodSnap.exists()) {
@@ -335,7 +385,7 @@ export async function dispatchProjectStock(
         continue;
       }
 
-      const qty = Number(item.quantity) || 0;
+      const qty = Number(reqItem.quantity) || 0;
       if (qty <= 0) {
         result.skippedCount++;
         continue;
@@ -344,22 +394,19 @@ export async function dispatchProjectStock(
       const currentOnHand = Number(prodData.stock_on_hand) || 0;
       const currentReserved = Number(prodData.stock_reserved) || 0;
 
-      // Safe Inventory Deduction: decrement both stock_on_hand and stock_reserved
       const newOnHand = Math.max(0, currentOnHand - qty);
       const newReserved = Math.max(0, currentReserved - qty);
 
-      // Update Firestore product document
-      await safeUpdateDoc('products', item.product_id, {
+      await safeUpdateDoc('products', reqItem.product_id, {
         stock_on_hand: newOnHand,
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
 
-      // Immutable audit record in stock_movements
       const movement: StockMovement = {
         workspace_id: wsId,
-        product_id: item.product_id,
-        product_name: prodData.name || item.description || 'Product',
+        product_id: reqItem.product_id,
+        product_name: prodData.name || reqItem.description || 'Product',
         movement_type: 'STOCK_OUT',
         quantity: qty,
         previous_on_hand: currentOnHand,
@@ -376,18 +423,17 @@ export async function dispatchProjectStock(
 
       result.dispatchedCount++;
       result.details.push({
-        productId: item.product_id,
-        productName: prodData.name || item.description || 'Product',
+        productId: reqItem.product_id,
+        productName: prodData.name || reqItem.description || 'Product',
         quantity: qty,
         newOnHand,
         newReserved
       });
     } catch (err) {
-      console.warn(`[dispatchProjectStock] Failed dispatching product ${item.product_id}:`, err);
+      console.warn(`[dispatchProjectStock] Failed dispatching product ${reqItem.product_id}:`, err);
     }
   }
 
-  // Update project in Firestore
   const hasDeductedPhysicalStock = result.dispatchedCount > 0;
   if (project.id) {
     await safeUpdateDoc('projects', project.id, {

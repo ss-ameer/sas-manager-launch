@@ -1,87 +1,111 @@
-# Multi-Component Package / Set System & Multi-Option Tank Quotation Plan
+# Universal B2B SaaS Multi-Component Package (BOM) & Multi-Option Architecture Plan
 
-## 1. Architectural Overview & Goal
-Enable the Enquiries, Products Catalog, and Quotation Studio to natively build, price, and render **Multi-Component Packages / Composite Sets** (where a single parent system such as a Water Storage Tank Package consists of multiple priced sub-components + included zero-rate accessories) across **multiple commercial options (Option A: SST vs. Option B: GFS)** within a single quotation, complete with a **1-Click Pre-Loaded King Saud Air Base Development STP** template.
+## 1. Product & Architectural Overview
+Transition the Multi-Component Set / Package (BOM) and Multi-Option Quotation capabilities from a project-specific preset (`kingSaudTankPreset.ts`) into a **100% generic, standardized, multi-tenant B2B SaaS architecture** integrated across the **Products Catalog**, **Enquiries & Proposals**, **Inventory & Stock Ledger**, and **Quotation Studio**.
 
----
-
-## 2. Core Data Model Upgrades (`/src/types.ts`)
-
-### 2.1 Sub-Component / BOM Item Schema (`LineItemComponent`)
-Introduce a dedicated `LineItemComponent` interface shared across `LineItem`, `QuotationLineItem`, and `Product`:
-- `id: string`
-- `sn_label?: string` (e.g., `1.1`, `1.2` or bullet for included accessories)
-- `item_name: string` (e.g., `SST 475-60; Dia : 16.04m ; Ht : 6.0m ; Gross Cap : 1219KL` or `HDG FLANGED OUTLET 600MM (RF PAD & E TABLE) HDG SIDE`)
-- `remark?: string` (e.g., `Equalization Tank (Closed Type Roof)`, `Anoxic Tanks (Open Roof)`, `TSE Tanks (Closed Type Roof)`)
-- `specifications?: string` (dimensions, roof type, capacity, or technical note)
-- `quantity: number` (e.g., `1`, `3`, `2`, `17`, `4`, `8`)
-- `unit: string` (e.g., `NOS`, `SET`, `LOT`)
-- `cost_price?: number` (Supplier Ex-Works unit rate, e.g., `$45,500.00`)
-- `markup_percent?: number` (Optional markup % over supplier cost to auto-calculate selling unit rate)
-- `unit_price: number` (Client selling unit rate)
-- `total_price: number` (`quantity * unit_price`)
-- `is_included_accessory?: boolean` (When `true`, renders the component with its quantity in the package breakdown while showing `Included` instead of a separate unit rate/amount — matching the 6 HDG outlet, ladder, and airvent rows in the reference PDFs)
-
-### 2.2 Composite Package Controls on `LineItem`, `QuotationLineItem`, and `Product`
-Add composite package fields to `LineItem`, `QuotationLineItem`, and `Product`:
-- `is_composite_set?: boolean` — Marks the line item as a multi-component package/set.
-- `sub_components?: LineItemComponent[]` — Ordered list of priced tank sub-items and included accessories.
-- `package_pricing_mode?: 'itemized' | 'lump_sum'` — Controls how the package renders on the Quotation PDF:
-  - `'itemized'`: Displays each priced sub-component's `Qty`, `Unit Rate`, and `Total Amount` row-by-row inside the parent package, plus `Included` badges for zero-rate accessories, summing up to the package total.
-  - `'lump_sum'`: Displays the parent package total (`Unit Price` / `Total`) on the parent heading row while still listing all sub-components and their quantities underneath (hiding individual component unit rates on the client PDF).
-- `option_scope_notes?: string` — Option-specific technical scope & design standards block (e.g., SST Enamel Coated Zn-Al-Mg Steel & PVC Liner spec vs. GFS Glass-Fused-To-Steel AWWA D103-09 spec).
-
-### 2.3 Multi-Option Table & Filter Mode on `Quotation`
-Add option presentation settings to `Quotation`:
-- `option_display_mode?: 'all_separate_tables' | 'baseline_only' | 'option_a_only' | 'option_b_only' | 'combined_table'` (defaults to `'all_separate_tables'` when multiple options exist so Option A and Option B render as clearly titled, independent option tables with their own subtotals/totals in a single quotation, plus a live filter switcher in Quotation Studio).
+### Alignment with Clarified Requirements
+- **Catalog Sub-Component Price Behavior**: Sub-components linked to Catalog Products snapshot their cost/selling price upon linking and display a **1-click `[ ↻ Refresh from Catalog ]`** action when catalog prices change.
+- **Multi-Option Inventory Reservation**: When an Enquiry is marked Won, stock reservation (`reserveEnquiryStock`) and project dispatch (`dispatchProjectStock`) process only active/selected option items (defaulting to `Default / Included` and `Option A` unless a specific winning option is designated), preventing duplicate stock locks across mutually exclusive options.
+- **Multi-Option Commercial Summary**: When a Quotation displays separate Option tables (`Option A`, `Option B`, `Option C`), the Financial Summary renders **per-option summary cards** (`Subtotal Excl. VAT`, `5% VAT`, `Option Net Total`) alongside a **toggleable Combined Grand Total** row.
 
 ---
 
-## 3. UI & Workflow Enhancements
+## 2. Pillar-by-Pillar Implementation Specification
 
-### 3.1 Multi-Component Set / BOM Builder (`EnquiryForm.tsx`, `EnquiryDetail.tsx`, & `QuotationStudioModal.tsx`)
-1. **Package / Set Toggle & Sub-Component Table on Any Line Item**:
-   - Add a `[ 📦 Multi-Component Set / BOM ]` toggle button on every line item header in `EnquiryForm`, `EnquiryDetail` (Line Items tab), and `QuotationStudioModal`.
-   - When enabled, display an structured **Package Components & Accessories Editor** directly inside the line item card:
-     - **Batch Supplier Markup Bar**: Quick input to apply a uniform Markup % or Margin % across all sub-component `cost_price` values (or convert USD supplier costs to AED at `3.6725` / SAR at `3.75`) to compute client `unit_price` automatically, while still allowing per-component price overrides.
-     - **Pricing Display Toggle**: Instant switch between **Itemized Component Rates** (`itemized`) and **Single Package Lump-Sum** (`lump_sum`).
-     - **Sub-Component Rows**: Inline rows for `Model / Component Spec`, `Remark / Tank Purpose (e.g., Equalization Tank - Closed Roof)`, `Qty`, `UOM`, `Supplier Cost`, `Selling Rate`, `Amount`, and an `Included Accessory (Qty Only)` checkbox.
-     - **Auto-Rollup**: Automatically sums sub-component costs into the parent item's `cost_price` and sub-component selling totals into the parent item's `unit_price` / `total_price`.
-
-### 3.2 Single-Quotation Multi-Option Tables & Filter Toggle (`QuotationDocument.tsx` & `QuotationStudioModal.tsx`)
-1. **Structured Parent + Sub-Component Rendering on A4 Document (`QuotationDocument.tsx`)**:
-   - When a line item has `sub_components?.length > 0`:
-     - Render the **Parent Package Row** (`#1`, HSN/SAC code badge `73090090`, bold package title, e.g., `Supply of Secure Store Water Storage Tank (SST)` or `Glass-Fused-To-Steel (GFS) Water Storage Tank`).
-     - Render numbered/indented **Sub-Component Rows** underneath with clean typographic hierarchy:
-       - Model & dimensions (`SST 475-60; Dia : 16.04m ; Ht : 6.0m ; Gross Cap : 1219KL`)
-       - Bold **Remark** pill/line (`Remark: Equalization Tank (Closed Type Roof)`)
-       - `Qty` (`1.00`, `3.00`, `2.00`, `17.00`) and `UOM` (`NOS`)
-       - In `itemized` mode: shows each component's `Unit Price` and `Total`, and shows `Included` for accessory rows (`HDG FLANGED OUTLET 600MM`, `HDG CAGE LADDER`, `HDG GOOSE NECK AIRVENT`).
-       - In `lump_sum` mode: shows the full package price on the parent row and displays `Included (Set)` on the component rows so the client sees all technical specs and quantities without component price breakdown.
-     - Render any `option_scope_notes` (Scope of Work & Tank Design Standards) cleanly below the option table.
-2. **Option A (SST) & Option B (GFS) Separate Tables + Studio Filter Bar**:
-   - When a quotation contains multiple options (`Option A`, `Option B`, etc.), `QuotationDocument` can render:
-     - **Separate Option Tables Mode (Default)**: Renders a dedicated, clearly badged commercial table for **Option A — Secure Store Water Storage Tank (SST)** with its own Option A Total (`USD 631,250.00` or marked-up total), followed by **Option B — Glass-Fused-To-Steel (GFS) Water Storage Tank** with its own Option B Total (`USD 834,250.00` or marked-up total), plus an **Executive Option Summary Comparison Box** in the Financial Totals block so the client can approve either Option A or Option B.
-     - **Quick Option Filter Pill Bar in Quotation Studio**: Lets you switch between `Show Both Options (A & B Tables)`, `Option A Only (SST)`, or `Option B Only (GFS)` with one click if the client asks for a standalone PDF of just one option.
-
-### 3.3 1-Click Pre-Loaded "King Saud Air Base STP (SST & GFS)" Template & Catalog Bundles
-1. **Ready-to-Use King Saud Air Base STP Generator (`src/utils/kingSaudTankPreset.ts`)**:
-   - Include the exact, complete dataset from both attached PDFs (`26-27/SQ/1898` SST Offer and `26-27/SQ/1899` GFS Offer):
-     - **Option A — Supply of Secure Store Water Storage Tank (SST)** (`HSN: 73090090`, Base Value `USD 631,250.00`):
-       - All 8 priced SST tanks (`SST 475-60` $45,500 × 1, `SST 85-48` $13,500 × 3, `SST 310-60` $29,750 × 3, `SST 155-48` $17,500 × 3, `SST 70-48` $12,000 × 1, `SST 105-48` $16,000 × 1, `SST 1720-84` $173,500 × 2, `SST 70-36` $9,500 × 3)
-       - All 6 included HDG accessories with exact quantities (`17`, `4`, `8`, `2`, `3`, `17`)
-       - SST Scope of Work & Design Standards + Commercial Terms
-     - **Option B — Glass-Fused-To-Steel (GFS) Water Storage Tank** (`HSN: 73090090`, Base Value `USD 834,250.00`):
-       - All 8 priced GFS tanks (`GFS475-60` $59,500 × 1, `GFS85-48` $18,000 × 3, `GFS310-60` $40,000 × 3, `GFS155-48` $23,250 × 3, `GFS70-48` $16,000 × 1, `GFS105-48` $21,500 × 1, `GFS1720-84` $228,000 × 2, `GFS70-36` $12,500 × 3)
-       - All 6 included HDG accessories with exact quantities (`17`, `4`, `8`, `2`, `3`, `17`)
-       - GFS Scope of Work & Design Standards + Commercial Terms
-   - Expose a prominent **`[ ⚡ Load King Saud STP Tank Package (SST + GFS) ]`** action button in the **Enquiries & Quotes** header and inside **Enquiry Form / Quotation Studio** so you can immediately create or populate the Enquiry and open it in Quotation Studio ready to apply your markup, toggle itemized vs. lump-sum, and export the PDF.
-   - Support saving any multi-component line item set to the **Products Catalog** via `SaveToCatalogModal` so reusable tank/equipment packages retain their full `sub_components` BOM.
+### Pillar 1: Remove Hardcoded Client Preset & Standardize Universal SaaS Terminology
+1. **Replace `/src/utils/kingSaudTankPreset.ts` with `/src/utils/compositeBomUtils.ts`**:
+   - Delete `/src/utils/kingSaudTankPreset.ts`.
+   - Create `/src/utils/compositeBomUtils.ts` containing pure, reusable BOM & Option utilities:
+     - `recalculateCompositeItemTotals(components, parentQty)`
+     - `applyMarkupToSubComponents(components, markupPercent)`
+     - `parseBulkSubComponentsText(rawText)` (smart TSV/CSV/multi-line clipboard parser)
+     - `cloneLineItemToNextOption(item, existingItems)` (deep-clones a line item and its `sub_components` with fresh IDs and assigns the next logical Option Group: `Default` → `Option A` → `Option B` → `Option C`)
+     - `getEffectiveWinningOptionFilter(lineItems, selectedWinningOption)` (determines which items/sub-components participate in baseline deal totals and stock reservation)
+2. **Remove All Project-Specific Preset Buttons & Imports**:
+   - Remove `⚡ Load King Saud STP` buttons, handlers, and imports from `EnquiryForm.tsx`, `EnquiryDetail.tsx`, and `QuotationStudioModal.tsx`.
+3. **Universal B2B SaaS Microcopy Standardization**:
+   - Update `CompositePackageEditor.tsx`, `QuotationDocument.tsx`, `QuotationStudioModal.tsx`, `EnquiryForm.tsx`, and `EnquiryDetail.tsx` to use industry-agnostic terminology:
+     - `Single Item` vs. `Composite Package / Kit (BOM)`
+     - `Sub-Components & Priced Items`
+     - `Included Accessories & Zero-Price Sub-Items`
+     - `Component Name / Spec`, `Application / Scope Note`, `Supplier Cost`, `Selling Rate`
 
 ---
 
-## 4. Verification Plan
-1. Verify TypeScript compilation (`compile_applet`) with zero errors.
-2. Verify creating/loading the **King Saud Air Base Development STP** enquiry populates both Option A (SST — USD 631,250.00) and Option B (GFS — USD 834,250.00) with all 8 priced tank rows and 6 included accessory rows.
-3. Verify applying a supplier markup % updates all component selling rates and package totals, and toggling between **Itemized Component Prices** and **Lump-Sum Package Price** updates the A4 Quotation preview cleanly.
-4. Verify switching the **Option Filter** in Quotation Studio (`Both Option A & B Tables`, `Option A Only`, `Option B Only`) accurately updates the A4 document tables and totals block.
+### Pillar 2: First-Class Composite Package / BOM Support in `Products Catalog` (`ProductManager.tsx`)
+1. **Extend `LineItemComponent` & `Product` in `/src/types.ts`**:
+   - Add `product_id?: string` and `sku?: string` to `LineItemComponent` so sub-components inside a BOM can link directly to existing Catalog Products.
+   - Add `option_group_titles?: Record<string, string>` and `show_combined_options_total?: boolean` to `Enquiry` and `QuotationConfig` so custom option headers (e.g., `Option A — Standard Configuration`, `Option B — Premium Configuration`) persist cleanly.
+2. **Upgrade Register / Edit Product Modal (`ProductManager.tsx`)**:
+   - Add a prominent segmented selector at the top of the Product Modal:
+     - `Standard Single Product` vs. `Composite Package / Kit (BOM)`
+   - When `Composite Package / Kit (BOM)` is active:
+     - Widen the modal container (`max-w-5xl`) for comfortable multi-column BOM editing.
+     - Embed `CompositePackageEditor` directly inside the modal so users can add/edit priced sub-components, included zero-price accessories, default `package_pricing_mode` (`itemized` vs. `lump_sum`), global markup %, and `option_scope_notes`.
+     - Auto-sync the calculated BOM `packageUnitPrice` and `packageCostPrice` into the product's `unit_price` and `cost_price` fields.
+3. **Catalog Sub-Component Linking & Price Snapshot Refresh**:
+   - Pass `products` into `CompositePackageEditor.tsx`.
+   - On each sub-component row (and in the section header), provide a **`[ 🔗 Link Catalog SKU ]`** searchable popover that populates `product_id`, `sku`, `item_name`, `unit`, `cost_price`, and `unit_price` as a snapshot.
+   - If a linked catalog product's current `unit_price` or `cost_price` differs from the snapshot, display an inline **`[ ↻ Refresh from Catalog ]`** button to sync the latest catalog rate on demand.
+4. **Catalog Table & Picker Badges**:
+   - Display a clean structural indicator (`Kit / BOM · N components`) in `ProductManager.tsx` (plus a filter tab for `Kits / BOMs`) and in all Catalog Picker dropdowns across `EnquiryForm.tsx`, `EnquiryDetail.tsx`, and `QuotationStudioModal.tsx`.
+   - Selecting a Composite Package from any Catalog Picker deep-clones its `sub_components` (with fresh IDs), `is_composite_set: true`, `package_pricing_mode`, and `option_scope_notes` onto the Enquiry/Quotation line item.
+
+---
+
+### Pillar 3: Universal Productivity Tools — Bulk Paste Importer & 1-Click Option Cloning
+1. **Bulk Paste / Table Importer (`[ 📋 Paste Sub-Components ]`) in `CompositePackageEditor.tsx`**:
+   - Clicking `[ 📋 Paste Sub-Components ]` opens an inline modal/drawer where users can paste tab-separated (Excel/Sheets) or pipe/comma-separated rows.
+   - Automatically parses columns (`Component Name / Spec`, `Application / Scope Note`, `Qty`, `Unit`, `Supplier Cost`, `Selling Rate`) and detects zero-price / `"Included"` rows as `is_included_accessory: true`.
+   - Shows a live preview table before appending or replacing sub-components.
+2. **1-Click Clone to Next Option (`[ 🔀 Clone as Next Option ]`)**:
+   - Add a 1-click `[ 🔀 Clone as Option B ]` (or next available option) action button on every line item card in `EnquiryForm.tsx`, `EnquiryDetail.tsx`, and `QuotationStudioModal.tsx`.
+   - Clones the line item and all BOM sub-components with new unique IDs, sets `option` to the next option group (`Option A` → `Option B` → `Option C`), and scrolls/focuses the newly created option card for rapid variant pricing.
+
+---
+
+### Pillar 4: Customizable Multi-Option Group Titles & Commercial Summary Controls
+1. **Custom Option Group Titles (`option_group_titles`)**:
+   - Whenever an Enquiry or Quotation contains items assigned to `Option A`, `Option B`, `Option C`, or `Optional Add-on`, render an **Option Group Headers Bar** allowing the user to customize the display title for each option (e.g., `Option A: Stainless Steel 316L Package`, `Option B: Carbon Steel Epoxy Coated Package`).
+   - Persist `option_group_titles` on both `Enquiry` and `QuotationConfig`.
+2. **Quotation Studio Inspector & Financial Summary Controls (`QuotationStudioModal.tsx` & `QuotationDocument.tsx`)**:
+   - In the Quotation Studio Right Inspector (`Line Items Table` section), add:
+     - **Option Display Mode**: `Separate Option Tables (A, B, C)`, `Combined Single Table`, or `Single Option Filter (Option A / B / C Only)`.
+     - **Editable Option Group Titles**: Inline inputs for each active option group's table banner heading.
+     - **Multi-Option Summary Toggle**: `Show Per-Option Comparison Cards` (enabled by default when multiple options exist) + `Show Combined Grand Total Across All Options` toggle (`show_combined_options_total`).
+
+---
+
+### Pillar 5: Inventory Roll-Up & Stock Visibility for Composite Bundles
+1. **Live Stock Visibility Inside `CompositePackageEditor.tsx`**:
+   - When a sub-component has a linked `product_id` pointing to an inventoried catalog product (`is_inventoried: true`), display its live available stock (`Available: X vs. Required: Parent Qty × Sub Qty`) directly on the sub-component row.
+2. **Composite Sub-Component Roll-Up in `/src/services/inventoryService.ts`**:
+   - Create a helper `extractInventoriedStockRequirements(lineItems, winningOptionFilter)` in `inventoryService.ts`:
+     - Filters line items to only active/winning options (`Default / Included` and `Option A`, or the explicitly designated winning option).
+     - For standard line items with `item.product_id`, requires `item.quantity`.
+     - For composite packages (`item.is_composite_set && item.sub_components?.length`), iterates over linked `sub_components` with `sub.product_id`, requiring `(Number(item.quantity) || 1) * (Number(sub.quantity) || 0)` and aggregating quantities by `product_id`.
+   - Update `reserveEnquiryStock`, `releaseEnquiryStock`, and `dispatchProjectStock` to use this roll-up helper so stock reservations, releases, and project dispatches accurately track physical sub-components inside BOM kits.
+
+---
+
+### Pillar 6: Visual & Typography Integration on the A4 Document (`QuotationDocument.tsx`)
+1. **Theme & Typography Compliance**:
+   - Ensure all sub-component rows (`1.1`, `1.2`, etc.), included accessory rows, `option_scope_notes` callout boxes, and Option Group Header banners inherit the active `fontFamily`, `typoScale`, `themePalette`, `tableHeaderStyle`, and `tableDensity`.
+2. **Multi-Page A4 Pagination & Page-Break Safety**:
+   - Apply `break-inside: avoid` (`page-break-inside: avoid`) to individual `<tr>` sub-component rows and option summary cards, while keeping `break-inside: auto` on the `<table>` container so large 15+ row BOM packages split cleanly across A4 page boundaries with repeating `<thead>` headers.
+
+---
+
+## 3. Files to Create / Modify / Delete
+- **Delete**: `/src/utils/kingSaudTankPreset.ts`
+- **Create**: `/src/utils/compositeBomUtils.ts`
+- **Modify**:
+  - `/src/types.ts`
+  - `/src/components/quotations/CompositePackageEditor.tsx`
+  - `/src/components/ProductManager.tsx`
+  - `/src/components/SaveToCatalogModal.tsx`
+  - `/src/components/EnquiryForm.tsx`
+  - `/src/components/EnquiryDetail.tsx`
+  - `/src/components/quotations/QuotationStudioModal.tsx`
+  - `/src/components/quotations/QuotationDocument.tsx`
+  - `/src/services/inventoryService.ts`

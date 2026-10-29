@@ -44,7 +44,6 @@ import SaveToCatalogModal, {
   syncLineItemToCatalogProduct
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
-import { getKingSaudStpLineItems } from '../../utils/kingSaudTankPreset';
 import { db } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
@@ -1798,10 +1797,20 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
     if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
     if (preset.option_display_mode) setOptionDisplayMode(preset.option_display_mode);
+    if (preset.option_group_titles) setOptionGroupTitles(preset.option_group_titles);
+    if (typeof preset.show_combined_options_total === 'boolean') {
+      setShowCombinedOptionsTotal(preset.show_combined_options_total);
+    }
   };
 
   const [optionDisplayMode, setOptionDisplayMode] = useState<QuotationOptionDisplayMode>(
     editingQuotation?.option_display_mode || 'all_separate_tables'
+  );
+  const [optionGroupTitles, setOptionGroupTitles] = useState<Record<string, string>>(
+    () => editingQuotation?.option_group_titles || enquiry?.option_group_titles || {}
+  );
+  const [showCombinedOptionsTotal, setShowCombinedOptionsTotal] = useState<boolean>(
+    () => Boolean(editingQuotation?.show_combined_options_total ?? enquiry?.show_combined_options_total ?? false)
   );
   const [itemCompositeOverrides, setItemCompositeOverrides] = useState<
     Record<string, Partial<QuotationLineItem>>
@@ -2212,7 +2221,14 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
   // Calculate live financial figures based on active optionDisplayMode
   const financialTotals = useMemo(() => {
     const itemsForTotals =
-      optionDisplayMode === 'option_b_only'
+      optionDisplayMode === 'option_c_only'
+        ? quotationLineItems
+            .filter((it) => {
+              const opt = String(it.option || it.option_group || '').trim();
+              return !opt || opt === 'Default / Included' || /^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt);
+            })
+            .map((it) => ({ ...it, is_optional: false }))
+        : optionDisplayMode === 'option_b_only'
         ? quotationLineItems
             .filter((it) => {
               const opt = String(it.option || it.option_group || '').trim();
@@ -2576,6 +2592,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
       option_display_mode: optionDisplayMode,
+      option_group_titles: optionGroupTitles,
+      show_combined_options_total: showCombinedOptionsTotal,
       layout_blocks: layoutBlocks,
       flyer_attachments: resolvedFlyerAttachments,
       show_submittals_index: showSubmittalsIndex,
@@ -2653,6 +2671,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
     quotationSubject,
     pageMode,
     optionDisplayMode,
+    optionGroupTitles,
+    showCombinedOptionsTotal,
     activeQuotationId,
     parentQuotationId,
     revisionNumber,
@@ -2799,6 +2819,8 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
         sender_snapshot: liveQuotation.sender_snapshot,
         line_items: liveQuotation.line_items,
         option_display_mode: optionDisplayMode,
+        option_group_titles: optionGroupTitles,
+        show_combined_options_total: showCombinedOptionsTotal,
         tax_mode: liveQuotation.tax_mode,
         subtotal: liveQuotation.subtotal,
         freight_amount: liveQuotation.freight_amount,
@@ -2973,6 +2995,9 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
+      option_display_mode: optionDisplayMode,
+      option_group_titles: optionGroupTitles,
+      show_combined_options_total: showCombinedOptionsTotal,
       layout_blocks: layoutBlocks,
       flyer_attachments: flyerAttachments,
       show_submittals_index: showSubmittalsIndex,
@@ -7542,62 +7567,13 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
-                    {/* 0. Multi-Option Table Display & King Saud STP Package Loader */}
-                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2.5">
+                    {/* 0. Multi-Option & Composite Package Table Layout Controls */}
+                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                          Multi-Option &amp; Tank Sets
+                          Multi-Option &amp; Package Layout
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const curr = (enquiry?.currency as 'AED' | 'USD') || 'USD';
-                            const ksItems = getKingSaudStpLineItems(curr);
-                            const mapped: QuotationLineItem[] = ksItems.map((li, i) => ({
-                              id: li.id || `ks_${i}`,
-                              sku: li.sku,
-                              item_name: li.item_name || `Option ${i + 1}`,
-                              description: li.description,
-                              quantity: li.quantity,
-                              unit: li.unit,
-                              unit_price: li.unit_price,
-                              cost_price: li.cost_price,
-                              total_price: li.total_price,
-                              brand_make: li.brand_make,
-                              model_part_no: li.model_part_no,
-                              country_of_origin: li.country_of_origin,
-                              hs_code: li.hs_code,
-                              availability: li.lead_time_note,
-                              option: li.option,
-                              option_group: li.option,
-                              option_scope_notes: li.option_scope_notes,
-                              is_optional: li.option === 'Option B',
-                              is_composite_set: true,
-                              package_pricing_mode: 'itemized',
-                              sub_components: li.sub_components,
-                              attributes: li.attributes
-                            }));
-                            setCustomStudioLineItems(mapped);
-                            setOptionDisplayMode('all_separate_tables');
-                            setPriceBasis('Ex-Works');
-                            setPaymentTerms('50% Advance along with PO & 50% Before dispatch of materials');
-                            setValidityDays(30);
-                            if (!quotationSubject || quotationSubject.includes('Proposal')) {
-                              setQuotationSubject(
-                                'Proposal for Supply of Water Storage Tanks — King Saud Air Base Development STP (Option A: SST & Option B: GFS)'
-                              );
-                            }
-                            triggerToast?.(
-                              'Loaded King Saud Air Base STP (Option A: SST & Option B: GFS) multi-component tank sets!',
-                              'success'
-                            );
-                          }}
-                          className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold shadow-2xs transition cursor-pointer"
-                          title="Load King Saud Air Base STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component sets"
-                        >
-                          ⚡ Load King Saud STP (SST + GFS)
-                        </button>
                       </div>
 
                       <div>
@@ -7608,18 +7584,23 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           {[
                             {
                               id: 'all_separate_tables' as const,
-                              label: 'Option A + B Tables',
-                              desc: 'Separate titled tables'
+                              label: 'Separate Option Tables',
+                              desc: 'Dedicated table per Option'
                             },
                             {
                               id: 'option_a_only' as const,
                               label: 'Option A Only',
-                              desc: 'Show only Option 1 (SST)'
+                              desc: 'Filter to Option A items'
                             },
                             {
                               id: 'option_b_only' as const,
                               label: 'Option B Only',
-                              desc: 'Show only Option 2 (GFS)'
+                              desc: 'Filter to Option B items'
+                            },
+                            {
+                              id: 'option_c_only' as const,
+                              label: 'Option C Only',
+                              desc: 'Filter to Option C items'
                             },
                             {
                               id: 'combined_table' as const,
@@ -7654,6 +7635,58 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                           })}
                         </div>
                       </div>
+
+                      {/* Custom Option Group Banner Titles */}
+                      {(() => {
+                        const detectedOpts = Array.from(
+                          new Set(
+                            quotationLineItems
+                              .map((it) => String(it.option || it.option_group || '').trim())
+                              .filter((o) => o && o !== 'Default / Included')
+                          )
+                        );
+                        if (detectedOpts.length === 0) return null;
+                        return (
+                          <div className="space-y-1.5 pt-2 border-t border-indigo-200/60">
+                            <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70">
+                              Custom Option Banner Titles
+                            </label>
+                            {detectedOpts.map((optKey) => (
+                              <div key={optKey} className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono font-bold text-indigo-900 w-20 shrink-0 truncate">
+                                  {optKey}:
+                                </span>
+                                <input
+                                  type="text"
+                                  value={optionGroupTitles[optKey] ?? ''}
+                                  onChange={(e) =>
+                                    setOptionGroupTitles((prev) => ({
+                                      ...prev,
+                                      [optKey]: e.target.value
+                                    }))
+                                  }
+                                  placeholder={`Custom banner title for ${optKey}...`}
+                                  className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-md px-2 py-1 text-[10.5px] text-slate-800 focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            ))}
+
+                            {detectedOpts.length > 1 && (
+                              <label className="flex items-center justify-between gap-2 pt-1.5 cursor-pointer">
+                                <span className="text-[10.5px] font-semibold text-indigo-950">
+                                  Show Combined Grand Total Across Options
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={showCombinedOptionsTotal}
+                                  onChange={(e) => setShowCombinedOptionsTotal(e.target.checked)}
+                                  className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* 1. Column Visibility Toggles */}
@@ -8113,6 +8146,7 @@ export const QuotationStudioModal: React.FC<QuotationStudioModalProps> = ({
                                       optionScopeNotes={item.option_scope_notes || ''}
                                       parentQuantity={item.quantity || 1}
                                       currency={(enquiry?.currency as string) || 'USD'}
+                                      products={workspaceProducts}
                                       onChange={(patch) =>
                                         setItemCompositeOverrides((prev) => ({
                                           ...prev,

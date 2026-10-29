@@ -1,31 +1,52 @@
-import React, { useState } from 'react';
-import { LineItemComponent } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { LineItemComponent, Product } from '../../types';
 import {
   recalculateCompositeItemTotals,
   applyMarkupToSubComponents,
-  getKingSaudOptionASstItem,
-  getKingSaudOptionBGfsItem
-} from '../../utils/kingSaudTankPreset';
+  parseBulkSubComponentsText,
+} from '../../utils/compositeBomUtils';
 import {
   Layers,
   Plus,
   Trash2,
   Percent,
-  CheckCircle2,
-  Sparkles,
-  Wrench,
-  Package,
-  ChevronDown,
-  ChevronUp
+  PackageCheck,
+  ListTree,
+  ArrowUp,
+  ArrowDown,
+  FileText,
+  Link2,
+  RefreshCw,
+  ClipboardPaste,
+  Search,
+  X,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface CompositePackageEditorProps {
+  item?: {
+    id?: string;
+    item_type?: string;
+    product_type?: string;
+    name?: string;
+    description?: string;
+    quantity?: number;
+    unit?: string;
+    unit_price?: number;
+    cost_price?: number;
+    is_composite_set?: boolean;
+    sub_components?: LineItemComponent[];
+    package_pricing_mode?: 'itemized' | 'lump_sum';
+    option_scope_notes?: string;
+  };
   isCompositeSet?: boolean;
   subComponents?: LineItemComponent[];
   packagePricingMode?: 'itemized' | 'lump_sum';
   optionScopeNotes?: string;
   parentQuantity?: number;
   currency?: string;
+  products?: Product[];
   onChange: (patch: {
     is_composite_set: boolean;
     sub_components: LineItemComponent[];
@@ -34,539 +55,1037 @@ interface CompositePackageEditorProps {
     unit_price?: number;
     cost_price?: number;
     total_price?: number;
-    item_name?: string;
-    description?: string;
-    hs_code?: string;
-    option?: string;
-    unit?: string;
   }) => void;
   compact?: boolean;
 }
 
+const AED_TO_USD_RATE = 3.6725;
+
 export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
-  isCompositeSet = false,
-  subComponents = [],
-  packagePricingMode = 'itemized',
-  optionScopeNotes = '',
-  parentQuantity = 1,
-  currency = 'USD',
+  item,
+  isCompositeSet: propIsCompositeSet,
+  subComponents: propSubComponents,
+  packagePricingMode: propPackagePricingMode,
+  optionScopeNotes: propOptionScopeNotes,
+  parentQuantity: propParentQuantity,
+  currency = 'AED',
+  products = [],
   onChange,
-  compact = false
+  compact = false,
 }) => {
-  const [markupInput, setMarkupInput] = useState<string>('15');
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const isCompositeSet = propIsCompositeSet ?? Boolean(item?.is_composite_set);
+  const subComponents = propSubComponents ?? item?.sub_components ?? [];
+  const packagePricingMode = propPackagePricingMode ?? item?.package_pricing_mode ?? 'itemized';
+  const optionScopeNotes = propOptionScopeNotes ?? item?.option_scope_notes ?? '';
+  const parentQuantity = propParentQuantity ?? item?.quantity ?? 1;
 
-  const hasSubComponents = Boolean(isCompositeSet || (subComponents && subComponents.length > 0));
-  const pricedComponents = (subComponents || []).filter((c) => !c.is_included_accessory);
-  const accessoryComponents = (subComponents || []).filter((c) => Boolean(c.is_included_accessory));
+  const [markupInput, setMarkupInput] = useState<string>('25');
+  const [showBulkPaste, setShowBulkPaste] = useState<boolean>(false);
+  const [bulkPasteText, setBulkPasteText] = useState<string>('');
+  const [bulkPasteAsAccessory, setBulkPasteAsAccessory] = useState<boolean>(false);
+  const [showCatalogPickerForRow, setShowCatalogPickerForRow] = useState<string | 'NEW' | null>(null);
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
 
-  const totals = recalculateCompositeItemTotals(subComponents || [], parentQuantity);
-  const marginPct =
-    totals.packageUnitPrice > 0 && totals.packageCostPrice > 0
-      ? (((totals.packageUnitPrice - totals.packageCostPrice) / totals.packageUnitPrice) * 100).toFixed(1)
-      : null;
+  const activeCatalogProducts = useMemo(
+    () => (products || []).filter((p) => !p.is_deleted),
+    [products]
+  );
 
-  const handleEnableComposite = (enable: boolean) => {
-    if (!enable) {
+  const convertFromCatalogAed = (amountAed?: number): number => {
+    const val = Number(amountAed) || 0;
+    if (val <= 0) return 0;
+    return currency === 'USD'
+      ? Math.round((val / AED_TO_USD_RATE) * 100) / 100
+      : Math.round(val * 100) / 100;
+  };
+
+  const commitComponents = (
+    nextComponents: LineItemComponent[],
+    nextMode: 'itemized' | 'lump_sum' = packagePricingMode,
+    nextNotes: string = optionScopeNotes,
+    nextCompositeFlag: boolean = true
+  ) => {
+    const totals = recalculateCompositeItemTotals(nextComponents, parentQuantity);
+    onChange({
+      is_composite_set: nextCompositeFlag,
+      sub_components: totals.normalizedComponents,
+      package_pricing_mode: nextMode,
+      option_scope_notes: nextNotes,
+      unit_price: totals.unitSellingPrice,
+      cost_price: totals.unitCostPrice,
+      total_price: totals.totalSellingPrice,
+    });
+  };
+
+  const handleToggleComposite = (enabled: boolean) => {
+    if (!enabled) {
       onChange({
         is_composite_set: false,
-        sub_components: subComponents || [],
+        sub_components: subComponents,
         package_pricing_mode: packagePricingMode,
-        option_scope_notes: optionScopeNotes
+        option_scope_notes: optionScopeNotes,
       });
       return;
     }
-
-    const initialComponents: LineItemComponent[] =
-      subComponents && subComponents.length > 0
+    const seed: LineItemComponent[] =
+      subComponents.length > 0
         ? subComponents
         : [
             {
-              id: `comp_${Date.now()}_1`,
-              sn: '1.1',
+              id: `sub_${Date.now()}_1`,
+              sn: '1',
               item_name: '',
               remark: '',
               quantity: 1,
-              unit: 'NOS',
+              unit: 'Nos',
               cost_price: 0,
               unit_price: 0,
               total_price: 0,
-              is_included_accessory: false
-            }
+              line_total: 0,
+              is_included_accessory: false,
+            },
           ];
-
-    const calc = recalculateCompositeItemTotals(initialComponents, parentQuantity);
-    onChange({
-      is_composite_set: true,
-      sub_components: calc.components,
-      package_pricing_mode: packagePricingMode || 'itemized',
-      option_scope_notes: optionScopeNotes,
-      ...(calc.packageUnitPrice > 0
-        ? {
-            unit_price: calc.packageUnitPrice,
-            cost_price: calc.packageCostPrice,
-            total_price: calc.packageTotalPrice
-          }
-        : {})
-    });
+    commitComponents(seed, packagePricingMode, optionScopeNotes, true);
   };
 
-  const handleComponentsUpdate = (nextList: LineItemComponent[], nextMode = packagePricingMode, nextNotes = optionScopeNotes) => {
-    const calc = recalculateCompositeItemTotals(nextList, parentQuantity);
-    onChange({
-      is_composite_set: true,
-      sub_components: calc.components,
-      package_pricing_mode: nextMode,
-      option_scope_notes: nextNotes,
-      unit_price: calc.packageUnitPrice,
-      cost_price: calc.packageCostPrice,
-      total_price: calc.packageTotalPrice
-    });
-  };
-
-  const handleAddComponentRow = (isAccessory: boolean) => {
-    const nextIdx = (subComponents?.length || 0) + 1;
-    const newRow: LineItemComponent = {
-      id: `comp_${Date.now()}_${nextIdx}`,
-      sn: isAccessory ? `A${accessoryComponents.length + 1}` : `1.${pricedComponents.length + 1}`,
+  const handleAddSubComponent = (isAccessory: boolean) => {
+    const nextIdx = subComponents.length + 1;
+    const newComp: LineItemComponent = {
+      id: `sub_${Date.now()}_${nextIdx}`,
+      sn: isAccessory
+        ? undefined
+        : String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
       item_name: '',
-      remark: isAccessory ? 'Included Standard Accessory' : '',
+      remark: '',
       quantity: 1,
-      unit: 'NOS',
+      unit: 'Nos',
       cost_price: 0,
       unit_price: 0,
       total_price: 0,
-      is_included_accessory: isAccessory
+      line_total: 0,
+      is_included_accessory: isAccessory,
     };
-    handleComponentsUpdate([...(subComponents || []), newRow]);
+    commitComponents([...subComponents, newComp]);
   };
 
-  const handleUpdateRowField = (
-    compId: string,
-    field: keyof LineItemComponent,
-    value: any
+  const handleSelectCatalogProductForSub = (
+    prod: Product,
+    targetId: string | 'NEW'
   ) => {
-    const nextList = (subComponents || []).map((c) => {
+    const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
+    const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
+    const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
+    const specSummary = [
+      prod.brand_make ? `Brand: ${prod.brand_make}` : '',
+      prod.model_part_no ? `Model: ${prod.model_part_no}` : '',
+      prod.description || '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    if (targetId === 'NEW') {
+      const nextIdx = subComponents.length + 1;
+      const newComp: LineItemComponent = {
+        id: `sub_${Date.now()}_${nextIdx}`,
+        sn: String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
+        product_id: prod.id,
+        sku: prod.sku,
+        item_name: prod.name || prod.product_type || 'Catalog Component',
+        remark: specSummary,
+        description: prod.description || '',
+        quantity: 1,
+        unit: cleanUnit,
+        cost_price: snapCostPrice,
+        unit_price: snapUnitPrice,
+        total_price: snapUnitPrice,
+        line_total: snapUnitPrice,
+        is_included_accessory: false,
+      };
+      commitComponents([...subComponents, newComp]);
+    } else {
+      const updated = subComponents.map((c) => {
+        if (c.id !== targetId) return c;
+        const qty = Math.max(0, Number(c.quantity) || 1);
+        const isAcc = Boolean(c.is_included_accessory);
+        const uPrice = isAcc ? 0 : snapUnitPrice;
+        const cPrice = isAcc ? 0 : snapCostPrice;
+        const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
+        return {
+          ...c,
+          product_id: prod.id,
+          sku: prod.sku,
+          item_name: prod.name || c.item_name,
+          remark: c.remark || specSummary,
+          unit: cleanUnit,
+          cost_price: cPrice,
+          unit_price: uPrice,
+          total_price: tot,
+          line_total: tot,
+        };
+      });
+      commitComponents(updated);
+    }
+
+    setShowCatalogPickerForRow(null);
+    setCatalogSearchQuery('');
+  };
+
+  const handleRefreshSubFromCatalog = (compId: string, prod: Product) => {
+    const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
+    const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
+    const updated = subComponents.map((c) => {
       if (c.id !== compId) return c;
-      const updated = { ...c, [field]: value };
-      if (field === 'quantity' || field === 'unit_price') {
-        const q = Math.max(0, Number(updated.quantity) || 0);
-        const up = updated.is_included_accessory ? 0 : Number(updated.unit_price) || 0;
-        updated.total_price = Number((q * up).toFixed(2));
-      }
-      return updated;
+      const qty = Math.max(0, Number(c.quantity) || 0);
+      const isAcc = Boolean(c.is_included_accessory);
+      const uPrice = isAcc ? 0 : snapUnitPrice;
+      const cPrice = isAcc ? 0 : snapCostPrice;
+      const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
+      return {
+        ...c,
+        sku: prod.sku || c.sku,
+        cost_price: cPrice,
+        unit_price: uPrice,
+        total_price: tot,
+        line_total: tot,
+      };
     });
-    handleComponentsUpdate(nextList);
+    commitComponents(updated);
   };
 
-  const handleDeleteRow = (compId: string) => {
-    const nextList = (subComponents || []).filter((c) => c.id !== compId);
-    handleComponentsUpdate(nextList);
-  };
-
-  const handleApplyBatchMarkup = (pct: number) => {
-    setMarkupInput(String(pct));
-    const markedUp = applyMarkupToSubComponents(subComponents || [], pct);
-    handleComponentsUpdate(markedUp);
-  };
-
-  const handleLoadKingSaudPreset = (which: 'sst' | 'gfs') => {
-    const curr = currency === 'AED' ? 'AED' : 'USD';
-    const preset = which === 'sst' ? getKingSaudOptionASstItem(curr) : getKingSaudOptionBGfsItem(curr);
-    onChange({
-      is_composite_set: true,
-      sub_components: preset.sub_components || [],
-      package_pricing_mode: preset.package_pricing_mode || 'itemized',
-      option_scope_notes: preset.option_scope_notes,
-      unit_price: preset.unit_price,
-      cost_price: preset.cost_price,
-      total_price: preset.total_price,
-      item_name: preset.item_name,
-      description: preset.description,
-      hs_code: preset.hs_code,
-      option: preset.option,
-      unit: 'SET'
+  const handleRefreshAllLinkedFromCatalog = () => {
+    const updated = subComponents.map((c) => {
+      if (!c.product_id) return c;
+      const prod = activeCatalogProducts.find((p) => p.id === c.product_id);
+      if (!prod) return c;
+      const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
+      const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
+      const qty = Math.max(0, Number(c.quantity) || 0);
+      const isAcc = Boolean(c.is_included_accessory);
+      const uPrice = isAcc ? 0 : snapUnitPrice;
+      const cPrice = isAcc ? 0 : snapCostPrice;
+      const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
+      return {
+        ...c,
+        sku: prod.sku || c.sku,
+        cost_price: cPrice,
+        unit_price: uPrice,
+        total_price: tot,
+        line_total: tot,
+      };
     });
+    commitComponents(updated);
   };
 
-  return (
-    <div className="rounded-xl border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/30 dark:bg-indigo-950/20 p-3 space-y-3">
-      {/* Top Toggle & Package Mode Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="inline-flex rounded-lg p-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => handleEnableComposite(false)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-                !hasSubComponents
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              Single Product
-            </button>
-            <button
-              type="button"
-              onClick={() => handleEnableComposite(true)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                hasSubComponents
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/40'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Multi-Component Set / Package (BOM)</span>
-              {hasSubComponents && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white/20 text-white font-mono text-[10px]">
-                  {subComponents.length}
-                </span>
-              )}
-            </button>
-          </div>
+  const handleUpdateSub = (id: string, field: keyof LineItemComponent, value: any) => {
+    const updated = subComponents.map((c) => {
+      if (c.id !== id) return c;
+      const next: LineItemComponent = { ...c, [field]: value };
+      const qty = Math.max(0, Number(next.quantity) || 0);
+      const uPrice = next.is_included_accessory ? 0 : Math.max(0, Number(next.unit_price) || 0);
+      next.unit_price = uPrice;
+      const tot = Math.round(qty * uPrice * 100) / 100;
+      next.total_price = tot;
+      next.line_total = tot;
+      return next;
+    });
+    commitComponents(updated);
+  };
 
-          {/* Quick Loaders for King Saud STP Reference Offers */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              type="button"
-              onClick={() => handleLoadKingSaudPreset('sst')}
-              className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
-              title="Populate this line item with King Saud Air Base STP Option A (SST Tank Set — 8 Tanks + 6 Accessories)"
-            >
-              <Sparkles className="w-3 h-3 text-blue-600" />
-              <span>Load Option A (SST Tank Set)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleLoadKingSaudPreset('gfs')}
-              className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
-              title="Populate this line item with King Saud Air Base STP Option B (GFS Tank Set — 8 Tanks + 6 Accessories)"
-            >
-              <Sparkles className="w-3 h-3 text-emerald-600" />
-              <span>Load Option B (GFS Tank Set)</span>
-            </button>
-          </div>
+  const handleMoveSub = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= subComponents.length) return;
+    const copy = [...subComponents];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIdx, 0, moved);
+    commitComponents(copy);
+  };
+
+  const handleRemoveSub = (id: string) => {
+    const filtered = subComponents.filter((c) => c.id !== id);
+    commitComponents(filtered);
+  };
+
+  const handleApplyGlobalMarkup = () => {
+    const pct = parseFloat(markupInput);
+    if (isNaN(pct)) return;
+    const markedUp = applyMarkupToSubComponents(subComponents, pct);
+    commitComponents(markedUp);
+  };
+
+  const parsedBulkPreview = useMemo(
+    () => parseBulkSubComponentsText(bulkPasteText, bulkPasteAsAccessory),
+    [bulkPasteText, bulkPasteAsAccessory]
+  );
+
+  const handleCommitBulkPaste = (mode: 'append' | 'replace') => {
+    if (parsedBulkPreview.length === 0) return;
+    const nextList =
+      mode === 'replace' ? parsedBulkPreview : [...subComponents, ...parsedBulkPreview];
+    commitComponents(nextList);
+    setBulkPasteText('');
+    setShowBulkPaste(false);
+  };
+
+  const filteredPickerProducts = useMemo(() => {
+    const q = catalogSearchQuery.trim().toLowerCase();
+    return activeCatalogProducts
+      .filter((p) => {
+        if (!q) return true;
+        return (
+          (p.name || '').toLowerCase().includes(q) ||
+          (p.sku || '').toLowerCase().includes(q) ||
+          (p.brand_make || '').toLowerCase().includes(q) ||
+          (p.model_part_no || '').toLowerCase().includes(q) ||
+          (p.product_type || '').toLowerCase().includes(q) ||
+          (p.description || '').toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 20);
+  }, [activeCatalogProducts, catalogSearchQuery]);
+
+  const pricedComponents = subComponents.filter((c) => !c.is_included_accessory);
+  const includedAccessories = subComponents.filter((c) => c.is_included_accessory);
+  const totals = recalculateCompositeItemTotals(subComponents, parentQuantity);
+  const profit = totals.unit_price - totals.cost_price;
+  const marginPct = totals.unit_price > 0 ? (profit / totals.unit_price) * 100 : 0;
+
+  // Check if any linked sub-components have drifted from current catalog price/cost
+  const hasAnyDriftedSub = useMemo(() => {
+    return subComponents.some((sub) => {
+      if (!sub.product_id || sub.is_included_accessory) return false;
+      const prod = activeCatalogProducts.find((p) => p.id === sub.product_id);
+      if (!prod) return false;
+      const catPrice = convertFromCatalogAed(prod.unit_price);
+      const catCost = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
+      return (
+        Math.abs((Number(sub.unit_price) || 0) - catPrice) > 0.01 ||
+        (catCost > 0 && Math.abs((Number(sub.cost_price) || 0) - catCost) > 0.01)
+      );
+    });
+  }, [subComponents, activeCatalogProducts, currency]);
+
+  if (!isCompositeSet) {
+    return (
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Layers className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+          <span>
+            Need a multi-component system, equipment assembly, or Bill of Materials (BOM)?
+          </span>
         </div>
-
-        {hasSubComponents && (
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
+            onClick={() => handleToggleComposite(true)}
+            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
           >
-            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            <span>{isExpanded ? 'Collapse BOM' : `Expand BOM (${subComponents.length} parts)`}</span>
+            <ListTree className="w-3.5 h-3.5" />
+            <span>Convert to Composite Package / Kit (BOM)</span>
           </button>
-        )}
+        </div>
       </div>
+    );
+  }
 
-      {hasSubComponents && isExpanded && (
-        <div className="space-y-3 pt-1 border-t border-indigo-200/60 dark:border-indigo-900/50">
-          {/* Pricing Display Mode & Supplier Markup Calculator */}
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200/90 dark:border-slate-800">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-mono font-bold uppercase text-slate-500">
-                Quote Display:
+  return (
+    <div className="mt-3 rounded-xl border border-indigo-200/90 bg-indigo-50/30 dark:bg-slate-900/70 dark:border-indigo-900/60 overflow-hidden">
+      {/* Top Bar */}
+      <div className="px-3.5 py-2.5 bg-indigo-100/70 dark:bg-indigo-950/50 border-b border-indigo-200/80 dark:border-indigo-900 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+            <Layers className="w-3.5 h-3.5" />
+          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                Composite Package / Kit (BOM) Breakdown
               </span>
-              <div className="inline-flex rounded-lg p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={() => handleComponentsUpdate(subComponents, 'itemized', optionScopeNotes)}
-                  className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
-                    packagePricingMode !== 'lump_sum'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-white'
-                  }`}
-                >
-                  Itemized Component Prices
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleComponentsUpdate(subComponents, 'lump_sum', optionScopeNotes)}
-                  className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
-                    packagePricingMode === 'lump_sum'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-white'
-                  }`}
-                >
-                  Single Package Lump-Sum
-                </button>
-              </div>
-            </div>
-
-            {/* Batch Supplier Markup Calculator */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-mono font-bold uppercase text-slate-500 flex items-center gap-1">
-                <Percent className="w-3 h-3 text-indigo-600" />
-                <span>Markup on Cost:</span>
+              <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold">
+                {pricedComponents.length} Priced • {includedAccessories.length} Included
               </span>
-              {[0, 10, 15, 20, 25].map((pct) => (
-                <button
-                  key={pct}
-                  type="button"
-                  onClick={() => handleApplyBatchMarkup(pct)}
-                  className="px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-mono font-bold transition cursor-pointer"
-                  title={`Set all component Selling Prices = Supplier Cost + ${pct}%`}
-                >
-                  {pct === 0 ? 'At Cost (0%)' : `+${pct}%`}
-                </button>
-              ))}
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  step="0.5"
-                  value={markupInput}
-                  onChange={(e) => setMarkupInput(e.target.value)}
-                  className="w-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 text-[11px] font-mono text-right"
-                  placeholder="%"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleApplyBatchMarkup(Number(markupInput) || 0)}
-                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-semibold cursor-pointer"
-                >
-                  Apply %
-                </button>
-              </div>
             </div>
-          </div>
-
-          {/* Priced Sub-Components Table */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Package className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Priced Tank / System Components ({pricedComponents.length})</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => handleAddComponentRow(false)}
-                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
-              >
-                <Plus className="w-3 h-3" />
-                <span>+ Add Component</span>
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-[10px] font-mono uppercase text-slate-500">
-                    <th className="py-1.5 px-2 w-8 text-center">#</th>
-                    <th className="py-1.5 px-2 min-w-[210px]">Component Model / Specification</th>
-                    <th className="py-1.5 px-2 min-w-[150px]">Remark / Tank Application</th>
-                    <th className="py-1.5 px-2 w-16 text-center">Qty</th>
-                    <th className="py-1.5 px-2 w-18 text-center">UOM</th>
-                    <th className="py-1.5 px-2 w-28 text-right">Supplier Cost ({currency})</th>
-                    <th className="py-1.5 px-2 w-28 text-right">Selling Rate ({currency})</th>
-                    <th className="py-1.5 px-2 w-28 text-right">Line Total ({currency})</th>
-                    <th className="py-1.5 px-2 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {pricedComponents.map((comp, idx) => (
-                    <tr key={comp.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30">
-                      <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
-                        {idx + 1}
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={comp.item_name ?? ''}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'item_name', e.target.value)}
-                          placeholder="e.g. SST 475-60; Dia : 16.04m ; Ht : 6.0m ; Gross Cap : 1219KL"
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-medium text-slate-900 dark:text-white"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={comp.remark ?? ''}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'remark', e.target.value)}
-                          placeholder="e.g. Equalization Tank (Closed Type Roof)"
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={comp.quantity ?? 1}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'quantity', Number(e.target.value))}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] font-mono font-bold text-center"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="text"
-                          value={comp.unit ?? 'NOS'}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'unit', e.target.value.toUpperCase())}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] font-mono text-center uppercase"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={comp.cost_price ?? 0}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'cost_price', Number(e.target.value))}
-                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-right text-slate-600 dark:text-slate-300"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={comp.unit_price ?? 0}
-                          onChange={(e) => handleUpdateRowField(comp.id, 'unit_price', Number(e.target.value))}
-                          className="w-full bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 rounded px-2 py-1 text-[11px] font-mono font-bold text-right text-slate-900 dark:text-white"
-                        />
-                      </td>
-                      <td className="py-1.5 px-2 text-right font-mono font-bold text-[11px] text-slate-900 dark:text-white tabular-nums">
-                        {Number(comp.total_price || 0).toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2
-                        })}
-                      </td>
-                      <td className="py-1.5 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRow(comp.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                          title="Delete component row"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Included Zero-Price Accessories Section (e.g., HDG Flanged Outlets, Cage Ladders, Goose Neck Airvents) */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <Wrench className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Included Package Accessories — Quantity Only / Included in Price ({accessoryComponents.length})</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => handleAddComponentRow(true)}
-                className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>+ Add Included Accessory</span>
-              </button>
-            </div>
-
-            {accessoryComponents.length > 0 ? (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {accessoryComponents.map((acc, idx) => (
-                  <div key={acc.id} className="px-3 py-1.5 flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">
-                      A{idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={acc.item_name ?? ''}
-                      onChange={(e) => handleUpdateRowField(acc.id, 'item_name', e.target.value)}
-                      placeholder="e.g. HDG CAGE LADDER UPTO 6.0 MTRS WITH PLATFORM"
-                      className="flex-1 min-w-[200px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-medium text-slate-800 dark:text-slate-200"
-                    />
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] font-mono text-slate-400">Qty:</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={acc.quantity ?? 1}
-                        onChange={(e) => handleUpdateRowField(acc.id, 'quantity', Number(e.target.value))}
-                        className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] font-mono font-bold text-center"
-                      />
-                      <input
-                        type="text"
-                        value={acc.unit ?? 'NOS'}
-                        onChange={(e) => handleUpdateRowField(acc.id, 'unit', e.target.value.toUpperCase())}
-                        className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] font-mono text-center uppercase"
-                      />
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-semibold">
-                        Included
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRow(acc.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                        title="Remove accessory"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="px-3 py-2 text-[11px] text-slate-400 italic">
-                No zero-price accessories listed. Click "+ Add Included Accessory" for items like HDG Flanged Outlets, Cage Ladders, or Airvents included in the tank set.
+            {!compact && (
+              <p className="text-[10.5px] text-indigo-700/80 dark:text-indigo-300/70">
+                Manage sub-components, catalog SKU links, supplier costs, markups, and included zero-price accessories.
               </p>
             )}
           </div>
+        </div>
 
-          {/* Option Technical Scope Notes & Package Rollup Summary */}
-          {!compact && (
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500 mb-1">
-                Option / Package Technical Scope &amp; Material Notes (Printed below this Option Table)
-              </label>
-              <textarea
-                rows={2}
-                value={optionScopeNotes ?? ''}
-                onChange={(e) =>
-                  handleComponentsUpdate(subComponents, packagePricingMode, e.target.value)
-                }
-                placeholder="e.g. 1. Tank design is based on AWWA D103-09. 2. External HDG Ladder, 1 No Drain Nozzle + Top Manhole + Level Indicator included."
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Package Pricing Display Mode Toggle */}
+          <div className="inline-flex rounded-lg bg-white dark:bg-slate-800 p-0.5 border border-indigo-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() =>
+                commitComponents(subComponents, 'itemized', optionScopeNotes, true)
+              }
+              className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
+                packagePricingMode === 'itemized'
+                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+              }`}
+              title="Show each sub-component's unit price and total on the client quotation"
+            >
+              Itemized Component Prices
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                commitComponents(subComponents, 'lump_sum', optionScopeNotes, true)
+              }
+              className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
+                packagePricingMode === 'lump_sum'
+                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+              }`}
+              title="Show sub-components with quantities as 'Included in Set' and display a single package lump-sum price"
+            >
+              Single Package Lump-Sum
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowBulkPaste((prev) => !prev)}
+            className={`px-2.5 py-1 rounded-lg border text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+              showBulkPaste
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200'
+            }`}
+            title="Bulk paste sub-components or accessories from Excel, TSV, CSV, or pipe-separated rows"
+          >
+            <ClipboardPaste className="w-3 h-3" />
+            <span>Paste Sub-Components</span>
+          </button>
+
+          {hasAnyDriftedSub && (
+            <button
+              type="button"
+              onClick={handleRefreshAllLinkedFromCatalog}
+              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
+              title="Update all linked sub-components with the latest prices and costs from the Products Catalog"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Refresh from Catalog</span>
+            </button>
           )}
 
-          {/* Package Rollup Totals Strip */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-indigo-950 text-white text-xs font-mono">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="flex items-center gap-1 text-indigo-200">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>
-                  {pricedComponents.reduce((acc, c) => acc + (Number(c.quantity) || 0), 0)} Priced Units +{' '}
-                  {accessoryComponents.reduce((acc, c) => acc + (Number(c.quantity) || 0), 0)} Included Accessories
-                </span>
+          <button
+            type="button"
+            onClick={() => handleToggleComposite(false)}
+            className="px-2 py-1 rounded-lg bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 text-[10.5px] font-semibold transition cursor-pointer"
+          >
+            Switch to Single Item
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk Paste Sub-Components Drawer */}
+      {showBulkPaste && (
+        <div className="p-3 bg-indigo-50/90 dark:bg-slate-800/90 border-b border-indigo-200 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                <ClipboardPaste className="w-3.5 h-3.5 text-indigo-600" />
+                Bulk Paste Sub-Components &amp; Accessories (Excel / TSV / CSV / Pipe)
               </span>
-              {totals.packageCostPrice > 0 && (
-                <span className="text-slate-300">
-                  Supplier Cost: <strong>{currency} {totals.packageCostPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
-                </span>
-              )}
-              {marginPct !== null && (
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10.5px]">
-                  Margin: {marginPct}%
-                </span>
-              )}
+              <p className="text-[10.5px] text-slate-600 dark:text-slate-400">
+                Format: <code className="font-mono bg-white px-1 py-0.5 rounded border">Component Name | Application / Scope Note | Qty | UOM | Supplier Cost | Selling Rate</code> (or paste 1-2 columns for zero-price accessories).
+              </p>
             </div>
-            <div className="font-bold text-sm text-amber-300">
-              Package Total: {currency}{' '}
-              {totals.packageTotalPrice.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}
+            <button
+              type="button"
+              onClick={() => setShowBulkPaste(false)}
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <textarea
+            rows={4}
+            value={bulkPasteText}
+            onChange={(e) => setBulkPasteText(e.target.value)}
+            placeholder={`Example:\nPrimary Vessel Shell SS316\tAeration Tank\t2\tNos\t18500\t24000\n EPDM Membrane Roof Cover\tAeration Tank\t2\tNos\t4200\t5500\nSS316 Anchor Bolts & Fasteners\tIncluded Hardware\t2\tSet\t0\t0`}
+            className="w-full rounded-lg border border-indigo-200 bg-white p-2.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"
+          />
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bulkPasteAsAccessory}
+                onChange={(e) => setBulkPasteAsAccessory(e.target.checked)}
+                className="rounded border-slate-300 text-indigo-600"
+              />
+              <span>Default rows without prices as Included Zero-Price Accessories</span>
+            </label>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-indigo-800 font-semibold">
+                Parsed: {parsedBulkPreview.length} row(s)
+              </span>
+              <button
+                type="button"
+                disabled={parsedBulkPreview.length === 0}
+                onClick={() => handleCommitBulkPaste('append')}
+                className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold transition cursor-pointer"
+              >
+                + Append {parsedBulkPreview.length} Rows
+              </button>
+              <button
+                type="button"
+                disabled={parsedBulkPreview.length === 0}
+                onClick={() => handleCommitBulkPaste('replace')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 disabled:opacity-40 text-rose-700 border border-rose-200 text-xs font-semibold transition cursor-pointer"
+              >
+                Replace Existing
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Supplier Cost & Markup Calculator Bar */}
+      <div className="px-3.5 py-2 bg-white/80 dark:bg-slate-900/90 border-b border-indigo-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+            <Percent className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              Supplier Cost Markup:
+            </span>
+            <input
+              type="number"
+              step="0.5"
+              value={markupInput}
+              onChange={(e) => setMarkupInput(e.target.value)}
+              className="w-16 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-slate-900 dark:text-white text-right"
+            />
+            <span className="text-[11px] font-mono text-slate-500">%</span>
+            <button
+              type="button"
+              onClick={handleApplyGlobalMarkup}
+              className="ml-1 px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold transition cursor-pointer"
+              title="Calculate component selling prices from their supplier cost price + markup %"
+            >
+              Apply Markup to Costs
+            </button>
+          </div>
+        </div>
+
+        {/* Live Rollup Totals */}
+        <div className="flex items-center gap-3 font-mono text-xs tabular-nums">
+          <span className="text-slate-500">
+            Set Cost:{' '}
+            <strong className="text-slate-800 dark:text-slate-200">
+              {currency}{' '}
+              {totals.cost_price.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </strong>
+          </span>
+          {totals.cost_price > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold ${
+                marginPct >= 20
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : marginPct >= 0
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+              }`}
+            >
+              {marginPct.toFixed(1)}% Margin
+            </span>
+          )}
+          <span className="text-indigo-950 dark:text-indigo-200 font-bold">
+            Package Total:{' '}
+            <span className="text-indigo-600 dark:text-indigo-400">
+              {currency}{' '}
+              {totals.total_price.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Catalog Sub-Component Picker Popover */}
+      {showCatalogPickerForRow && activeCatalogProducts.length > 0 && (
+        <div className="p-3 bg-blue-50/80 dark:bg-slate-800 border-b border-blue-200 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-blue-950 dark:text-blue-200 flex items-center gap-1.5">
+              <Link2 className="w-3.5 h-3.5 text-blue-600" />
+              {showCatalogPickerForRow === 'NEW'
+                ? 'Add Sub-Component from Products Catalog'
+                : 'Link Sub-Component Row to Catalog Product'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCatalogPickerForRow(null);
+                setCatalogSearchQuery('');
+              }}
+              className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+            <input
+              type="text"
+              value={catalogSearchQuery}
+              onChange={(e) => setCatalogSearchQuery(e.target.value)}
+              placeholder="Search catalog by product name, SKU, brand, model..."
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-blue-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {filteredPickerProducts.map((prod) => {
+              const avail = (prod.stock_on_hand || 0) - (prod.stock_reserved || 0);
+              const priceConv = convertFromCatalogAed(prod.unit_price);
+              const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
+              return (
+                <button
+                  key={prod.id}
+                  type="button"
+                  onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
+                  className="text-left p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 truncate">
+                      {prod.name || prod.product_type}
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-500 truncate">
+                      {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
+                        .filter(Boolean)
+                        .join(' · ') || prod.product_type}
+                    </div>
+                    {prod.is_inventoried && (
+                      <span
+                        className={`inline-block mt-0.5 text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                          avail > 0
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        Avail: {avail} {cleanUnit}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right font-mono tabular-nums shrink-0">
+                    <span className="text-xs font-bold text-emerald-700 block">
+                      {currency}{' '}
+                      {priceConv.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    <span className="text-[10px] text-blue-600 font-sans font-semibold">
+                      Select
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+            {filteredPickerProducts.length === 0 && (
+              <div className="col-span-2 py-4 text-center text-xs text-slate-400 italic">
+                No matching catalog products found.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 1. Priced Sub-Components Table */}
+      <div className="p-3 space-y-2.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-[11px] font-mono uppercase tracking-wider font-bold text-slate-700 dark:text-slate-300">
+            1. Sub-Components &amp; Priced Items ({pricedComponents.length})
+          </span>
+          <div className="flex items-center gap-1.5">
+            {activeCatalogProducts.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setShowCatalogPickerForRow((prev) => (prev === 'NEW' ? null : 'NEW'))
+                }
+                className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>+ Link Catalog SKU</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleAddSubComponent(false)}
+              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Priced Sub-Component</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-mono uppercase text-slate-500">
+                <th className="py-2 px-2 w-10 text-center">#</th>
+                <th className="py-2 px-2 min-w-[200px]">Component Name / Spec</th>
+                <th className="py-2 px-2 min-w-[140px]">Application / Scope Note</th>
+                <th className="py-2 px-2 w-20 text-center">Qty</th>
+                <th className="py-2 px-2 w-20 text-center">UOM</th>
+                <th className="py-2 px-2 w-28 text-right">Supplier Cost</th>
+                <th className="py-2 px-2 w-28 text-right">Selling Rate</th>
+                <th className="py-2 px-2 w-28 text-right">Total ({currency})</th>
+                <th className="py-2 px-2 w-20 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+              {subComponents.map((comp, idx) => {
+                if (comp.is_included_accessory) return null;
+                const cCost = Number(comp.cost_price) || 0;
+                const cSell = Number(comp.unit_price) || 0;
+                const cMargin = cSell > 0 && cCost > 0 ? ((cSell - cCost) / cSell) * 100 : null;
+
+                const linkedProduct = comp.product_id
+                  ? activeCatalogProducts.find((p) => p.id === comp.product_id)
+                  : undefined;
+                const catalogSell = linkedProduct
+                  ? convertFromCatalogAed(linkedProduct.unit_price)
+                  : 0;
+                const catalogCost = linkedProduct
+                  ? convertFromCatalogAed(linkedProduct.cost_price ?? linkedProduct.cost_price_aed)
+                  : 0;
+                const isPriceDrifted =
+                  linkedProduct &&
+                  (Math.abs(cSell - catalogSell) > 0.01 ||
+                    (catalogCost > 0 && Math.abs(cCost - catalogCost) > 0.01));
+
+                const reqTotalQty =
+                  (Math.max(1, Number(parentQuantity) || 1)) * (Number(comp.quantity) || 0);
+                const availStock = linkedProduct
+                  ? (linkedProduct.stock_on_hand || 0) - (linkedProduct.stock_reserved || 0)
+                  : null;
+                const isShortStock =
+                  Boolean(linkedProduct?.is_inventoried) &&
+                  availStock !== null &&
+                  availStock < reqTotalQty;
+
+                return (
+                  <tr
+                    key={comp.id}
+                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                  >
+                    <td className="py-1.5 px-2 text-center font-mono text-[11px] font-bold text-slate-400">
+                      {idx + 1}
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="text"
+                        value={comp.item_name ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
+                        placeholder="e.g. Primary Vessel Shell / Control Panel / Pump Skid"
+                        className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                      />
+                      {/* Linked Catalog Badge & Live Stock / Drift Indicators */}
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                        {linkedProduct ? (
+                          <>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9.5px] font-mono font-semibold">
+                              <Check className="w-2.5 h-2.5" />
+                              SKU: {linkedProduct.sku || linkedProduct.name}
+                            </span>
+                            {linkedProduct.is_inventoried && availStock !== null && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold border ${
+                                  isShortStock
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                }`}
+                                title={`Required across ${parentQuantity} set(s): ${reqTotalQty} ${comp.unit || 'Nos'}`}
+                              >
+                                {isShortStock && <AlertTriangle className="w-2.5 h-2.5" />}
+                                Avail: {availStock} / Req: {reqTotalQty}
+                              </span>
+                            )}
+                            {isPriceDrifted && (
+                              <button
+                                type="button"
+                                onClick={() => handleRefreshSubFromCatalog(comp.id, linkedProduct)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[9.5px] font-semibold cursor-pointer transition"
+                                title={`Catalog rate changed to ${currency} ${catalogSell.toLocaleString()}. Click to refresh snapshot.`}
+                              >
+                                <RefreshCw className="w-2.5 h-2.5" />
+                                <span>Refresh from Catalog ({currency} {catalogSell})</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = subComponents.map((c) =>
+                                  c.id === comp.id
+                                    ? { ...c, product_id: undefined, sku: undefined }
+                                    : c
+                                );
+                                commitComponents(updated);
+                              }}
+                              className="text-[9.5px] text-slate-400 hover:text-rose-600 underline cursor-pointer"
+                            >
+                              Unlink
+                            </button>
+                          </>
+                        ) : (
+                          activeCatalogProducts.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowCatalogPickerForRow((prev) =>
+                                  prev === comp.id ? null : comp.id
+                                )
+                              }
+                              className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                            >
+                              <Link2 className="w-2.5 h-2.5" />
+                              <span>Link Catalog SKU</span>
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="text"
+                        value={comp.remark ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
+                        placeholder="e.g. Aeration Section / Duty-Standby / SS316"
+                        className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-700 dark:text-slate-300 focus:border-indigo-500 focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="number"
+                        step="any"
+                        value={comp.quantity ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
+                        className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="text"
+                        value={comp.unit ?? 'Nos'}
+                        onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
+                        className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-indigo-500 focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={comp.cost_price ?? ''}
+                        placeholder="0.00"
+                        onChange={(e) => handleUpdateSub(comp.id, 'cost_price', e.target.value)}
+                        className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono text-right text-slate-600 dark:text-slate-400 tabular-nums focus:border-indigo-500 focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-1.5 px-2">
+                      <div className="space-y-0.5">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={comp.unit_price ?? ''}
+                          placeholder="0.00"
+                          onChange={(e) => handleUpdateSub(comp.id, 'unit_price', e.target.value)}
+                          className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono font-bold text-right text-slate-900 dark:text-white tabular-nums focus:border-indigo-500 focus:outline-none"
+                        />
+                        {cMargin !== null && (
+                          <span
+                            className={`block text-right text-[9px] font-mono ${
+                              cMargin >= 15 ? 'text-emerald-600' : 'text-amber-600'
+                            }`}
+                          >
+                            {cMargin.toFixed(0)}% mgn
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 dark:text-white tabular-nums">
+                      {(Number(comp.total_price) || 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="py-1.5 px-2 text-center">
+                      <div className="inline-flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleMoveSub(idx, 'up')}
+                          disabled={idx === 0}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                          title="Move Up"
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveSub(idx, 'down')}
+                          disabled={idx === subComponents.length - 1}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                          title="Move Down"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSub(comp.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                          title="Delete Component"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pricedComponents.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-4 text-center text-slate-400 italic text-xs">
+                    No priced sub-components added yet. Click "+ Add Priced Sub-Component" or "+ Link Catalog SKU".
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 2. Included Accessories & Zero-Price Sub-Items */}
+        <div className="pt-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-mono uppercase tracking-wider font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                2. Included Accessories &amp; Zero-Price Sub-Items ({includedAccessories.length})
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => handleAddSubComponent(true)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Included Accessory (No Extra Charge)</span>
+            </button>
+          </div>
+
+          {includedAccessories.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-emerald-50/50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10px] font-mono uppercase text-slate-500">
+                    <th className="py-1.5 px-2">Included Accessory / Sub-Item Specification</th>
+                    <th className="py-1.5 px-2 w-48">Application / Scope Note</th>
+                    <th className="py-1.5 px-2 w-20 text-center">Qty</th>
+                    <th className="py-1.5 px-2 w-20 text-center">UOM</th>
+                    <th className="py-1.5 px-2 w-24 text-center">Status</th>
+                    <th className="py-1.5 px-2 w-16 text-center">Remove</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800">
+                  {subComponents.map((comp) => {
+                    if (!comp.is_included_accessory) return null;
+                    return (
+                      <tr key={comp.id} className="hover:bg-slate-50/70">
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={comp.item_name ?? ''}
+                            onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
+                            placeholder="e.g. Fasteners, Interconnecting Piping, Manhole, Level Indicator"
+                            className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200"
+                          />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={comp.remark ?? ''}
+                            onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
+                            placeholder="Optional scope remark"
+                            className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-600 dark:text-slate-400"
+                          />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="number"
+                            step="any"
+                            value={comp.quantity ?? ''}
+                            onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
+                            className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white"
+                          />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            value={comp.unit ?? 'Nos'}
+                            onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
+                            className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300"
+                          />
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono text-[10px] font-semibold">
+                            Included
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSub(comp.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* 3. Option / Package Technical Scope Notes */}
+        <div className="pt-2 space-y-1">
+          <label className="text-[10.5px] font-mono uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+            <FileText className="w-3 h-3 text-indigo-600" />
+            <span>
+              3. Package / Option Scope Notes (Material Standards, Warranties, Exclusions)
+            </span>
+          </label>
+          <textarea
+            rows={3}
+            value={optionScopeNotes}
+            onChange={(e) =>
+              commitComponents(
+                subComponents,
+                packagePricingMode,
+                e.target.value,
+                true
+              )
+            }
+            placeholder="e.g. Materials of construction, warranty terms, testing standards, or client-scope exclusions..."
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+      </div>
     </div>
   );
 };
+
 export default CompositePackageEditor;

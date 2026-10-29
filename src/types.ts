@@ -358,15 +358,18 @@ export interface LineItemComponent {
   cost_price?: number;
   unit_price: number;
   total_price: number;
+  line_total?: number;
   is_included_accessory?: boolean;
   product_id?: string;
   sku?: string;
+  specifications?: Record<string, string>;
 }
 
 export type QuotationOptionDisplayMode =
   | 'all_separate_tables'
   | 'option_a_only'
   | 'option_b_only'
+  | 'option_c_only'
   | 'combined_table';
 
 export interface LineItem {
@@ -393,10 +396,13 @@ export interface LineItem {
   include_datasheet_in_quote?: boolean;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
+  item_option?: string;
+  option_designation?: string;
   option_scope_notes?: string;
   is_composite_set?: boolean;
   sub_components?: LineItemComponent[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
+  specifications?: Record<string, string>;
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
 }
@@ -660,6 +666,8 @@ export interface Enquiry extends SoftDeleteFields {
   subject?: string; // Optional Subject for the proposal
   customer_reference_code?: string; // Optional Customer Reference Code
   proposal_option?: string; // e.g. Option A, Option B for alternative versions
+  option_group_titles?: Record<string, string>; // Custom titles per option group e.g. { "Option A": "Option A — SS316 Execution" }
+  show_combined_options_total?: boolean;
   projected_order_date?: string;
   next_followup_date?: string;
   value_aed: number;
@@ -1497,6 +1505,8 @@ export interface QuotationPreset extends SoftDeleteFields {
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
   option_display_mode?: QuotationOptionDisplayMode;
+  option_group_titles?: Record<string, string>;
+  show_combined_options_total?: boolean;
   custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
@@ -1611,6 +1621,8 @@ export interface Quotation extends SoftDeleteFields {
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
   option_display_mode?: QuotationOptionDisplayMode;
+  option_group_titles?: Record<string, string>;
+  show_combined_options_total?: boolean;
   layout_blocks?: QuotationBlockConfig[];
   flyer_attachments?: Attachment[];
   show_submittals_index?: boolean;

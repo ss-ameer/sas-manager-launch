@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Multi-Component Composite Tank Packages / Sets, Itemized vs. Lump-Sum Package Pricing with Supplier Cost Markup, Single-Quotation Multi-Option Tables & Filter Toggle (Option A SST vs. Option B GFS), and One-Click Pre-Loaded King Saud Air Base STP Quotation Builder.",
-  "updatedAt":  "2026-10-28T12:13:03.642935698Z",
+  "summary":  "Implementation plan for transitioning the Multi-Component Set / Package (BOM) & Multi-Option System into a universal, multi-tenant B2B SaaS feature across Products Catalog, Enquiries, Inventory, and Quotation Studio.",
+  "updatedAt":  "2026-10-28T20:00:29.684457640Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

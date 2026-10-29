@@ -17,7 +17,7 @@ import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
-import { getKingSaudStpLineItems } from '../utils/kingSaudTankPreset';
+import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import {
   FileText,
   Building,
@@ -588,6 +588,10 @@ export default function EnquiryForm({
           cost_price_aed: p.cost_price ?? p.cost_price_aed,
           lead_time_note: defaultLeadTime,
           attributes: p.attributes || [],
+          is_composite_set: p.is_composite_set,
+          sub_components: p.sub_components,
+          package_pricing_mode: p.package_pricing_mode,
+          option_scope_notes: p.option_scope_notes,
         };
       });
   }, [products]);
@@ -1434,22 +1438,52 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setLineItems([...lineItems, newItem]);
   };
 
-  const handleAddCatalogItem = (item: CatalogItem) => {
+  const handleAddCatalogItem = (item: any) => {
+    const isUsd = formCurrency === 'USD';
     const rawPrice = item.unit_price_aed !== undefined && item.unit_price_aed > 0
-      ? (formCurrency === 'USD' ? item.unit_price_aed / 3.6725 : item.unit_price_aed)
+      ? (isUsd ? item.unit_price_aed / 3.6725 : item.unit_price_aed)
       : 0;
     const price = Math.round(rawPrice * 100) / 100;
 
     const rawCost = item.cost_price_aed !== undefined && item.cost_price_aed > 0
-      ? (formCurrency === 'USD' ? item.cost_price_aed / 3.6725 : item.cost_price_aed)
+      ? (isUsd ? item.cost_price_aed / 3.6725 : item.cost_price_aed)
       : 0;
     const costPrice = rawCost > 0 ? Math.round(rawCost * 100) / 100 : undefined;
+
+    const clonedSubComponents =
+      item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.length > 0
+        ? item.sub_components.map((sc: any, idx: number) => ({
+            ...sc,
+            id: `comp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
+            unit_price:
+              sc.unit_price !== undefined
+                ? Math.round((isUsd ? Number(sc.unit_price) / 3.6725 : Number(sc.unit_price)) * 100) / 100
+                : 0,
+            cost_price:
+              sc.cost_price !== undefined
+                ? Math.round((isUsd ? Number(sc.cost_price) / 3.6725 : Number(sc.cost_price)) * 100) / 100
+                : undefined
+          }))
+        : undefined;
 
     if (linkingLineIndex !== null && lineItems[linkingLineIndex]) {
       // Update existing line item in place
       setLineItems((prev) => {
         const next = [...prev];
         const current = next[linkingLineIndex];
+        const qty = Number(current.quantity) || 1;
+        const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, qty) : null;
+        const resolvedUnitPrice = bomRollup
+          ? bomRollup.unitSellingPrice
+          : current.unit_price > 0
+          ? current.unit_price
+          : price;
+        const resolvedCostPrice = bomRollup
+          ? bomRollup.unitCostPrice
+          : current.cost_price && current.cost_price > 0
+          ? current.cost_price
+          : costPrice;
+
         next[linkingLineIndex] = {
           ...current,
           product_id: item.id || undefined,
@@ -1458,9 +1492,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           product_type: item.product_type || current.product_type,
           description: current.description?.trim() ? current.description : item.description,
           unit: item.unit || current.unit,
-          unit_price: current.unit_price > 0 ? current.unit_price : price,
-          cost_price: current.cost_price && current.cost_price > 0 ? current.cost_price : costPrice,
-          total_price: (current.quantity || 1) * (current.unit_price > 0 ? current.unit_price : price),
+          unit_price: resolvedUnitPrice,
+          cost_price: resolvedCostPrice,
+          total_price: bomRollup ? bomRollup.totalSellingPrice : qty * resolvedUnitPrice,
           brand_make: item.brand_make || current.brand_make,
           model_part_no: item.model_part_no || current.model_part_no,
           country_of_origin: item.country_of_origin || current.country_of_origin,
@@ -1474,13 +1508,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           lead_time_note: current.lead_time_note && !current.lead_time_note.startsWith('SKU:')
             ? current.lead_time_note
             : (item.lead_time_note || ''),
-          attributes: current.attributes && current.attributes.length > 0 ? current.attributes : (item.attributes || [])
+          attributes: current.attributes && current.attributes.length > 0 ? current.attributes : (item.attributes || []),
+          ...(item.is_composite_set ? { is_composite_set: true } : {}),
+          ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
+          ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
+          ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {})
         };
         return next;
       });
       setLinkingLineIndex(null);
     } else {
       // Default append behavior
+      const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, 1) : null;
       const newItem: LineItem = {
         product_id: item.id || undefined,
         sku: item.sku || undefined,
@@ -1490,9 +1529,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         description: item.description,
         quantity: 1,
         unit: item.unit,
-        unit_price: price,
-        cost_price: costPrice,
-        total_price: price,
+        unit_price: bomRollup ? bomRollup.unitSellingPrice : price,
+        cost_price: bomRollup ? bomRollup.unitCostPrice : costPrice,
+        total_price: bomRollup ? bomRollup.totalSellingPrice : price,
         brand_make: item.brand_make || undefined,
         model_part_no: item.model_part_no || undefined,
         country_of_origin: item.country_of_origin || undefined,
@@ -1504,9 +1543,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         option: 'Default / Included',
         attributes: item.attributes || [],
         ...(item.is_composite_set ? { is_composite_set: true } : {}),
-        ...(Array.isArray(item.sub_components) && item.sub_components.length > 0
-          ? { sub_components: item.sub_components }
-          : {}),
+        ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
         ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
         ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {})
       };
@@ -5011,30 +5048,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={() => {
-                    const curr = (formCurrency as 'AED' | 'USD') || 'USD';
-                    const ksItems = getKingSaudStpLineItems(curr);
-                    setLineItems((prev) => {
-                      const nonEmpty = prev.filter(
-                        (li) => (li.item_name || '').trim() || (li.description || '').trim() || (Number(li.unit_price) || 0) > 0
-                      );
-                      return [...nonEmpty, ...ksItems];
-                    });
-                    if (triggerToast) {
-                      triggerToast(
-                        'Loaded King Saud Air Base STP Option A (SST) & Option B (GFS) multi-component tank sets!',
-                        'success'
-                      );
-                    }
-                  }}
-                  className="py-1.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
-                  title="Load King Saud Air Base STP Option A (SST - USD 631,250) and Option B (GFS - USD 834,250) multi-component tank packages"
-                >
-                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                  <span>⚡ Load King Saud STP (SST + GFS)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
                     setLinkingLineIndex(null);
                     setShowCatalogModal(true);
                   }}
@@ -5239,15 +5252,51 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           );
                         })()}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveLineItem(index)}
-                        className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
-                        title="Remove Line Item"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Remove</span>
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!isServiceOrFee && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const { clonedItem, targetOption, updatedSourceOption } = cloneLineItemToNextOption(
+                                item,
+                                lineItems
+                              );
+                              setLineItems((prev) => {
+                                const next = [...prev];
+                                if (updatedSourceOption) {
+                                  next[index] = {
+                                    ...next[index],
+                                    option: updatedSourceOption,
+                                    item_option: updatedSourceOption,
+                                    option_designation: updatedSourceOption
+                                  };
+                                }
+                                next.splice(index + 1, 0, clonedItem);
+                                return next;
+                              });
+                              if (triggerToast) {
+                                triggerToast(
+                                  `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
+                                  'success'
+                                );
+                              }
+                            }}
+                            className="px-2 py-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
+                            title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
+                          >
+                            <span>🔀 Clone as Next Option</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLineItem(index)}
+                          className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
+                          title="Remove Line Item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tier 1: Classification & Product Category */}
@@ -5830,6 +5879,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           optionScopeNotes={item.option_scope_notes || ''}
                           parentQuantity={item.quantity || 1}
                           currency={formCurrency || 'USD'}
+                          products={products || []}
                           onChange={(patch) => {
                             setLineItems((prev) => {
                               const next = [...prev];
@@ -7298,6 +7348,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-mono uppercase font-bold whitespace-nowrap">
                                     {item.product_type}
                                   </span>
+                                  {item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
+                                    <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+                                      📦 Kit / BOM ({item.sub_components.length} parts)
+                                    </span>
+                                  )}
                                   {item.is_inventoried ? (
                                     <span
                                       className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
