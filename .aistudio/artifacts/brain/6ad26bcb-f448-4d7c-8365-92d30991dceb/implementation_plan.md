@@ -1,67 +1,90 @@
-# UI/UX Uniformization Phase 1 — Core Layout & Theme Lock
+# UI/UX Uniformization Phase 2 — Standardized KPI Strips & Card Surfaces
 
-## Objective
-Standardize the core CSS theme lock, top sticky page headers, page body containers, surface cards, KPI stat cards, and sidebar workspace switcher into a cohesive enterprise light-mode B2B SaaS design system without altering any business logic, state, or event handlers.
+## 1. Architectural Vision & Visual System
 
----
+Phase 2 extends the enterprise light-mode B2B SaaS design system established in Phase 1 across all primary operational modules. Every top-level workspace tab will open with an identical, scannable 4-card executive metric strip (`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`) powered by the shared `KpiStatCard` primitive, paired with crisp light-mode card surfaces (`bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-900`) and tabular monospace numerals (`font-mono tabular-nums`).
 
-## 1. Global Theme Lock (`src/index.css`)
-- **Explicit Dark Variant Lock**: Add `@custom-variant dark (&:where(.dark, .dark *));` immediately below `@import "tailwindcss";` so Tailwind v4 only activates `dark:*` utilities when `.dark` is explicitly applied in the DOM rather than via OS media queries.
-- **Native Control Light Color Scheme**: Change `color-scheme: dark light;` on `input, select, textarea` to `color-scheme: light;` so native `<select>`, `<input type="date">`, and scrollbars render consistently in crisp light mode.
-
----
-
-## 2. Sticky Page Header Standardization (`src/components/layout/PageHeader.tsx`)
-- **Configurable Max-Width**:
-  - Add optional `maxWidth?: string` prop to `PageHeaderProps` (defaulting to `'max-w-[1600px]'`).
-  - Replace hardcoded `max-w-7xl mx-auto w-full` on the inner flex container with `${maxWidth} mx-auto w-full`.
-- **Light-Mode Surface & Typography Lock**:
-  - Remove all `dark:*` classes from `PageHeader.tsx` (including `badgeClasses`, sticky wrapper, mobile menu button, icon badge, title, subtitle, secondary actions, and primary action button).
-  - Standardize the sticky header bar to:
-    `sticky top-0 z-20 w-full px-6 py-4 lg:px-8 border-b border-slate-200/80 bg-white/95 backdrop-blur-xs shadow-2xs`
-  - Standardize the icon badge to:
-    `p-2.5 bg-blue-50 border border-blue-200/80 rounded-xl text-blue-600 shrink-0 shadow-2xs` (preserving the secret 5-click God Mode trigger on the icon container).
-  - Standardize the title to:
-    `text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-sans`
-  - Standardize the subtitle to:
-    `text-xs text-slate-500 font-medium mt-0.5`
-
----
-
-## 3. Layout Primitives & `<KpiStatCard />` (`src/components/layout/UiContainer.tsx`)
-- **`PageBody` Width Alignment**:
-  - Change default `maxWidth` prop on `PageBody` from `'max-w-7xl'` to `'max-w-[1600px]'` so page content aligns with `PageHeader` and wider dashboards (`LeadsPipelinePage`, `ProjectExecutionPage`).
-- **`CardPanel` Surface Refinement**:
-  - Update `CardPanel` base classes to:
-    `bg-white border border-slate-200/80 rounded-2xl shadow-xs transition-all duration-200`
-- **New `<KpiStatCard />` Component**:
-  - Export `KpiStatCard` from `src/components/layout/UiContainer.tsx` with props:
-    - `label: string`
-    - `value: React.ReactNode`
-    - `subtext?: React.ReactNode`
-    - `icon?: React.ReactNode`
-    - `tone?: 'slate' | 'blue' | 'emerald' | 'amber' | 'rose' | 'purple' | 'indigo'`
-    - `onClick?: () => void`
-    - `active?: boolean`
-    - `className?: string`
-  - Render using the standardized token classes:
-    - Wrapper: `bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all text-left flex flex-col justify-between` (plus interactive cursor/ring styling when `onClick` or `active` is provided).
-    - Label: `text-[11px] font-bold uppercase tracking-wider text-slate-500`
-    - Value: `text-2xl sm:text-3xl font-black tracking-tight tabular-nums text-slate-900 mt-1`
-    - Icon Badge: `w-9 h-9 rounded-xl flex items-center justify-center shrink-0` (colored by `tone`: `bg-{tone}-50 text-{tone}-600 border border-{tone}-200/60`).
+```
++-----------------------------------------------------------------------------------+
+| Sticky PageHeader (max-w-[1600px], bg-white/95, border-b border-slate-200/80)     |
++-----------------------------------------------------------------------------------+
+| PageBody (max-w-[1600px], flush below PageHeader, py-6 px-4 sm:px-6 lg:px-8)      |
+|                                                                                   |
+|  +-----------------+  +-----------------+  +-----------------+  +-----------------+
+|  | KpiStatCard 01  |  | KpiStatCard 02  |  | KpiStatCard 03  |  | KpiStatCard 04  |
+|  | Label     [Icon]|  | Label     [Icon]|  | Label     [Icon]|  | Label     [Icon]|
+|  | 2xl Tabular Val |  | 2xl Tabular Val |  | 2xl Tabular Val |  | 2xl Tabular Val |
+|  | Subtext         |  | Subtext         |  | Subtext         |  | Subtext         |
+|  +-----------------+  +-----------------+  +-----------------+  +-----------------+
+|                                                                                   |
+|  +-----------------------------------------------------------------------------+  |
+|  | Primary Content Surfaces (bg-white border-slate-200/80 rounded-2xl)         |  |
+|  | - Zero dark-mode surface collisions                                         |  |
+|  | - Valid Tailwind v4 utility tokens throughout                               |  |
+|  +-----------------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------------+
+```
 
 ---
 
-## 4. Sidebar Workspace Switcher Polish (`src/components/Sidebar.tsx`)
-- **Light Surface Header Block (lines 140–181)**:
-  - Replace the dark `p-3 border-b border-slate-200 bg-slate-900 text-white` Workspace Switcher container with:
-    `p-3.5 border-b border-slate-200 bg-slate-50/80`
-  - Update the header label (`Active Workspace`) and role badge for clean legibility on the light slate surface.
-  - Replace the dark `<select>` (`bg-slate-800 text-white ...`) with a crisp white select control:
-    `w-full bg-white text-slate-900 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200/90 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none truncate pr-8`
-  - Update the dropdown chevron and status indicator text (`text-[10px] text-slate-500`) to harmonize with the light header block while keeping all workspace switching and creation logic untouched.
+## 2. Core Design & Product Decisions
+
+### A. Shared KPI Metric Strip Specification
+- **Grid Geometry**: All six primary modules (Dashboard, Enquiries, Call Center, Projects, Products & Inventory, and Companies & Contacts) will render a 4-column responsive metric grid (`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`) as the top visual anchor inside `PageBody`.
+- **Card Anatomy (`KpiStatCard`)**:
+  - **Surface**: `bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs transition-all` with interactive hover and active ring states (`ring-2 ring-blue-500 border-blue-300 bg-blue-50/20`) when used as a filter toggle.
+  - **Typography**: `text-[11px] font-bold text-slate-500 uppercase tracking-wider` for the top label, `text-2xl font-bold text-slate-900 tracking-tight font-mono tabular-nums` for the primary value, and `text-xs text-slate-500 font-medium` for contextual subtext.
+  - **Iconography**: Top-right `p-2.5 rounded-xl border shrink-0` semantic badge (`blue`, `emerald`, `amber`, `rose`, `purple`, `indigo`, or `slate`).
 
 ---
 
-## Verification Plan
-- Run `lint_applet` and `compile_applet` to verify zero TypeScript or build regressions.
+## 3. Module-by-Module Implementation Scope
+
+### 1. Executive Dashboard Surface & KPI Harmonization
+- **4 Core Summary KPI Cards**:
+  - Convert the 4 primary summary cards (`Active Pipeline`, `Won Proposals`, `Win Ratio`, and `Overdue Follow-ups`) to `gap-4` using `KpiStatCard` with `TrendingUp` (`blue`), `Award` (`emerald`), `Target` (`purple`), and `AlertCircle` (`rose` when overdue > 0, `slate` otherwise), preserving the click-through handler on Overdue Follow-ups.
+- **Crisp Light-Mode Card Surfaces**:
+  - Eliminate legacy `dark:bg-slate-900`, `dark:bg-slate-800/40`, `dark:border-slate-800/80`, and `dark:text-*` surface classes across the Dashboard panels (AI Executive Summary card, Sales Velocity & Pipeline Health panel, Action Center & Follow-ups panel, Pipeline Breakdown, Recent Activity, and Top Customers/Products widgets) that clashed with `text-slate-900` headings and `bg-slate-50` inner containers.
+  - Standardize Dashboard section containers to `bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-900`.
+- **Tailwind Token Fixes**:
+  - Replace the invalid gradient stop `via-slate-850` on the Command Center banner with `via-slate-800`.
+  - Replace any remaining `text-slate-850` tokens with `text-slate-900`.
+
+### 2. Enquiries Pipeline KPI Strip Upgrade
+- **Interactive 4-Card KPI Strip**:
+  - Upgrade the 4 compact `text-lg` icon-less filter cards (`Active Pipeline`, `Actionable Proposals`, `Won Orders`, and `Conversion & Health`) to full `KpiStatCard` components inside a `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4` container.
+  - Assign top-right semantic icon badges using `TrendingUp` (`blue`), `FileText` (`indigo`), `CheckCircle2` (`emerald`), and `Activity` (`rose` when overdue > 0, `amber` otherwise).
+  - Preserve existing interactive filter behavior (`quoteLifecycleFilter` toggling `'all'`, `'pending'`, `'won'`, and `urgencyFilter` toggling `'Overdue'`) and active selection styling.
+
+### 3. Call Center & Activity Log KPI Strip
+- **4-Card Telemetry Strip**:
+  - Upgrade the 4 Call Center summary cards (`Scheduled Queue (Today)`, `Overdue Calls`, `Calls Today`, and `Completed This Week`) to `KpiStatCard` components with `font-mono tabular-nums` values and semantic icon badges (`Calendar` in `blue`, `Clock` in `rose`/`slate`, `CheckCircle2` in `emerald`, and `Zap` in `indigo`).
+  - Maintain the interactive click handler on the Overdue Calls card to toggle the `'overdue'` queue tab.
+
+### 4. Project Registry Layout & KPI Strip Alignment
+- **Flush Header-to-Body Layout**:
+  - Remove `className="space-y-6"` from the outer `<div>` wrapping `PageHeader` and `PageBody` so `PageBody` sits flush below the sticky `PageHeader`, matching every other module in the application.
+- **4-Card Project KPI Strip**:
+  - Convert the 4 Project Registry metric cards (`Active Projects`, `Pending Dispatch`, `Dispatched & Completed`, and `Operational Value`) to `KpiStatCard` components with `Briefcase` (`blue`), `Boxes` (`amber`), `Truck` (`emerald`), and `DollarSign` (`indigo`), enforcing `font-mono tabular-nums` across all 4 metrics.
+
+### 5. Product & Inventory Catalog KPI Strip & Token Cleanup
+- **Invalid Tailwind Class Cleanup**:
+  - Replace invalid `text-slate-850` classes with `text-slate-900` and `text-emerald-650` with `text-emerald-600`.
+- **4-Card Catalog & Stock KPI Strip**:
+  - Standardize the 4 Product Manager cards (`Catalog Items`, `Tracked Inventory`, `Total Stock on Hand`, and `Low Stock Alerts`) to use `KpiStatCard` with `Package` (`blue`), `Boxes` (`emerald`), `ArrowDownToLine` (`indigo`), and `AlertTriangle` (`amber` when alerts exist, `slate` otherwise), preserving the click handler on `Low Stock Alerts` that toggles the low-stock filter.
+
+### 6. Companies & Contacts Directory KPI Strip Addition
+- **New 4-Card Directory Summary Strip**:
+  - Add a 4-card `KpiStatCard` metric strip at the top of `PageBody` in the Companies & Contacts Directory (directly above the view switcher toolbar) so the Companies tab shares the exact visual hierarchy of Enquiries, Call Center, Projects, and Products:
+    1. **Total Companies**: Count of registered companies (`companies.length`), `Building2` icon (`blue`), clicking switches view mode to `'companies'`.
+    2. **Active Client Accounts**: Count of companies with linked enquiries or active projects (`emerald`, `CheckCircle2` icon), showing client engagement coverage.
+    3. **Registered Contacts**: Total individual contacts (`contacts.length`), `Users` icon (`indigo`), clicking switches view mode to `'contacts'`.
+    4. **Direct Phone Lines**: Total indexed phone numbers (`allPhoneEntries.length`), `Phone` icon (`purple`), clicking switches view mode to `'phones'`.
+
+---
+
+## 4. Verification Criteria
+- All 6 primary workspace tabs render a uniform `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4` strip using `KpiStatCard` with `text-2xl font-bold font-mono tabular-nums` values.
+- Zero `dark:bg-slate-900` card surface collisions remain in `Dashboard.tsx`.
+- Zero invalid Tailwind classes (`via-slate-850`, `text-slate-850`, `text-emerald-650`) remain in the updated modules.
+- TypeScript compilation (`compile_applet`) and ESLint verification (`lint_applet`) pass with zero errors.

@@ -21,7 +21,10 @@ import {
   Clock,
   RotateCcw,
   CheckSquare,
-  Hash
+  Hash,
+  TrendingUp,
+  CheckCircle2,
+  Activity
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
@@ -29,7 +32,7 @@ import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { reserveEnquiryStock, releaseEnquiryStock, isLostOrCancelledStatus } from '../services/inventoryService';
 import { collection, writeBatch, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { PageHeader, PageBody } from './layout/UiContainer';
+import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import {
   canAccessEnquiry,
   canCreateEnquiry,
@@ -2041,69 +2044,49 @@ export default function EnquiryList({
         ]}
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
 
       {/* Top 4-Card KPI Summary Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <div
+        <KpiStatCard
+          label="Active Pipeline"
+          value={`AED ${lifecycleCounts.activePipelineValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+          subtext={`${lifecycleCounts.all - lifecycleCounts.won - lifecycleCounts.lost} open enquiries · ${lifecycleCounts.unquoted} unquoted`}
+          icon={<TrendingUp className="w-5 h-5" />}
+          tone="blue"
           onClick={() => setQuoteLifecycleFilter('all')}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-blue-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
-        >
-          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
-            Active Pipeline Value
-          </span>
-          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-slate-900 dark:text-white">
-            AED {lifecycleCounts.activePipelineValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-          </div>
-          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
-            {lifecycleCounts.all - lifecycleCounts.won - lifecycleCounts.lost} open enquiries · {lifecycleCounts.unquoted} unquoted
-          </span>
-        </div>
+          active={quoteLifecycleFilter === 'all'}
+        />
 
-        <div
+        <KpiStatCard
+          label="Actionable Proposals"
+          value={`AED ${lifecycleCounts.pendingQuotesValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+          subtext={`${lifecycleCounts.pending} formal ${lifecycleCounts.pending === 1 ? 'offer' : 'offers'} awaiting client decision`}
+          icon={<FileText className="w-5 h-5" />}
+          tone="indigo"
           onClick={() => setQuoteLifecycleFilter('pending')}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-indigo-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
-        >
-          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
-            Pending Formal Quotes
-          </span>
-          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400">
-            AED {lifecycleCounts.pendingQuotesValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-          </div>
-          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
-            {lifecycleCounts.pending} formal {lifecycleCounts.pending === 1 ? 'offer' : 'offers'} awaiting client decision
-          </span>
-        </div>
+          active={quoteLifecycleFilter === 'pending'}
+        />
 
-        <div
+        <KpiStatCard
+          label="Won Orders"
+          value={`AED ${lifecycleCounts.wonValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+          subtext={`${lifecycleCounts.won} won · ${lifecycleCounts.winRatePct}% conversion rate`}
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          tone="emerald"
           onClick={() => setQuoteLifecycleFilter('won')}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-emerald-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
-        >
-          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
-            Won / Converted Deals
-          </span>
-          <div className="mt-1.5 text-lg font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
-            AED {lifecycleCounts.wonValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-          </div>
-          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
-            {lifecycleCounts.won} won · {lifecycleCounts.winRatePct}% conversion rate
-          </span>
-        </div>
+          active={quoteLifecycleFilter === 'won'}
+        />
 
-        <div
+        <KpiStatCard
+          label="Conversion & Health"
+          value={`${lifecycleCounts.overdueFollowups} Overdue`}
+          subtext={urgencyFilter === 'Overdue' ? 'Showing overdue follow-ups (click to reset)' : 'Click to filter overdue follow-ups'}
+          icon={<Activity className="w-5 h-5" />}
+          tone={lifecycleCounts.overdueFollowups > 0 ? 'amber' : 'slate'}
           onClick={() => setUrgencyFilter(urgencyFilter === 'Overdue' ? 'All' : 'Overdue')}
-          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 hover:border-amber-300 rounded-2xl p-4 shadow-2xs cursor-pointer transition"
-        >
-          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 block font-semibold">
-            Follow-Up Attention
-          </span>
-          <div className={`mt-1.5 text-lg font-bold font-mono tabular-nums ${lifecycleCounts.overdueFollowups > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
-            {lifecycleCounts.overdueFollowups} Overdue
-          </div>
-          <span className="text-[11px] text-slate-500 font-sans mt-1 block">
-            {urgencyFilter === 'Overdue' ? 'Showing overdue follow-ups (click to reset)' : 'Click to filter overdue follow-ups'}
-          </span>
-        </div>
+          active={urgencyFilter === 'Overdue'}
+        />
       </div>
 
       {/* Structured Filtering Section */}

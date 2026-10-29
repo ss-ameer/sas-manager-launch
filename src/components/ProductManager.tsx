@@ -52,7 +52,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
-import { PageHeader, PageBody } from './layout/UiContainer';
+import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
   'Dimensions / Size',
@@ -1088,80 +1088,42 @@ export default function ProductManager({
         ]}
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
         {/* Metrics Section */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-            <div className="p-3 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-xl">
-              <Package className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Catalog Items</span>
-              <span className="text-xl font-bold font-mono text-slate-850 dark:text-white">
-                {activeCatalogProducts.length} active
-              </span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Catalog Items"
+            value={`${activeCatalogProducts.length} active`}
+            subtext="Standardized product catalog"
+            icon={<Package className="w-5 h-5" />}
+            tone="blue"
+          />
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-xl">
-              <Boxes className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
-                Tracked Inventory
-              </span>
-              <span className="text-xl font-bold font-mono text-emerald-650 dark:text-emerald-400">
-                {inventoriedProducts.length} physical SKUs
-              </span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Tracked Inventory"
+            value={`${inventoriedProducts.length} physical SKUs`}
+            subtext="Warehouse stock tracking enabled"
+            icon={<Boxes className="w-5 h-5" />}
+            tone="emerald"
+          />
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl">
-              <ArrowDownToLine className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
-                Total Stock on Hand
-              </span>
-              <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-300">
-                {activeCatalogProducts.reduce((acc, p) => acc + (p.stock_on_hand || 0), 0).toLocaleString()} units
-              </span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Total Stock on Hand"
+            value={`${activeCatalogProducts.reduce((acc, p) => acc + (p.stock_on_hand || 0), 0).toLocaleString()} units`}
+            subtext="Aggregate available inventory"
+            icon={<ArrowDownToLine className="w-5 h-5" />}
+            tone="indigo"
+          />
 
-          <button
-            type="button"
+          <KpiStatCard
+            label="Low Stock Alerts"
+            value={`${lowStockProducts.length} ${lowStockProducts.length === 1 ? 'item' : 'items'}`}
+            subtext={stockFilter === 'LowStock' ? 'Showing low stock items (click to reset)' : 'Click to filter low stock SKUs'}
+            icon={<AlertTriangle className="w-5 h-5" />}
+            tone={lowStockProducts.length > 0 ? 'amber' : 'slate'}
             onClick={() => setStockFilter((prev) => (prev === 'LowStock' ? 'All' : 'LowStock'))}
-            className={`text-left bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm flex items-center space-x-4 transition cursor-pointer ${
-              stockFilter === 'LowStock'
-                ? 'border-amber-400 ring-2 ring-amber-400/20 bg-amber-50/20'
-                : 'border-slate-200 dark:border-slate-800/80 hover:border-amber-300'
-            }`}
-          >
-            <div
-              className={`p-3 rounded-xl ${
-                lowStockProducts.length > 0
-                  ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-              }`}
-            >
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
-                Low Stock Alerts
-              </span>
-              <span
-                className={`text-xl font-bold font-mono ${
-                  lowStockProducts.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-850 dark:text-white'
-                }`}
-              >
-                {lowStockProducts.length} {lowStockProducts.length === 1 ? 'item' : 'items'}
-              </span>
-            </div>
-          </button>
+            active={stockFilter === 'LowStock'}
+          />
         </div>
 
         {/* Filters and Search Console */}

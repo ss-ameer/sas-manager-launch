@@ -112,12 +112,12 @@ export const KpiStatCard: React.FC<KpiStatCardProps> = ({
           <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 truncate">
             {label}
           </div>
-          <div className="text-2xl sm:text-3xl font-black tracking-tight tabular-nums text-slate-900 mt-1">
+          <div className="text-2xl font-bold font-mono tracking-tight tabular-nums text-slate-900 mt-1">
             {value}
           </div>
         </div>
         {icon && (
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${KPI_ICON_TONE_CLASSES[tone]}`}>
+          <div className={`p-2.5 rounded-xl flex items-center justify-center shrink-0 ${KPI_ICON_TONE_CLASSES[tone]}`}>
             {icon}
           </div>
         )}
@@ -130,7 +130,7 @@ export const KpiStatCard: React.FC<KpiStatCardProps> = ({
     </>
   );
 
-  const wrapperClasses = `bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all text-left flex flex-col justify-between ${interactiveClasses} ${activeClasses} ${className}`;
+  const wrapperClasses = `bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md transition-all text-left flex flex-col justify-between ${interactiveClasses} ${activeClasses} ${className}`;
 
   if (onClick) {
     return (

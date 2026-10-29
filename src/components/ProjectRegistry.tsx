@@ -4,7 +4,7 @@ import { dispatchProjectStock } from '../services/inventoryService';
 import { updateProjectStatus } from '../services/projectService';
 import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import {
   Briefcase,
   Search,
@@ -581,7 +581,7 @@ export default function ProjectRegistry({
   };
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
         title="Projects & Operations"
         subtitle="Manage job orders, delivery milestones, and warehouse inventory fulfillment."
@@ -599,76 +599,40 @@ export default function ProjectRegistry({
         ]}
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
         {/* Quick KPI Overview */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Active Projects
-              </span>
-              <span className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
-                <Briefcase className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-2xl font-bold font-sans text-slate-900 dark:text-white">
-                {kpis.activeCount}
-              </span>
-              <span className="text-xs text-slate-400">In Progress / Draft</span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Active Projects"
+            value={kpis.activeCount}
+            subtext="In Progress / Draft"
+            icon={<Briefcase className="w-5 h-5" />}
+            tone="blue"
+          />
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Pending Dispatch
-              </span>
-              <span className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
-                <Boxes className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-2xl font-bold font-sans text-amber-600 dark:text-amber-400">
-                {kpis.pendingDispatchCount}
-              </span>
-              <span className="text-xs text-slate-400">Awaiting Delivery</span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Pending Dispatch"
+            value={kpis.pendingDispatchCount}
+            subtext="Awaiting Delivery"
+            icon={<Boxes className="w-5 h-5" />}
+            tone="amber"
+          />
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Dispatched & Completed
-              </span>
-              <span className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-                <Truck className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-2xl font-bold font-sans text-emerald-600 dark:text-emerald-400">
-                {kpis.deliveredCount}
-              </span>
-              <span className="text-xs text-slate-400">Fulfilled Jobs</span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Dispatched & Completed"
+            value={kpis.deliveredCount}
+            subtext="Fulfilled Jobs"
+            icon={<Truck className="w-5 h-5" />}
+            tone="emerald"
+          />
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Operational Value
-              </span>
-              <span className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400">
-                <DollarSign className="w-4 h-4" />
-              </span>
-            </div>
-            <div className="mt-3 flex items-baseline justify-between">
-              <span className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
-                {kpis.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-              </span>
-              <span className="text-xs text-slate-400">AED Total</span>
-            </div>
-          </div>
+          <KpiStatCard
+            label="Operational Value"
+            value={`AED ${kpis.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+            subtext="Total Portfolio Value"
+            icon={<DollarSign className="w-5 h-5" />}
+            tone="purple"
+          />
         </div>
 
         {/* Unified Search, Filters & Projects Directory Card */}

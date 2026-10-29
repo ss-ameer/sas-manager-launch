@@ -77,12 +77,13 @@ import {
   Link2,
   Eye,
   RotateCcw,
-  CheckSquare
+  CheckSquare,
+  CheckCircle2
 } from 'lucide-react';
 import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
-import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import CompanyExportModal from './CompanyExportModal';
 
 
@@ -1958,9 +1959,50 @@ export default function CompanyModal({
         }}
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
+      {/* Top 4-Card KPI Summary Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiStatCard
+          label="Total Companies"
+          value={companies.length}
+          subtext="Corporate accounts in directory"
+          icon={<Building2 className="w-5 h-5" />}
+          tone="blue"
+          onClick={() => setViewMode('companies')}
+          active={viewMode === 'companies'}
+        />
+
+        <KpiStatCard
+          label="Active Client Accounts"
+          value={companies.filter((c) => c.relationship === 'Client' || enquiries.some((e) => e.company_id === c.id)).length}
+          subtext="Accounts with active enquiries"
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          tone="emerald"
+        />
+
+        <KpiStatCard
+          label="Registered Contacts"
+          value={contacts.length}
+          subtext="Key personnel & decision makers"
+          icon={<Users2 className="w-5 h-5" />}
+          tone="indigo"
+          onClick={() => setViewMode('contacts')}
+          active={viewMode === 'contacts'}
+        />
+
+        <KpiStatCard
+          label="Direct Phone Lines"
+          value={allPhoneEntries.length}
+          subtext="Indexed numbers across directory"
+          icon={<Phone className="w-5 h-5" />}
+          tone="purple"
+          onClick={() => setViewMode('phones')}
+          active={viewMode === 'phones'}
+        />
+      </div>
+
       {/* Top View Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-slate-50 dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setViewMode('companies')}

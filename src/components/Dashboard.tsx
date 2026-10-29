@@ -47,7 +47,7 @@ import {
   ArrowRight,
   Sparkles
 } from 'lucide-react';
-import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import { getWhatsAppUrl } from '../utils/defaults';
 
 interface DashboardProps {
@@ -598,18 +598,18 @@ export default function Dashboard(props: DashboardProps) {
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-1.5 flex items-center space-x-2.5 shadow-2xs shrink-0">
           <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           <div className="text-right">
-            <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-widest block leading-tight">System Date</span>
-            <span className="text-xs font-semibold font-mono text-slate-800 dark:text-slate-200">
+            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block leading-tight">System Date</span>
+            <span className="text-xs font-semibold font-mono text-slate-800">
               {new Date().toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
             </span>
           </div>
         </div>
       </PageHeader>
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
 
       {/* Follow-Up Radar Command Center Widget */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-5">
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 shadow-2xs">
@@ -687,17 +687,17 @@ export default function Dashboard(props: DashboardProps) {
                 return (
                   <div
                     key={item.id}
-                    className="bg-slate-50/70 hover:bg-white dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/80 hover:border-slate-300 dark:hover:border-slate-600 p-4 rounded-xl space-y-3 transition duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between"
+                    className="bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-slate-300 p-4 rounded-xl space-y-3 transition duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between"
                   >
                     <div className="space-y-2">
                       {/* Header Row */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate font-sans" title={item.company_name}>
+                          <h3 className="text-sm font-bold text-slate-900 truncate font-sans" title={item.company_name}>
                             {item.company_name}
                           </h3>
                           {hasContact && (
-                            <div className="flex items-center space-x-1 text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
+                            <div className="flex items-center space-x-1 text-xs text-slate-500 font-sans mt-0.5">
                               <User className="w-3 h-3 text-slate-400 shrink-0" />
                               <span className="truncate">{item.contact_name}</span>
                             </div>
@@ -710,40 +710,40 @@ export default function Dashboard(props: DashboardProps) {
                       </div>
 
                       {/* Meta info */}
-                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono pt-1">
+                      <div className="flex items-center justify-between text-xs text-slate-500 font-mono pt-1">
                         {item.enquiry_quote_ref ? (
-                          <span className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                          <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px] font-bold text-slate-700">
                             #{item.enquiry_quote_ref}
                           </span>
                         ) : (
-                          <span className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px] text-slate-500">
                             Scheduled Task
                           </span>
                         )}
 
-                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                        <span className="text-[11px] text-slate-400 tabular-nums">
                           Date: {formatDisplayDate(item.followup_date)}
                         </span>
                       </div>
 
                       {/* Note Snippet */}
-                      <p className="text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700/80 line-clamp-2 italic font-sans">
+                      <p className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200/80 line-clamp-2 italic font-sans">
                         "{item.notes}"
                       </p>
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/80 flex items-center gap-1.5">
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center gap-1.5">
                       {item.phone ? (
                         <a
                           href={`tel:${item.phone}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
+                          className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
                           title={`Call ${item.phone}`}
                         >
-                          <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <Phone className="w-3.5 h-3.5 text-emerald-600" />
                           <span>Call</span>
                         </a>
                       ) : (
@@ -760,7 +760,7 @@ export default function Dashboard(props: DashboardProps) {
                               });
                             }
                           }}
-                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
+                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
                           title="Log call (No phone on file)"
                         >
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -774,10 +774,10 @@ export default function Dashboard(props: DashboardProps) {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="flex-1 py-1.5 px-2 bg-green-50 hover:bg-green-100 dark:bg-green-950/40 dark:hover:bg-green-900/60 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
+                          className="flex-1 py-1.5 px-2 bg-green-50 hover:bg-green-100 border border-green-200 text-green-800 rounded-lg text-xs font-bold flex items-center justify-center space-x-1 transition shadow-2xs cursor-pointer"
                           title={`WhatsApp ${item.phone}`}
                         >
-                          <MessageSquare className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                          <MessageSquare className="w-3.5 h-3.5 text-green-600" />
                           <span>WhatsApp</span>
                         </a>
                       ) : (
@@ -794,7 +794,7 @@ export default function Dashboard(props: DashboardProps) {
                               });
                             }
                           }}
-                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
+                          className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 transition cursor-pointer"
                           title="Log WhatsApp (No phone on file)"
                         >
                           <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
@@ -819,8 +819,8 @@ export default function Dashboard(props: DashboardProps) {
 
             {/* Footer Bar when queue has more than 3 items */}
             {activeTabItems.length > 3 && (
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">
                   Showing top 3 of {activeTabItems.length} tasks in this queue
                 </span>
                 <button
@@ -830,7 +830,7 @@ export default function Dashboard(props: DashboardProps) {
                       onNavigate('call_center');
                     }
                   }}
-                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   View all {activeTabItems.length} in Call Center & Logs →
                 </button>
@@ -847,64 +847,41 @@ export default function Dashboard(props: DashboardProps) {
       </div>
 
       {/* 4 Core Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Metric 1 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 flex items-center space-x-4">
-          <div className="p-3.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 rounded-xl text-blue-600 dark:text-blue-400">
-            <Briefcase className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Active Pipeline</span>
-            <span className="text-2xl font-bold font-mono tracking-tight text-slate-950 dark:text-white block mt-1">
-              {formatCurrency(totalPipelineActive)}
-            </span>
-          </div>
-        </div>
-
-        {/* Metric 2 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 flex items-center space-x-4">
-          <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/50 rounded-xl text-emerald-600 dark:text-emerald-400">
-            <CheckCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Won Proposals</span>
-            <span className="text-2xl font-bold font-mono tracking-tight text-slate-950 dark:text-white block mt-1">
-              {formatCurrency(totalWon)}
-            </span>
-          </div>
-        </div>
-
-        {/* Metric 3 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 flex items-center space-x-4">
-          <div className="p-3.5 bg-purple-50 dark:bg-purple-950/50 border border-purple-100 dark:border-purple-900/50 rounded-xl text-purple-600 dark:text-purple-400">
-            <Award className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Win Ratio</span>
-            <span className="text-2xl font-bold font-mono tracking-tight text-slate-950 dark:text-white block mt-1">
-              {winRate}%
-            </span>
-          </div>
-        </div>
-
-        {/* Metric 4 */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 flex items-center space-x-4">
-          <div className={`p-3.5 rounded-xl text-rose-600 dark:text-rose-400 ${overdueFollowups.length > 0 ? 'bg-rose-50 dark:bg-rose-950/50 border border-rose-100 dark:border-rose-900/50' : 'bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800'}`}>
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium block">Overdue Follow-ups</span>
-            <span className="text-2xl font-bold font-mono tracking-tight text-slate-950 dark:text-white block mt-1">
-              {overdueFollowups.length}
-            </span>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiStatCard
+          label="Active Pipeline"
+          value={formatCurrency(totalPipelineActive)}
+          subtext={`${funnelStats.activeCount} open enquiries in progress`}
+          icon={<Briefcase className="w-5 h-5" />}
+          tone="blue"
+        />
+        <KpiStatCard
+          label="Won Proposals"
+          value={formatCurrency(totalWon)}
+          subtext={`${funnelStats.wonCount} converted orders`}
+          icon={<CheckCircle className="w-5 h-5" />}
+          tone="emerald"
+        />
+        <KpiStatCard
+          label="Win Ratio"
+          value={`${winRate}%`}
+          subtext={`${funnelStats.wonCount} of ${funnelStats.totalCount} proposals won`}
+          icon={<Award className="w-5 h-5" />}
+          tone="purple"
+        />
+        <KpiStatCard
+          label="Overdue Follow-ups"
+          value={overdueFollowups.length}
+          subtext={overdueFollowups.length > 0 ? 'Requires immediate follow-up' : 'All follow-ups on schedule'}
+          icon={<AlertTriangle className="w-5 h-5" />}
+          tone={overdueFollowups.length > 0 ? 'rose' : 'slate'}
+        />
       </div>
 
       {/* Performance Analytics & Velocity Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Card 1: Activity Velocity & Leaderboard */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-5 flex flex-col justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5 flex flex-col justify-between">
           <div className="space-y-4">
             {/* Header with Date Filter Pills */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
@@ -947,7 +924,7 @@ export default function Dashboard(props: DashboardProps) {
             </div>
 
             {/* Compliance Score Gauge Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 rounded-xl p-4 text-white flex items-center justify-between shadow-xs">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl p-4 text-white flex items-center justify-between shadow-xs">
               <div className="flex items-center space-x-3">
                 <div className="p-2.5 bg-blue-500/20 border border-blue-400/30 rounded-xl text-blue-300">
                   <Gauge className="w-5 h-5" />
@@ -1062,7 +1039,7 @@ export default function Dashboard(props: DashboardProps) {
         </div>
 
         {/* Card 2: Pipeline Conversion Funnel */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-5 flex flex-col justify-between">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5 flex flex-col justify-between">
           <div className="space-y-4">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -1187,10 +1164,10 @@ export default function Dashboard(props: DashboardProps) {
       {/* Chart Section - Recharts Visualizations */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Chart A: Status breakdown */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-850 dark:text-slate-100 mb-4 font-sans flex items-center space-x-2">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
+          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
             <TrendingUp className="w-4 h-4 text-blue-600" />
-            <span className="text-slate-800 dark:text-slate-200">Pipeline by Status</span>
+            <span className="text-slate-900">Pipeline by Status</span>
           </h2>
           <div className="flex-1 min-h-[250px] flex items-center justify-center">
             {statusChartData.length > 0 ? (
@@ -1227,17 +1204,17 @@ export default function Dashboard(props: DashboardProps) {
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
                   <span className="text-slate-600 font-sans">{d.name}</span>
                 </div>
-                <span className="font-mono text-slate-800 font-semibold">{formatCurrency(d.value)}</span>
+                <span className="font-mono text-slate-800 font-semibold tabular-nums">{formatCurrency(d.value)}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Chart B: Salesperson Breakdown */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-850 dark:text-slate-100 mb-4 font-sans flex items-center space-x-2">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
+          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
             <DollarSign className="w-4 h-4 text-blue-600" />
-            <span className="text-slate-800 dark:text-slate-200">Value by Salesperson</span>
+            <span className="text-slate-900">Value by Salesperson</span>
           </h2>
           <div className="flex-1 min-h-[250px] flex items-center justify-center">
             {salespersonChartData.some((s) => s.value > 0) ? (
@@ -1265,17 +1242,17 @@ export default function Dashboard(props: DashboardProps) {
                 <span className="text-slate-600 truncate max-w-[150px] font-sans">
                   {s.initials} - {s.name}
                 </span>
-                <span className="font-mono text-slate-800 font-semibold">{formatCurrency(s.value)}</span>
+                <span className="font-mono text-slate-800 font-semibold tabular-nums">{formatCurrency(s.value)}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Chart C: Product line volume distribution */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm flex flex-col lg:col-span-1">
-          <h2 className="text-lg font-bold text-slate-850 dark:text-slate-100 mb-4 font-sans flex items-center space-x-2">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 flex flex-col lg:col-span-1">
+          <h2 className="text-lg font-bold text-slate-900 mb-4 font-sans flex items-center space-x-2">
             <CheckCircle className="w-4 h-4 text-emerald-600" />
-            <span className="text-slate-800 dark:text-slate-200">Volume by Product Type</span>
+            <span className="text-slate-900">Volume by Product Type</span>
           </h2>
           <div className="flex-1 min-h-[250px] flex items-center justify-center">
             {productTypeChartData.length > 0 ? (
@@ -1299,13 +1276,13 @@ export default function Dashboard(props: DashboardProps) {
       </div>
 
       {/* Lower Dashboard Row: Overdue followups List */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2 font-sans">
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2 font-sans">
             <AlertTriangle className="w-5 h-5 text-rose-500" />
             <span>Active Follow-up Tasks (Awaiting Response)</span>
           </h2>
-          <span className="text-[10px] bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full font-mono uppercase font-bold">
+          <span className="text-[10px] bg-slate-50 border border-slate-200 text-slate-500 px-2.5 py-1 rounded-full font-mono uppercase font-bold">
             Total Overdue: {overdueFollowups.length}
           </span>
         </div>
@@ -1314,7 +1291,7 @@ export default function Dashboard(props: DashboardProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400">
+                <tr className="border-b border-slate-200 text-xs font-semibold tracking-wider text-slate-500">
                   <th className="py-3 px-4">S/N</th>
                   <th className="py-3 px-4">Company Name</th>
                   <th className="py-3 px-4">Quote Ref</th>
@@ -1324,7 +1301,7 @@ export default function Dashboard(props: DashboardProps) {
                   <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-200">
                 {overdueFollowups.slice(0, 5).map((e) => (
                   <tr key={e.id} className="hover:bg-slate-50/50 transition duration-100 group">
                     <td className="py-3.5 px-4 font-mono text-xs text-slate-500">#{e.sn}</td>

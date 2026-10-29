@@ -227,7 +227,7 @@ export function isTaskUpcoming(dateStr?: string): boolean {
 }
 
 import { DropdownOption } from '../types';
-import { PageHeader, PageBody } from './layout/UiContainer';
+import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 
 interface CallLogManagerProps {
   activeWorkspace: Workspace;
@@ -2669,55 +2669,41 @@ export default function CallLogManager({
         ]}
       />
 
-      <PageBody maxWidth="max-w-[96%]">
+      <PageBody>
 
       {/* Metrics Counter Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Scheduled Queue (Today)
-            </span>
-            <span className="text-2xl font-black text-blue-600 mt-1 block">{stats.scheduledToday}</span>
-            <span className="text-xs text-slate-500 block mt-0.5">Due for immediate follow-up</span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-            <Calendar className="w-5 h-5" />
-          </div>
-        </div>
+        <KpiStatCard
+          label="Scheduled Queue (Today)"
+          value={stats.scheduledToday}
+          subtext="Due for immediate follow-up"
+          icon={<Calendar className="w-5 h-5" />}
+          tone="blue"
+        />
 
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Overdue Calls</span>
-            <span className="text-2xl font-black text-rose-600 mt-1 block">{stats.overdueCount}</span>
-            <span className="text-xs text-rose-500 block mt-0.5">Requires priority attention</span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600">
-            <Clock className="w-5 h-5" />
-          </div>
-        </div>
+        <KpiStatCard
+          label="Overdue Calls"
+          value={stats.overdueCount}
+          subtext="Requires priority attention"
+          icon={<Clock className="w-5 h-5" />}
+          tone={stats.overdueCount > 0 ? 'rose' : 'slate'}
+        />
 
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Calls Today</span>
-            <span className="text-2xl font-black text-emerald-600 mt-1 block">{stats.completedToday}</span>
-            <span className="text-xs text-emerald-600 block mt-0.5">Logged & completed today</span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-            <CheckCircle2 className="w-5 h-5" />
-          </div>
-        </div>
+        <KpiStatCard
+          label="Calls Today"
+          value={stats.completedToday}
+          subtext="Logged & completed today"
+          icon={<CheckCircle2 className="w-5 h-5" />}
+          tone="emerald"
+        />
 
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Completed This Week</span>
-            <span className="text-2xl font-black text-purple-600 mt-1 block">{stats.completedThisWeek}</span>
-            <span className="text-xs text-slate-500 block mt-0.5">Total operator call activity</span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
-            <Zap className="w-5 h-5" />
-          </div>
-        </div>
+        <KpiStatCard
+          label="Completed This Week"
+          value={stats.completedThisWeek}
+          subtext="Total operator call activity"
+          icon={<Zap className="w-5 h-5" />}
+          tone="purple"
+        />
       </div>
 
       {/* Navigation Sub-Tabs */}
