@@ -58,19 +58,19 @@ export default function GeminiKeyModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden font-sans">
         {/* Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 p-5 text-white flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 bg-blue-600/30 border border-blue-400/30 rounded-xl text-blue-300">
+            <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold tracking-tight">Personal Gemini API Key</h3>
-              <p className="text-xs text-blue-200/80">Configure your personal Google AI Studio key for document autofill</p>
+              <h3 className="text-base font-bold text-slate-900 tracking-tight">Personal Gemini API Key</h3>
+              <p className="text-xs text-slate-500">Configure your personal Google AI Studio key for document autofill</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition"
           >
             <X className="w-5 h-5" />
           </button>

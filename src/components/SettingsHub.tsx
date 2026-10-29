@@ -803,7 +803,7 @@ export default function SettingsHub({
         onOpenSidebar={onOpenMobileMenu}
       />
 
-      <PageBody maxWidth="max-w-7xl">
+      <PageBody>
 
       {/* Navigation Sub-Tab Bar */}
       <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 border-b border-slate-200/80">
@@ -1886,7 +1886,7 @@ export default function SettingsHub({
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="max-h-80 overflow-y-auto">
                   <table className="w-full text-left border-collapse text-xs font-sans">
-                    <thead className="bg-slate-900 text-white sticky top-0 font-mono text-[11px]">
+                    <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0">
                       <tr>
                         <th className="p-2.5 font-bold">Timestamp</th>
                         <th className="p-2.5 font-bold">User</th>
