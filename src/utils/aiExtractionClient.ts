@@ -187,7 +187,7 @@ export async function extractEnquiryClientSide(
     responseMimeType: "application/json",
   };
 
-  const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : 'gemini-3.8-flash';
+  const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : DEFAULT_MODEL_CASCADE[0];
   const modelSequence = [
     primaryModel,
     ...DEFAULT_MODEL_CASCADE.filter((m) => m !== primaryModel),

@@ -12,6 +12,7 @@ export interface ReservationResult {
   reservedCount: number;
   skippedCount: number;
   details: { productId: string; quantity: number; newReserved: number }[];
+  shortages?: { productId: string; productName: string; required: number; available: number }[];
 }
 
 export interface ReleaseResult {
@@ -26,16 +27,24 @@ export interface ReleaseResult {
  * and Composite Package / Kit (BOM) sub-components that link to a catalog `product_id`.
  * Respects multi-option rules: only `Default / Included` and `Option A` (or the explicitly
  * designated `winningOption`) are included so mutually exclusive options don't double-reserve stock.
+ * When `includeAllConfirmedOptions` is true (e.g. for already-filtered Project line items),
+ * all non-optional confirmed items are processed regardless of whether their option label is Option A/B/C.
  */
 export function extractEffectiveStockRequirements(
   lineItems: LineItem[],
-  designatedWinningOption?: string
+  designatedWinningOption?: string,
+  includeAllConfirmedOptions: boolean = false
 ): Array<{ product_id: string; quantity: number; description: string }> {
   const aggregated = new Map<string, { quantity: number; description: string }>();
 
   for (const item of lineItems || []) {
     const itemOpt = item.option || item.item_option || item.option_designation;
-    if (!isOptionActiveForInventoryAndBaseline(itemOpt, designatedWinningOption)) {
+    if (includeAllConfirmedOptions) {
+      const optLower = (itemOpt || '').trim().toLowerCase();
+      if ((item as any).is_optional || optLower.includes('optional')) {
+        continue;
+      }
+    } else if (!isOptionActiveForInventoryAndBaseline(itemOpt, designatedWinningOption)) {
       continue;
     }
 
@@ -107,15 +116,27 @@ export function isLostOrCancelledStatus(status?: string): boolean {
  */
 export async function reserveEnquiryStock(
   enquiry: Enquiry,
-  user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string }
+  user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string },
+  forceOptionChange: boolean = false
 ): Promise<ReservationResult> {
+  if (enquiry.stock_reserved && !forceOptionChange) {
+    return {
+      success: true,
+      reservedCount: 0,
+      skippedCount: 0,
+      details: [],
+      shortages: []
+    };
+  }
+
   const lineItems: LineItem[] = enquiry.line_items || [];
   const requirements = extractEffectiveStockRequirements(lineItems, enquiry.proposal_option);
   const result: ReservationResult = {
     success: true,
     reservedCount: 0,
     skippedCount: 0,
-    details: []
+    details: [],
+    shortages: []
   };
 
   const wsId = enquiry.workspace_id || (enquiry as any).workspaceId || 'default';
@@ -171,7 +192,7 @@ export async function reserveEnquiryStock(
       });
 
       try {
-        const cachedProducts = await MetadataRepository.fetchProductsOnce();
+        const cachedProducts = await MetadataRepository.fetchProductsOnce(wsId);
         if (cachedProducts && cachedProducts.length > 0) {
           const updatedCached = cachedProducts.map((p) =>
             p.id === reqItem.product_id ? { ...p, stock_reserved: newReserved } : p
@@ -347,7 +368,7 @@ export async function dispatchProjectStock(
   user?: any
 ): Promise<DispatchResult> {
   const lineItems: LineItem[] = project.line_items || [];
-  const requirements = extractEffectiveStockRequirements(lineItems);
+  const requirements = extractEffectiveStockRequirements(lineItems, undefined, true);
   const result: DispatchResult = {
     success: true,
     dispatchedCount: 0,

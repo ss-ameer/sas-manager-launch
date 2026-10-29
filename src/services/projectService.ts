@@ -73,21 +73,18 @@ export async function createProjectFromEnquiry(
   const winningOption = (options?.selected_option || enquiry.proposal_option || '').trim();
   const rawLineItems = enquiry.line_items || [];
 
-  // Filter line items to the winning option (plus Default / Included baseline items) when multiple options exist
+  // Filter line items to the winning option (plus Default / Included baseline items) and always exclude Optional / Add-On items
   const distinctAlternativeOptions = Array.from(
     new Set(
       rawLineItems
-        .map((it) => ((it as any).option_designation || it.option || 'Default / Included').trim())
+        .map((it) => (it.option || it.item_option || (it as any).option_designation || 'Default / Included').trim())
         .filter((opt) => opt && opt !== 'Default / Included' && opt !== 'Baseline / All')
     )
   );
-  const confirmedLineItems =
-    distinctAlternativeOptions.length > 1
-      ? rawLineItems.filter((it) => {
-          const itemOpt = (it as any).option_designation || it.option;
-          return isOptionActiveForInventoryAndBaseline(itemOpt, winningOption || 'Option A');
-        })
-      : rawLineItems;
+  const confirmedLineItems = rawLineItems.filter((it) => {
+    const itemOpt = it.option || it.item_option || (it as any).option_designation;
+    return isOptionActiveForInventoryAndBaseline(itemOpt, winningOption);
+  });
 
   const isTurnkeyDetected = confirmedLineItems.some(
     (it) =>
@@ -120,10 +117,11 @@ export async function createProjectFromEnquiry(
     options?.operational_notes !== undefined ? options.operational_notes : (enquiry.remarks || '');
 
   // Calculate contract value for the confirmed option if multi-option and not overridden
-  const confirmedItemsValue = confirmedLineItems.reduce(
-    (sum, it) => sum + (Number(it.total_price) || (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)),
-    0
-  );
+  const confirmedItemsValue = confirmedLineItems.reduce((sum, it) => {
+    const rawLineVal =
+      Number(it.total_price) || (Number(it.quantity) || 1) * (Number(it.unit_price) || 0);
+    return it.item_type === 'discount' ? sum - Math.abs(rawLineVal) : sum + rawLineVal;
+  }, 0);
   const resolvedContractValue =
     distinctAlternativeOptions.length > 1 && confirmedItemsValue > 0
       ? enquiry.currency === 'USD'

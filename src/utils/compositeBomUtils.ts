@@ -37,7 +37,7 @@ export const recalculateCompositeItemTotals = (
     return {
       ...comp,
       sn: isAcc ? undefined : String(pricedSn++),
-      quantity: compQty || 1,
+      quantity: compQty,
       unit_price: compUnitPrice,
       cost_price: compCostPrice,
       total_price: compTotal,
@@ -326,10 +326,27 @@ export const isOptionActiveForInventoryAndBaseline = (
   if (!opt || opt === 'Default' || opt === 'Default / Included' || opt === 'Baseline / All') {
     return true;
   }
+  const optLower = opt.toLowerCase();
   const winning = (designatedWinningOption || '').trim();
-  if (winning && winning !== 'None / Single Option' && winning !== 'Multi-Option') {
-    return opt.toLowerCase() === winning.toLowerCase();
+  const winningLower = winning.toLowerCase();
+
+  const hasExplicitWinning =
+    Boolean(winning) &&
+    winningLower !== 'none / single option' &&
+    !winningLower.startsWith('multi-option');
+
+  if (hasExplicitWinning) {
+    if (optLower === winningLower) return true;
+    const normOpt = optLower.match(/^option\s+[a-z0-9]+/i)?.[0];
+    const normWin = winningLower.match(/^option\s+[a-z0-9]+/i)?.[0];
+    if (normOpt && normWin && normOpt === normWin) return true;
+    return optLower.startsWith(winningLower + ' ') || winningLower.startsWith(optLower + ' ');
   }
+
+  if (optLower.includes('optional')) {
+    return false;
+  }
+
   // When no specific winning option is designated, Option A is the primary baseline option
-  return opt === 'Option A' || opt.startsWith('Option A ');
+  return optLower === 'option a' || optLower.startsWith('option a ') || optLower.startsWith('option a(');
 };

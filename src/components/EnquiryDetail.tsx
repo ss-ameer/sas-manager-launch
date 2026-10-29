@@ -22,7 +22,7 @@ import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
 import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
-import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
+import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -289,9 +289,22 @@ export default function EnquiryDetail({
           : currentEnquiry.proposal_option);
 
       // 2. Sync deal value, status, and quote ref to parent enquiry (converting USD -> AED if needed)
-      const rawGrandTotal = Number(quote.grand_total || 0);
+      const syncedLineItems = quoteItems
+        .filter((li) => isOptionActiveForInventoryAndBaseline(li.option_group, selectedWinningOption))
+        .map((li) => ({
+          ...li,
+          is_optional: (li.option_group || '').toLowerCase().includes('optional') ? Boolean(li.is_optional) : false
+        }));
+      const acceptedTotals = QuotationRepository.calculateTotals(
+        syncedLineItems,
+        quote.freight_amount,
+        quote.tax_mode,
+        quote.tax_rate_percent
+      );
+      const rawGrandTotal =
+        syncedLineItems.length > 0 ? acceptedTotals.grand_total : Number(quote.grand_total || 0);
       const dealValueAed = quote.currency === 'USD' ? Math.round(rawGrandTotal * 3.6725 * 100) / 100 : rawGrandTotal;
-      const updatedEnquiry = await EnquiryRepository.syncAcceptedQuotation(
+      let updatedEnquiry = await EnquiryRepository.syncAcceptedQuotation(
         currentEnquiry.id,
         quote.formatted_quote_ref,
         dealValueAed,
@@ -299,24 +312,34 @@ export default function EnquiryDetail({
         selectedWinningOption
       );
 
-      if (updatedEnquiry) {
-        setCurrentEnquiry(updatedEnquiry);
-        if (onUpdateEnquiry) {
-          onUpdateEnquiry(updatedEnquiry);
-        }
-      }
-
       // Auto-reserve stock if applicable upon transition to Won
       try {
-        await reserveEnquiryStock(
-          { ...currentEnquiry, ...(selectedWinningOption ? { proposal_option: selectedWinningOption } : {}) },
-          user
-        );
+        const baseEnquiryForReserve = updatedEnquiry || {
+          ...currentEnquiry,
+          ...(selectedWinningOption ? { proposal_option: selectedWinningOption } : {})
+        };
+        const resResult = await reserveEnquiryStock(baseEnquiryForReserve, user);
+        if (resResult.reservedCount > 0) {
+          const reservedNow = new Date().toISOString();
+          updatedEnquiry = {
+            ...baseEnquiryForReserve,
+            stock_reserved: true,
+            stock_reserved_at: reservedNow
+          };
+          await EnquiryRepository.save(updatedEnquiry);
+        }
         if (onStockUpdated) {
           onStockUpdated();
         }
       } catch (stockErr) {
         console.warn('[EnquiryDetail] Stock auto-reserve notice:', stockErr);
+      }
+
+      if (updatedEnquiry) {
+        setCurrentEnquiry(updatedEnquiry);
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry(updatedEnquiry);
+        }
       }
 
       // 3. Record immutable activity timeline entry

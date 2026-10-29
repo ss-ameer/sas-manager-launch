@@ -1825,7 +1825,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         if (assistParams.apiKey) {
           headers['x-user-gemini-api-key'] = assistParams.apiKey;
         }
-        const response = await fetch('/api/ai/quick-activity-assist', {
+        const response = await fetch('/api/gemini/quick-assist', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -1837,7 +1837,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
         const contentType = response.headers.get('content-type') || '';
         if (response.ok && contentType.includes('application/json')) {
           const data = await response.json();
-          if (data.success && data.result) {
+          if (data.result) {
             resultText = data.result;
           } else if (data.needsApiKey || response.status === 429) {
             throw new Error('QUOTA_OR_KEY_NEEDED');

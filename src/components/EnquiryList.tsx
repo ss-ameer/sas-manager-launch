@@ -1773,7 +1773,15 @@ export default function EnquiryList({
     let nextStockReserved = enquiry.stock_reserved;
     let nextStockReservedAt = enquiry.stock_reserved_at;
 
-    if (isWon && !enquiry.stock_reserved && enquiry.line_items?.some((it) => it.product_id)) {
+    if (
+      isWon &&
+      !enquiry.stock_reserved &&
+      enquiry.line_items?.some(
+        (it) =>
+          Boolean(it.product_id) ||
+          (Array.isArray(it.sub_components) && it.sub_components.some((s) => Boolean(s.product_id)))
+      )
+    ) {
       try {
         const resResult = await reserveEnquiryStock(enquiry, user);
         if (resResult.reservedCount > 0) {
@@ -1822,7 +1830,12 @@ export default function EnquiryList({
       // 2. Stock Release
       const hasInventoriedItems = Boolean(
         enquiry.stock_reserved ||
-        (enquiry.line_items && enquiry.line_items.some((it) => it.product_id))
+        (enquiry.line_items &&
+          enquiry.line_items.some(
+            (it) =>
+              Boolean(it.product_id) ||
+              (Array.isArray(it.sub_components) && it.sub_components.some((s) => Boolean(s.product_id)))
+          ))
       );
 
       if (hasInventoriedItems) {
