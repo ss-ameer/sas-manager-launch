@@ -1216,18 +1216,18 @@ export default function ProductManager({
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/50 dark:bg-slate-950/50">
-                      <th className="py-4 px-6">Product & Specifications</th>
-                      <th className="py-4 px-4">Category</th>
-                      <th className="py-4 px-4">Brand / Model / SKU</th>
-                      <th className="py-4 px-4">Stock & Lead Time</th>
-                      <th className="py-4 px-4">Unit</th>
-                      <th className="py-4 px-5 text-right">Standard Price</th>
-                      <th className="py-4 px-5 text-center">Actions</th>
+                  <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 select-none">
+                    <tr>
+                      <th className="py-3 px-4">Product & Specifications</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">Brand / Model / SKU</th>
+                      <th className="py-3 px-4">Stock & Lead Time</th>
+                      <th className="py-3 px-4">Unit</th>
+                      <th className="py-3 px-4 text-right">Standard Price</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
+                  <tbody className="divide-y divide-slate-200 font-sans text-sm">
                     {paginatedProducts.map((p) => {
                       const availableQty = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
                       const isLowStock = Boolean(p.is_inventoried) && availableQty <= (p.reorder_level || 0);
@@ -1239,8 +1239,11 @@ export default function ProductManager({
                           : null;
 
                       return (
-                        <tr key={p.id} className="hover:bg-slate-50/60 transition duration-150 group">
-                          <td className="py-4 px-6">
+                        <tr
+                          key={p.id}
+                          className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group"
+                        >
+                          <td className="py-3 px-4">
                             <div className="flex items-start gap-3.5">
                               {/* Product Image Thumbnail or Clean Placeholder */}
                               {p.image_url ? (
@@ -1251,14 +1254,14 @@ export default function ProductManager({
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
-                                <div className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-400 shrink-0">
                                   <Package className="w-5 h-5" />
                                 </div>
                               )}
 
                               <div className="space-y-1 min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-semibold text-slate-900 dark:text-white font-sans">
+                                  <span className="font-semibold text-slate-900 font-sans">
                                     {p.name || p.product_type}
                                   </span>
                                   {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
@@ -1314,18 +1317,18 @@ export default function ProductManager({
                             </div>
                           </td>
 
-                          <td className="py-4 px-4">
+                          <td className="py-3 px-4">
                             <span className="inline-flex items-center text-[11px] font-mono font-bold px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 uppercase whitespace-nowrap">
                               {p.product_type}
                             </span>
                           </td>
 
-                          <td className="py-4 px-4">
+                          <td className="py-3 px-4">
                             <div className="space-y-1 text-xs">
                               {(p.brand_make || p.model_part_no) ? (
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {p.brand_make && (
-                                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                    <span className="font-semibold text-slate-800">
                                       {p.brand_make}
                                     </span>
                                   )}
@@ -1342,7 +1345,7 @@ export default function ProductManager({
                             </div>
                           </td>
 
-                          <td className="py-4 px-4">
+                          <td className="py-3 px-4">
                             <div className="space-y-1">
                               {p.is_inventoried ? (
                                 <>
@@ -1381,14 +1384,14 @@ export default function ProductManager({
                             </div>
                           </td>
 
-                          <td className="py-4 px-4 font-mono text-xs text-slate-600 font-semibold whitespace-nowrap">
+                          <td className="py-3 px-4 font-mono text-xs text-slate-600 font-semibold whitespace-nowrap">
                             {p.unit || 'Nos'}
                           </td>
 
-                          <td className="py-4 px-5 text-right whitespace-nowrap">
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
                             {p.unit_price !== undefined && p.unit_price > 0 ? (
                               <div>
-                                <span className="font-bold font-mono text-slate-900 dark:text-white block">
+                                <span className="font-bold font-mono tabular-nums text-slate-900 block">
                                   AED{' '}
                                   {p.unit_price.toLocaleString(undefined, {
                                     minimumFractionDigits: 2,
@@ -1414,7 +1417,7 @@ export default function ProductManager({
                             )}
                           </td>
 
-                          <td className="py-4 px-5 text-center">
+                          <td className="py-3 px-4 text-center">
                             <div className="flex items-center justify-center space-x-1.5">
                               {isEditable ? (
                                 <>
@@ -1445,15 +1448,16 @@ export default function ProductManager({
                                   <button
                                     type="button"
                                     onClick={() => openEditModal(p)}
-                                    className="p-1.5 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
                                     title="Edit Product"
                                   >
-                                    <Edit2 className="w-4 h-4" />
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteProduct(p)}
-                                    className="p-1.5 hover:bg-rose-50 border border-slate-200 hover:border-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
                                     title="Move to Recycle Bin"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -1472,22 +1476,22 @@ export default function ProductManager({
               </div>
 
               {/* Pagination controls */}
-              <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-200 gap-4">
-                <div className="text-xs font-mono text-slate-500">
+              <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                <div className="text-xs font-mono text-slate-600">
                   Showing{' '}
-                  <span className="font-bold text-slate-950">
+                  <span className="font-bold text-slate-900">
                     {Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}
                   </span>{' '}
                   to{' '}
-                  <span className="font-bold text-slate-950">
+                  <span className="font-bold text-slate-900">
                     {Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}
                   </span>{' '}
-                  of <span className="font-bold text-slate-950">{totalItems}</span> products
+                  of <span className="font-bold text-slate-900">{totalItems}</span> products
                 </div>
 
                 <div className="flex items-center space-x-4">
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs text-slate-500 font-sans">Show:</span>
+                    <span className="text-xs text-slate-500 font-sans">Rows per page:</span>
                     <select
                       value={itemsPerPage}
                       onChange={(e) => {
@@ -1511,18 +1515,19 @@ export default function ProductManager({
                         type="button"
                         onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                         disabled={currentPage === 1}
-                        className="py-1 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer text-xs font-semibold"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold"
                       >
                         Prev
                       </button>
-                      <span className="text-xs font-mono px-3 text-slate-500">
-                        Page {currentPage} of {totalPages}
+                      <span className="text-xs font-mono px-2.5 text-slate-600">
+                        Page <span className="font-bold text-slate-900">{currentPage}</span> of{' '}
+                        <span className="font-bold text-slate-900">{totalPages}</span>
                       </span>
                       <button
                         type="button"
                         onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                         disabled={currentPage === totalPages}
-                        className="py-1 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer text-xs font-semibold"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold"
                       >
                         Next
                       </button>

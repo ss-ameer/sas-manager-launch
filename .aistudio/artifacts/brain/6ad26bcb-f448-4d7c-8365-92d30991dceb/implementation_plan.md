@@ -1,90 +1,97 @@
-# UI/UX Uniformization Phase 2 — Standardized KPI Strips & Card Surfaces
+# UI/UX Uniformization Phase 4 — Data Tables & Pagination
 
-## 1. Architectural Vision & Visual System
+This phase unifies all tabular data grids, row density, interactive hover/selection states, row action clusters, and pagination footers across the platform into a single high-density enterprise B2B SaaS standard while preserving all sorting, filtering, selection, and business logic.
 
-Phase 2 extends the enterprise light-mode B2B SaaS design system established in Phase 1 across all primary operational modules. Every top-level workspace tab will open with an identical, scannable 4-card executive metric strip (`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`) powered by the shared `KpiStatCard` primitive, paired with crisp light-mode card surfaces (`bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-900`) and tabular monospace numerals (`font-mono tabular-nums`).
+## User Review & Critical Decisions
+
+> [!IMPORTANT]
+> All data table headers, row cells, action button clusters, and pagination footers across the Enquiry Log, Companies/Contacts/Phones Directory, Projects & Operations Registry, Product & Inventory Catalog, and Executive Dashboard will be aligned to the unified specification below without altering any underlying state or event handlers.
+
+- **Confirmed Decision 1 (Unified Table Header Typography)**: Standardize every table header (`thead` / `thead tr`) to `bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500`, converting mixed-case `font-sans` headers in the Product Catalog and Dashboard Overdue Follow-ups table to uppercase `text-[11px] font-mono`.
+- **Confirmed Decision 2 (Unified Row Density & Hover Accent)**: Standardize all `th` and `td` cells to `py-3 px-4` and unify `tbody tr` interactive states to `border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors` (and `border-l-2 border-l-blue-600 bg-blue-50/50` when selected).
+- **Confirmed Decision 3 (Unified Row Action Button Cluster)**: Standardize right-hand row actions across tables into three consistent button tokens (Primary Inspect/View, Edit, and Delete icon button).
+- **Confirmed Decision 4 (Unified Pagination Footer)**: Standardize pagination footers across the Enquiry Log, Product Catalog, and Directory Pagination Bar to `px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600` with a `Rows per page` selector and bordered `Prev` / `Next` controls.
+
+---
+
+## 1. Overview & Core Concept
+
+- **What It Does**: Harmonizes the visual rhythm, typography, cell spacing, row hover feedback, action button affordances, and pagination bars across every primary data table in the application.
+- **Target Audience / Persona**: Sales engineers, commercial estimators, and operations managers scanning hundreds of enquiries, corporate accounts, contacts, telecom numbers, projects, and inventory items daily.
+- **Key Value**: Eliminates visual jitter when switching between modules by ensuring every table shares identical header contrast, row height, left-edge selection/hover indicators, action button hierarchy, and pagination ergonomics.
+
+---
+
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  1. **Scanning & Sorting Tabular Records**: Users scan uppercase `11px` monospace column headers with `py-3 px-4` alignment and tabular numerals (`tabular-nums`) for instant vertical alignment of prices, quantities, and dates.
+  2. **Row Hover & Selection**: Hovering any row reveals a crisp `2px` blue left accent border (`hover:border-l-blue-500`) with a subtle slate tint (`hover:bg-slate-50/80`). Selected rows lock to `border-l-2 border-l-blue-600 bg-blue-50/50`.
+  3. **Row-Level Actions**: Users trigger primary inspection (`Details` / `Inspect` / `View`), editing (`Edit`), or deletion (`Trash`) via a consistent right-aligned button cluster.
+  4. **Pagination Navigation**: Users adjust page size (`Rows per page`) and step through pages (`Prev` / `Next`) inside a unified footer bar anchored to the bottom of each table card.
+- **Visual Identity & Theme**:
+  - *Aesthetic Direction*: High-density, crisp light-mode enterprise SaaS data grid.
+  - *Color Palette & Mood*: Pure white table surface (`bg-white`), soft slate headers and footers (`bg-slate-50/80`, `bg-slate-50/60`), hairline dividers (`border-slate-200/80`), blue selection/edit accents (`blue-600`, `blue-50/70`), and rose destructive hover states (`hover:text-rose-600 hover:bg-rose-50`).
+  - *Typography & Hierarchy*: `text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500` for headers; `font-sans` for entity titles paired with `font-mono tabular-nums` for reference IDs, dates, counts, and currency values.
+  - *Component Styling & Layout*: Uniform `py-3 px-4` cell padding across all columns and tables.
+- **Interactive Feedback & Motion**: Smooth `transition-colors` on row hover, left-border indicator, and action buttons within `150ms`.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Uniform `py-3 px-4` Cell Density**
+  - *Chosen Approach*: Apply `py-3 px-4` to all `th` and `td` elements across Enquiry Log, Companies/Contacts/Phones, Projects Registry, Product Catalog, and Dashboard tables.
+  - *Why*: Balances compact scannability (previously `py-2.5 px-3` in Enquiries) with comfortable breathing room for multi-line badges (previously `py-4 px-6` in Products).
+  - *Alternatives Considered*: Keeping module-specific cell padding was rejected because it made tables feel disconnected across tabs.
+- **Decision 2: Three-Tier Row Action Button Hierarchy**
+  - *Chosen Approach*:
+    - Primary Inspect/View button: `px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1`
+    - Edit button: `px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1`
+    - Delete icon button: `p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition`
+  - *Why*: Clearly distinguishes non-destructive inspection from state modification and destructive deletion without visual clutter.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+- **Architecture & Component Diagram**:
 
 ```
-+-----------------------------------------------------------------------------------+
-| Sticky PageHeader (max-w-[1600px], bg-white/95, border-b border-slate-200/80)     |
-+-----------------------------------------------------------------------------------+
-| PageBody (max-w-[1600px], flush below PageHeader, py-6 px-4 sm:px-6 lg:px-8)      |
-|                                                                                   |
-|  +-----------------+  +-----------------+  +-----------------+  +-----------------+
-|  | KpiStatCard 01  |  | KpiStatCard 02  |  | KpiStatCard 03  |  | KpiStatCard 04  |
-|  | Label     [Icon]|  | Label     [Icon]|  | Label     [Icon]|  | Label     [Icon]|
-|  | 2xl Tabular Val |  | 2xl Tabular Val |  | 2xl Tabular Val |  | 2xl Tabular Val |
-|  | Subtext         |  | Subtext         |  | Subtext         |  | Subtext         |
-|  +-----------------+  +-----------------+  +-----------------+  +-----------------+
-|                                                                                   |
-|  +-----------------------------------------------------------------------------+  |
-|  | Primary Content Surfaces (bg-white border-slate-200/80 rounded-2xl)         |  |
-|  | - Zero dark-mode surface collisions                                         |  |
-|  | - Valid Tailwind v4 utility tokens throughout                               |  |
-|  +-----------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                  UNIFIED ENTERPRISE DATA TABLE CONTRACT                    │
+├────────────────────────────────────────────────────────────────────────────┤
+│  <thead>                                                                   │
+│    bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono       │
+│    font-semibold uppercase tracking-wider text-slate-500 (th: py-3 px-4)   │
+├────────────────────────────────────────────────────────────────────────────┤
+│  <tbody>                                                                   │
+│    <tr class="border-l-2 border-l-transparent hover:border-l-blue-500      │
+│               hover:bg-slate-50/80 transition-colors">                     │
+│      ├─ Selected State: border-l-2 border-l-blue-600 bg-blue-50/50         │
+│      ├─ Cells (td: py-3 px-4)                                              │
+│      └─ Right Action Cluster:                                              │
+│           ├─ [Inspect / View / Details] (White bordered surface)           │
+│           ├─ [Edit] (Soft blue surface)                                    │
+│           └─ [Delete Icon] (Quiet slate -> rose hover)                     │
+├────────────────────────────────────────────────────────────────────────────┤
+│  <PaginationFooter>                                                        │
+│    px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80                 │
+│    flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600│
+│    ├─ Left: Showing X to Y of Z records                                    │
+│    └─ Right: [Rows per page: <select>]  [Prev] Page P of T [Next]          │
+└────────────────────────────────────────────────────────────────────────────┘
+         │                  │                  │                 │
+         ▼                  ▼                  ▼                 ▼
+  ┌─────────────┐   ┌───────────────┐   ┌──────────────┐  ┌──────────────┐
+  │ Enquiry Log │   │ CRM Directory │   │   Projects   │  │   Product    │
+  │ & Dashboard │   │ (3 Sub-Views) │   │   Registry   │  │   Catalog    │
+  └─────────────┘   └───────────────┘   └──────────────┘  └──────────────┘
 ```
 
----
-
-## 2. Core Design & Product Decisions
-
-### A. Shared KPI Metric Strip Specification
-- **Grid Geometry**: All six primary modules (Dashboard, Enquiries, Call Center, Projects, Products & Inventory, and Companies & Contacts) will render a 4-column responsive metric grid (`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`) as the top visual anchor inside `PageBody`.
-- **Card Anatomy (`KpiStatCard`)**:
-  - **Surface**: `bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs transition-all` with interactive hover and active ring states (`ring-2 ring-blue-500 border-blue-300 bg-blue-50/20`) when used as a filter toggle.
-  - **Typography**: `text-[11px] font-bold text-slate-500 uppercase tracking-wider` for the top label, `text-2xl font-bold text-slate-900 tracking-tight font-mono tabular-nums` for the primary value, and `text-xs text-slate-500 font-medium` for contextual subtext.
-  - **Iconography**: Top-right `p-2.5 rounded-xl border shrink-0` semantic badge (`blue`, `emerald`, `amber`, `rose`, `purple`, `indigo`, or `slate`).
-
----
-
-## 3. Module-by-Module Implementation Scope
-
-### 1. Executive Dashboard Surface & KPI Harmonization
-- **4 Core Summary KPI Cards**:
-  - Convert the 4 primary summary cards (`Active Pipeline`, `Won Proposals`, `Win Ratio`, and `Overdue Follow-ups`) to `gap-4` using `KpiStatCard` with `TrendingUp` (`blue`), `Award` (`emerald`), `Target` (`purple`), and `AlertCircle` (`rose` when overdue > 0, `slate` otherwise), preserving the click-through handler on Overdue Follow-ups.
-- **Crisp Light-Mode Card Surfaces**:
-  - Eliminate legacy `dark:bg-slate-900`, `dark:bg-slate-800/40`, `dark:border-slate-800/80`, and `dark:text-*` surface classes across the Dashboard panels (AI Executive Summary card, Sales Velocity & Pipeline Health panel, Action Center & Follow-ups panel, Pipeline Breakdown, Recent Activity, and Top Customers/Products widgets) that clashed with `text-slate-900` headings and `bg-slate-50` inner containers.
-  - Standardize Dashboard section containers to `bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-900`.
-- **Tailwind Token Fixes**:
-  - Replace the invalid gradient stop `via-slate-850` on the Command Center banner with `via-slate-800`.
-  - Replace any remaining `text-slate-850` tokens with `text-slate-900`.
-
-### 2. Enquiries Pipeline KPI Strip Upgrade
-- **Interactive 4-Card KPI Strip**:
-  - Upgrade the 4 compact `text-lg` icon-less filter cards (`Active Pipeline`, `Actionable Proposals`, `Won Orders`, and `Conversion & Health`) to full `KpiStatCard` components inside a `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4` container.
-  - Assign top-right semantic icon badges using `TrendingUp` (`blue`), `FileText` (`indigo`), `CheckCircle2` (`emerald`), and `Activity` (`rose` when overdue > 0, `amber` otherwise).
-  - Preserve existing interactive filter behavior (`quoteLifecycleFilter` toggling `'all'`, `'pending'`, `'won'`, and `urgencyFilter` toggling `'Overdue'`) and active selection styling.
-
-### 3. Call Center & Activity Log KPI Strip
-- **4-Card Telemetry Strip**:
-  - Upgrade the 4 Call Center summary cards (`Scheduled Queue (Today)`, `Overdue Calls`, `Calls Today`, and `Completed This Week`) to `KpiStatCard` components with `font-mono tabular-nums` values and semantic icon badges (`Calendar` in `blue`, `Clock` in `rose`/`slate`, `CheckCircle2` in `emerald`, and `Zap` in `indigo`).
-  - Maintain the interactive click handler on the Overdue Calls card to toggle the `'overdue'` queue tab.
-
-### 4. Project Registry Layout & KPI Strip Alignment
-- **Flush Header-to-Body Layout**:
-  - Remove `className="space-y-6"` from the outer `<div>` wrapping `PageHeader` and `PageBody` so `PageBody` sits flush below the sticky `PageHeader`, matching every other module in the application.
-- **4-Card Project KPI Strip**:
-  - Convert the 4 Project Registry metric cards (`Active Projects`, `Pending Dispatch`, `Dispatched & Completed`, and `Operational Value`) to `KpiStatCard` components with `Briefcase` (`blue`), `Boxes` (`amber`), `Truck` (`emerald`), and `DollarSign` (`indigo`), enforcing `font-mono tabular-nums` across all 4 metrics.
-
-### 5. Product & Inventory Catalog KPI Strip & Token Cleanup
-- **Invalid Tailwind Class Cleanup**:
-  - Replace invalid `text-slate-850` classes with `text-slate-900` and `text-emerald-650` with `text-emerald-600`.
-- **4-Card Catalog & Stock KPI Strip**:
-  - Standardize the 4 Product Manager cards (`Catalog Items`, `Tracked Inventory`, `Total Stock on Hand`, and `Low Stock Alerts`) to use `KpiStatCard` with `Package` (`blue`), `Boxes` (`emerald`), `ArrowDownToLine` (`indigo`), and `AlertTriangle` (`amber` when alerts exist, `slate` otherwise), preserving the click handler on `Low Stock Alerts` that toggles the low-stock filter.
-
-### 6. Companies & Contacts Directory KPI Strip Addition
-- **New 4-Card Directory Summary Strip**:
-  - Add a 4-card `KpiStatCard` metric strip at the top of `PageBody` in the Companies & Contacts Directory (directly above the view switcher toolbar) so the Companies tab shares the exact visual hierarchy of Enquiries, Call Center, Projects, and Products:
-    1. **Total Companies**: Count of registered companies (`companies.length`), `Building2` icon (`blue`), clicking switches view mode to `'companies'`.
-    2. **Active Client Accounts**: Count of companies with linked enquiries or active projects (`emerald`, `CheckCircle2` icon), showing client engagement coverage.
-    3. **Registered Contacts**: Total individual contacts (`contacts.length`), `Users` icon (`indigo`), clicking switches view mode to `'contacts'`.
-    4. **Direct Phone Lines**: Total indexed phone numbers (`allPhoneEntries.length`), `Phone` icon (`purple`), clicking switches view mode to `'phones'`.
-
----
-
-## 4. Verification Criteria
-- All 6 primary workspace tabs render a uniform `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4` strip using `KpiStatCard` with `text-2xl font-bold font-mono tabular-nums` values.
-- Zero `dark:bg-slate-900` card surface collisions remain in `Dashboard.tsx`.
-- Zero invalid Tailwind classes (`via-slate-850`, `text-slate-850`, `text-emerald-650`) remain in the updated modules.
-- TypeScript compilation (`compile_applet`) and ESLint verification (`lint_applet`) pass with zero errors.
+- **Data Model & State**: No changes to pagination state (`currentPage`, `itemsPerPage`, `pageSize`), sorting state (`sortField`, `sortAsc`), or selection state (`selectedEnquiryIds`, `selectedCompanyId`, `selectedContactIds`).
+- **Interactive Component & State Mapping**:
+  - **Enquiry Log & Dashboard Overdue Table**: Preserves column sorting, inline status `<select>`, gap detector rows, `Details`/`Inspect`, `Edit`/`Claim Gap`, and `Delete` handlers, plus `Rows per page` (`25`, `50`, `100`, `200`, `500`, `All`) and `Prev`/`Next` pagination.
+  - **CRM Directory (Companies, Contacts, Phones)**: Preserves row click selection (`selectedCompanyId`, `selectedContactDetail`), `Inspect`/`View Company`, `Edit`, and `Delete` actions, and updates `<DirectoryPaginationBar />` to sit cleanly as a unified table footer.
+  - **Projects & Operations Registry**: Standardizes header typography, `py-3 px-4` cell padding, row hover accent, and the `View` button while preserving the project detail modal trigger.
+  - **Product & Inventory Catalog**: Standardizes header typography, `py-3 px-4` cell padding, row hover accent, action buttons (keeping specialized GRN/Adjust/Clone icon buttons alongside standardized Edit and Delete buttons), and the unified pagination footer (`10`, `25`, `50`, `100`, `All`).

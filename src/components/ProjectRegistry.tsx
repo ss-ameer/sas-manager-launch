@@ -699,20 +699,21 @@ export default function ProjectRegistry({
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-[10px] font-mono text-slate-400 uppercase tracking-widest">
-                    <th className="py-3.5 px-4 w-36 whitespace-nowrap">Project Ref</th>
-                    <th className="py-3.5 px-4 min-w-[200px]">Client & Title</th>
-                    <th className="py-3.5 px-4 w-32 whitespace-nowrap">Type</th>
-                    <th className="py-3.5 px-4 text-right w-36 whitespace-nowrap">Value (AED)</th>
-                    <th className="py-3.5 px-4 text-center w-40 whitespace-nowrap">Fulfillment Status</th>
-                    <th className="py-3.5 px-4 text-center w-36 whitespace-nowrap">Dispatch</th>
-                    <th className="py-3.5 px-4 text-right w-24 whitespace-nowrap">Action</th>
+                <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="py-3 px-4 w-36 whitespace-nowrap">Project Ref</th>
+                    <th className="py-3 px-4 min-w-[200px]">Client & Title</th>
+                    <th className="py-3 px-4 w-32 whitespace-nowrap">Type</th>
+                    <th className="py-3 px-4 text-right w-36 whitespace-nowrap">Value (AED)</th>
+                    <th className="py-3 px-4 text-center w-40 whitespace-nowrap">Fulfillment Status</th>
+                    <th className="py-3 px-4 text-center w-36 whitespace-nowrap">Dispatch</th>
+                    <th className="py-3 px-4 text-right w-24 whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
+                <tbody className="divide-y divide-slate-200/80 text-xs">
                   {filteredProjects.map((project) => {
                     const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
+                    const isSelected = selectedProject?.id && selectedProject.id === project.id;
                     const inventoriedCount = (project.line_items || []).filter((it) => {
                       if (!it.product_id) return false;
                       const p = productMap?.get(it.product_id);
@@ -727,73 +728,77 @@ export default function ProjectRegistry({
                     return (
                       <tr
                         key={project.id || project.project_number}
-                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer"
+                        className={`border-l-2 transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'border-l-blue-600 bg-blue-50/50'
+                            : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
+                        }`}
                         onClick={() => setSelectedProject(project)}
                       >
-                        <td className="py-3.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                        <td className="py-3 px-4 font-mono font-bold text-blue-600 whitespace-nowrap">
                           {project.project_number}
                         </td>
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900 dark:text-white font-sans truncate max-w-xs md:max-w-sm">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900 font-sans truncate max-w-xs md:max-w-sm">
                             {project.title}
                           </div>
-                          <div className="text-[11px] text-slate-400 flex items-center space-x-1 mt-0.5">
+                          <div className="text-[11px] text-slate-500 flex items-center space-x-1 mt-0.5">
                             <Building className="w-3 h-3 text-slate-400 shrink-0" />
                             <span className="truncate">{project.client_name}</span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
                             {project.project_type}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 tabular-nums whitespace-nowrap">
                           {Number(project.contract_value).toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
                         </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
                           {getStatusBadge(project.status, didDeductStock)}
                         </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
                           {project.status === 'Cancelled' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-400">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-400">
                               Cancelled
                             </span>
                           ) : isDelivered ? (
                             didDeductStock ? (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800">
                                 <Check className="w-3 h-3" />
                                 <span>STOCK OUT</span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
                                 <CheckCircle2 className="w-3 h-3" />
                                 <span>FULFILLED</span>
                               </span>
                             )
                           ) : inventoriedCount > 0 ? (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40">
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 bg-amber-50">
                               <Boxes className="w-3 h-3" />
                               <span>{inventoriedCount} Reserved</span>
                             </span>
                           ) : totalLinesCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100">
                               Non-Stock Scope
                             </span>
                           ) : (
                             <span className="text-[10px] text-slate-400 italic">No Items</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedProject(project);
                             }}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition flex items-center space-x-1 ml-auto cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <Eye className="w-3.5 h-3.5" />
                             <span>View</span>
@@ -808,9 +813,9 @@ export default function ProjectRegistry({
           </div>
 
           {/* Standardized Card Footer & Item Counter */}
-          <div className="px-4 py-3.5 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs text-slate-500 font-sans">
+          <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 font-sans">
             <div>
-              Showing <span className="font-bold text-slate-800">{filteredProjects.length}</span> of <span className="font-bold text-slate-800">{workspaceProjects.length}</span> projects
+              Showing <span className="font-bold text-slate-900 font-mono">{filteredProjects.length}</span> of <span className="font-bold text-slate-900 font-mono">{workspaceProjects.length}</span> projects
             </div>
             <div className="text-[11px] font-mono text-slate-400">
               Active Workspace Registry

@@ -253,23 +253,23 @@ const DirectoryPaginationBar: React.FC<DirectoryPaginationProps> = ({
   const endItem = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl mt-4 gap-4">
-      <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-        Showing <span className="font-bold text-slate-950 dark:text-slate-100">{startItem}</span> to{' '}
-        <span className="font-bold text-slate-950 dark:text-slate-100">{endItem}</span> of{' '}
-        <span className="font-bold text-slate-950 dark:text-slate-100">{totalItems}</span> {itemLabel}
+    <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 rounded-b-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+      <div className="text-xs font-mono text-slate-600">
+        Showing <span className="font-bold text-slate-900">{startItem}</span> to{' '}
+        <span className="font-bold text-slate-900">{endItem}</span> of{' '}
+        <span className="font-bold text-slate-900">{totalItems}</span> {itemLabel}
       </div>
 
       <div className="flex items-center space-x-4">
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Show:</span>
+          <span className="text-xs text-slate-500 font-sans">Rows per page:</span>
           <select
             value={pageSize}
             onChange={(e) => {
               onPageSizeChange(Number(e.target.value));
               onPageChange(1);
             }}
-            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+            className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
           >
             <option value={25}>25</option>
             <option value={50}>50</option>
@@ -282,22 +282,25 @@ const DirectoryPaginationBar: React.FC<DirectoryPaginationProps> = ({
             type="button"
             onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
             disabled={currentPage <= 1}
-            className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
             title="Previous Page"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Prev</span>
           </button>
-          <span className="text-xs font-mono px-2 text-slate-700 dark:text-slate-200">
-            Page {currentPage} of {totalPages}
+          <span className="text-xs font-mono px-2.5 text-slate-600">
+            Page <span className="font-bold text-slate-900">{currentPage}</span> of{' '}
+            <span className="font-bold text-slate-900">{totalPages}</span>
           </span>
           <button
             type="button"
             onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
             disabled={currentPage >= totalPages}
-            className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
             title="Next Page"
           >
-            <ChevronRight className="w-4 h-4" />
+            <span>Next</span>
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -2305,18 +2308,18 @@ export default function CompanyModal({
               {companyViewStyle === 'table' ? (
               <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
                 <table className="w-full text-left text-xs border-collapse font-sans">
-                      <thead className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                      <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
                         <tr>
-                          <th className="py-3.5 px-4">Ref ID</th>
-                          <th className="py-3.5 px-4">Company Name & City</th>
-                          <th className="py-3.5 px-4">Industry / Type</th>
-                          <th className="py-3.5 px-4">Relationship & Temp</th>
-                          <th className="py-3.5 px-4">Phones & Emails</th>
-                          <th className="py-3.5 px-4">Activity</th>
-                          <th className="py-3.5 px-4 text-right">Action</th>
+                          <th className="py-3 px-4">Ref ID</th>
+                          <th className="py-3 px-4">Company Name & City</th>
+                          <th className="py-3 px-4">Industry / Type</th>
+                          <th className="py-3 px-4">Relationship & Temp</th>
+                          <th className="py-3 px-4">Phones & Emails</th>
+                          <th className="py-3 px-4">Activity</th>
+                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      <tbody className="divide-y divide-slate-200 bg-white">
                         {paginatedCompanies.map((c) => {
                           const isSelected = selectedCompanyId === c.id;
                           const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
@@ -2346,26 +2349,28 @@ export default function CompanyModal({
                             <tr
                               key={c.id}
                               onClick={() => setSelectedCompanyId(c.id!)}
-                              className={`cursor-pointer transition-colors group hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                                isSelected ? 'bg-blue-50/70 dark:bg-blue-950/30 border-l-4 border-l-blue-600' : ''
+                              className={`cursor-pointer border-l-2 transition-colors group ${
+                                isSelected
+                                  ? 'border-l-blue-600 bg-blue-50/50'
+                                  : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
                               }`}
                             >
-                              <td className="py-4 px-4 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap">
+                              <td className="py-3 px-4 font-mono text-xs text-blue-600 font-semibold whitespace-nowrap">
                                 {getReferenceId('CMP', c, companies)}
                               </td>
-                              <td className="py-4 px-4">
+                              <td className="py-3 px-4">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <div className="font-semibold text-slate-900 dark:text-white font-sans text-sm">{c.display_name}</div>
+                                  <div className="font-semibold text-slate-900 font-sans text-sm">{c.display_name}</div>
                                   <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
                                   {c.isInternalCompany && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
                                       <span>🏢</span>
                                       <span>Our Company</span>
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-slate-600 dark:text-slate-300 text-xs flex items-center space-x-1 mt-0.5">
-                                  <MapPin className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
+                                <div className="text-slate-600 text-xs flex items-center space-x-1 mt-0.5">
+                                  <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
                                   <span>{c.city || 'Unknown City'}, {c.country || 'UAE'}</span>
                                 </div>
                                 {matchHint && (
@@ -2374,16 +2379,16 @@ export default function CompanyModal({
                                   </div>
                                 )}
                               </td>
-                              <td className="py-4 px-4">
+                              <td className="py-3 px-4">
                                 {hasIndustry ? (
                                   <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
                                 ) : (
                                   <UnassignedIndustryPill />
                                 )}
                               </td>
-                              <td className="py-4 px-4 whitespace-nowrap">
+                              <td className="py-3 px-4 whitespace-nowrap">
                                 <div className="flex flex-col gap-1.5 items-start">
-                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200">
                                     {relVal}
                                   </span>
                                   <TemperatureBadge
@@ -2396,27 +2401,27 @@ export default function CompanyModal({
                                   />
                                 </div>
                               </td>
-                              <td className="py-4 px-4 text-xs font-mono">
+                              <td className="py-3 px-4 text-xs font-mono">
                                 {phones.length > 0 ? (
-                                  <div className="truncate max-w-[180px] text-slate-900 dark:text-slate-100 font-mono text-xs font-medium" title={phones[0].number}>
+                                  <div className="truncate max-w-[180px] text-slate-900 font-mono text-xs font-medium" title={phones[0].number}>
                                     {phones[0].number}
                                   </div>
                                 ) : (
-                                  <div className="text-xs font-medium text-slate-600 dark:text-slate-300 not-italic">No phone saved</div>
+                                  <div className="text-xs font-medium text-slate-500 not-italic">No phone saved</div>
                                 )}
                                 {emails.length > 0 ? (
-                                  <div className="truncate max-w-[180px] text-slate-600 dark:text-slate-300 text-xs font-mono mt-0.5" title={emails[0].email}>
+                                  <div className="truncate max-w-[180px] text-slate-600 text-xs font-mono mt-0.5" title={emails[0].email}>
                                     {emails[0].email}
                                   </div>
                                 ) : (
-                                  <div className="text-xs font-medium text-slate-600 dark:text-slate-300 not-italic mt-0.5">No email addresses saved</div>
+                                  <div className="text-xs font-medium text-slate-500 not-italic mt-0.5">No email addresses saved</div>
                                 )}
                               </td>
-                              <td className="py-4 px-4 whitespace-nowrap">
+                              <td className="py-3 px-4 whitespace-nowrap">
                                 <div className="flex flex-col items-start gap-1">
                                   {outreach.outreachCadence === 'never' ? (
                                     <span
-                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
                                       title="No completed outreach or activity logs found for this account"
                                     >
                                       Never Contacted
@@ -2425,8 +2430,8 @@ export default function CompanyModal({
                                     <span
                                       className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
                                         outreach.outreachCadence === 'recent'
-                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : 'bg-amber-50 text-amber-700 border-amber-200'
                                       }`}
                                       title={`Last contacted on ${new Date(outreach.lastContactedAt!).toLocaleString()}${outreach.lastContactedChannel ? ` via ${outreach.lastContactedChannel}` : ''}`}
                                     >
@@ -2434,23 +2439,19 @@ export default function CompanyModal({
                                       <span>Last: {formatRelativeOutreachDate(outreach.lastContactedAt)}</span>
                                     </span>
                                   )}
-                                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                  <div className="text-[11px] text-slate-500 font-medium">
                                     {outreach.totalCalls} Calls · {linkCount} Enquiries
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-4 px-4 text-right whitespace-nowrap">
+                              <td className="py-3 px-4 text-right whitespace-nowrap">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedCompanyId(c.id!);
                                   }}
-                                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors border shadow-xs ${
-                                    isSelected
-                                      ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 font-semibold'
-                                      : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                  }`}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
                                 >
                                   {isSelected ? 'Inspecting' : 'Inspect'}
                                 </button>
@@ -2738,12 +2739,12 @@ export default function CompanyModal({
               ))}
             </div>
           ) : (
-            <div className="w-full overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+            <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
               <table className="w-full text-left border-collapse text-xs font-sans">
-              <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
+              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
                   {isContactMarkingMode && (
-                    <th className="py-3.5 px-4 w-10 text-center">
+                    <th className="py-3 px-4 w-10 text-center">
                       <input
                         type="checkbox"
                         checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
@@ -2753,52 +2754,58 @@ export default function CompanyModal({
                       />
                     </th>
                   )}
-                  <th className="py-3.5 px-4">Contact Name & Role</th>
-                  <th className="py-3.5 px-4">Assigned Company</th>
-                  <th className="py-3.5 px-4">Mobile Phone</th>
-                  <th className="py-3.5 px-4">Landline Phone</th>
-                  <th className="py-3.5 px-4">Email Address</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
+                  <th className="py-3 px-4">Contact Name & Role</th>
+                  <th className="py-3 px-4">Assigned Company</th>
+                  <th className="py-3 px-4">Mobile Phone</th>
+                  <th className="py-3 px-4">Landline Phone</th>
+                  <th className="py-3 px-4">Email Address</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                {paginatedContacts.map((ct) => (
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {paginatedContacts.map((ct) => {
+                  const isContactSelected = Boolean(isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id));
+                  return (
                   <tr
                     key={ct.id}
                     onClick={() => setSelectedContactDetail(ct)}
-                    className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer ${isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id) ? 'bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
+                    className={`border-l-2 transition-colors group cursor-pointer ${
+                      isContactSelected
+                        ? 'border-l-blue-600 bg-blue-50/50'
+                        : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
+                    }`}
                   >
                     {isContactMarkingMode && (
-                      <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
-                          checked={!!(ct.id && selectedContactIds.includes(ct.id))}
+                          checked={isContactSelected}
                           onChange={() => ct.id && handleToggleSelectContact(ct.id)}
                           className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
                         />
                       </td>
                     )}
-                    <td className="py-4 px-4">
-                      <div className="font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-slate-900 flex items-center space-x-2">
                         <span>{ct.full_name}</span>
                         {ct.is_primary && (
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200">
                             Primary
                           </span>
                         )}
                         {ct.is_dnc && (
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-rose-100 text-rose-800 border border-rose-200">
                             DNC
                           </span>
                         )}
                       </div>
-                      {ct.designation && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{ct.designation}</div>}
+                      {ct.designation && <div className="text-xs text-slate-500 mt-0.5">{ct.designation}</div>}
                     </td>
-                    <td className="py-4 px-4">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{ct.companyName}</div>
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-slate-800 text-xs">{ct.companyName}</div>
                       <div className="text-xs text-slate-400 mt-0.5">{ct.location}</div>
                     </td>
-                    <td className="py-4 px-4">
+                    <td className="py-3 px-4">
                       {ct.mobile ? (
                         <button
                           type="button"
@@ -2816,7 +2823,7 @@ export default function CompanyModal({
                               e
                             });
                           }}
-                          className="font-mono text-blue-600 dark:text-blue-400 font-semibold hover:underline flex items-center space-x-1 cursor-pointer"
+                          className="font-mono text-blue-600 font-semibold hover:underline flex items-center space-x-1 cursor-pointer"
                         >
                           <PhoneCall className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span>{ct.mobile}</span>
@@ -2825,14 +2832,14 @@ export default function CompanyModal({
                         <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="py-4 px-4">
+                    <td className="py-3 px-4">
                       {ct.landline ? (
-                        <span className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs">{ct.landline}</span>
+                        <span className="font-mono text-slate-700 font-medium text-xs">{ct.landline}</span>
                       ) : (
                         <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="py-4 px-4">
+                    <td className="py-3 px-4">
                       {ct.email ? (
                         <button
                           type="button"
@@ -2850,7 +2857,7 @@ export default function CompanyModal({
                               e
                             });
                           }}
-                          className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-xs cursor-pointer text-left"
+                          className="text-slate-700 hover:text-blue-600 hover:underline font-mono text-xs cursor-pointer text-left"
                         >
                           {ct.email}
                         </button>
@@ -2858,8 +2865,20 @@ export default function CompanyModal({
                         <span className="text-slate-400 italic text-xs">—</span>
                       )}
                     </td>
-                    <td className="py-4 px-4 text-right">
-                      <div className="flex items-center justify-end space-x-1.5">
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end space-x-1.5" onClick={(e) => e.stopPropagation()}>
+                        {ct.company_id && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCompanyId(ct.company_id!);
+                              setViewMode('companies');
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            View Company
+                          </button>
+                        )}
                         {isEditable && (
                           <>
                             <button
@@ -2868,7 +2887,7 @@ export default function CompanyModal({
                                 setContactToEdit(ct);
                                 setContactModalOpen(true);
                               }}
-                              className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-md transition flex items-center space-x-1"
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
                               title="Edit Contact"
                             >
                               <Edit className="w-3 h-3" />
@@ -2877,33 +2896,22 @@ export default function CompanyModal({
                             <button
                               type="button"
                               onClick={() => handleDeleteContact(ct.id!)}
-                              className="px-2.5 py-1 text-xs font-medium text-rose-600 dark:text-rose-400 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 rounded-md transition flex items-center space-x-1"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
                               title="Delete Contact"
                             >
-                              <Trash2 className="w-3 h-3" />
-                              <span>Delete</span>
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </>
-                        )}
-                        {ct.company_id && (
-                          <button
-                            onClick={() => {
-                              setSelectedCompanyId(ct.company_id!);
-                              setViewMode('companies');
-                            }}
-                            className="px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-md transition"
-                          >
-                            View Company
-                          </button>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
 
                 {filteredContacts.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400 dark:text-slate-500 italic text-sm">
+                    <td colSpan={7} className="py-12 text-center text-slate-400 italic text-sm">
                       No contacts found matching your search.
                     </td>
                   </tr>
@@ -2955,24 +2963,27 @@ export default function CompanyModal({
 
           <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
             <table className="w-full text-left border-collapse text-xs font-sans">
-              <thead className="bg-slate-50 dark:bg-slate-950/50 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-xs border-b border-slate-200 dark:border-slate-800">
+              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="py-3.5 px-4">Phone Number</th>
-                  <th className="py-3.5 px-4">Type</th>
-                  <th className="py-3.5 px-4">Associated Person / Entity</th>
-                  <th className="py-3.5 px-4">Role / Context</th>
-                  <th className="py-3.5 px-4">Location</th>
-                  <th className="py-3.5 px-4 text-right">Quick Dial</th>
+                  <th className="py-3 px-4">Phone Number</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Associated Person / Entity</th>
+                  <th className="py-3 px-4">Role / Context</th>
+                  <th className="py-3 px-4">Location</th>
+                  <th className="py-3 px-4 text-right">Quick Dial</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+              <tbody className="divide-y divide-slate-200 bg-white">
                 {paginatedPhones.map((p) => {
                   const isRestricted = Boolean(p.restriction);
                   const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
 
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
-                      <td className="py-4 px-4 font-mono text-xs font-semibold text-slate-900 dark:text-white">
+                    <tr
+                      key={p.id}
+                      className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group"
+                    >
+                      <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-900">
                         <div className="flex items-center space-x-1.5">
                           {isRestricted ? (
                             <span className="line-through text-slate-400 cursor-not-allowed" title={`Restricted line (${badgeText})`}>
@@ -2984,31 +2995,31 @@ export default function CompanyModal({
                           {isRestricted && (
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border ${
                               p.restriction === 'Invalid'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                : 'bg-rose-100 text-rose-800 border-rose-200'
                             }`}>
                               {badgeText}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-4">
+                      <td className="py-3 px-4">
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide border ${
                             p.type === 'Mobile'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                              ? 'bg-blue-100 text-blue-800 border-blue-200'
                               : p.type === 'Landline'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                              : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                              ? 'bg-purple-100 text-purple-800 border-purple-200'
+                              : 'bg-slate-100 text-slate-800 border-slate-200'
                           }`}
                         >
                           {p.type}
                         </span>
                       </td>
-                      <td className="py-4 px-4 font-semibold text-slate-900 dark:text-white">{p.entityName}</td>
-                      <td className="py-4 px-4 text-slate-600 dark:text-slate-400">{p.subText || <span className="italic text-slate-400">—</span>}</td>
-                      <td className="py-4 px-4 text-slate-500 dark:text-slate-400">{p.location || <span className="italic text-slate-400">—</span>}</td>
-                      <td className="py-4 px-4 text-right">
+                      <td className="py-3 px-4 font-semibold text-slate-900">{p.entityName}</td>
+                      <td className="py-3 px-4 text-slate-600">{p.subText || <span className="italic text-slate-400">—</span>}</td>
+                      <td className="py-3 px-4 text-slate-500">{p.location || <span className="italic text-slate-400">—</span>}</td>
+                      <td className="py-3 px-4 text-right">
                         {!isRestricted ? (
                           <button
                             type="button"
@@ -3025,7 +3036,7 @@ export default function CompanyModal({
                                 e
                               });
                             }}
-                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md text-xs transition shadow-xs cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs cursor-pointer"
                           >
                             <PhoneCall className="w-3.5 h-3.5" />
                             <span>Call</span>
@@ -3040,7 +3051,7 @@ export default function CompanyModal({
 
                 {filteredPhones.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 dark:text-slate-500 italic text-sm">
+                    <td colSpan={6} className="py-12 text-center text-slate-400 italic text-sm">
                       No phone numbers found matching your query.
                     </td>
                   </tr>

@@ -1290,8 +1290,8 @@ export default function Dashboard(props: DashboardProps) {
         {overdueFollowups.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs font-semibold tracking-wider text-slate-500">
+              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
+                <tr>
                   <th className="py-3 px-4">S/N</th>
                   <th className="py-3 px-4">Company Name</th>
                   <th className="py-3 px-4">Quote Ref</th>
@@ -1303,21 +1303,25 @@ export default function Dashboard(props: DashboardProps) {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {overdueFollowups.slice(0, 5).map((e) => (
-                  <tr key={e.id} className="hover:bg-slate-50/50 transition duration-100 group">
-                    <td className="py-3.5 px-4 font-mono text-xs text-slate-500">#{e.sn}</td>
-                    <td className="py-3.5 px-4 font-sans text-sm font-semibold text-slate-800">
+                  <tr
+                    key={e.id}
+                    className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group"
+                  >
+                    <td className="py-3 px-4 font-mono text-xs text-slate-500">#{e.sn}</td>
+                    <td className="py-3 px-4 font-sans text-sm font-semibold text-slate-800">
                       {companyMap.get(e.company_id) || 'Unknown Company'}
                     </td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-slate-600">{e.quote_ref_no}</td>
-                    <td className="py-3.5 px-4 font-sans text-xs text-slate-500">{e.sales_person}</td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-rose-600 font-semibold">{e.next_followup_date}</td>
-                    <td className="py-3.5 px-4 font-mono text-xs text-slate-700 text-right font-bold">
+                    <td className="py-3 px-4 font-mono text-xs text-slate-600">{e.quote_ref_no}</td>
+                    <td className="py-3 px-4 font-sans text-xs text-slate-500">{e.sales_person}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-rose-600 font-semibold">{e.next_followup_date}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-700 text-right font-bold tabular-nums">
                       {formatCurrency(e.value_aed)}
                     </td>
-                    <td className="py-3.5 px-4 text-center">
+                    <td className="py-3 px-4 text-center">
                       <button
+                        type="button"
                         onClick={() => e.id && onSelectEnquiry(e.id)}
-                        className="py-1 px-3 bg-slate-50 hover:bg-slate-900 border border-slate-200 hover:border-slate-900 text-slate-700 hover:text-white rounded-lg text-xs font-semibold font-sans transition duration-150 shadow-sm"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
                       >
                         Inspect
                       </button>

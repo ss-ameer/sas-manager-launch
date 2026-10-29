@@ -423,14 +423,16 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       aria-label={`View details for enquiry #${e.sn || ''}`}
       onClick={handleRowClick}
       onKeyDown={handleRowKeyDown}
-      className={`cursor-pointer border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 dark:focus-visible:bg-slate-800/70 transition-colors duration-150 group ${
-        isGapReserved ? 'opacity-75 bg-slate-50/50 dark:bg-slate-900/40 border-dashed' : ''
+      className={`cursor-pointer border-b border-slate-200/80 border-l-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 group ${
+        isGapReserved ? 'opacity-75 bg-slate-50/50 border-dashed' : ''
       } ${
-        isChecked && isMarkingMode ? 'bg-blue-50/30 dark:bg-blue-950/20 font-medium !border-l-blue-500' : ''
+        isChecked && isMarkingMode
+          ? 'border-l-blue-600 bg-blue-50/50 font-medium'
+          : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
       }`}
     >
       {isMarkingMode && (
-        <td className="py-2.5 px-2 text-center" onClick={(evt) => evt.stopPropagation()}>
+        <td className="py-3 px-4 text-center" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
@@ -440,10 +442,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           />
         </td>
       )}
-      <td className="py-2.5 px-3 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center">
+      <td className="py-3 px-4 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center">
         #{e.sn}
       </td>
-      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-slate-100 min-w-[160px] max-w-[220px]">
+      <td className="py-3 px-4 font-semibold text-slate-900 min-w-[160px] max-w-[220px]">
         <div className="flex flex-col gap-1">
           <div className="flex items-center space-x-1.5 min-w-0">
             <span
@@ -493,7 +495,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           </div>
         </div>
       </td>
-      <td className="py-2.5 px-3 whitespace-nowrap">
+      <td className="py-3 px-4 whitespace-nowrap">
         <div className="flex flex-col items-start gap-1">
           {(() => {
             // Find issued formal quotation attachment reference if present
@@ -580,20 +582,20 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           })()}
         </div>
       </td>
-      <td className="py-2.5 px-3 whitespace-nowrap">
+      <td className="py-3 px-4 whitespace-nowrap">
         <span
-          className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700/40"
+          className="font-mono text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200/60"
           title={titleText}
         >
           {initials}
         </span>
       </td>
-      <td className="py-2.5 px-3 whitespace-nowrap">
-        <span className="font-mono text-xs text-slate-600 dark:text-slate-400 font-medium">
+      <td className="py-3 px-4 whitespace-nowrap">
+        <span className="font-mono text-xs text-slate-600 font-medium">
           {formatEnquiryDate(e.enquiry_date)}
         </span>
       </td>
-      <td className="py-2.5 px-3 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+      <td className="py-3 px-4 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
         <div className="flex flex-col items-start gap-1">
           <div className="relative inline-flex items-center">
             <select
@@ -651,11 +653,11 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           )}
         </div>
       </td>
-      <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono tabular-nums">
+      <td className="py-3 px-4 text-right whitespace-nowrap font-mono tabular-nums">
         <div className="flex flex-col items-end gap-0.5">
           <div className="inline-flex items-baseline justify-end">
             <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
-            <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formattedAmount}</span>
+            <span className="text-sm font-bold text-slate-900 tabular-nums">{formattedAmount}</span>
           </div>
           {(() => {
             const items = e.line_items || [];
@@ -683,14 +685,14 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             ].filter(Boolean);
             if (parts.length === 0) return null;
             return (
-              <span className="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
+              <span className="text-[10px] font-mono tabular-nums text-slate-400">
                 {parts.join(' · ')}
               </span>
             );
           })()}
         </div>
       </td>
-      <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+      <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
         <div className="flex items-center justify-center space-x-1.5" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
@@ -698,7 +700,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
+            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
             title="View enquiry details"
           >
             Details
@@ -711,7 +713,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
                 title="Claim and populate details for this reserved gap sequence"
               >
                 <span>Claim Gap</span>
@@ -723,7 +725,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 transition-colors shadow-2xs cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
                 title="Edit enquiry"
               >
                 Edit
@@ -737,7 +739,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 evt.stopPropagation();
                 onDeleteEnquiry(e);
               }}
-              className="p-1 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-400 dark:text-slate-500 rounded-lg transition-colors cursor-pointer ml-0.5"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
               title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
             >
               <Trash className="w-3.5 h-3.5" />
@@ -2300,10 +2302,10 @@ export default function EnquiryList({
 
             <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold tracking-wider text-slate-500 dark:text-slate-400 select-none bg-slate-50/70 dark:bg-slate-950/60 uppercase">
+              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 select-none">
+                <tr>
                   {isMarkingMode && (
-                    <th className="py-2.5 px-2 w-10 text-center">
+                    <th className="py-3 px-4 w-10 text-center">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -2326,32 +2328,32 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-3 w-16 text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
+                  <th onClick={() => handleSort('sn')} className="py-3 px-4 w-16 text-center cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 min-w-[160px] max-w-[220px]">Company Account</th>
-                  <th className="py-2.5 px-3">Quote Ref No</th>
-                  <th className="py-2.5 px-3">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
+                  <th className="py-3 px-4 min-w-[160px] max-w-[220px]">Company Account</th>
+                  <th className="py-3 px-4">Quote Ref No</th>
+                  <th className="py-3 px-4">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-3 px-4 cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1">
                       <span>Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-3 cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right">
+                  <th className="py-3 px-4">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-3 px-4 cursor-pointer hover:text-slate-800 transition text-right">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-24 text-center">Actions</th>
+                  <th className="py-3 px-4 w-24 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
+              <tbody className="divide-y divide-slate-200 font-sans">
                 {paginatedEnquiries.map((e, index) => {
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
@@ -2409,17 +2411,16 @@ export default function EnquiryList({
           </div>
           {/* Pagination Controls */}
           {totalItems > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 gap-4">
-              <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                Showing <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
-                <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
-                <span className="font-bold text-slate-950 dark:text-slate-100">{totalItems}</span> enquiries
+            <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+              <div className="text-xs font-mono text-slate-600">
+                Showing <span className="font-bold text-slate-900">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
+                <span className="font-bold text-slate-900">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
+                <span className="font-bold text-slate-900">{totalItems}</span> enquiries
               </div>
-              
+
               <div className="flex items-center space-x-4">
-                {/* Items per page Selector */}
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Show:</span>
+                  <span className="text-xs text-slate-500 font-sans">Rows per page:</span>
                   <select
                     value={itemsPerPage}
                     onChange={(e) => {
@@ -2427,7 +2428,7 @@ export default function EnquiryList({
                       setItemsPerPage(val === 'All' ? 'All' : Number(val));
                       setCurrentPage(1);
                     }}
-                    className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
                   >
                     <option value={25}>25</option>
                     <option value={50}>50</option>
@@ -2441,42 +2442,30 @@ export default function EnquiryList({
                 {totalPages > 1 && itemsPerPage !== 'All' && (
                   <div className="flex items-center space-x-1">
                     <button
-                      onClick={() => setCurrentPage(1)}
-                      disabled={currentPage === 1}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer"
-                      title="First Page"
-                    >
-                      <ChevronsLeft className="w-4 h-4" />
-                    </button>
-                    <button
+                      type="button"
                       onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
                       title="Previous Page"
                     >
-                      <ChevronLeft className="w-4 h-4" />
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Prev</span>
                     </button>
 
-                    <span className="text-xs font-mono px-3 text-slate-500 dark:text-slate-400">
-                      Page <span className="font-bold text-slate-950 dark:text-slate-100">{currentPage}</span> of{' '}
-                      <span className="font-bold text-slate-950 dark:text-slate-100">{totalPages}</span>
+                    <span className="text-xs font-mono px-2.5 text-slate-600">
+                      Page <span className="font-bold text-slate-900">{currentPage}</span> of{' '}
+                      <span className="font-bold text-slate-900">{totalPages}</span>
                     </span>
 
                     <button
+                      type="button"
                       onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                       disabled={currentPage === totalPages}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
                       title="Next Page"
                     >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setCurrentPage(totalPages)}
-                      disabled={currentPage === totalPages}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer"
-                      title="Last Page"
-                    >
-                      <ChevronsRight className="w-4 h-4" />
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
