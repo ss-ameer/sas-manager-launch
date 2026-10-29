@@ -1,8 +1,9 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
-/* Prevent browser dark-mode auto-inversion from rendering dark text on dark backgrounds */
+/* Enforce crisp light mode on native form controls and scrollbars */
 input, select, textarea {
-  color-scheme: dark light;
+  color-scheme: light;
 }
 
 .dark input:not([type="checkbox"]):not([type="radio"]),

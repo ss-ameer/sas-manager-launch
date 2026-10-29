@@ -137,10 +137,10 @@ export default function Sidebar({
       </div>
 
       {/* Workspace Switcher Header Block */}
-      <div className="p-3 border-b border-slate-200 bg-slate-900 text-white">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-1">
-            <Layers className="w-3 h-3 text-blue-400" />
+      <div className="p-3.5 border-b border-slate-200 bg-slate-50/80">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1">
+            <Layers className="w-3 h-3 text-blue-600" />
             <span>Active Workspace</span>
           </div>
           <button
@@ -148,7 +148,7 @@ export default function Sidebar({
               onOpenWorkspaceManager();
               if (onClose) onClose();
             }}
-            className="text-[10px] text-blue-400 hover:text-blue-300 font-bold hover:underline"
+            className="text-[10px] text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
           >
             Manage
           </button>
@@ -167,7 +167,7 @@ export default function Sidebar({
               }
               if (onClose) onClose();
             }}
-            className="w-full bg-slate-800 text-white font-bold text-xs px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none truncate pr-8"
+            className="w-full bg-white text-slate-900 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200/90 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none truncate pr-8"
           >
             {assignedWorkspaces.map((ws) => (
               <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
