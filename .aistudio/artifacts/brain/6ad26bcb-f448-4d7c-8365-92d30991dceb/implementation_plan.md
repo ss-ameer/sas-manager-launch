@@ -1,71 +1,86 @@
-# Quotation Studio & Enquiries Registry UI/UX Declutter, Collapsible Left Drawer & Sticky Headers
+# Quotation Studio Right Inspector Expansion & Word-Style Selection Text Editor
 
-Surgical UI/UX enhancements across Quotation Studio and the Enquiries Registry to maximize A4 canvas preview space with a collapsible Left Controls Drawer, declutter the Custom Block Lego Piece inspector with a collapsible icon-based Typography & Style accordion, prevent `@` tag autocomplete clipping, and pin the Enquiries Registry table header and compact action buttons.
+Upgrade the Quotation Studio workspace proportions and piece text editor by widening the overall Studio Modal to `1600px` with a standard `400px` Right Inspector Drawer, replacing the cramped collapsible typography drawer with a clean single-row Word-style formatting ribbon + labeled style controls, and enabling inline formatting (`**bold**`, `*italic*`, `__underline__`, and `==highlight==`) directly on highlighted text selections.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Both design decisions from Phase 1 have been confirmed and incorporated into this plan:
+> The following architectural and UX choices incorporate your confirmed answers from Phase 1:
 
-- **Confirmed Decision 1 (Save & Issue Accessibility When Left Drawer Is Collapsed)**: When `isLeftDrawerOpen` is `false`, compact **Save Quotation** and **Issue Quotation** (or **Update Preset & Close** in sandbox mode) buttons remain accessible in the top header bar alongside the **Show Controls** toggle so users can save or issue directly from full-width A4 preview mode.
-- **Confirmed Decision 2 (Default Piece Typography Accordion State)**: Inside the Custom Block inspector, each Lego piece's **Typography & Style** toolbar (`openFormatPieceId`) starts collapsed by default (`null`) so the 336px Right Inspector remains clean and scannable, expanding on demand when clicked.
+- **Confirmed Decision 1 — Inline Selection vs. Whole-Piece Formatting**: Clicking **Bold (`B`)**, **Italic (`I`)**, or **Underline (`U`)** (or pressing `Ctrl/Cmd + B/I/U`) when a text range is highlighted inside a Heading, Rich Text, or List input wraps or unwraps **only the selected text** (`**bold**`, `*italic*`, `__underline__`). When no text is highlighted, clicking `B`, `I`, or `U` toggles the whole-piece style (`fontWeight`, `italic`, `underline`).
+- **Confirmed Decision 2 — Word-Style Single-Row Formatting Ribbon**: Replace the wrapping accordion strip with an ergonomic, always-ready **Word-Style Formatting Ribbon** attached directly above the text input (`Size | B I U AA | Align | + @Tag`), paired with a clean 3-column labeled control row (`Text Color`, `Line Spacing`, `Highlight Fill`) underneath that never truncates labels.
+- **Confirmed Decision 3 — Standard 400px Right Inspector & 1600px Studio Modal**: Expand the Quotation Studio modal container from `max-w-[1400px]` to `max-w-[1600px]` (`w-[96vw]`) and standardize all Right Contextual Inspector Drawers (`Header`, `Recipient`, `Offer Metadata`, `Subject`, `Footer`, `Line Items Table`, and `Block Inspector`) to a roomy `w-[380px] xl:w-[410px]` (~`400px` standard width) so controls, sliders, and piece editors never clip or wrap awkwardly.
+
+---
 
 ## 1. Overview & Core Concept
 
 - **What It Does**:
-  1. **Collapsible Left Controls Drawer in Quotation Studio**: Adds `isLeftDrawerOpen` state with toggle controls in the Modal Top Header (`Hide Controls` / `Show Controls`), inside the Left Drawer sticky header (`PanelLeftClose`), and in the Live Preview toolbar (`Show Controls`), plus quick-save actions in the top header when the drawer is collapsed.
-  2. **Decluttered Collapsible `Typography & Style` Toolbar**: Replaces the always-expanded 4-row button cluster in Custom Block Lego pieces with a compact `Typography & Style` toggle button (`openFormatPieceId === piece.id`) and an inline `+ @Insert Data Tag` selector, revealing icon-driven formatting controls (`Bold`, `Italic`, `Underline`, `AlignLeft`, `AlignCenter`, `AlignRight`, `AlignJustify`, font scale, ink color, line height, and highlight swatches) only when opened.
-  3. **Clean Multi-Column Default Headings**: Removes placeholder `'LEFT COLUMN'` and `'RIGHT COLUMN'` heading strings from `createDefaultPiece('columns')` so blank column splits never print dummy labels on quotations.
-  4. **Unclipped `@Tag` Floating Autocomplete Dropdown**: Updates `AtTagFloatingDropdown` to `z-[70]` and `max-h-56` so it floats cleanly above adjacent inspector and modal controls.
-  5. **Sticky Enquiries Table Header & Compact Action Bar**: Locks the Enquiries Registry `<thead>` at `sticky top-0 z-10` inside a vertically scrollable table container (`max-h-[calc(100vh-270px)] overflow-y-auto`) and shortens secondary header action labels (`Reserve Gap`, `Claim Ref`, `Import`, `Export CSV`) to prevent wrapping.
-- **Target Audience / Persona**: Commercial estimators, sales engineers, and executives reviewing multi-page A4 quotations and managing high-volume enquiry logs.
-- **Key Value**: Eliminates visual clutter in the 336px block inspector, gives users 1-click full-width A4 preview space, and keeps column headers visible while scrolling through 25–50+ enquiries.
+  1. **Roomy 400px Right Inspector & 1600px Studio Frame**: Gives all contextual inspectors on the right side of Quotation Studio a true standard width (`380px–410px`) inside a wider `1600px` studio viewport, eliminating cramped multi-line labels and truncated dropdowns (`Color: Dar`, `Spacing: R`).
+  2. **Unified Word-Style Editor Frame**: Integrates the formatting ribbon and text input into a single cohesive editor card (toolbar top border + input body + labeled style bar), removing the duplicate `+ Insert @Tag` bar below Rich Text areas.
+  3. **Smart Selection-Aware Formatting (`B` / `I` / `U` + Keyboard Shortcuts)**: Tracks text selection inside `AtMentionInput` and `AtMentionTextarea` so users can highlight specific words or `@tags` and click **Bold**, **Italic**, or **Underline** (or press `Ctrl+B`, `Ctrl+I`, `Ctrl+U`) to format just that phrase, or click with no selection to style the entire piece.
+- **Target Audience / Persona**: Commercial engineers and sales executives customizing headings, executive summaries, scope notes, and bullet lists in Quotation Studio.
+- **Key Value**: Familiar word-processor ergonomics with zero text clipping, instant selection-level or piece-level formatting, and generous breathing room across the 3-pane studio layout.
+
+---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  - **Full-Width Preview Toggle**: Clicking `Hide Controls` in the Studio header (or the collapse icon next to `+ Save as New Preset`) smoothly hides the 460px–500px left drawer so the A4 canvas expands across the viewport; clicking `Show Controls` in either the header or preview toolbar restores the drawer.
-  - **On-Demand Piece Formatting**: Clicking `Typography & Style` on any Heading, Rich Text, or List piece toggles its formatting accordion (`openFormatPieceId`), while `+ @Insert Data Tag` remains directly accessible on the top bar of the piece.
-  - **Sticky Registry Scrolling**: Scrolling down through the Enquiries Registry keeps `S/N`, `Company`, `Quote Ref`, `Rep`, `Date`, `Status`, `Value`, and `Actions` pinned at the top of the table viewport with a frosted backdrop (`backdrop-blur-xs`).
+  1. **Expanding & Inspecting Any Section**: Clicking any block on the A4 preview opens the standardized `400px` Right Inspector Drawer. Even with both Left and Right drawers open on a desktop monitor, the `1600px` modal frame preserves a clear central A4 canvas.
+  2. **Formatting Selected Words vs. Whole Piece**:
+     - Highlighting `"commercial and technical proposal"` inside a Rich Text piece and clicking **B** (or pressing `Ctrl+B`) immediately wraps the selection in `**commercial and technical proposal**` (or unwraps it if already bolded) and keeps the selection active.
+     - Clicking **B**, **I**, or **U** without highlighting text toggles the entire piece's bold, italic, or underline style, with a subtle indicator showing whether whole-piece formatting is active.
+  3. **Single-Row Ribbon + Labeled Dropdowns**:
+     - **Top Ribbon Row**: `XS SM MD LG XL` segmented size pills $\cdot$ `B` `I` `U` `AA` formatting buttons $\cdot$ `Left` `Center` `Right` `Justify` alignment icons $\cdot$ `+ @Tag` quick-insert selector.
+     - **Secondary Labeled Style Row**: Three clean stacked mini-columns with explicit micro-labels above each select (`COLOR`, `SPACING`, `HIGHLIGHT`) so values like `Dark Ink`, `Normal`, and `Brand Tint` display in full without `Color: Dar...` truncation.
 - **Visual Identity & Theme**:
-  - Clean slate/indigo/blue executive styling with Lucide iconography (`PanelLeft`, `PanelLeftClose`, `Type`, `Bold`, `Italic`, `Underline`, `AlignLeft`, `AlignCenter`, `AlignRight`, `AlignJustify`).
+  - *Aesthetic Direction*: Precision commercial document studio with crisp `1px` structural borders (`border-slate-200`), unified input-toolbar framing, and tabular monospace badges (`tabular-nums`).
+  - *Color Palette & Mood*: Clean white editor surface (`#FFFFFF`), cool slate toolbar header (`bg-slate-50/90`), and focused indigo active states (`bg-indigo-600 text-white`).
+
+---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Single Active Formatting Accordion (`openFormatPieceId`)**
-  - *Chosen Approach*: Track `openFormatPieceId: string | null` in `QuotationStudioModal` so at most one Lego piece's formatting panel is expanded at a time.
-  - *Why*: Prevents vertical scroll bloat when a Custom Block contains 4–8 Lego pieces.
-- **Decision 2: Bounded Scroll Container for Enquiries Table**
-  - *Chosen Approach*: Apply `max-h-[calc(100vh-270px)] overflow-y-auto relative` to the table wrapper and `sticky top-0 z-10` to `<thead>`.
-  - *Why*: Native CSS sticky `<thead>` requires a bounded scrolling ancestor so the table header stays locked while the pagination footer remains immediately visible below the scroll area.
+- **Decision 1 — Selection Preservation via `onMouseDown={(e) => e.preventDefault()}` on Toolbar Buttons**:
+  - *Chosen Approach*: Prevent focus loss when clicking `B`, `I`, or `U` in the ribbon so the active `<input>` or `<textarea>` retains its `selectionStart` and `selectionEnd` range.
+  - *Why*: Standard `<button>` clicks steal focus from text inputs before `onClick` runs, which would otherwise clear the user's text highlight or require stale state tracking. Preventing default on `onMouseDown` keeps the native browser selection intact.
+- **Decision 2 — Eliminating Redundant `@Tag` Bars in Piece Editors**:
+  - *Chosen Approach*: Since the Word-style ribbon header includes the `+ @Tag` selector (and `@` autocomplete works inline while typing), hide the redundant bottom `+ Insert @Tag` footer bar inside custom piece editors (`showInsertBar={false}`).
+  - *Why*: Saves ~32px of vertical height per Rich Text piece and removes duplicate controls in the inspector.
+
+---
 
 ## 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        QuotationStudioModal                              │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │ Modal Header: [Hide/Show Controls] + Compact Save/Issue (if closed)│  │
-│  └───────────────┬────────────────────────────────────┬───────────────┘  │
-│                  ▼                                    ▼                  │
-│  ┌───────────────────────────────┐    ┌───────────────────────────────┐  │
-│  │ Left Drawer (isLeftDrawerOpen)│    │ Right Column: Live A4 Preview │  │
-│  │ • Preset Bar + Collapse Icon  │    │ • Preview Toolbar:            │  │
-│  │ • Structure & Content Tabs    │    │   [!isLeftDrawerOpen -> Show] │  │
-│  │ • Sticky Save/Issue Footer    │    │ • Right Contextual Inspector: │  │
-│  └───────────────────────────────┘    │   • openFormatPieceId Toggle  │  │
-│                                       │   • AtTagFloatingDropdown z70 │  │
-│                                       └───────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
+### Architecture & Component Diagram
 
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            EnquiryList                                   │
-│  • PageHeader secondaryActions: Reserve Gap | Claim Ref | Import | CSV   │
-│  • Table Container (max-h-[calc(100vh-270px)] overflow-y-auto)           │
-│    └── <thead className="sticky top-0 z-10 backdrop-blur-xs">            │
-└──────────────────────────────────────────────────────────────────────────┘
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ QuotationStudioModal (w-[96vw] max-w-[1600px] h-[95vh])                      │
+├──────────────────────┬───────────────────────────────┬───────────────────────┤
+│ Left Controls Drawer │ Center Live A4 Canvas         │ Right Inspector Drawer│
+│ (460px, Collapsible) │ (flex-1, Scaled 210mm×297mm)  │ (w-[380px] xl:w-[410])│
+└──────────────────────┴───────────────────────────────┴───────────┬───────────┘
+                                                                   │
+                                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Unified Piece Text Editor Card (Heading / Rich Text / List)                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Row 1 (Word Ribbon): [XS SM MD LG XL] │ [B I U AA] │ [L C R J] │ [+ @Tag ▾] │
+│ Row 2 (Labeled Grid): [COLOR: Dark Ink ▾] [SPACING: Normal ▾] [FILL: None ▾] │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Connected Input / Textarea (Selection-Aware **bold**, *italic*, __uline__)   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Interactive Component & State Mapping**:
-  - `isLeftDrawerOpen` (`boolean`, default `true`): Controls conditional rendering of the Left Column drawer, header toggle button styling, preview toolbar quick-open button, and header fallback Save/Issue buttons.
-  - `openFormatPieceId` (`string | null`, default `null`): Controls which Lego piece's `Typography & Style` panel is expanded inside `renderStandardTextToolbar(..., piece.id)`.
+### Interactive Component & State Mapping
+
+1. **Selection-Aware Inline Formatting Helper**:
+   - Track the active DOM `<input>` or `<textarea>` element for each piece via a ref map (`pieceInputRefs.current[piece.id]`).
+   - When the user clicks `B` (`**`), `I` (`*`), or `U` (`__`) in the ribbon (or presses `Ctrl/Cmd + B/I/U` inside the field):
+     - Check `el.selectionStart !== el.selectionEnd`.
+     - If a range is selected, toggle the markdown wrapper (`**...**`, `*...*`, `__...__`) around the selected substring, update the piece's text, and restore the selection range via `requestAnimationFrame`.
+     - If no range is selected (`selectionStart === selectionEnd`), toggle the piece-level `QuotationTextFormatStyle` property (`fontWeight: 'bold' | 'normal'`, `italic: boolean`, `underline: boolean`).
+2. **Standardized 400px Right Inspector Width**:
+   - Update all 7 contextual `<aside>` inspector drawers in `QuotationStudioModal` from `w-80 md:w-84` (where `w-84` was a non-existent Tailwind class falling back to `320px`) to `w-full sm:w-[380px] xl:w-[410px]`, and widen the studio modal shell to `w-[96vw] max-w-[1600px]`.

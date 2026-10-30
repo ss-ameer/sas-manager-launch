@@ -64,7 +64,11 @@ import {
   resolveStampSignatureOverlayConfig,
   amountToWords
 } from './QuotationDocument';
-import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
+import {
+  AtMentionInput,
+  AtMentionTextarea,
+  toggleInlineSelectionWrap
+} from './AtMentionField';
 import {
   QUOTATION_AT_TAGS,
   QuotationTokenContext,
@@ -1098,7 +1102,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>('structure');
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(true);
-  const [openFormatPieceId, setOpenFormatPieceId] = useState<string | null>(null);
+  const pieceInputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
+  const activeListItemIndexRef = useRef<Record<string, number>>({});
   const [showPageBreakGuides, setShowPageBreakGuides] = useState<boolean>(true);
   const [omittedFields, setOmittedFields] = useState<Record<string, boolean>>(() =>
     editingQuotation?.omitted_fields ? { ...editingQuotation.omitted_fields } : {}
@@ -4527,7 +4532,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         className="hidden"
       />
 
-      <div className="bg-slate-50 w-full max-w-[1400px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-slate-50 w-[96vw] max-w-[1600px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Top Bar */}
         <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap shrink-0 print:hidden">
           <div className="flex items-center space-x-3">
@@ -7116,7 +7121,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Header Inspector Drawer */}
               {selectedSection === 'header' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -8152,7 +8157,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Recipient Info Inspector Drawer */}
               {(selectedSection === 'recipient_info' || selectedSection === 'recipient_meta') && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -8511,7 +8516,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Commercial Offer Inspector Drawer */}
               {selectedSection === 'quote_meta' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -8863,7 +8868,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Project Subject Banner Inspector Drawer */}
               {selectedSection === 'subject' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -8995,7 +9000,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Footer & Legal Inspector Drawer */}
               {selectedSection === 'footer' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -9323,7 +9328,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Table Inspector Drawer */}
               {selectedSection === 'items_table' && (
-                <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -10642,7 +10647,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     : selectedBlock.id);
 
                 return (
-                  <aside className="w-80 md:w-84 bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                     {/* Drawer Header */}
                     <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                       <div className="flex items-center gap-2 min-w-0">
@@ -13807,42 +13812,162 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               curStyle: QuotationTextFormatStyle | undefined,
                               onChangeStyle: (patch: Partial<QuotationTextFormatStyle>) => void,
                               onInsertTag?: (tag: string) => void,
-                              pieceId?: string
+                              pieceId?: string,
+                              pieceText?: string,
+                              onChangeText?: (nextText: string) => void
                             ) => {
                               const st = curStyle || {};
-                              const isOpen = pieceId ? openFormatPieceId === pieceId : true;
-                              const activeSummary = [
-                                (st.fontSize || 'sm').toUpperCase(),
-                                st.fontWeight === 'bold' ? 'Bold' : null,
-                                st.italic ? 'Italic' : null,
-                                st.textAlign && st.textAlign !== 'left' ? st.textAlign : null
-                              ]
-                                .filter(Boolean)
-                                .join(' • ');
+                              const handleInlineOrPieceFormat = (
+                                marker: '**' | '*' | '__',
+                                fallbackPatch: Partial<QuotationTextFormatStyle>
+                              ) => {
+                                if (pieceId && onChangeText && typeof pieceText === 'string') {
+                                  const el = pieceInputRefs.current[pieceId];
+                                  if (toggleInlineSelectionWrap(el, pieceText, onChangeText, marker)) {
+                                    return;
+                                  }
+                                }
+                                onChangeStyle(fallbackPatch);
+                              };
 
                               return (
-                                <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 overflow-hidden">
-                                  {/* Compact Header Strip */}
-                                  <div className="px-2 py-1 flex items-center justify-between gap-1.5 bg-slate-100/80">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        pieceId &&
-                                        setOpenFormatPieceId((prev) => (prev === pieceId ? null : pieceId))
-                                      }
-                                      className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 cursor-pointer"
-                                    >
-                                      <Type className="w-3 h-3 text-indigo-600" />
-                                      <span>Typography &amp; Style</span>
-                                      <span className="text-[9px] font-mono text-slate-400">
-                                        ({activeSummary})
-                                      </span>
-                                      {isOpen ? (
-                                        <ChevronUp className="w-3 h-3 text-slate-400" />
-                                      ) : (
-                                        <ChevronDown className="w-3 h-3 text-slate-400" />
-                                      )}
-                                    </button>
+                                <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-2 space-y-2">
+                                  {/* Row 1: Single-Row Word-Style Ribbon */}
+                                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      {/* Font Size Group */}
+                                      <div className="inline-flex items-center bg-white rounded-md p-0.5 border border-slate-200 shadow-2xs">
+                                        {(
+                                          [
+                                            { id: 'xs', label: 'XS' },
+                                            { id: 'sm', label: 'SM' },
+                                            { id: 'base', label: 'MD' },
+                                            { id: 'lg', label: 'LG' },
+                                            { id: 'xl', label: 'XL' }
+                                          ] as const
+                                        ).map((sz) => (
+                                          <button
+                                            key={sz.id}
+                                            type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => onChangeStyle({ fontSize: sz.id })}
+                                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
+                                              (st.fontSize || 'sm') === sz.id
+                                                ? 'bg-indigo-600 text-white font-bold shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                            }`}
+                                            title={`Font Size: ${sz.label}`}
+                                          >
+                                            {sz.label}
+                                          </button>
+                                        ))}
+                                      </div>
+
+                                      {/* B / I / U / AA Group (Selection-Aware) */}
+                                      <div className="inline-flex items-center bg-white rounded-md p-0.5 border border-slate-200 shadow-2xs">
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            handleInlineOrPieceFormat('**', {
+                                              fontWeight: st.fontWeight === 'bold' ? 'normal' : 'bold'
+                                            })
+                                          }
+                                          className={`p-1 rounded transition cursor-pointer ${
+                                            st.fontWeight === 'bold'
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                          }`}
+                                          title="Bold (Formats highlighted text with **bold**, or toggles whole piece)"
+                                        >
+                                          <Bold className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            handleInlineOrPieceFormat('*', {
+                                              italic: !st.italic
+                                            })
+                                          }
+                                          className={`p-1 rounded transition cursor-pointer ${
+                                            st.italic
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                          }`}
+                                          title="Italic (Formats highlighted text with *italic*, or toggles whole piece)"
+                                        >
+                                          <Italic className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            handleInlineOrPieceFormat('__', {
+                                              underline: !st.underline
+                                            })
+                                          }
+                                          className={`p-1 rounded transition cursor-pointer ${
+                                            st.underline
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                          }`}
+                                          title="Underline (Formats highlighted text with __underline__, or toggles whole piece)"
+                                        >
+                                          <Underline className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            onChangeStyle({
+                                              letterSpacing:
+                                                st.letterSpacing === 'uppercase_tracked'
+                                                  ? 'normal'
+                                                  : 'uppercase_tracked'
+                                            })
+                                          }
+                                          className={`px-1 py-0.5 rounded text-[9px] font-mono font-bold transition cursor-pointer ${
+                                            st.letterSpacing === 'uppercase_tracked'
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                          }`}
+                                          title="Uppercase Tracked"
+                                        >
+                                          AA
+                                        </button>
+                                      </div>
+
+                                      {/* Alignment Icons Group */}
+                                      <div className="inline-flex items-center bg-white rounded-md p-0.5 border border-slate-200 shadow-2xs">
+                                        {(
+                                          [
+                                            { id: 'left', icon: AlignLeft, title: 'Align Left' },
+                                            { id: 'center', icon: AlignCenter, title: 'Align Center' },
+                                            { id: 'right', icon: AlignRight, title: 'Align Right' },
+                                            { id: 'justify', icon: AlignJustify, title: 'Justify' }
+                                          ] as const
+                                        ).map((al) => {
+                                          const IconComp = al.icon;
+                                          return (
+                                            <button
+                                              key={al.id}
+                                              type="button"
+                                              onMouseDown={(e) => e.preventDefault()}
+                                              onClick={() => onChangeStyle({ textAlign: al.id })}
+                                              className={`p-1 rounded transition cursor-pointer ${
+                                                (st.textAlign || 'left') === al.id
+                                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                              }`}
+                                              title={al.title}
+                                            >
+                                              <IconComp className="w-3 h-3" />
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
 
                                     {onInsertTag && (
                                       <select
@@ -13852,9 +13977,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             onInsertTag(e.target.value);
                                           }
                                         }}
-                                        className="px-1.5 py-0.5 rounded border border-indigo-200 bg-white text-indigo-700 font-mono text-[9.5px] font-semibold cursor-pointer max-w-[125px]"
+                                        className="px-1.5 py-0.5 rounded-md border border-indigo-200 bg-white text-indigo-700 font-mono text-[9.5px] font-semibold cursor-pointer max-w-[115px] shadow-2xs"
+                                        title="Insert dynamic @Data Tag"
                                       >
-                                        <option value="">+ @Data Tag</option>
+                                        <option value="">+ @Tag</option>
                                         {QUOTATION_AT_TAGS.map((t) => (
                                           <option key={t.tag} value={t.tag}>
                                             {t.tag} ({t.label})
@@ -13864,176 +13990,65 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     )}
                                   </div>
 
-                                  {isOpen && (
-                                    <div className="p-2 space-y-2 border-t border-slate-200/80 bg-white">
-                                      {/* Row 1: Font Size + Bold/Italic/Underline/Uppercase + Alignment Icons */}
-                                      <div className="flex flex-wrap items-center justify-between gap-1.5">
-                                        {/* Font Size */}
-                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
-                                          {(
-                                            [
-                                              { id: 'xs', label: 'XS' },
-                                              { id: 'sm', label: 'SM' },
-                                              { id: 'base', label: 'MD' },
-                                              { id: 'lg', label: 'LG' },
-                                              { id: 'xl', label: 'XL' }
-                                            ] as const
-                                          ).map((sz) => (
-                                            <button
-                                              key={sz.id}
-                                              type="button"
-                                              onClick={() => onChangeStyle({ fontSize: sz.id })}
-                                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
-                                                (st.fontSize || 'sm') === sz.id
-                                                  ? 'bg-indigo-600 text-white font-bold shadow-2xs'
-                                                  : 'text-slate-600 hover:text-slate-900'
-                                              }`}
-                                              title={`Font Size: ${sz.label}`}
-                                            >
-                                              {sz.label}
-                                            </button>
-                                          ))}
-                                        </div>
-
-                                        {/* B / I / U / AA */}
-                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              onChangeStyle({
-                                                fontWeight: st.fontWeight === 'bold' ? 'normal' : 'bold'
-                                              })
-                                            }
-                                            className={`p-1 rounded cursor-pointer ${
-                                              st.fontWeight === 'bold'
-                                                ? 'bg-indigo-600 text-white shadow-2xs'
-                                                : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                            title="Bold"
-                                          >
-                                            <Bold className="w-3 h-3" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => onChangeStyle({ italic: !st.italic })}
-                                            className={`p-1 rounded cursor-pointer ${
-                                              st.italic
-                                                ? 'bg-indigo-600 text-white shadow-2xs'
-                                                : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                            title="Italic"
-                                          >
-                                            <Italic className="w-3 h-3" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => onChangeStyle({ underline: !st.underline })}
-                                            className={`p-1 rounded cursor-pointer ${
-                                              st.underline
-                                                ? 'bg-indigo-600 text-white shadow-2xs'
-                                                : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                            title="Underline"
-                                          >
-                                            <Underline className="w-3 h-3" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              onChangeStyle({
-                                                letterSpacing:
-                                                  st.letterSpacing === 'uppercase_tracked'
-                                                    ? 'normal'
-                                                    : 'uppercase_tracked'
-                                              })
-                                            }
-                                            className={`px-1 py-0.5 rounded text-[9px] font-mono font-bold cursor-pointer ${
-                                              st.letterSpacing === 'uppercase_tracked'
-                                                ? 'bg-indigo-600 text-white shadow-2xs'
-                                                : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                            title="Uppercase Tracked"
-                                          >
-                                            AA
-                                          </button>
-                                        </div>
-
-                                        {/* Alignment Icons */}
-                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
-                                          {(
-                                            [
-                                              { id: 'left', icon: AlignLeft, title: 'Align Left' },
-                                              { id: 'center', icon: AlignCenter, title: 'Align Center' },
-                                              { id: 'right', icon: AlignRight, title: 'Align Right' },
-                                              { id: 'justify', icon: AlignJustify, title: 'Justify' }
-                                            ] as const
-                                          ).map((al) => {
-                                            const IconComp = al.icon;
-                                            return (
-                                              <button
-                                                key={al.id}
-                                                type="button"
-                                                onClick={() => onChangeStyle({ textAlign: al.id })}
-                                                className={`p-1 rounded cursor-pointer ${
-                                                  (st.textAlign || 'left') === al.id
-                                                    ? 'bg-indigo-600 text-white shadow-2xs'
-                                                    : 'text-slate-600 hover:text-slate-900'
-                                                }`}
-                                                title={al.title}
-                                              >
-                                                <IconComp className="w-3 h-3" />
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-
-                                      {/* Row 2: Compact Selects for Color, Line Spacing & Highlight */}
-                                      <div className="grid grid-cols-3 gap-1.5">
-                                        <select
-                                          value={st.textColor || 'default'}
-                                          onChange={(e) =>
-                                            onChangeStyle({ textColor: e.target.value as any })
-                                          }
-                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
-                                          title="Text Color"
-                                        >
-                                          <option value="default">Color: Dark Ink</option>
-                                          <option value="muted">Color: Muted</option>
-                                          <option value="accent">Color: Brand</option>
-                                        </select>
-
-                                        <select
-                                          value={st.lineHeight || 'normal'}
-                                          onChange={(e) =>
-                                            onChangeStyle({ lineHeight: e.target.value as any })
-                                          }
-                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
-                                          title="Line Spacing"
-                                        >
-                                          <option value="tight">Spacing: Tight</option>
-                                          <option value="normal">Spacing: Normal</option>
-                                          <option value="relaxed">Spacing: Relaxed</option>
-                                        </select>
-
-                                        <select
-                                          value={st.highlightBg || 'none'}
-                                          onChange={(e) =>
-                                            onChangeStyle({ highlightBg: e.target.value as any })
-                                          }
-                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
-                                          title="Highlight Fill"
-                                        >
-                                          <option value="none">Fill: None</option>
-                                          <option value="SoftYellow">Fill: Yellow</option>
-                                          <option value="SoftBlue">Fill: Blue</option>
-                                          <option value="SoftEmerald">Fill: Green</option>
-                                          <option value="SoftRose">Fill: Rose</option>
-                                          <option value="ThemeTint">Fill: Brand Tint</option>
-                                        </select>
-                                      </div>
+                                  {/* Row 2: 3-Column Labeled Dropdowns (Color, Spacing, Highlight) */}
+                                  <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-200/70">
+                                    <div>
+                                      <label className="block text-[8.5px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                                        Color
+                                      </label>
+                                      <select
+                                        value={st.textColor || 'default'}
+                                        onChange={(e) =>
+                                          onChangeStyle({ textColor: e.target.value as any })
+                                        }
+                                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 cursor-pointer"
+                                        title="Text Color"
+                                      >
+                                        <option value="default">Dark Ink</option>
+                                        <option value="muted">Muted Grey</option>
+                                        <option value="accent">Brand Accent</option>
+                                      </select>
                                     </div>
-                                  )}
+
+                                    <div>
+                                      <label className="block text-[8.5px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                                        Spacing
+                                      </label>
+                                      <select
+                                        value={st.lineHeight || 'normal'}
+                                        onChange={(e) =>
+                                          onChangeStyle({ lineHeight: e.target.value as any })
+                                        }
+                                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 cursor-pointer"
+                                        title="Line Spacing"
+                                      >
+                                        <option value="tight">Tight</option>
+                                        <option value="normal">Normal</option>
+                                        <option value="relaxed">Relaxed</option>
+                                      </select>
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[8.5px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                                        Highlight
+                                      </label>
+                                      <select
+                                        value={st.highlightBg || 'none'}
+                                        onChange={(e) =>
+                                          onChangeStyle({ highlightBg: e.target.value as any })
+                                        }
+                                        className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-700 cursor-pointer"
+                                        title="Highlight Fill"
+                                      >
+                                        <option value="none">None</option>
+                                        <option value="SoftYellow">Yellow</option>
+                                        <option value="SoftBlue">Blue</option>
+                                        <option value="SoftEmerald">Green</option>
+                                        <option value="SoftRose">Rose</option>
+                                        <option value="ThemeTint">Brand Tint</option>
+                                      </select>
+                                    </div>
+                                  </div>
                                 </div>
                               );
                             };
@@ -14295,9 +14310,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                   ...p,
                                                   text: `${p.text || ''} ${tag}`.trim()
                                                 })),
-                                              piece.id
+                                              piece.id,
+                                              piece.text || '',
+                                              (nextText) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: nextText
+                                                }))
                                             )}
                                             <AtMentionInput
+                                              inputRefProp={(el) => {
+                                                pieceInputRefs.current[piece.id] = el;
+                                              }}
                                               value={piece.text || ''}
                                               onChange={(val) =>
                                                 handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
@@ -14308,7 +14332,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               tokenContext={studioTokenContext}
                                               compact
                                               placeholder="Section Heading or @tag"
-                                              className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-bold text-slate-800"
+                                              className="w-full px-2.5 py-1.5 rounded-md border border-slate-300 text-xs font-bold text-slate-800"
                                             />
                                             <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer">
                                               <input
@@ -14342,9 +14366,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                   ...p,
                                                   text: `${p.text || ''} ${tag}`.trim()
                                                 })),
-                                              piece.id
+                                              piece.id,
+                                              piece.text || '',
+                                              (nextText) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: nextText
+                                                }))
                                             )}
                                             <AtMentionTextarea
+                                              textareaRefProp={(el) => {
+                                                pieceInputRefs.current[piece.id] = el;
+                                              }}
                                               value={piece.text || ''}
                                               onChange={(val) =>
                                                 handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
@@ -14353,10 +14386,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 }))
                                               }
                                               tokenContext={studioTokenContext}
+                                              showInsertBar={false}
                                               rows={3}
-                                              placeholder="Type paragraph text... Use **bold**, *italic*, __underline__, or @tags"
-                                              className="w-full px-2 py-1.5 rounded border border-slate-300 text-xs text-slate-800"
+                                              placeholder="Type paragraph text... Highlight words and click B / I / U, or type @ for live tags"
+                                              className="w-full px-2.5 py-1.5 rounded-md border border-slate-300 text-xs text-slate-800 leading-relaxed"
                                             />
+                                            <p className="text-[9.5px] text-slate-400">
+                                              Tip: Highlight text and click <strong className="text-slate-600">B</strong>, <em className="text-slate-600">I</em>, or <span className="underline text-slate-600">U</span> to format selected words, or type <code className="font-mono font-bold text-indigo-600">@</code> for live deal data.
+                                            </p>
                                           </div>
                                         )}
 
@@ -14404,13 +14441,35 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                   style: { ...(p.style || {}), ...patch }
                                                 })),
                                               undefined,
-                                              piece.id
+                                              piece.id,
+                                              (piece.items || [])[activeListItemIndexRef.current[piece.id] ?? 0] || '',
+                                              (nextItemText) => {
+                                                const targetIdx = activeListItemIndexRef.current[piece.id] ?? 0;
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  items: (p.items || []).map((it, k) =>
+                                                    k === targetIdx ? nextItemText : it
+                                                  )
+                                                }));
+                                              }
                                             )}
                                             <div className="space-y-1">
                                               {(piece.items || []).map((itemText, iIdx) => (
                                                 <div key={iIdx} className="flex items-center gap-1">
                                                   <div className="flex-1 min-w-0">
                                                     <AtMentionInput
+                                                      inputRefProp={(el) => {
+                                                        if (
+                                                          el &&
+                                                          (activeListItemIndexRef.current[piece.id] ?? 0) === iIdx
+                                                        ) {
+                                                          pieceInputRefs.current[piece.id] = el;
+                                                        }
+                                                      }}
+                                                      onFocus={(e) => {
+                                                        activeListItemIndexRef.current[piece.id] = iIdx;
+                                                        pieceInputRefs.current[piece.id] = e.currentTarget;
+                                                      }}
                                                       value={itemText}
                                                       onChange={(val) =>
                                                         handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({

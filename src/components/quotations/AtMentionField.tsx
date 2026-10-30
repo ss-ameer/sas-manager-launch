@@ -44,6 +44,65 @@ function detectAtTrigger(text: string, selectionStart: number | null): TriggerSt
   };
 }
 
+export function toggleInlineSelectionWrap(
+  el: HTMLInputElement | HTMLTextAreaElement | null | undefined,
+  currentValue: string,
+  onChange: (newVal: string) => void,
+  marker: '**' | '*' | '__'
+): boolean {
+  if (!el) return false;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  if (start === null || end === null || start >= end) {
+    return false;
+  }
+
+  const raw = String(currentValue ?? '');
+  const selected = raw.slice(start, end);
+  const mLen = marker.length;
+
+  // Case 1: Selected text itself starts and ends with marker
+  if (
+    selected.length >= mLen * 2 &&
+    selected.startsWith(marker) &&
+    selected.endsWith(marker)
+  ) {
+    const unwrapped = selected.slice(mLen, selected.length - mLen);
+    const nextVal = `${raw.slice(0, start)}${unwrapped}${raw.slice(end)}`;
+    onChange(nextVal);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start, start + unwrapped.length);
+    });
+    return true;
+  }
+
+  // Case 2: Surrounding characters immediately outside selection match marker
+  if (
+    start >= mLen &&
+    raw.slice(start - mLen, start) === marker &&
+    raw.slice(end, end + mLen) === marker
+  ) {
+    const nextVal = `${raw.slice(0, start - mLen)}${selected}${raw.slice(end + mLen)}`;
+    onChange(nextVal);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start - mLen, end - mLen);
+    });
+    return true;
+  }
+
+  // Case 3: Wrap selected text with marker
+  const wrapped = `${marker}${selected}${marker}`;
+  const nextVal = `${raw.slice(0, start)}${wrapped}${raw.slice(end)}`;
+  onChange(nextVal);
+  requestAnimationFrame(() => {
+    el.focus();
+    el.setSelectionRange(start + mLen, end + mLen);
+  });
+  return true;
+}
+
 export interface AtMentionInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
   value: string;
@@ -51,6 +110,7 @@ export interface AtMentionInputProps
   tokenContext: QuotationTokenContext;
   showQuickAtButton?: boolean;
   compact?: boolean;
+  inputRefProp?: (el: HTMLInputElement | null) => void;
 }
 
 export const AtMentionInput: React.FC<AtMentionInputProps> = ({
@@ -59,6 +119,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   tokenContext,
   showQuickAtButton = true,
   compact: _compact,
+  inputRefProp,
   className = '',
   onKeyDown,
   onBlur,
@@ -176,7 +237,10 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
       <div className="relative flex items-center w-full">
         <input
           {...rest}
-          ref={inputRef}
+          ref={(el) => {
+            inputRef.current = el;
+            inputRefProp?.(el);
+          }}
           type="text"
           value={value ?? ''}
           onChange={(e) => {
@@ -191,6 +255,16 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
             if (det.isOpen) setTrigger(det);
           }}
           onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+              const k = e.key.toLowerCase();
+              if (k === 'b' || k === 'i' || k === 'u') {
+                const marker = k === 'b' ? '**' : k === 'i' ? '*' : '__';
+                if (toggleInlineSelectionWrap(inputRef.current, value, onChange, marker)) {
+                  e.preventDefault();
+                  return;
+                }
+              }
+            }
             if (trigger.isOpen && filteredTags.length > 0) {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -267,6 +341,7 @@ export interface AtMentionTextareaProps
   tokenContext: QuotationTokenContext;
   showInsertBar?: boolean;
   compact?: boolean;
+  textareaRefProp?: (el: HTMLTextAreaElement | null) => void;
 }
 
 export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
@@ -275,6 +350,7 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
   tokenContext,
   showInsertBar = true,
   compact: _compact,
+  textareaRefProp,
   className = '',
   onKeyDown,
   onBlur,
@@ -391,7 +467,10 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
     <div className="relative w-full">
       <textarea
         {...rest}
-        ref={textareaRef}
+        ref={(el) => {
+          textareaRef.current = el;
+          textareaRefProp?.(el);
+        }}
         value={value ?? ''}
         onChange={(e) => {
           const nextVal = e.target.value;
@@ -405,6 +484,16 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
           if (det.isOpen) setTrigger(det);
         }}
         onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+            const k = e.key.toLowerCase();
+            if (k === 'b' || k === 'i' || k === 'u') {
+              const marker = k === 'b' ? '**' : k === 'i' ? '*' : '__';
+              if (toggleInlineSelectionWrap(textareaRef.current, value, onChange, marker)) {
+                e.preventDefault();
+                return;
+              }
+            }
+          }
           if (trigger.isOpen && filteredTags.length > 0) {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
