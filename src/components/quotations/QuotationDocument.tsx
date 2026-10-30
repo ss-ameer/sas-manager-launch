@@ -14,6 +14,8 @@ import {
   QuotationTableFontScale,
   QuotationFontSizeScale,
   QuotationBlockConfig,
+  QuotationBlockPiece,
+  QuotationTextFormatStyle,
   QuotationBlockId,
   StudioSelectedSection,
   QuotationHeaderConfig,
@@ -2900,9 +2902,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  // Partition active layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
+  // Pre-table custom blocks rendered on Sheet 1 between Top Section and Line Items Table
+  const preTableBlocks = React.useMemo(() => {
+    return resolvedBlocks.filter(
+      (b) => b.zone === 'pre_table' && b.enabled !== false && b.is_visible !== false
+    );
+  }, [resolvedBlocks]);
+
+  // Partition active post-table layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
   const paginationWithAnnexes = React.useMemo(() => {
     const activeBlocks = resolvedBlocks.filter((b) => {
+      if (b.zone === 'pre_table') return false;
       if (b.enabled === false || b.is_visible === false) return false;
       if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
@@ -4401,6 +4411,713 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
+    const applyTextFormatStyle = (
+      fmt?: QuotationTextFormatStyle
+    ): { className: string; style: React.CSSProperties } => {
+      if (!fmt) {
+        return { className: 'text-[var(--block-base)] text-slate-800 leading-snug', style: {} };
+      }
+      const cls: string[] = [];
+      const st: React.CSSProperties = {};
+
+      if (fmt.fontSize === 'xs') cls.push('text-[calc(var(--block-base)*0.84)]');
+      else if (fmt.fontSize === 'sm') cls.push('text-[calc(var(--block-base)*0.93)]');
+      else if (fmt.fontSize === 'lg') cls.push('text-[calc(var(--block-base)*1.12)]');
+      else if (fmt.fontSize === 'xl') cls.push('text-[calc(var(--block-base)*1.28)]');
+      else cls.push('text-[var(--block-base)]');
+
+      if (fmt.fontWeight === 'bold') cls.push('font-bold');
+      else if (fmt.fontWeight === 'semibold') cls.push('font-semibold');
+      else if (fmt.fontWeight === 'medium') cls.push('font-medium');
+      else cls.push('font-normal');
+
+      if (fmt.italic) cls.push('italic');
+      if (fmt.underline) cls.push('underline underline-offset-2');
+
+      if (fmt.textAlign === 'center') cls.push('text-center');
+      else if (fmt.textAlign === 'right') cls.push('text-right');
+      else if (fmt.textAlign === 'justify') cls.push('text-justify');
+      else cls.push('text-left');
+
+      if (fmt.textColor === 'muted') {
+        cls.push('text-slate-500');
+      } else if (fmt.textColor === 'accent') {
+        st.color = themePalette.textAccent;
+      } else if (fmt.textColor === 'custom' && fmt.customColorHex) {
+        st.color = fmt.customColorHex;
+      } else {
+        cls.push('text-slate-800');
+      }
+
+      if (fmt.highlightBg === 'SoftYellow') cls.push('bg-amber-100/80 px-1.5 py-0.5 rounded');
+      else if (fmt.highlightBg === 'SoftBlue') cls.push('bg-blue-100/80 px-1.5 py-0.5 rounded');
+      else if (fmt.highlightBg === 'SoftEmerald') cls.push('bg-emerald-100/80 px-1.5 py-0.5 rounded');
+      else if (fmt.highlightBg === 'SoftRose') cls.push('bg-rose-100/80 px-1.5 py-0.5 rounded');
+      else if (fmt.highlightBg === 'ThemeTint') {
+        cls.push('px-1.5 py-0.5 rounded');
+        st.backgroundColor = themePalette.tintBg;
+      }
+
+      if (fmt.lineHeight === 'tight') cls.push('leading-tight');
+      else if (fmt.lineHeight === 'relaxed') cls.push('leading-relaxed');
+      else cls.push('leading-snug');
+
+      if (fmt.letterSpacing === 'wide') cls.push('tracking-wide');
+      else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider');
+
+      return { className: cls.join(' '), style: st };
+    };
+
+    const renderFormattedInlineSegment = (raw: string): React.ReactNode => {
+      if (!raw) return null;
+      // Parse inline **bold**, __underline__, and *italic* while preserving @tag resolution
+      const tokenPattern = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g;
+      const parts = raw.split(tokenPattern);
+      if (parts.length === 1) {
+        return renderResolvedQuotationText(raw, tokenContext);
+      }
+      return parts.map((part, idx) => {
+        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+          return (
+            <strong key={idx} className="font-bold">
+              {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
+            </strong>
+          );
+        }
+        if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
+          return (
+            <span key={idx} className="underline underline-offset-2">
+              {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
+            </span>
+          );
+        }
+        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+          return (
+            <em key={idx} className="italic">
+              {renderResolvedQuotationText(part.slice(1, -1), tokenContext)}
+            </em>
+          );
+        }
+        return <React.Fragment key={idx}>{renderResolvedQuotationText(part, tokenContext)}</React.Fragment>;
+      });
+    };
+
+    const renderOfflineQrCodeSvg = (payload: string, sizePx: number = 72) => {
+      const normalized = (payload || 'QT').trim() || 'QT';
+      const gridSize = 21;
+      const matrix: boolean[][] = Array.from({ length: gridSize }, () =>
+        Array(gridSize).fill(false)
+      );
+      const reserved: boolean[][] = Array.from({ length: gridSize }, () =>
+        Array(gridSize).fill(false)
+      );
+
+      const drawFinder = (r0: number, c0: number) => {
+        for (let r = -1; r <= 7; r++) {
+          for (let c = -1; c <= 7; c++) {
+            const rr = r0 + r;
+            const cc = c0 + c;
+            if (rr >= 0 && rr < gridSize && cc >= 0 && cc < gridSize) {
+              reserved[rr][cc] = true;
+              const inOuter = r >= 0 && r <= 6 && c >= 0 && c <= 6;
+              const onBorder = r === 0 || r === 6 || c === 0 || c === 6;
+              const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+              matrix[rr][cc] = inOuter && (onBorder || inInner);
+            }
+          }
+        }
+      };
+
+      drawFinder(0, 0);
+      drawFinder(0, gridSize - 7);
+      drawFinder(gridSize - 7, 0);
+
+      for (let i = 8; i < gridSize - 8; i++) {
+        reserved[6][i] = true;
+        reserved[i][6] = true;
+        matrix[6][i] = i % 2 === 0;
+        matrix[i][6] = i % 2 === 0;
+      }
+
+      // Deterministic bit stream from UTF-8 payload bytes + FNV-1a Rolling Hash
+      let hash = 2166136261;
+      const bytes: number[] = [];
+      for (let i = 0; i < normalized.length; i++) {
+        const code = normalized.charCodeAt(i) & 0xff;
+        bytes.push(code);
+        hash ^= code;
+        hash = Math.imul(hash, 16777619) >>> 0;
+      }
+      if (bytes.length === 0) bytes.push(81);
+
+      let bitIdx = 0;
+      for (let r = 0; r < gridSize; r++) {
+        for (let c = 0; c < gridSize; c++) {
+          if (reserved[r][c]) continue;
+          const byteVal = bytes[bitIdx % bytes.length];
+          const shift = bitIdx % 8;
+          const bitA = (byteVal >> shift) & 1;
+          const bitB = ((hash >> ((r * 7 + c * 13 + bitIdx) % 24)) & 1);
+          matrix[r][c] = (bitA ^ bitB ^ ((r + c) % 2)) === 1;
+          bitIdx++;
+        }
+      }
+
+      const cells: React.ReactNode[] = [];
+      for (let r = 0; r < gridSize; r++) {
+        for (let c = 0; c < gridSize; c++) {
+          if (matrix[r][c]) {
+            cells.push(<rect key={`${r}_${c}`} x={c + 1} y={r + 1} width={1} height={1} fill="#0f172a" />);
+          }
+        }
+      }
+
+      return (
+        <svg
+          width={sizePx}
+          height={sizePx}
+          viewBox={`0 0 ${gridSize + 2} ${gridSize + 2}`}
+          shapeRendering="crispEdges"
+          className="border border-slate-200 rounded bg-white p-0.5 shrink-0"
+          aria-label={`QR Code: ${normalized}`}
+        >
+          <rect x={0} y={0} width={gridSize + 2} height={gridSize + 2} fill="#ffffff" />
+          {cells}
+        </svg>
+      );
+    };
+
+    const renderCustomPiece = (piece: QuotationBlockPiece): React.ReactNode => {
+      if (!piece || piece.enabled === false) return null;
+      const effectiveStyle = piece.textStyle || piece.style;
+      const fmt = applyTextFormatStyle(effectiveStyle);
+
+      if (piece.type === 'heading') {
+        const headingFmt = applyTextFormatStyle({
+          fontSize: effectiveStyle?.fontSize || 'lg',
+          fontWeight: effectiveStyle?.fontWeight || 'bold',
+          ...effectiveStyle
+        });
+        return (
+          <div
+            key={piece.id}
+            className={`flex items-center gap-1.5 ${
+              piece.showAccentBar !== false ? 'pb-1 border-b border-slate-200/80' : ''
+            } ${headingFmt.className}`}
+            style={headingFmt.style}
+          >
+            {piece.showAccentBar !== false && (
+              <span
+                className="w-1 h-3.5 rounded-full shrink-0"
+                style={{ backgroundColor: themePalette.primaryHex }}
+              />
+            )}
+            <span>{renderFormattedInlineSegment(piece.text || '')}</span>
+          </div>
+        );
+      }
+
+      if (piece.type === 'rich_text') {
+        const paragraphs = String(piece.text || '').split('\n');
+        return (
+          <div key={piece.id} className={`space-y-1 ${fmt.className}`} style={fmt.style}>
+            {paragraphs.map((line, lIdx) =>
+              line.trim() === '' ? (
+                <div key={lIdx} className="h-1.5" />
+              ) : (
+                <p key={lIdx}>{renderFormattedInlineSegment(line)}</p>
+              )
+            )}
+          </div>
+        );
+      }
+
+      if (piece.type === 'list') {
+        const rawList = piece.listItems || piece.items || [];
+        const items = rawList.filter((it) => String(it || '').trim() !== '');
+        if (items.length === 0) return null;
+        const lStyle = piece.listStyle || 'bullet';
+        return (
+          <div key={piece.id} className={`space-y-1 ${fmt.className}`} style={fmt.style}>
+            {items.map((itemText, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                {lStyle === 'checkbox' || lStyle === 'check' ? (
+                  <span
+                    className="font-bold shrink-0"
+                    style={{ color: themePalette.primaryHex }}
+                  >
+                    ✓
+                  </span>
+                ) : lStyle === 'numbered' ? (
+                  <span className="font-mono font-semibold text-slate-500 shrink-0 min-w-[16px]">
+                    {idx + 1}.
+                  </span>
+                ) : lStyle === 'dash' ? (
+                  <span className="font-bold text-slate-400 shrink-0">—</span>
+                ) : (
+                  <span
+                    className="font-bold shrink-0"
+                    style={{ color: themePalette.primaryHex }}
+                  >
+                    •
+                  </span>
+                )}
+                <span className="flex-1">{renderFormattedInlineSegment(itemText)}</span>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      if (piece.type === 'field_rows') {
+        const activeRows = (piece.fieldRows || []).filter((r) => {
+          if (r.enabled === false) return false;
+          const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
+          const isEmptyOrDash = !resolvedVal || resolvedVal === '—';
+          if (r.hideIfEmpty && isEmptyOrDash) return false;
+          return true;
+        });
+        if (activeRows.length === 0) return null;
+        const layout =
+          piece.fieldLayout || (piece.gridColumns === 2 ? 'grid_2col' : 'split');
+        const showDividers = piece.showRowDividers !== false;
+
+        if (layout === 'table_4col') {
+          return (
+            <div key={piece.id} className="grid grid-cols-2 border border-slate-200 rounded overflow-hidden text-[var(--block-base)]">
+              {activeRows.map((r, rIdx) => {
+                const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
+                const displayVal = resolvedVal ? renderFormattedInlineSegment(r.value) : '—';
+                return (
+                  <div
+                    key={r.id || rIdx}
+                    className="grid grid-cols-2 border-b border-r border-slate-200 last:border-b-0"
+                  >
+                    <div className="px-2 py-1 bg-slate-50 font-semibold text-slate-600 truncate">
+                      {renderFormattedInlineSegment(r.label)}
+                    </div>
+                    <div className={`px-2 py-1 bg-white ${r.valueBold ? 'font-bold text-slate-900' : 'text-slate-800'} truncate`}>
+                      {displayVal}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
+        const containerCls =
+          layout === 'grid_2col'
+            ? 'grid grid-cols-2 gap-x-4 gap-y-1'
+            : 'space-y-1';
+
+        return (
+          <div key={piece.id} className={`${containerCls} ${fmt.className}`} style={fmt.style}>
+            {activeRows.map((r, rIdx) => {
+              const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
+              const displayVal = resolvedVal ? renderFormattedInlineSegment(r.value) : '—';
+              return (
+                <div
+                  key={r.id || rIdx}
+                  className={`flex items-baseline ${
+                    layout === 'inline' ? 'justify-start gap-2' : 'justify-between gap-3'
+                  } ${showDividers ? 'border-b border-slate-200/70 pb-1 last:border-b-0' : ''}`}
+                >
+                  <span className="font-semibold text-slate-500 shrink-0">
+                    {renderFormattedInlineSegment(r.label)}
+                    {r.label && !r.label.trim().endsWith(':') ? ':' : ''}
+                  </span>
+                  <span
+                    className={`${layout === 'inline' ? 'text-left' : 'text-right'} ${
+                      r.valueBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'
+                    }`}
+                  >
+                    {displayVal}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      if (piece.type === 'table') {
+        const headers = piece.tableHeaders || ['Milestone / Item', 'Schedule', 'Amount / Notes'];
+        const rows = piece.tableRows || [];
+        const summaryRow = piece.tableSummaryRow;
+        return (
+          <div key={piece.id} className="w-full overflow-hidden rounded border border-slate-200">
+            <table className="w-full border-collapse text-[var(--block-base)]">
+              <thead>
+                <tr
+                  style={{
+                    backgroundColor: themePalette.tintStrongBg,
+                    color: themePalette.textAccent
+                  }}
+                >
+                  {headers.map((h, hIdx) => (
+                    <th
+                      key={hIdx}
+                      className={`px-2.5 py-1.5 font-bold uppercase tracking-wider border-b border-slate-200 ${
+                        hIdx === headers.length - 1 && headers.length > 1 ? 'text-right' : 'text-left'
+                      }`}
+                    >
+                      {renderFormattedInlineSegment(h)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, rIdx) => (
+                  <tr key={rIdx} className="border-b border-slate-100 last:border-b-0 bg-white">
+                    {headers.map((_, cIdx) => (
+                      <td
+                        key={cIdx}
+                        className={`px-2.5 py-1.5 text-slate-800 ${
+                          cIdx === headers.length - 1 && headers.length > 1
+                            ? 'text-right font-mono tabular-nums'
+                            : 'text-left'
+                        }`}
+                      >
+                        {renderFormattedInlineSegment(r[cIdx] || '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {summaryRow && summaryRow.some((cell) => String(cell || '').trim() !== '') && (
+                  <tr
+                    className="font-bold border-t border-slate-300"
+                    style={{ backgroundColor: themePalette.tintBg }}
+                  >
+                    {headers.map((_, cIdx) => (
+                      <td
+                        key={cIdx}
+                        className={`px-2.5 py-1.5 text-slate-900 ${
+                          cIdx === headers.length - 1 && headers.length > 1
+                            ? 'text-right font-mono tabular-nums'
+                            : 'text-left'
+                        }`}
+                      >
+                        {renderFormattedInlineSegment(summaryRow[cIdx] || '')}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+
+      if (piece.type === 'money_summary') {
+        const rows = (piece.moneyRows || []).filter((r) => r.enabled !== false);
+        if (rows.length === 0) return null;
+        return (
+          <div key={piece.id} className="space-y-1 text-[var(--block-base)]">
+            {rows.map((r) => {
+              let liveVal = r.value || '';
+              if (r.rowType === 'subtotal') liveVal = formatCurrency(quotation.subtotal || 0);
+              else if (r.rowType === 'discount') {
+                liveVal = `${Number((quotation as any).discount_percent || 0)}%`;
+              } else if (r.rowType === 'freight') {
+                liveVal = formatCurrency(quotation.freight_amount || 0);
+              } else if (r.rowType === 'tax') {
+                liveVal =
+                  quotation.tax_mode === 'tax_exempt'
+                    ? 'Tax Exempt (0%)'
+                    : formatCurrency(quotation.tax_amount || 0);
+              } else if (r.rowType === 'grand_total') {
+                liveVal = formatCurrency(quotation.grand_total || 0);
+              } else if (r.rowType === 'amount_in_words') {
+                liveVal = amountToWords(Number(quotation.grand_total || 0), currency);
+              } else {
+                liveVal = resolveQuotationTokens(r.value || '', tokenContext);
+              }
+
+              if (r.rowType === 'amount_in_words') {
+                return (
+                  <div
+                    key={r.id}
+                    className="pt-1.5 mt-1 border-t border-slate-200/80 text-[calc(var(--block-base)*0.9)] text-slate-600"
+                  >
+                    <span className="font-semibold text-slate-700">
+                      {renderFormattedInlineSegment(r.label || `Amount in Words (${currency || 'AED'})`)}:{' '}
+                    </span>
+                    <span className="italic">{liveVal}</span>
+                  </div>
+                );
+              }
+
+              const isGrand =
+                r.rowType === 'grand_total' || r.isHighlight || r.isGrandTotal;
+              return (
+                <div
+                  key={r.id}
+                  className={`flex items-center justify-between gap-3 ${
+                    isGrand
+                      ? 'pt-1.5 mt-1 border-t-2 font-extrabold text-[calc(var(--block-base)*1.12)]'
+                      : 'py-0.5 border-b border-slate-100 text-slate-700'
+                  }`}
+                  style={isGrand ? { borderColor: themePalette.primaryHex } : undefined}
+                >
+                  <span className={isGrand ? 'text-slate-900 uppercase tracking-tight' : 'font-medium text-slate-600'}>
+                    {renderFormattedInlineSegment(r.label)}
+                  </span>
+                  <span
+                    className={`font-mono tabular-nums ${isGrand ? 'font-extrabold' : 'font-semibold text-slate-900'}`}
+                    style={isGrand ? { color: themePalette.textAccent } : undefined}
+                  >
+                    {liveVal}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      if (piece.type === 'image') {
+        const src =
+          piece.imageSource === 'company_logo'
+            ? headerBranding.activeLogoUrl
+            : piece.imageSource === 'company_seal'
+            ? resolvedCompanySealUrl
+            : piece.imageSource === 'signature'
+            ? stampSigOverlay.activeSignatureUrl
+            : piece.imageUrl || '';
+        const hPx =
+          piece.imageHeightPx ||
+          (piece.imageHeightMm ? Math.round(piece.imageHeightMm * 3.2) : 64);
+        const alignCls =
+          piece.imageAlign === 'center'
+            ? 'items-center text-center'
+            : piece.imageAlign === 'right'
+            ? 'items-end text-right'
+            : 'items-start text-left';
+
+        return (
+          <div key={piece.id} className={`flex flex-col ${alignCls} gap-1 my-1`}>
+            {src ? (
+              <img
+                src={src}
+                alt={piece.imageCaption || 'Block Visual'}
+                style={{ height: `${hPx}px` }}
+                className="w-auto max-w-full object-contain"
+              />
+            ) : (
+              <div
+                style={{ height: `${hPx}px` }}
+                className="px-4 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[10px] font-mono text-slate-400"
+              >
+                {piece.imageSource === 'company_seal'
+                  ? 'Company Seal Placeholder'
+                  : piece.imageSource === 'signature'
+                  ? 'Signature Placeholder'
+                  : piece.imageSource === 'company_logo'
+                  ? 'Company Logo Placeholder'
+                  : 'Upload Custom Image in Inspector'}
+              </div>
+            )}
+            {piece.imageCaption && (
+              <span className="text-[calc(var(--block-base)*0.86)] text-slate-500 italic">
+                {renderFormattedInlineSegment(piece.imageCaption)}
+              </span>
+            )}
+          </div>
+        );
+      }
+
+      if (piece.type === 'signature_box') {
+        const isDual = piece.signatureLayout === 'dual';
+        const primaryHeader = piece.signerLabel || piece.leftTitle || `For @company_name`;
+        const primaryName = piece.signerName || piece.leftName || '@signatory_name';
+        const primaryRole = piece.signerTitle || piece.leftRole || '@signatory_title';
+        return (
+          <div
+            key={piece.id}
+            className={`grid ${isDual ? 'grid-cols-2 gap-6' : 'grid-cols-1'} pt-2 mt-1 text-[var(--block-base)]`}
+          >
+            <div className="flex flex-col justify-between space-y-3">
+              <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
+                {renderFormattedInlineSegment(primaryHeader)}
+              </div>
+              <div className="min-h-[48px] flex items-center gap-4">
+                {piece.showSignatureImg !== false && stampSigOverlay.activeSignatureUrl && (
+                  <img
+                    src={stampSigOverlay.activeSignatureUrl}
+                    alt="Signature"
+                    className="h-11 w-auto object-contain"
+                  />
+                )}
+                {piece.showSeal !== false && resolvedCompanySealUrl && (
+                  <img
+                    src={resolvedCompanySealUrl}
+                    alt="Company Seal"
+                    className="h-12 w-auto object-contain opacity-90"
+                  />
+                )}
+              </div>
+              <div className="border-t border-slate-300 pt-1">
+                <div className="font-bold text-slate-900">
+                  {renderFormattedInlineSegment(primaryName)}
+                </div>
+                <div className="text-[calc(var(--block-base)*0.88)] text-slate-500">
+                  {renderFormattedInlineSegment(primaryRole)}
+                </div>
+              </div>
+            </div>
+
+            {isDual && (
+              <div className="flex flex-col justify-between space-y-3">
+                <div className="text-[calc(var(--block-base)*0.88)] font-bold uppercase tracking-wider text-slate-500">
+                  {renderFormattedInlineSegment(piece.rightTitle || `Accepted By (@client_name)`)}
+                </div>
+                <div className="min-h-[48px] flex items-end">
+                  <span className="text-[9px] font-mono uppercase tracking-wider text-slate-300">
+                    Signature &amp; Company Stamp
+                  </span>
+                </div>
+                <div className="border-t border-slate-300 pt-1">
+                  <div className="font-bold text-slate-900">
+                    {renderFormattedInlineSegment(piece.rightName || '@contact_person')}
+                  </div>
+                  <div className="text-[calc(var(--block-base)*0.88)] text-slate-500">
+                    {renderFormattedInlineSegment(piece.rightRole || 'Authorized Client Representative')}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (piece.type === 'qr_code') {
+        const resolvedQrText = resolveQuotationTokens(
+          piece.qrValue || '@quote_ref | @company_name | @grand_total',
+          tokenContext
+        );
+        const qrSize =
+          piece.qrSizePx ||
+          (piece.qrSizeMm ? Math.round(piece.qrSizeMm * 3.1) : 68);
+        const qrTitle = piece.qrCaption || piece.qrLabel || 'Document Verification QR';
+        return (
+          <div key={piece.id} className="flex items-center gap-3 py-1">
+            {renderOfflineQrCodeSvg(resolvedQrText, qrSize)}
+            <div className="min-w-0 space-y-0.5">
+              <div className="font-bold text-slate-800 text-[var(--block-base)]">
+                {renderFormattedInlineSegment(qrTitle)}
+              </div>
+              <div className="font-mono text-[calc(var(--block-base)*0.84)] text-slate-500 break-all">
+                {resolvedQrText}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (piece.type === 'divider') {
+        const dStyle = piece.dividerStyle || 'solid';
+        const gapMm = piece.spacerMm ?? piece.spacingMm ?? 3;
+        if (dStyle === 'space_only' || dStyle === 'blank') {
+          return <div key={piece.id} style={{ height: `${gapMm}mm` }} />;
+        }
+        return (
+          <div key={piece.id} style={{ paddingTop: `${gapMm / 2}mm`, paddingBottom: `${gapMm / 2}mm` }}>
+            <hr
+              className={`border-0 border-t ${
+                dStyle === 'dashed'
+                  ? 'border-dashed border-slate-300'
+                  : dStyle === 'double'
+                  ? 'border-double border-t-4 border-slate-300'
+                  : 'border-slate-200'
+              }`}
+            />
+          </div>
+        );
+      }
+
+      if (piece.type === 'columns') {
+        if (Array.isArray(piece.leftPieces) || Array.isArray(piece.rightPieces)) {
+          const ratio = piece.columnRatio || '50_50';
+          const gridCls =
+            ratio === '60_40'
+              ? 'grid-cols-[3fr_2fr]'
+              : ratio === '40_60'
+              ? 'grid-cols-[2fr_3fr]'
+              : 'grid-cols-2';
+          return (
+            <div key={piece.id} className={`grid ${gridCls} gap-3 items-start`}>
+              <div className="space-y-1.5 min-w-0">
+                {(piece.leftPieces || []).map((childPiece) => renderCustomPiece(childPiece))}
+              </div>
+              <div className="space-y-1.5 min-w-0">
+                {(piece.rightPieces || []).map((childPiece) => renderCustomPiece(childPiece))}
+              </div>
+            </div>
+          );
+        }
+        const colCount = piece.columnCount || 2;
+        const cols = piece.columnItems || [];
+        const gridColsCls =
+          colCount === 4
+            ? 'grid-cols-4'
+            : colCount === 3
+            ? 'grid-cols-3'
+            : 'grid-cols-2';
+        return (
+          <div key={piece.id} className={`grid ${gridColsCls} gap-3 items-start`}>
+            {Array.from({ length: colCount }).map((_, cIdx) => (
+              <div key={cIdx} className="space-y-1.5 min-w-0">
+                {(cols[cIdx] || []).map((childPiece) => renderCustomPiece(childPiece))}
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      return null;
+    };
+
+    const renderCustomBlock = (blockConfig: QuotationBlockConfig) => {
+      const pieces = Array.isArray(blockConfig.pieces) ? blockConfig.pieces : [];
+      const activePieces = pieces.filter((p) => p && p.enabled !== false);
+      const hasHeaderTitle =
+        (blockConfig.titleOverride !== undefined && blockConfig.titleOverride.trim() !== '') ||
+        (blockConfig.title !== undefined && blockConfig.title.trim() !== '');
+
+      return (
+        <div
+          className={`custom-block-card ${
+            blockConfig.allowPageSplit ? '' : 'break-inside-avoid page-break-inside-avoid'
+          } w-full flex-1 flex flex-col justify-between space-y-2`}
+          style={
+            blockConfig.allowPageSplit
+              ? undefined
+              : { breakInside: 'avoid', pageBreakInside: 'avoid' }
+          }
+        >
+          <div className="space-y-2 w-full">
+            {hasHeaderTitle &&
+              renderBlockSectionHeader(
+                blockConfig,
+                blockConfig.title || 'Custom Section',
+                FileText,
+                blockConfig.subtitleOverride
+              )}
+            {activePieces.length > 0 ? (
+              <div className="space-y-2">
+                {activePieces.map((piece) => renderCustomPiece(piece))}
+              </div>
+            ) : (
+              <p className="text-slate-400 italic text-[calc(var(--block-base)*0.92)] py-1">
+                Empty custom block — click to add text, rows, tables, or sign-off pieces in the Right Inspector.
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    };
+
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
       if (!hasExplicitLayoutBlocks) {
@@ -4549,7 +5266,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               >
                 {positionedBlocks.map(({ b, gridRowStart, gridColumnStart, gridColumnEnd, placementClass }) => {
                   const baseFontSize = b.fontScale === 'compact' ? '8.5px' : b.fontScale === 'prominent' ? '11.5px' : typoScale.rawBase;
-                  const isMinimalBlock = b.style === 'minimal';
+                  const borderOverride = b.borderStyleOverride || 'inherit';
+                  const isMinimalBlock =
+                    borderOverride === 'minimal' ||
+                    (borderOverride === 'inherit' && b.style === 'minimal');
                   const padClass = isMinimalBlock
                     ? 'pt-1 pb-1 px-0.5'
                     : b.padding === 'compact'
@@ -4558,17 +5278,36 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   const isSelected = activeSelectedSection === b.id;
                   const isInteractive = Boolean(onSelectSection || onSelectBlock);
                   const bType = b.type || b.id;
+                  const isCustomBlock =
+                    bType === 'custom' || (Array.isArray(b.pieces) && b.pieces.length > 0);
                   const isSignatorySlot =
-                    bType === 'signatory' ||
-                    bType === 'signatories' ||
-                    b.id === 'signatory' ||
-                    b.id === 'signatories';
+                    !isCustomBlock &&
+                    (bType === 'signatory' ||
+                      bType === 'signatories' ||
+                      b.id === 'signatory' ||
+                      b.id === 'signatories');
+                  const radiusCls =
+                    (propGlobalCardRadius ||
+                      quotation.globalCardRadius ||
+                      profile?.globalCardRadius ||
+                      resolvedRecipientConfig.globalCardRadius) === 'sharp'
+                      ? 'rounded-none'
+                      : 'rounded-lg';
+
+                  const boxPresentationClass =
+                    borderOverride === 'minimal'
+                      ? 'rounded-none border-0 bg-transparent print:bg-transparent shadow-none'
+                      : borderOverride === 'left_accent'
+                      ? `${radiusCls} border border-slate-200/80 border-l-4 bg-slate-50/40`
+                      : borderOverride === 'tinted'
+                      ? `${radiusCls} border border-slate-200/90`
+                      : isMinimalBlock
+                      ? 'rounded-none border-0 bg-transparent print:bg-transparent shadow-none'
+                      : `${radiusCls} border border-slate-200 bg-slate-50/50`;
 
                   const cardStyleClass = [
                     padClass,
-                    isMinimalBlock
-                      ? 'rounded-none border-0 bg-transparent print:bg-transparent shadow-none'
-                      : `${(propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp' ? 'rounded-none' : 'rounded-lg'} border border-slate-200 bg-slate-50/50`,
+                    boxPresentationClass,
                     'h-full flex flex-col justify-between transition-all duration-150',
                     isSignatorySlot ? 'overflow-visible relative' : '',
                     isInteractive ? 'cursor-pointer' : '',
@@ -4579,35 +5318,49 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       : ''
                   ].filter(Boolean).join(' ');
 
+                  const allowSplit = Boolean(b.allowPageSplit);
+                  const avoidBreakCls = allowSplit
+                    ? 'quotation-block-allow-split'
+                    : 'break-inside-avoid page-break-inside-avoid';
+
                   return (
                     <div
                       key={b.id}
-                      className={`${placementClass} break-inside-avoid page-break-inside-avoid quotation-block-slot ${b.id}-card ${
+                      className={`${placementClass} ${avoidBreakCls} quotation-block-slot ${b.id}-card ${
                         isSignatorySlot ? 'overflow-visible relative' : ''
                       }`}
                       style={{
-                        breakInside: 'avoid',
-                        pageBreakInside: 'avoid',
+                        ...(allowSplit ? {} : { breakInside: 'avoid', pageBreakInside: 'avoid' }),
                         gridRowStart,
                         gridColumnStart,
                         gridColumnEnd
                       }}
                     >
                       <div
-                        className={`${cardStyleClass} break-inside-avoid page-break-inside-avoid`}
+                        className={`${cardStyleClass} ${avoidBreakCls}`}
                         onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
                         style={{
-                          breakInside: 'avoid',
-                          pageBreakInside: 'avoid',
+                          ...(allowSplit ? {} : { breakInside: 'avoid', pageBreakInside: 'avoid' }),
+                          ...(borderOverride === 'left_accent'
+                            ? { borderLeftColor: themePalette.primaryHex }
+                            : borderOverride === 'tinted'
+                            ? { backgroundColor: themePalette.tintBg, borderColor: themePalette.primaryHex }
+                            : {}),
                           ['--block-base' as any]: baseFontSize,
                           fontSize: 'var(--block-base)'
                         }}
                       >
-                        {(bType === 'terms' || b.id === 'terms') && renderTermsBlock(b)}
-                        {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock(b, isMinimalBlock)}
-                        {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock(b)}
-                        {isSignatorySlot && renderSignatoryBlock(b)}
-                        {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b, b.placement)}
+                        {isCustomBlock ? (
+                          renderCustomBlock(b)
+                        ) : (
+                          <>
+                            {(bType === 'terms' || b.id === 'terms') && renderTermsBlock(b)}
+                            {(bType === 'totals' || b.id === 'totals') && renderTotalsBlock(b, isMinimalBlock)}
+                            {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock(b)}
+                            {isSignatorySlot && renderSignatoryBlock(b)}
+                            {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b, b.placement)}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
@@ -6616,8 +7369,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           .totals-card,
           .signatory-card,
           .acceptance-card,
-          .quotation-block-slot,
-          .quotation-block-slot > div {
+          .quotation-block-slot:not(.quotation-block-allow-split),
+          .quotation-block-slot:not(.quotation-block-allow-split) > div {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
           }
@@ -6760,6 +7513,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 {isFirst ? (
                   <>
                     {renderTopSection()}
+                    {preTableBlocks.length > 0 && renderBlocksGrid(preTableBlocks)}
                     {sheet.tableChunk &&
                       renderItemsTable(
                         sheet.tableChunk.items,

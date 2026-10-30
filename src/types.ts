@@ -1235,6 +1235,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   subjectPlacement?: 'above_cards' | 'below_cards';
   pageMode?: QuotationPageMode;
   bank_accounts: DocumentProfileBankAccount[];
+  saved_custom_blocks?: SavedCustomBlockTemplate[];
   is_default?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -1270,7 +1271,134 @@ export type QuotationBlockType =
   | 'signatories'
   | 'acceptance'
   | 'page_break'
-  | 'spacer';
+  | 'spacer'
+  | 'custom';
+
+export type QuotationBlockPieceType =
+  | 'heading'
+  | 'rich_text'
+  | 'list'
+  | 'field_rows'
+  | 'table'
+  | 'money_summary'
+  | 'image'
+  | 'signature_box'
+  | 'qr_code'
+  | 'divider'
+  | 'columns';
+
+export interface QuotationTextFormatStyle {
+  fontSize?: 'xs' | 'sm' | 'base' | 'lg' | 'xl';
+  fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
+  italic?: boolean;
+  underline?: boolean;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  textColor?: 'default' | 'muted' | 'accent' | 'custom';
+  customColorHex?: string;
+  highlightBg?: 'none' | 'SoftYellow' | 'SoftBlue' | 'SoftEmerald' | 'SoftRose' | 'ThemeTint';
+  lineHeight?: 'tight' | 'normal' | 'relaxed';
+  letterSpacing?: 'normal' | 'wide' | 'uppercase_tracked';
+}
+
+export interface QuotationBlockFieldRowItem {
+  id: string;
+  enabled: boolean;
+  label: string;
+  value: string; // Supports @tags
+  hideIfEmpty?: boolean; // Default false per Choice A2
+  valueBold?: boolean;
+}
+
+export interface QuotationBlockPiece {
+  id: string;
+  type: QuotationBlockPieceType;
+  enabled: boolean;
+  textStyle?: QuotationTextFormatStyle;
+  style?: QuotationTextFormatStyle;
+  // Heading / Rich Text
+  text?: string;
+  showAccentBar?: boolean;
+  // List ('bullet' | 'numbered' | 'checkbox' | 'check' | 'dash')
+  listStyle?: 'bullet' | 'numbered' | 'checkbox' | 'check' | 'dash';
+  listItems?: string[];
+  items?: string[];
+  // Key-Value Field Rows
+  fieldLayout?: 'split' | 'inline' | 'grid_2col' | 'table_4col';
+  gridColumns?: 1 | 2;
+  showRowDividers?: boolean;
+  fieldRows?: QuotationBlockFieldRowItem[];
+  labelStyle?: QuotationTextFormatStyle;
+  valueStyle?: QuotationTextFormatStyle;
+  // Mini-Table / Schedule
+  tableHeaders?: string[];
+  tableColAlignments?: Array<'left' | 'center' | 'right'>;
+  tableRows?: string[][];
+  tableSummaryRow?: string[];
+  // Money Summary (Read-only live calculated values)
+  moneyRows?: Array<{
+    id: string;
+    rowType?: 'subtotal' | 'discount' | 'freight' | 'tax' | 'grand_total' | 'amount_in_words' | 'custom';
+    label: string;
+    value?: string;
+    enabled: boolean;
+    isHighlight?: boolean;
+    isGrandTotal?: boolean;
+  }>;
+  // Image / Stamp / Logo
+  imageSource?: 'company_logo' | 'company_seal' | 'signature' | 'custom_upload';
+  imageUrl?: string;
+  imageHeightPx?: number;
+  imageHeightMm?: number;
+  imageAlign?: 'left' | 'center' | 'right';
+  imageCaption?: string;
+  // Signature & Stamp Box
+  signatureLayout?: 'single' | 'dual';
+  leftTitle?: string;
+  leftName?: string;
+  leftRole?: string;
+  rightTitle?: string;
+  rightName?: string;
+  rightRole?: string;
+  signerLabel?: string;
+  signerName?: string;
+  signerTitle?: string;
+  showDateLine?: boolean;
+  showStampPlaceholder?: boolean;
+  showSeal?: boolean;
+  showSignatureImg?: boolean;
+  // QR Code
+  qrValue?: string; // Supports @tags e.g. "@quote_ref - @grand_total"
+  qrSizePx?: number;
+  qrSizeMm?: number;
+  qrLabel?: string;
+  qrCaption?: string;
+  // Divider / Spacer
+  dividerStyle?: 'solid' | 'dashed' | 'double' | 'space_only' | 'blank';
+  spacerMm?: number;
+  spacingMm?: number;
+  // Multi-Column Container (2 to 4 columns)
+  columnCount?: 2 | 3 | 4;
+  columnItems?: QuotationBlockPiece[][];
+  columnRatio?: '50_50' | '60_40' | '40_60';
+  leftPieces?: QuotationBlockPiece[];
+  rightPieces?: QuotationBlockPiece[];
+}
+
+export interface SavedCustomBlockTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  category?: 'cover_intro' | 'technical_scope' | 'commercial_bank' | 'totals_schedule' | 'signoff_handover' | 'custom';
+  visibility: 'private' | 'workspace';
+  created_by_user_id?: string;
+  createdByUserId?: string;
+  created_by_name?: string;
+  createdByName?: string;
+  created_at?: string;
+  createdAt?: string;
+  block_config?: QuotationBlockConfig;
+  blockConfig?: QuotationBlockConfig;
+}
 
 export type QuotationBlockId = QuotationBlockType | string;
 
@@ -1460,6 +1588,11 @@ export interface QuotationBlockConfig {
   customNote?: string;
   acceptanceLayout?: 'row_4col' | 'grid_2x2' | 'compact';
   acceptanceStatementOverride?: string;
+  // Universal Custom Block Engine (Phase 4)
+  zone?: 'pre_table' | 'post_table'; // Default: 'post_table'
+  allowPageSplit?: boolean; // Default: false; true for long cover letters/clauses
+  borderStyleOverride?: 'inherit' | 'framed' | 'tinted' | 'left_accent' | 'minimal';
+  pieces?: QuotationBlockPiece[];
 }
 
 export interface QuotationLayoutSettings {

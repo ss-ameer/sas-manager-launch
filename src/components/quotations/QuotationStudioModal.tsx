@@ -35,7 +35,12 @@ import {
   Attachment,
   EnquiryQuotationSyncPayload,
   Product,
-  QuotationOptionDisplayMode
+  QuotationOptionDisplayMode,
+  QuotationBlockPiece,
+  QuotationBlockPieceType,
+  QuotationTextFormatStyle,
+  QuotationBlockFieldRowItem,
+  SavedCustomBlockTemplate
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
@@ -182,6 +187,14 @@ const getBlockMeta = (block: QuotationBlockConfig): { label: string; desc: strin
       icon: MoveVertical
     };
   }
+  if (blockType === 'custom' || Array.isArray(block.pieces)) {
+    const pieceCount = Array.isArray(block.pieces) ? block.pieces.length : 0;
+    return {
+      label: block.title || 'Custom Block',
+      desc: `${block.zone === 'pre_table' ? 'Above Table' : 'Below Table'} • ${pieceCount} Lego piece${pieceCount === 1 ? '' : 's'}`,
+      icon: Layers
+    };
+  }
   return (
     BLOCK_META[block.id] ||
     BLOCK_META[blockType] || {
@@ -190,6 +203,595 @@ const getBlockMeta = (block: QuotationBlockConfig): { label: string; desc: strin
       icon: Layers
     }
   );
+};
+
+const makeUniqueId = (prefix: string) =>
+  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+const deepClonePiece = (piece: QuotationBlockPiece): QuotationBlockPiece => ({
+  ...piece,
+  id: makeUniqueId('piece'),
+  style: piece.style ? { ...piece.style } : undefined,
+  labelStyle: piece.labelStyle ? { ...piece.labelStyle } : undefined,
+  valueStyle: piece.valueStyle ? { ...piece.valueStyle } : undefined,
+  items: piece.items ? [...piece.items] : undefined,
+  fieldRows: piece.fieldRows
+    ? piece.fieldRows.map((r) => ({ ...r, id: makeUniqueId('frow') }))
+    : undefined,
+  tableHeaders: piece.tableHeaders ? [...piece.tableHeaders] : undefined,
+  tableColAlignments: piece.tableColAlignments ? [...piece.tableColAlignments] : undefined,
+  tableRows: piece.tableRows ? piece.tableRows.map((r) => [...r]) : undefined,
+  moneyRows: piece.moneyRows
+    ? piece.moneyRows.map((r) => ({ ...r, id: makeUniqueId('mrow') }))
+    : undefined,
+  leftPieces: piece.leftPieces ? piece.leftPieces.map(deepClonePiece) : undefined,
+  rightPieces: piece.rightPieces ? piece.rightPieces.map(deepClonePiece) : undefined
+});
+
+const deepCloneCustomBlock = (
+  sourceBlock: QuotationBlockConfig,
+  titleOverride?: string
+): QuotationBlockConfig => ({
+  ...sourceBlock,
+  id: makeUniqueId('custom_block'),
+  type: 'custom',
+  title: titleOverride || sourceBlock.title || 'Custom Block',
+  enabled: true,
+  is_visible: true,
+  zone: sourceBlock.zone || 'post_table',
+  placement: sourceBlock.placement || 'full',
+  style: sourceBlock.style || 'framed',
+  borderStyleOverride: sourceBlock.borderStyleOverride || 'inherit',
+  allowPageSplit: Boolean(sourceBlock.allowPageSplit),
+  pieces: (sourceBlock.pieces || []).map(deepClonePiece)
+});
+
+const createDefaultPiece = (pieceType: QuotationBlockPieceType): QuotationBlockPiece => {
+  const id = makeUniqueId('piece');
+  switch (pieceType) {
+    case 'heading':
+      return {
+        id,
+        type: 'heading',
+        enabled: true,
+        text: 'SECTION HEADING',
+        showAccentBar: true,
+        style: { fontSize: 'sm', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+      };
+    case 'rich_text':
+      return {
+        id,
+        type: 'rich_text',
+        enabled: true,
+        text: 'Prepared for **@client_company** regarding *@subject*. Reference: __@quote_ref__.',
+        style: { fontSize: 'sm', fontWeight: 'normal', lineHeight: 'normal', textAlign: 'left' }
+      };
+    case 'list':
+      return {
+        id,
+        type: 'list',
+        enabled: true,
+        listStyle: 'bullet',
+        items: [
+          'All equipment supplied is brand new and covered by manufacturer warranty.',
+          'Delivery scheduled to @client_address upon receipt of official Purchase Order.',
+          'Validity of this offer is @validity_days days from @quote_date.'
+        ],
+        style: { fontSize: 'sm', lineHeight: 'normal' }
+      };
+    case 'field_rows':
+      return {
+        id,
+        type: 'field_rows',
+        enabled: true,
+        gridColumns: 1,
+        fieldRows: [
+          { id: makeUniqueId('frow'), enabled: true, label: 'Client Entity:', value: '@client_company' },
+          { id: makeUniqueId('frow'), enabled: true, label: 'Attention:', value: '@contact_person' },
+          { id: makeUniqueId('frow'), enabled: true, label: 'Quotation Ref:', value: '@quote_ref' }
+        ],
+        labelStyle: { fontSize: 'xs', fontWeight: 'semibold', textColor: 'muted' },
+        valueStyle: { fontSize: 'xs', fontWeight: 'semibold', textColor: 'default' }
+      };
+    case 'table':
+      return {
+        id,
+        type: 'table',
+        enabled: true,
+        tableHeaders: ['Milestone / Stage', 'Payment %', 'Trigger / Schedule'],
+        tableColAlignments: ['left', 'right', 'left'],
+        tableRows: [
+          ['Advance Downpayment', '50%', 'Against Official PO'],
+          ['Balance Upon Delivery', '50%', 'Prior to Site Dispatch']
+        ],
+        style: { fontSize: 'xs' }
+      };
+    case 'money_summary':
+      return {
+        id,
+        type: 'money_summary',
+        enabled: true,
+        moneyRows: [
+          { id: makeUniqueId('mrow'), enabled: true, label: 'Net Subtotal', value: '@subtotal' },
+          { id: makeUniqueId('mrow'), enabled: true, label: 'VAT (@tax_rate)', value: '@tax_amount' },
+          { id: makeUniqueId('mrow'), enabled: true, label: 'Grand Total Payable', value: '@grand_total', isGrandTotal: true }
+        ],
+        style: { fontSize: 'xs' }
+      };
+    case 'image':
+      return {
+        id,
+        type: 'image',
+        enabled: true,
+        imageUrl: '',
+        imageCaption: 'Authorized Stamp / Certification Asset',
+        imageHeightMm: 22,
+        imageAlign: 'left'
+      };
+    case 'signature_box':
+      return {
+        id,
+        type: 'signature_box',
+        enabled: true,
+        signerLabel: 'Authorized Signatory — @company_name',
+        signerName: '@signatory_name',
+        signerTitle: '@signatory_title',
+        showDateLine: true,
+        showStampPlaceholder: true
+      };
+    case 'qr_code':
+      return {
+        id,
+        type: 'qr_code',
+        enabled: true,
+        qrValue: 'QUOTE:@quote_ref|CLIENT:@client_company|TOTAL:@grand_total',
+        qrCaption: 'Scan to verify @quote_ref',
+        qrSizeMm: 22
+      };
+    case 'divider':
+      return {
+        id,
+        type: 'divider',
+        enabled: true,
+        dividerStyle: 'solid',
+        spacingMm: 2
+      };
+    case 'columns':
+      return {
+        id,
+        type: 'columns',
+        enabled: true,
+        columnRatio: '50_50',
+        leftPieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'LEFT COLUMN',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: 'Prepared by **@prepared_by** for @client_company.',
+            style: { fontSize: 'xs' }
+          }
+        ],
+        rightPieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'RIGHT COLUMN',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'field_rows',
+            enabled: true,
+            gridColumns: 1,
+            fieldRows: [
+              { id: makeUniqueId('frow'), enabled: true, label: 'Quote Ref:', value: '@quote_ref' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Valid Until:', value: '@valid_until' }
+            ]
+          }
+        ]
+      };
+  }
+};
+
+const createCustomBlockFromPreset = (
+  presetKey: string,
+  defaultZone: 'pre_table' | 'post_table' = 'post_table'
+): QuotationBlockConfig => {
+  const id = makeUniqueId('custom_block');
+  switch (presetKey) {
+    case 'blank_rich_text':
+      return {
+        id,
+        type: 'custom',
+        title: 'Executive Introduction / Scope Note',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'full',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'EXECUTIVE SUMMARY & SCOPE OF SUPPLY',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: 'Dear **@contact_person**, we are pleased to submit our commercial and technical proposal **@quote_ref** for **@client_company** regarding *@subject*.',
+            style: { fontSize: 'sm', lineHeight: 'relaxed' }
+          }
+        ]
+      };
+    case 'key_value_grid':
+      return {
+        id,
+        type: 'custom',
+        title: 'Project & Delivery Metadata',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'full',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'PROJECT & DISPATCH SPECIFICATIONS',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'field_rows',
+            enabled: true,
+            gridColumns: 2,
+            fieldRows: [
+              { id: makeUniqueId('frow'), enabled: true, label: 'Client Company:', value: '@client_company' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Quotation Ref:', value: '@quote_ref' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Delivery Site:', value: '@client_address' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Lead Time:', value: '@lead_time' }
+            ]
+          }
+        ]
+      };
+    case 'bullet_checklist':
+      return {
+        id,
+        type: 'custom',
+        title: 'Technical Compliance & Checklist',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'full',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'SCOPE INCLUSIONS & COMPLIANCE CHECKLIST',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'list',
+            enabled: true,
+            listStyle: 'check',
+            items: [
+              'Factory test certificate & compliance documentation included.',
+              '12-month standard manufacturer warranty from date of delivery.',
+              'Packing suitable for site handling at @client_address.'
+            ],
+            style: { fontSize: 'xs', lineHeight: 'relaxed' }
+          }
+        ]
+      };
+    case 'mini_spec_table':
+      return {
+        id,
+        type: 'custom',
+        title: 'Payment Milestone Schedule',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'full',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'PAYMENT MILESTONE SCHEDULE',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'table',
+            enabled: true,
+            tableHeaders: ['Stage', 'Allocation', 'Condition / Milestone'],
+            tableColAlignments: ['left', 'right', 'left'],
+            tableRows: [
+              ['Milestone 1 — Advance', '40%', 'Upon PO Issuance & Order Confirmation'],
+              ['Milestone 2 — Dispatch', '50%', 'Upon Readiness for Site Delivery'],
+              ['Milestone 3 — Handover', '10%', 'Upon Final Site Acceptance']
+            ],
+            style: { fontSize: 'xs' }
+          }
+        ]
+      };
+    case 'two_column_split':
+      return {
+        id,
+        type: 'custom',
+        title: 'Two-Column Commercial Split',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'full',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [createDefaultPiece('columns')]
+      };
+    case 'visual_qr_banner':
+      return {
+        id,
+        type: 'custom',
+        title: 'Digital Verification & QR Code Box',
+        enabled: true,
+        is_visible: true,
+        zone: defaultZone,
+        placement: 'right',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'DIGITAL QUOTE VERIFICATION',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          createDefaultPiece('qr_code')
+        ]
+      };
+    case 'clone_terms':
+      return {
+        id,
+        type: 'custom',
+        title: 'Commercial Terms (Custom)',
+        enabled: true,
+        is_visible: true,
+        zone: 'post_table',
+        placement: 'left',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'COMMERCIAL TERMS & CONDITIONS',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'field_rows',
+            enabled: true,
+            gridColumns: 1,
+            fieldRows: [
+              { id: makeUniqueId('frow'), enabled: true, label: 'Price Basis:', value: '@price_basis' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Payment Terms:', value: '@payment_terms' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Offer Validity:', value: '@validity_days Days (Until @valid_until)' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Lead Time:', value: '@lead_time' }
+            ]
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'divider',
+            enabled: true,
+            dividerStyle: 'dashed',
+            spacingMm: 1.5
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: 'All prices are quoted in **@currency** and remain subject to prior sale until firm Purchase Order receipt.',
+            style: { fontSize: 'xs', textColor: 'muted' }
+          }
+        ]
+      };
+    case 'clone_remittance':
+      return {
+        id,
+        type: 'custom',
+        title: 'Bank Remittance Instructions (Custom)',
+        enabled: true,
+        is_visible: true,
+        zone: 'post_table',
+        placement: 'left',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'BANK REMITTANCE INSTRUCTIONS',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'field_rows',
+            enabled: true,
+            gridColumns: 1,
+            fieldRows: [
+              { id: makeUniqueId('frow'), enabled: true, label: 'Bank Name:', value: '@bank_name' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Beneficiary:', value: '@beneficiary' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Account No:', value: '@account_number' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'IBAN:', value: '@iban' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'SWIFT / BIC:', value: '@swift' },
+              { id: makeUniqueId('frow'), enabled: true, label: 'Branch:', value: '@branch' }
+            ]
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: 'Please quote reference **@quote_ref** on all wire transfers.',
+            style: { fontSize: 'xs', italic: true, textColor: 'muted' }
+          }
+        ]
+      };
+    case 'clone_totals':
+      return {
+        id,
+        type: 'custom',
+        title: 'Financial Summary (Custom)',
+        enabled: true,
+        is_visible: true,
+        zone: 'post_table',
+        placement: 'right',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'FINANCIAL SUMMARY',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'money_summary',
+            enabled: true,
+            moneyRows: [
+              { id: makeUniqueId('mrow'), enabled: true, label: 'Net Items Subtotal', value: '@subtotal' },
+              { id: makeUniqueId('mrow'), enabled: true, label: 'Freight & Handling', value: '@freight' },
+              { id: makeUniqueId('mrow'), enabled: true, label: 'VAT (@tax_rate)', value: '@tax_amount' },
+              { id: makeUniqueId('mrow'), enabled: true, label: 'Grand Total Payable', value: '@grand_total', isGrandTotal: true }
+            ]
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: '**Amount in Words:** @amount_in_words',
+            style: { fontSize: 'xs', highlightBg: 'ThemeTint' }
+          }
+        ]
+      };
+    case 'clone_acceptance':
+      return {
+        id,
+        type: 'custom',
+        title: 'Customer Acceptance (Custom)',
+        enabled: true,
+        is_visible: true,
+        zone: 'post_table',
+        placement: 'left',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'CUSTOMER ACCEPTANCE & SIGN-BACK',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'rich_text',
+            enabled: true,
+            text: 'We hereby confirm acceptance of Quotation **@quote_ref** totaling **@grand_total** in accordance with the stated commercial terms.',
+            style: { fontSize: 'xs' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'signature_box',
+            enabled: true,
+            signerLabel: 'For & On Behalf of @client_company',
+            signerName: '@contact_person',
+            signerTitle: 'Authorized Client Representative',
+            showDateLine: true,
+            showStampPlaceholder: true
+          }
+        ]
+      };
+    case 'clone_signatory':
+    default:
+      return {
+        id,
+        type: 'custom',
+        title: 'Authorized Signatory & Seal (Custom)',
+        enabled: true,
+        is_visible: true,
+        zone: 'post_table',
+        placement: 'right',
+        style: 'framed',
+        borderStyleOverride: 'inherit',
+        allowPageSplit: false,
+        pieces: [
+          {
+            id: makeUniqueId('piece'),
+            type: 'heading',
+            enabled: true,
+            text: 'FOR @company_name',
+            showAccentBar: true,
+            style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked', textColor: 'accent' }
+          },
+          {
+            id: makeUniqueId('piece'),
+            type: 'signature_box',
+            enabled: true,
+            signerLabel: 'Authorized Commercial Signatory',
+            signerName: '@signatory_name',
+            signerTitle: '@signatory_title',
+            showDateLine: true,
+            showStampPlaceholder: true
+          }
+        ]
+      };
+  }
 };
 
 const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
@@ -619,6 +1221,252 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     setLayoutBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, ...patch } : b))
     );
+  };
+
+  // Universal Custom Block Engine & "My Saved Blocks" Library State
+  const [showAddBlockPicker, setShowAddBlockPicker] = useState<boolean>(false);
+  const [addBlockPickerTab, setAddBlockPickerTab] = useState<'layouts' | 'clones' | 'saved'>('layouts');
+  const [newBlockTargetZone, setNewBlockTargetZone] = useState<'pre_table' | 'post_table'>('post_table');
+  const [savedCustomBlocks, setSavedCustomBlocks] = useState<SavedCustomBlockTemplate[]>(() => {
+    const fromProfile = profile?.saved_custom_blocks || [];
+    try {
+      const rawLocal = localStorage.getItem('crm_saved_custom_blocks_v1');
+      if (rawLocal) {
+        const parsed = JSON.parse(rawLocal);
+        if (Array.isArray(parsed)) {
+          const mergedMap = new Map<string, SavedCustomBlockTemplate>();
+          [...fromProfile, ...parsed].forEach((item) => {
+            if (item && item.id) mergedMap.set(item.id, item);
+          });
+          return Array.from(mergedMap.values());
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return fromProfile;
+  });
+  const [saveToLibraryBlockId, setSaveToLibraryBlockId] = useState<string | null>(null);
+  const [saveLibraryTitle, setSaveLibraryTitle] = useState<string>('');
+  const [saveLibraryVisibility, setSaveLibraryVisibility] = useState<'private' | 'workspace'>('workspace');
+
+  const handleInsertCustomBlockFromPreset = (
+    presetKey: string,
+    zoneOverride?: 'pre_table' | 'post_table'
+  ) => {
+    const targetZone = zoneOverride || newBlockTargetZone;
+    const newBlock = createCustomBlockFromPreset(presetKey, targetZone);
+    setLayoutBlocks((prev) => [...prev, newBlock]);
+    setSelectedSection(newBlock.id);
+    setShowAddBlockPicker(false);
+    triggerToast?.(`Added "${newBlock.title}" (${targetZone === 'pre_table' ? 'Above Table' : 'Below Table'})`, 'success');
+  };
+
+  const handleInsertSavedCustomBlock = (
+    template: SavedCustomBlockTemplate,
+    zoneOverride?: 'pre_table' | 'post_table'
+  ) => {
+    const rawConfig =
+      template.blockConfig ||
+      template.block_config ||
+      createCustomBlockFromPreset('blank_rich_text');
+    const cloned = deepCloneCustomBlock(rawConfig, template.name);
+    if (zoneOverride) {
+      cloned.zone = zoneOverride;
+    }
+    setLayoutBlocks((prev) => [...prev, cloned]);
+    setSelectedSection(cloned.id);
+    setShowAddBlockPicker(false);
+    triggerToast?.(`Inserted copy of "${template.name}" into quotation`, 'success');
+  };
+
+  const handleConvertLegacyBlockToCustom = (legacyBlock: QuotationBlockConfig) => {
+    const cloneMap: Record<string, string> = {
+      terms: 'clone_terms',
+      remittance: 'clone_remittance',
+      totals: 'clone_totals',
+      acceptance: 'clone_acceptance',
+      signatory: 'clone_signatory',
+      signatories: 'clone_signatory'
+    };
+    const presetKey = cloneMap[legacyBlock.id] || 'blank_rich_text';
+    const customClone = createCustomBlockFromPreset(presetKey, legacyBlock.zone || 'post_table');
+    customClone.placement = legacyBlock.placement || customClone.placement;
+    customClone.style = legacyBlock.style || customClone.style;
+    customClone.fontScale = legacyBlock.fontScale || 'standard';
+    customClone.padding = legacyBlock.padding || 'standard';
+
+    setLayoutBlocks((prev) => {
+      const idx = prev.findIndex((b) => b.id === legacyBlock.id);
+      const next = prev.map((b) =>
+        b.id === legacyBlock.id ? { ...b, enabled: false, is_visible: false } : b
+      );
+      if (idx !== -1) {
+        next.splice(idx + 1, 0, customClone);
+      } else {
+        next.push(customClone);
+      }
+      return next;
+    });
+    if (legacyBlock.id === 'terms') setShowCommercialTerms(false);
+    if (legacyBlock.id === 'remittance') setShowBankDetails(false);
+    if (legacyBlock.id === 'acceptance') setCustomerAcceptanceEnabled(false);
+    setSelectedSection(customClone.id);
+    triggerToast?.(
+      `Converted "${getBlockMeta(legacyBlock).label}" into an editable Custom Block (original hidden)`,
+      'success'
+    );
+  };
+
+  const persistSavedCustomBlocksList = async (nextList: SavedCustomBlockTemplate[]) => {
+    setSavedCustomBlocks(nextList);
+    try {
+      localStorage.setItem('crm_saved_custom_blocks_v1', JSON.stringify(nextList));
+    } catch {
+      // ignore
+    }
+    const baseProf = workspaceProfile || profile;
+    if (baseProf && activeWorkspaceId) {
+      try {
+        const savedProf = await QuotationRepository.saveWorkspaceDocumentProfile({
+          ...baseProf,
+          workspace_id: activeWorkspaceId,
+          saved_custom_blocks: nextList,
+          updated_at: new Date().toISOString()
+        });
+        setWorkspaceProfile(savedProf);
+      } catch (err) {
+        console.warn('[QuotationStudioModal] Could not persist saved_custom_blocks to profile:', err);
+      }
+    }
+  };
+
+  const handleSaveBlockToLibrary = async (block: QuotationBlockConfig) => {
+    const cleanName = (saveLibraryTitle || block.title || 'Saved Custom Block').trim();
+    const clonedConfig = deepCloneCustomBlock(block, cleanName);
+    const uid = user?.id || user?.email || 'current_user';
+    const uname = user?.displayName || user?.name || user?.email || 'User';
+    const nowIso = new Date().toISOString();
+    const newTemplate: SavedCustomBlockTemplate = {
+      id: makeUniqueId('saved_blk'),
+      name: cleanName,
+      description: `${(block.pieces || []).length} piece${(block.pieces || []).length === 1 ? '' : 's'} • ${
+        block.zone === 'pre_table' ? 'Above Table' : 'Below Table'
+      }`,
+      category: 'custom',
+      visibility: saveLibraryVisibility,
+      created_by_user_id: uid,
+      createdByUserId: uid,
+      created_by_name: uname,
+      createdByName: uname,
+      created_at: nowIso,
+      createdAt: nowIso,
+      block_config: clonedConfig,
+      blockConfig: clonedConfig
+    };
+    const nextList = [newTemplate, ...savedCustomBlocks];
+    await persistSavedCustomBlocksList(nextList);
+    setSaveToLibraryBlockId(null);
+    setSaveLibraryTitle('');
+    triggerToast?.(
+      `Saved "${cleanName}" to My Blocks (${
+        saveLibraryVisibility === 'workspace' ? 'Shared with Workspace' : 'Private'
+      })`,
+      'success'
+    );
+  };
+
+  const handleDeleteSavedBlockTemplate = async (templateId: string) => {
+    const nextList = savedCustomBlocks.filter((t) => t.id !== templateId);
+    await persistSavedCustomBlocksList(nextList);
+    triggerToast?.('Removed block template from My Saved Blocks', 'info');
+  };
+
+  const handleAddPieceToBlock = (blockId: string, pieceType: QuotationBlockPieceType) => {
+    const newPiece = createDefaultPiece(pieceType);
+    setLayoutBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId ? { ...b, pieces: [...(b.pieces || []), newPiece] } : b
+      )
+    );
+  };
+
+  const handleUpdatePieceInBlock = (
+    blockId: string,
+    pieceId: string,
+    updater: (piece: QuotationBlockPiece) => QuotationBlockPiece
+  ) => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        return {
+          ...b,
+          pieces: (b.pieces || []).map((p) => (p.id === pieceId ? updater(p) : p))
+        };
+      })
+    );
+  };
+
+  const handleMovePieceInBlock = (blockId: string, index: number, direction: 'up' | 'down') => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        const list = [...(b.pieces || [])];
+        const targetIdx = direction === 'up' ? index - 1 : index + 1;
+        if (targetIdx < 0 || targetIdx >= list.length) return b;
+        const [moved] = list.splice(index, 1);
+        list.splice(targetIdx, 0, moved);
+        return { ...b, pieces: list };
+      })
+    );
+  };
+
+  const handleDuplicatePieceInBlock = (blockId: string, index: number) => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        const list = [...(b.pieces || [])];
+        const source = list[index];
+        if (!source) return b;
+        const clone = deepClonePiece(source);
+        list.splice(index + 1, 0, clone);
+        return { ...b, pieces: list };
+      })
+    );
+  };
+
+  const handleDeletePieceFromBlock = (blockId: string, pieceId: string) => {
+    setLayoutBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId
+          ? { ...b, pieces: (b.pieces || []).filter((p) => p.id !== pieceId) }
+          : b
+      )
+    );
+  };
+
+  const handleUploadCustomPieceImage = async (
+    blockId: string,
+    pieceId: string,
+    file?: File
+  ) => {
+    if (!file) return;
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'branding/custom_blocks', activeWorkspace, {
+        maxWidth: 900,
+        maxHeight: 600,
+        quality: 0.85,
+        preserveTransparency: true
+      });
+      if (uploaded.url) {
+        handleUpdatePieceInBlock(blockId, pieceId, (p) => ({
+          ...p,
+          imageUrl: uploaded.url
+        }));
+      }
+    } catch (err) {
+      console.warn('[QuotationStudioModal] Custom piece image upload failed:', err);
+    }
   };
 
   const handleSetGlobalBlockStyle = (style: 'framed' | 'minimal') => {
@@ -1611,6 +2459,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   ...loaded.footer_config
                 }));
               }
+            }
+            if (Array.isArray(loaded.saved_custom_blocks) && loaded.saved_custom_blocks.length > 0) {
+              setSavedCustomBlocks((prev) => {
+                const merged = new Map<string, SavedCustomBlockTemplate>();
+                [...loaded.saved_custom_blocks!, ...prev].forEach((item) => {
+                  if (item && item.id) merged.set(item.id, item);
+                });
+                return Array.from(merged.values());
+              });
             }
           }
         })
@@ -3530,6 +4387,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ...(resolvedSigUrl ? { signatureImageUrl: resolvedSigUrl } : {})
         },
         layout_blocks: layoutBlocks,
+        saved_custom_blocks: savedCustomBlocks,
         visible_columns: {
           ...visibleColumns,
           unit_price: visibleColumns.showUnitPrice !== false,
@@ -4630,7 +5488,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               : block.id.startsWith('spacer_')
                               ? 'spacer'
                               : block.id);
-                          const isRemovable = blockType === 'page_break' || blockType === 'spacer';
+                          const isRemovable =
+                            blockType === 'page_break' ||
+                            blockType === 'spacer' ||
+                            blockType === 'custom' ||
+                            Array.isArray(block.pieces);
+                          const isCustomLego =
+                            blockType === 'custom' || Array.isArray(block.pieces);
 
                           return (
                             <div
@@ -4643,6 +5507,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200'
                                     : blockType === 'spacer'
                                     ? 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200 border-dashed'
+                                    : isCustomLego
+                                    ? 'bg-indigo-50/35 hover:bg-indigo-50/70 border-indigo-200'
                                     : 'bg-white hover:bg-slate-50/80 border-slate-200'
                                   : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                               }`}
@@ -4681,11 +5547,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
                                   onClick={() => handleInspectBlock(block.id)}
                                 >
-                                  <Icon className={`w-3.5 h-3.5 shrink-0 ${blockType === 'page_break' ? 'text-amber-600' : 'text-slate-500'}`} />
+                                  <Icon
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      blockType === 'page_break'
+                                        ? 'text-amber-600'
+                                        : isCustomLego
+                                        ? 'text-indigo-600'
+                                        : 'text-slate-500'
+                                    }`}
+                                  />
                                   <div className="min-w-0">
-                                    <p className="font-semibold text-slate-800 text-xs truncate">
-                                      {meta.label}
-                                    </p>
+                                    <div className="flex items-center gap-1">
+                                      <p className="font-semibold text-slate-800 text-xs truncate">
+                                        {meta.label}
+                                      </p>
+                                      {isCustomLego && (
+                                        <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
+                                          LEGO
+                                        </span>
+                                      )}
+                                    </div>
                                     <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
                                       {blockType === 'page_break' ? (
                                         <>
@@ -4701,9 +5582,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         </>
                                       ) : (
                                         <>
-                                          <span className="capitalize">{block.placement || 'full'}</span>
+                                          <span
+                                            className={`font-semibold ${
+                                              block.zone === 'pre_table' ? 'text-indigo-600' : 'text-slate-500'
+                                            }`}
+                                          >
+                                            {block.zone === 'pre_table' ? '⬆️ Above Table' : '⬇️ Below Table'}
+                                          </span>
                                           <span>•</span>
-                                          <span className="capitalize">{block.style || 'framed'}</span>
+                                          <span className="capitalize">{block.placement || 'full'}</span>
+                                          {isCustomLego && (
+                                            <>
+                                              <span>•</span>
+                                              <span>{(block.pieces || []).length} pcs</span>
+                                            </>
+                                          )}
                                         </>
                                       )}
                                     </div>
@@ -4740,8 +5633,263 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         })}
                       </div>
 
+                      {/* Universal + Add Custom / Library Block Picker */}
+                      <div className="pt-1.5 space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddBlockPicker((prev) => !prev)}
+                          className="w-full py-2 px-3 rounded-xl border border-indigo-300 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-900 font-bold text-xs flex items-center justify-between transition cursor-pointer shadow-2xs"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>+ Add Custom / Library Block</span>
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-200/70 text-indigo-800">
+                            11 Lego Pieces • My Blocks
+                          </span>
+                        </button>
+
+                        {showAddBlockPicker && (
+                          <div className="p-2.5 rounded-xl border border-indigo-200 bg-white shadow-sm space-y-2.5">
+                            {/* Target Zone Bar */}
+                            <div className="flex items-center justify-between gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+                              <span className="text-[10px] font-semibold text-slate-600 pl-1">
+                                Insert Zone:
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setNewBlockTargetZone('pre_table')}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                    newBlockTargetZone === 'pre_table'
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-white text-slate-600 border border-slate-200'
+                                  }`}
+                                >
+                                  ⬆️ Above Items Table
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setNewBlockTargetZone('post_table')}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                    newBlockTargetZone === 'post_table'
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-white text-slate-600 border border-slate-200'
+                                  }`}
+                                >
+                                  ⬇️ Below Items Table
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 3-Tab Selector */}
+                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg text-[10px] font-semibold">
+                              <button
+                                type="button"
+                                onClick={() => setAddBlockPickerTab('layouts')}
+                                className={`py-1 px-1.5 rounded transition cursor-pointer ${
+                                  addBlockPickerTab === 'layouts'
+                                    ? 'bg-white text-indigo-700 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                1. Blank &amp; Layouts
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAddBlockPickerTab('clones')}
+                                className={`py-1 px-1.5 rounded transition cursor-pointer ${
+                                  addBlockPickerTab === 'clones'
+                                    ? 'bg-white text-indigo-700 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                2. Built-In Clones
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAddBlockPickerTab('saved')}
+                                className={`py-1 px-1.5 rounded transition cursor-pointer ${
+                                  addBlockPickerTab === 'saved'
+                                    ? 'bg-white text-indigo-700 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                3. My Blocks ({savedCustomBlocks.length})
+                              </button>
+                            </div>
+
+                            {addBlockPickerTab === 'layouts' && (
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {[
+                                  {
+                                    key: 'blank_rich_text',
+                                    title: 'Blank Rich Text Card',
+                                    desc: 'Heading + formatted paragraph with @tags'
+                                  },
+                                  {
+                                    key: 'key_value_grid',
+                                    title: 'Key-Value Info Box',
+                                    desc: '2-column label/value rows with @tags'
+                                  },
+                                  {
+                                    key: 'bullet_checklist',
+                                    title: 'Checklist / Bullet Card',
+                                    desc: 'Checkmarks, numbered or bulleted points'
+                                  },
+                                  {
+                                    key: 'mini_spec_table',
+                                    title: 'Mini Schedule / Table',
+                                    desc: 'Payment milestones or spec schedule'
+                                  },
+                                  {
+                                    key: 'two_column_split',
+                                    title: '2-Column Split Card',
+                                    desc: 'Side-by-side left & right Lego pieces'
+                                  },
+                                  {
+                                    key: 'visual_qr_banner',
+                                    title: 'QR & Verification Box',
+                                    desc: 'Offline scannable SVG QR code + caption'
+                                  }
+                                ].map((item) => (
+                                  <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => handleInsertCustomBlockFromPreset(item.key)}
+                                    className="p-2 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-left transition cursor-pointer"
+                                  >
+                                    <p className="font-bold text-[11px] text-slate-800">{item.title}</p>
+                                    <p className="text-[9.5px] text-slate-500 mt-0.5 leading-tight">{item.desc}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {addBlockPickerTab === 'clones' && (
+                              <div className="space-y-1.5">
+                                <p className="text-[10px] text-slate-500">
+                                  Insert a 100% unlocked Lego clone of any built-in block to customize its rows, text styles, or layout freely:
+                                </p>
+                                <div className="grid grid-cols-1 gap-1.5">
+                                  {[
+                                    {
+                                      key: 'clone_terms',
+                                      title: 'Commercial Terms Clone',
+                                      desc: 'Heading + @price_basis, @payment_terms, @validity_days + rich notes'
+                                    },
+                                    {
+                                      key: 'clone_remittance',
+                                      title: 'Bank Remittance Clone',
+                                      desc: 'Heading + @bank_name, @beneficiary, @iban, @swift + wire note'
+                                    },
+                                    {
+                                      key: 'clone_totals',
+                                      title: 'Financial Summary Clone',
+                                      desc: 'Heading + @subtotal, @freight, @tax_amount, @grand_total + @amount_in_words'
+                                    },
+                                    {
+                                      key: 'clone_acceptance',
+                                      title: 'Customer Acceptance Clone',
+                                      desc: 'Heading + confirmation text + client sign-back & stamp box'
+                                    },
+                                    {
+                                      key: 'clone_signatory',
+                                      title: 'Authorized Signatory Clone',
+                                      desc: 'Heading + @signatory_name, @signatory_title + seal & signature box'
+                                    }
+                                  ].map((item) => (
+                                    <button
+                                      key={item.key}
+                                      type="button"
+                                      onClick={() => handleInsertCustomBlockFromPreset(item.key)}
+                                      className="p-2 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-left transition flex items-center justify-between gap-2 cursor-pointer"
+                                    >
+                                      <div>
+                                        <p className="font-bold text-[11px] text-slate-800">{item.title}</p>
+                                        <p className="text-[9.5px] text-slate-500">{item.desc}</p>
+                                      </div>
+                                      <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 font-semibold text-[10px] shrink-0">
+                                        + Insert
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {addBlockPickerTab === 'saved' && (
+                              <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                                {savedCustomBlocks.filter(
+                                  (t) =>
+                                    t.visibility === 'workspace' ||
+                                    (t.createdByUserId || t.created_by_user_id) ===
+                                      (user?.id || user?.email || 'current_user')
+                                ).length === 0 ? (
+                                  <div className="p-3 rounded-lg bg-slate-50 border border-dashed border-slate-200 text-center text-[10.5px] text-slate-500">
+                                    No saved custom blocks yet. Open any Custom Block in the Right Inspector and click <strong>💾 Save to My Blocks</strong>!
+                                  </div>
+                                ) : (
+                                  savedCustomBlocks
+                                    .filter(
+                                      (t) =>
+                                        t.visibility === 'workspace' ||
+                                        (t.createdByUserId || t.created_by_user_id) ===
+                                          (user?.id || user?.email || 'current_user')
+                                    )
+                                    .map((tmpl) => (
+                                      <div
+                                        key={tmpl.id}
+                                        className="p-2 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between gap-2"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5">
+                                            <p className="font-bold text-[11px] text-slate-800 truncate">
+                                              {tmpl.name}
+                                            </p>
+                                            <span
+                                              className={`px-1.5 py-0.2 rounded text-[8.5px] font-semibold ${
+                                                tmpl.visibility === 'workspace'
+                                                  ? 'bg-emerald-100 text-emerald-800'
+                                                  : 'bg-amber-100 text-amber-800'
+                                              }`}
+                                            >
+                                              {tmpl.visibility === 'workspace' ? '🌐 Workspace' : '🔒 Private'}
+                                            </span>
+                                          </div>
+                                          <p className="text-[9.5px] text-slate-500 truncate">
+                                            {tmpl.description ||
+                                              `${((tmpl.blockConfig || tmpl.block_config)?.pieces || []).length} pieces`}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleInsertSavedCustomBlock(tmpl)}
+                                            className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[10px] cursor-pointer"
+                                          >
+                                            Insert Copy
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteSavedBlockTemplate(tmpl.id)}
+                                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                                            title="Delete saved block from library"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Bottom Action Buttons: + Insert Page Break & + Insert Vertical Spacer */}
-                      <div className="grid grid-cols-2 gap-2 pt-1.5">
+                      <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
                           onClick={handleAddPageBreak}
@@ -9933,9 +11081,72 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* STANDARD BLOCK CONTROLS */}
+                      {/* STANDARD & CUSTOM LEGO BLOCK CONTROLS */}
                       {selectedBlockType !== 'page_break' && selectedBlockType !== 'spacer' && (
                         <>
+                          {/* Convert Built-In Legacy Block to Full Custom Block Button */}
+                          {['terms', 'remittance', 'totals', 'acceptance', 'signatory', 'signatories'].includes(
+                            selectedBlock.id
+                          ) &&
+                            selectedBlockType !== 'custom' &&
+                            !Array.isArray(selectedBlock.pieces) && (
+                              <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-bold text-indigo-950">
+                                    Want 100% Lego Customization?
+                                  </p>
+                                  <p className="text-[9.5px] text-indigo-700 leading-tight">
+                                    Hides this legacy block &amp; inserts an editable Custom Block clone in its place.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleConvertLegacyBlockToCustom(selectedBlock)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] shrink-0 transition cursor-pointer shadow-2xs"
+                                >
+                                  ✨ Convert to Custom
+                                </button>
+                              </div>
+                            )}
+
+                          {/* Position Zone (Above Items Table vs Below Items Table) */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                              <span className="text-slate-500 font-medium">Document Position Zone</span>
+                              <span className="font-mono text-indigo-600 font-semibold">
+                                {selectedBlock.zone === 'pre_table' ? '⬆️ Above Table' : '⬇️ Below Table'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateBlockConfig(selectedBlock.id, { zone: 'pre_table' })
+                                }
+                                className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
+                                  selectedBlock.zone === 'pre_table'
+                                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                                    : 'hover:bg-white text-slate-600'
+                                }`}
+                              >
+                                ⬆️ Above Items Table
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateBlockConfig(selectedBlock.id, { zone: 'post_table' })
+                                }
+                                className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
+                                  selectedBlock.zone !== 'pre_table'
+                                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                                    : 'hover:bg-white text-slate-600'
+                                }`}
+                              >
+                                ⬇️ Below Items Table
+                              </button>
+                            </div>
+                          </div>
+
                           {/* 3. Placement Selector: 3-Way Segmented Control */}
                           <div>
                             <div className="flex items-center justify-between mb-1.5 text-[11px]">
@@ -12500,6 +13711,1265 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
                             </div>
                           )}
+
+                          {/* UNIVERSAL CUSTOM LEGO BLOCK & PIECE EDITOR (2-LEVEL INSPECTOR) */}
+                          {(selectedBlockType === 'custom' || Array.isArray(selectedBlock.pieces)) && (() => {
+                            const renderStandardTextToolbar = (
+                              curStyle: QuotationTextFormatStyle | undefined,
+                              onChangeStyle: (patch: Partial<QuotationTextFormatStyle>) => void,
+                              onInsertTag?: (tag: string) => void
+                            ) => {
+                              const st = curStyle || {};
+                              return (
+                                <div className="p-1.5 rounded-lg bg-slate-100/90 border border-slate-200/90 space-y-1.5">
+                                  {/* Row 1: Font Size + Bold / Italic / Underline / Uppercase */}
+                                  <div className="flex flex-wrap items-center justify-between gap-1">
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      {(
+                                        [
+                                          { id: 'xs', label: 'XS' },
+                                          { id: 'sm', label: 'SM' },
+                                          { id: 'base', label: 'Normal' },
+                                          { id: 'lg', label: 'LG' },
+                                          { id: 'xl', label: 'XL' }
+                                        ] as const
+                                      ).map((sz) => (
+                                        <button
+                                          key={sz.id}
+                                          type="button"
+                                          onClick={() => onChangeStyle({ fontSize: sz.id })}
+                                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
+                                            (st.fontSize || 'sm') === sz.id
+                                              ? 'bg-indigo-600 text-white font-bold'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {sz.label}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onChangeStyle({
+                                            fontWeight: st.fontWeight === 'bold' ? 'normal' : 'bold'
+                                          })
+                                        }
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                                          st.fontWeight === 'bold'
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                        title="Bold"
+                                      >
+                                        B
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => onChangeStyle({ italic: !st.italic })}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] italic font-serif cursor-pointer ${
+                                          st.italic
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                        title="Italic"
+                                      >
+                                        I
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => onChangeStyle({ underline: !st.underline })}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] underline cursor-pointer ${
+                                          st.underline
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                        title="Underline"
+                                      >
+                                        U
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onChangeStyle({
+                                            letterSpacing:
+                                              st.letterSpacing === 'uppercase_tracked'
+                                                ? 'normal'
+                                                : 'uppercase_tracked'
+                                          })
+                                        }
+                                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer ${
+                                          st.letterSpacing === 'uppercase_tracked'
+                                            ? 'bg-indigo-600 text-white font-bold'
+                                            : 'text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                        title="UPPERCASE TRACKED"
+                                      >
+                                        AA
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Row 2: Alignment + Text Color + Line Height */}
+                                  <div className="flex flex-wrap items-center justify-between gap-1">
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      {(
+                                        [
+                                          { id: 'left', label: 'L' },
+                                          { id: 'center', label: 'C' },
+                                          { id: 'right', label: 'R' },
+                                          { id: 'justify', label: 'J' }
+                                        ] as const
+                                      ).map((al) => (
+                                        <button
+                                          key={al.id}
+                                          type="button"
+                                          onClick={() => onChangeStyle({ textAlign: al.id })}
+                                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer ${
+                                            (st.textAlign || 'left') === al.id
+                                              ? 'bg-indigo-600 text-white font-bold'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                          title={`Align ${al.id}`}
+                                        >
+                                          {al.label}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      {(
+                                        [
+                                          { id: 'default', label: 'Ink' },
+                                          { id: 'muted', label: 'Muted' },
+                                          { id: 'accent', label: 'Brand' }
+                                        ] as const
+                                      ).map((tc) => (
+                                        <button
+                                          key={tc.id}
+                                          type="button"
+                                          onClick={() => onChangeStyle({ textColor: tc.id })}
+                                          className={`px-1.5 py-0.5 rounded text-[9.5px] cursor-pointer ${
+                                            (st.textColor || 'default') === tc.id
+                                              ? 'bg-indigo-600 text-white font-semibold'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {tc.label}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      {(
+                                        [
+                                          { id: 'tight', label: '1.1x' },
+                                          { id: 'normal', label: '1.4x' },
+                                          { id: 'relaxed', label: '1.7x' }
+                                        ] as const
+                                      ).map((lh) => (
+                                        <button
+                                          key={lh.id}
+                                          type="button"
+                                          onClick={() => onChangeStyle({ lineHeight: lh.id })}
+                                          className={`px-1 py-0.5 rounded text-[9px] font-mono cursor-pointer ${
+                                            (st.lineHeight || 'normal') === lh.id
+                                              ? 'bg-indigo-600 text-white font-semibold'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                          title={`Line Spacing: ${lh.id}`}
+                                        >
+                                          {lh.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Row 3: Highlight Pill + @ Insert Data Tag Dropdown */}
+                                  <div className="flex items-center justify-between gap-1">
+                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
+                                      {(
+                                        [
+                                          { id: 'none', label: 'No Fill', cls: 'text-slate-500' },
+                                          { id: 'SoftYellow', label: 'Yel', cls: 'bg-amber-100 text-amber-900' },
+                                          { id: 'SoftBlue', label: 'Blu', cls: 'bg-sky-100 text-sky-900' },
+                                          { id: 'SoftEmerald', label: 'Grn', cls: 'bg-emerald-100 text-emerald-900' },
+                                          { id: 'SoftRose', label: 'Ros', cls: 'bg-rose-100 text-rose-900' },
+                                          { id: 'ThemeTint', label: 'Theme', cls: 'bg-indigo-100 text-indigo-900' }
+                                        ] as const
+                                      ).map((bg) => (
+                                        <button
+                                          key={bg.id}
+                                          type="button"
+                                          onClick={() => onChangeStyle({ highlightBg: bg.id })}
+                                          className={`px-1.5 py-0.5 rounded text-[9px] font-medium cursor-pointer ${
+                                            (st.highlightBg || 'none') === bg.id
+                                              ? 'ring-1 ring-indigo-600 font-bold ' + bg.cls
+                                              : bg.cls
+                                          }`}
+                                        >
+                                          {bg.label}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    {onInsertTag && (
+                                      <select
+                                        value=""
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            onInsertTag(e.target.value);
+                                          }
+                                        }}
+                                        className="px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-800 font-mono text-[9.5px] font-semibold cursor-pointer"
+                                      >
+                                        <option value="">+ @Data Tag</option>
+                                        {QUOTATION_AT_TAGS.map((t) => (
+                                          <option key={t.tag} value={t.tag}>
+                                            {t.tag} ({t.label})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            };
+
+                            return (
+                              <div className="space-y-3.5 pt-2 border-t border-slate-200">
+                                {/* LEVEL 1: BLOCK BAR (Title, Border Style Override, Page Split, Save to My Blocks) */}
+                                <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-bold text-indigo-950 flex items-center gap-1.5">
+                                      <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                                      Custom Block Container
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (saveToLibraryBlockId === selectedBlock.id) {
+                                          setSaveToLibraryBlockId(null);
+                                        } else {
+                                          setSaveToLibraryBlockId(selectedBlock.id);
+                                          setSaveLibraryTitle(selectedBlock.title || 'Custom Block');
+                                        }
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[10px] flex items-center gap-1 cursor-pointer shadow-2xs"
+                                    >
+                                      <BookmarkPlus className="w-3 h-3" />
+                                      <span>💾 Save to My Blocks</span>
+                                    </button>
+                                  </div>
+
+                                  {/* Save to My Blocks Inline Popover */}
+                                  {saveToLibraryBlockId === selectedBlock.id && (
+                                    <div className="p-2.5 rounded-lg bg-white border border-indigo-300 shadow-xs space-y-2">
+                                      <label className="block text-[10px] font-bold text-indigo-950">
+                                        Save Block to Reusable Library
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={saveLibraryTitle}
+                                        onChange={(e) => setSaveLibraryTitle(e.target.value)}
+                                        placeholder="Template Name (e.g. Export Letter of Credit Terms)"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-xs text-slate-800"
+                                      />
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSaveLibraryVisibility('private')}
+                                          className={`py-1.5 px-2 rounded border text-[10px] font-semibold cursor-pointer ${
+                                            saveLibraryVisibility === 'private'
+                                              ? 'bg-amber-50 border-amber-400 text-amber-900'
+                                              : 'bg-slate-50 border-slate-200 text-slate-600'
+                                          }`}
+                                        >
+                                          🔒 Private (Only Me)
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSaveLibraryVisibility('workspace')}
+                                          className={`py-1.5 px-2 rounded border text-[10px] font-semibold cursor-pointer ${
+                                            saveLibraryVisibility === 'workspace'
+                                              ? 'bg-emerald-50 border-emerald-400 text-emerald-900'
+                                              : 'bg-slate-50 border-slate-200 text-slate-600'
+                                          }`}
+                                        >
+                                          🌐 Share with Workspace
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSaveToLibraryBlockId(null)}
+                                          className="px-2 py-1 rounded text-[10px] text-slate-500 hover:bg-slate-100 cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveBlockToLibrary(selectedBlock)}
+                                          className="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] cursor-pointer"
+                                        >
+                                          Save Block Template
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Block Name */}
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                      Block Name (Inspector Label)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={selectedBlock.title || ''}
+                                      onChange={(e) =>
+                                        handleUpdateBlockConfig(selectedBlock.id, { title: e.target.value })
+                                      }
+                                      placeholder="Custom Block Title"
+                                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                                    />
+                                  </div>
+
+                                  {/* Box Style Override */}
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                      Box Frame Style
+                                    </label>
+                                    <div className="grid grid-cols-5 gap-1">
+                                      {(
+                                        [
+                                          { id: 'inherit', label: 'Auto' },
+                                          { id: 'framed', label: 'Card' },
+                                          { id: 'tinted', label: 'Tinted' },
+                                          { id: 'left_accent', label: 'Bar' },
+                                          { id: 'minimal', label: 'None' }
+                                        ] as const
+                                      ).map((bs) => (
+                                        <button
+                                          key={bs.id}
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateBlockConfig(selectedBlock.id, {
+                                              borderStyleOverride: bs.id
+                                            })
+                                          }
+                                          className={`py-1 px-1 rounded border text-[9.5px] font-semibold transition cursor-pointer ${
+                                            (selectedBlock.borderStyleOverride || 'inherit') === bs.id
+                                              ? 'bg-indigo-600 text-white border-indigo-600'
+                                              : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                                          }`}
+                                        >
+                                          {bs.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Allow Page Split */}
+                                  <div className="flex items-center justify-between pt-1">
+                                    <div>
+                                      <span className="text-[10.5px] font-semibold text-slate-700 block">
+                                        Allow Multi-Page Split
+                                      </span>
+                                      <span className="text-[9.5px] text-slate-500">
+                                        Permit long custom blocks to break across A4 sheets
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(selectedBlock.allowPageSplit)}
+                                      onChange={(e) =>
+                                        handleUpdateBlockConfig(selectedBlock.id, {
+                                          allowPageSplit: e.target.checked
+                                        })
+                                      }
+                                      className="rounded border-slate-300 text-indigo-600 cursor-pointer"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* LEVEL 2: LEGO PIECES STACK */}
+                                <div className="space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-slate-800">
+                                      Lego Pieces Stack ({(selectedBlock.pieces || []).length})
+                                    </span>
+                                    <span className="text-[9.5px] text-slate-400 font-mono">
+                                      Reorder • Style • @Tags
+                                    </span>
+                                  </div>
+
+                                  {(selectedBlock.pieces || []).map((piece, pIdx) => {
+                                    const totalPieces = (selectedBlock.pieces || []).length;
+                                    return (
+                                      <div
+                                        key={piece.id}
+                                        className={`p-2.5 rounded-xl border space-y-2 transition ${
+                                          piece.enabled === false
+                                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                                            : 'bg-white border-slate-200 shadow-2xs'
+                                        }`}
+                                      >
+                                        {/* Piece Header Bar */}
+                                        <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-slate-100">
+                                          <div className="flex items-center gap-1.5">
+                                            <input
+                                              type="checkbox"
+                                              checked={piece.enabled !== false}
+                                              onChange={(e) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  enabled: e.target.checked
+                                                }))
+                                              }
+                                              className="rounded border-slate-300 text-indigo-600 cursor-pointer"
+                                            />
+                                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 font-mono text-[9.5px] font-bold uppercase">
+                                              #{pIdx + 1} • {piece.type.replace('_', ' ')}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-0.5">
+                                            <button
+                                              type="button"
+                                              disabled={pIdx === 0}
+                                              onClick={() =>
+                                                handleMovePieceInBlock(selectedBlock.id, pIdx, 'up')
+                                              }
+                                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer"
+                                              title="Move Piece Up"
+                                            >
+                                              <ArrowUp className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={pIdx === totalPieces - 1}
+                                              onClick={() =>
+                                                handleMovePieceInBlock(selectedBlock.id, pIdx, 'down')
+                                              }
+                                              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer"
+                                              title="Move Piece Down"
+                                            >
+                                              <ArrowDown className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleDuplicatePieceInBlock(selectedBlock.id, pIdx)
+                                              }
+                                              className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                              title="Duplicate Piece"
+                                            >
+                                              <Copy className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleDeletePieceFromBlock(selectedBlock.id, piece.id)
+                                              }
+                                              className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                              title="Remove Piece"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {/* 1. HEADING PIECE EDITOR */}
+                                        {piece.type === 'heading' && (
+                                          <div className="space-y-2">
+                                            {renderStandardTextToolbar(
+                                              piece.style,
+                                              (patch) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  style: { ...(p.style || {}), ...patch }
+                                                })),
+                                              (tag) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: `${p.text || ''} ${tag}`.trim()
+                                                }))
+                                            )}
+                                            <AtMentionInput
+                                              value={piece.text || ''}
+                                              onChange={(val) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: val
+                                                }))
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="Section Heading or @tag"
+                                              className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-bold text-slate-800"
+                                            />
+                                            <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={piece.showAccentBar !== false}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    showAccentBar: e.target.checked
+                                                  }))
+                                                }
+                                                className="rounded border-slate-300 text-indigo-600"
+                                              />
+                                              <span>Show vertical brand accent bar &amp; bottom border</span>
+                                            </label>
+                                          </div>
+                                        )}
+
+                                        {/* 2. RICH TEXT PIECE EDITOR */}
+                                        {piece.type === 'rich_text' && (
+                                          <div className="space-y-2">
+                                            {renderStandardTextToolbar(
+                                              piece.style,
+                                              (patch) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  style: { ...(p.style || {}), ...patch }
+                                                })),
+                                              (tag) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: `${p.text || ''} ${tag}`.trim()
+                                                }))
+                                            )}
+                                            <AtMentionTextarea
+                                              value={piece.text || ''}
+                                              onChange={(val) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  text: val
+                                                }))
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              rows={3}
+                                              placeholder="Type paragraph text... Use **bold**, *italic*, __underline__, or @tags"
+                                              className="w-full px-2 py-1.5 rounded border border-slate-300 text-xs text-slate-800"
+                                            />
+                                          </div>
+                                        )}
+
+                                        {/* 3. LIST PIECE EDITOR */}
+                                        {piece.type === 'list' && (
+                                          <div className="space-y-2">
+                                            <div className="flex items-center justify-between gap-1">
+                                              <span className="text-[10px] font-semibold text-slate-600">
+                                                List Marker Style:
+                                              </span>
+                                              <div className="flex items-center gap-1">
+                                                {(
+                                                  [
+                                                    { id: 'bullet', label: '• Bullet' },
+                                                    { id: 'numbered', label: '1. Number' },
+                                                    { id: 'check', label: '✓ Check' },
+                                                    { id: 'dash', label: '— Dash' }
+                                                  ] as const
+                                                ).map((ls) => (
+                                                  <button
+                                                    key={ls.id}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        listStyle: ls.id
+                                                      }))
+                                                    }
+                                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold cursor-pointer ${
+                                                      (piece.listStyle || 'bullet') === ls.id
+                                                        ? 'bg-indigo-600 text-white'
+                                                        : 'bg-slate-100 text-slate-600'
+                                                    }`}
+                                                  >
+                                                    {ls.label}
+                                                  </button>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            {renderStandardTextToolbar(piece.style, (patch) =>
+                                              handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                ...p,
+                                                style: { ...(p.style || {}), ...patch }
+                                              }))
+                                            )}
+                                            <div className="space-y-1">
+                                              {(piece.items || []).map((itemText, iIdx) => (
+                                                <div key={iIdx} className="flex items-center gap-1">
+                                                  <div className="flex-1 min-w-0">
+                                                    <AtMentionInput
+                                                      value={itemText}
+                                                      onChange={(val) =>
+                                                        handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                          ...p,
+                                                          items: (p.items || []).map((it, k) =>
+                                                            k === iIdx ? val : it
+                                                          )
+                                                        }))
+                                                      }
+                                                      tokenContext={studioTokenContext}
+                                                      compact
+                                                      placeholder="List point or @tag"
+                                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px]"
+                                                    />
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        items: (p.items || []).filter((_, k) => k !== iIdx)
+                                                      }))
+                                                    }
+                                                    className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    items: [...(p.items || []), 'New list item']
+                                                  }))
+                                                }
+                                                className="text-[10px] font-semibold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                                <span>Add List Item</span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 4. FIELD ROWS (KEY-VALUE GRID) PIECE EDITOR */}
+                                        {piece.type === 'field_rows' && (
+                                          <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-semibold text-slate-600">
+                                                Grid Columns:
+                                              </span>
+                                              <div className="flex items-center gap-1">
+                                                {[1, 2].map((cols) => (
+                                                  <button
+                                                    key={cols}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        gridColumns: cols as 1 | 2
+                                                      }))
+                                                    }
+                                                    className={`px-2 py-0.5 rounded text-[9.5px] font-semibold cursor-pointer ${
+                                                      (piece.gridColumns || 1) === cols
+                                                        ? 'bg-indigo-600 text-white'
+                                                        : 'bg-slate-100 text-slate-600'
+                                                    }`}
+                                                  >
+                                                    {cols} Col{cols > 1 ? 's' : ''}
+                                                  </button>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                              {(piece.fieldRows || []).map((row, rIdx) => (
+                                                <div
+                                                  key={row.id || rIdx}
+                                                  className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={row.enabled !== false}
+                                                    onChange={(e) =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        fieldRows: (p.fieldRows || []).map((it, k) =>
+                                                          k === rIdx ? { ...it, enabled: e.target.checked } : it
+                                                        )
+                                                      }))
+                                                    }
+                                                    className="rounded border-slate-300 text-indigo-600 shrink-0"
+                                                  />
+                                                  <input
+                                                    type="text"
+                                                    value={row.label}
+                                                    onChange={(e) =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        fieldRows: (p.fieldRows || []).map((it, k) =>
+                                                          k === rIdx ? { ...it, label: e.target.value } : it
+                                                        )
+                                                      }))
+                                                    }
+                                                    placeholder="Label"
+                                                    className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px]"
+                                                  />
+                                                  <div className="flex-1 min-w-0">
+                                                    <AtMentionInput
+                                                      value={row.value}
+                                                      onChange={(val) =>
+                                                        handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                          ...p,
+                                                          fieldRows: (p.fieldRows || []).map((it, k) =>
+                                                            k === rIdx ? { ...it, value: val } : it
+                                                          )
+                                                        }))
+                                                      }
+                                                      tokenContext={studioTokenContext}
+                                                      compact
+                                                      placeholder="Value or @tag"
+                                                      className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px]"
+                                                    />
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        fieldRows: (p.fieldRows || []).map((it, k) =>
+                                                          k === rIdx ? { ...it, hideIfEmpty: !it.hideIfEmpty } : it
+                                                        )
+                                                      }))
+                                                    }
+                                                    className={`px-1 py-0.5 rounded text-[8.5px] font-mono border cursor-pointer shrink-0 ${
+                                                      row.hideIfEmpty
+                                                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                                                        : 'bg-white border-slate-200 text-slate-400'
+                                                    }`}
+                                                    title="Toggle auto-hide when empty vs — dash"
+                                                  >
+                                                    {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        fieldRows: (p.fieldRows || []).filter((_, k) => k !== rIdx)
+                                                      }))
+                                                    }
+                                                    className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    fieldRows: [
+                                                      ...(p.fieldRows || []),
+                                                      {
+                                                        id: makeUniqueId('frow'),
+                                                        enabled: true,
+                                                        label: 'Field:',
+                                                        value: '@quote_ref'
+                                                      }
+                                                    ]
+                                                  }))
+                                                }
+                                                className="text-[10px] font-semibold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                                <span>Add Field Row</span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 5. MINI TABLE PIECE EDITOR */}
+                                        {piece.type === 'table' && (
+                                          <div className="space-y-2">
+                                            <div>
+                                              <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                                Column Headers (comma separated)
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={(piece.tableHeaders || []).join(', ')}
+                                                onChange={(e) => {
+                                                  const headers = e.target.value
+                                                    .split(',')
+                                                    .map((s) => s.trim());
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    tableHeaders: headers
+                                                  }));
+                                                }}
+                                                className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                            </div>
+                                            <div className="space-y-1">
+                                              <span className="block text-[10px] font-semibold text-slate-600">
+                                                Table Rows (pipe | separated cells, supports @tags)
+                                              </span>
+                                              {(piece.tableRows || []).map((tRow, rIdx) => (
+                                                <div key={rIdx} className="flex items-center gap-1">
+                                                  <div className="flex-1 min-w-0">
+                                                    <AtMentionInput
+                                                      value={tRow.join(' | ')}
+                                                      onChange={(val) => {
+                                                        const cells = val.split('|').map((c) => c.trim());
+                                                        handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                          ...p,
+                                                          tableRows: (p.tableRows || []).map((r, k) =>
+                                                            k === rIdx ? cells : r
+                                                          )
+                                                        }));
+                                                      }}
+                                                      tokenContext={studioTokenContext}
+                                                      compact
+                                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                    />
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        tableRows: (p.tableRows || []).filter((_, k) => k !== rIdx)
+                                                      }))
+                                                    }
+                                                    className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    tableRows: [
+                                                      ...(p.tableRows || []),
+                                                      (p.tableHeaders || ['Col 1', 'Col 2']).map(() => 'Value')
+                                                    ]
+                                                  }))
+                                                }
+                                                className="text-[10px] font-semibold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                                <span>Add Table Row</span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 6. MONEY SUMMARY PIECE EDITOR */}
+                                        {piece.type === 'money_summary' && (
+                                          <div className="space-y-1.5">
+                                            {(piece.moneyRows || []).map((mRow, rIdx) => (
+                                              <div
+                                                key={mRow.id || rIdx}
+                                                className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={mRow.enabled !== false}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      moneyRows: (p.moneyRows || []).map((it, k) =>
+                                                        k === rIdx ? { ...it, enabled: e.target.checked } : it
+                                                      )
+                                                    }))
+                                                  }
+                                                  className="rounded border-slate-300 text-indigo-600 shrink-0"
+                                                />
+                                                <input
+                                                  type="text"
+                                                  value={mRow.label}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      moneyRows: (p.moneyRows || []).map((it, k) =>
+                                                        k === rIdx ? { ...it, label: e.target.value } : it
+                                                      )
+                                                    }))
+                                                  }
+                                                  className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px]"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                  <AtMentionInput
+                                                    value={mRow.value}
+                                                    onChange={(val) =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        moneyRows: (p.moneyRows || []).map((it, k) =>
+                                                          k === rIdx ? { ...it, value: val } : it
+                                                        )
+                                                      }))
+                                                    }
+                                                    tokenContext={studioTokenContext}
+                                                    compact
+                                                    className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px]"
+                                                  />
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      moneyRows: (p.moneyRows || []).map((it, k) =>
+                                                        k === rIdx ? { ...it, isGrandTotal: !it.isGrandTotal } : it
+                                                      )
+                                                    }))
+                                                  }
+                                                  className={`px-1 py-0.5 rounded text-[8.5px] font-bold border cursor-pointer ${
+                                                    mRow.isGrandTotal
+                                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                                      : 'bg-white text-slate-500 border-slate-200'
+                                                  }`}
+                                                  title="Highlight as Grand Total Banner"
+                                                >
+                                                  TOTAL
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      moneyRows: (p.moneyRows || []).filter((_, k) => k !== rIdx)
+                                                    }))
+                                                  }
+                                                  className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  moneyRows: [
+                                                    ...(p.moneyRows || []),
+                                                    {
+                                                      id: makeUniqueId('mrow'),
+                                                      enabled: true,
+                                                      label: 'Adjustment',
+                                                      value: 'AED 0.00'
+                                                    }
+                                                  ]
+                                                }))
+                                              }
+                                              className="text-[10px] font-semibold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                              <span>Add Money Row</span>
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        {/* 7. IMAGE PIECE EDITOR */}
+                                        {piece.type === 'image' && (
+                                          <div className="space-y-2">
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                type="text"
+                                                value={piece.imageUrl || ''}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    imageUrl: e.target.value
+                                                  }))
+                                                }
+                                                placeholder="Image URL or upload ->"
+                                                className="flex-1 px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                              <label className="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-[10px] cursor-pointer shrink-0 border border-indigo-200">
+                                                Upload
+                                                <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  className="hidden"
+                                                  onChange={(e) =>
+                                                    handleUploadCustomPieceImage(
+                                                      selectedBlock.id,
+                                                      piece.id,
+                                                      e.target.files?.[0]
+                                                    )
+                                                  }
+                                                />
+                                              </label>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <input
+                                                type="text"
+                                                value={piece.imageCaption || ''}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    imageCaption: e.target.value
+                                                  }))
+                                                }
+                                                placeholder="Caption (optional)"
+                                                className="px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                              <div className="flex items-center gap-1">
+                                                <span className="text-[10px] text-slate-500">H(mm):</span>
+                                                <input
+                                                  type="number"
+                                                  min={8}
+                                                  max={80}
+                                                  value={piece.imageHeightMm || 22}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      imageHeightMm: Number(e.target.value) || 22
+                                                    }))
+                                                  }
+                                                  className="w-16 px-1.5 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 8. SIGNATURE BOX PIECE EDITOR */}
+                                        {piece.type === 'signature_box' && (
+                                          <div className="space-y-1.5">
+                                            <AtMentionInput
+                                              value={piece.signerLabel || ''}
+                                              onChange={(val) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  signerLabel: val
+                                                }))
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="Header Label (e.g. For @company_name)"
+                                              className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                            />
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                              <AtMentionInput
+                                                value={piece.signerName || ''}
+                                                onChange={(val) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    signerName: val
+                                                  }))
+                                                }
+                                                tokenContext={studioTokenContext}
+                                                compact
+                                                placeholder="Signer Name or @signatory_name"
+                                                className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                              <AtMentionInput
+                                                value={piece.signerTitle || ''}
+                                                onChange={(val) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    signerTitle: val
+                                                  }))
+                                                }
+                                                tokenContext={studioTokenContext}
+                                                compact
+                                                placeholder="Title or @signatory_title"
+                                                className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 9. QR CODE PIECE EDITOR */}
+                                        {piece.type === 'qr_code' && (
+                                          <div className="space-y-1.5">
+                                            <AtMentionInput
+                                              value={piece.qrValue || ''}
+                                              onChange={(val) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  qrValue: val
+                                                }))
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="URL or @tags (e.g. https://verify/@quote_ref)"
+                                              className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                            />
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="flex-1">
+                                                <AtMentionInput
+                                                  value={piece.qrCaption || ''}
+                                                  onChange={(val) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      qrCaption: val
+                                                    }))
+                                                  }
+                                                  tokenContext={studioTokenContext}
+                                                  compact
+                                                  placeholder="Caption (e.g. Scan to verify @quote_ref)"
+                                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                />
+                                              </div>
+                                              <input
+                                                type="number"
+                                                min={14}
+                                                max={45}
+                                                value={piece.qrSizeMm || 22}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    qrSizeMm: Number(e.target.value) || 22
+                                                  }))
+                                                }
+                                                className="w-14 px-1.5 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                title="QR Size (mm)"
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 10. DIVIDER PIECE EDITOR */}
+                                        {piece.type === 'divider' && (
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1">
+                                              {(['solid', 'dashed', 'double', 'blank'] as const).map((ds) => (
+                                                <button
+                                                  key={ds}
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      dividerStyle: ds
+                                                    }))
+                                                  }
+                                                  className={`px-2 py-0.5 rounded text-[9.5px] capitalize cursor-pointer ${
+                                                    (piece.dividerStyle || 'solid') === ds
+                                                      ? 'bg-indigo-600 text-white font-semibold'
+                                                      : 'bg-slate-100 text-slate-600'
+                                                  }`}
+                                                >
+                                                  {ds}
+                                                </button>
+                                              ))}
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <span className="text-[9.5px] text-slate-500">Gap(mm):</span>
+                                              <input
+                                                type="number"
+                                                min={1}
+                                                max={25}
+                                                value={piece.spacingMm ?? 2}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    spacingMm: Number(e.target.value) || 2
+                                                  }))
+                                                }
+                                                className="w-12 px-1 py-0.5 rounded border border-slate-300 text-[10px]"
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* 11. TWO-COLUMN SPLIT PIECE EDITOR */}
+                                        {piece.type === 'columns' && (
+                                          <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-semibold text-slate-600">
+                                                Split Ratio:
+                                              </span>
+                                              <div className="flex items-center gap-1">
+                                                {(
+                                                  [
+                                                    { id: '50_50', label: '50 / 50' },
+                                                    { id: '60_40', label: '60 / 40' },
+                                                    { id: '40_60', label: '40 / 60' }
+                                                  ] as const
+                                                ).map((cr) => (
+                                                  <button
+                                                    key={cr.id}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                        ...p,
+                                                        columnRatio: cr.id
+                                                      }))
+                                                    }
+                                                    className={`px-2 py-0.5 rounded text-[9.5px] font-mono cursor-pointer ${
+                                                      (piece.columnRatio || '50_50') === cr.id
+                                                        ? 'bg-indigo-600 text-white font-bold'
+                                                        : 'bg-slate-100 text-slate-600'
+                                                    }`}
+                                                  >
+                                                    {cr.label}
+                                                  </button>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            <p className="text-[9.5px] text-slate-500">
+                                              Left &amp; Right columns render side-by-side inside this block.
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* + Add Lego Piece Palette (All 11 Piece Types) */}
+                                  <div className="p-2.5 rounded-xl bg-slate-50 border border-dashed border-indigo-300 space-y-2">
+                                    <span className="block text-[10px] font-bold text-indigo-950 uppercase tracking-wider">
+                                      + Add Lego Piece to Block
+                                    </span>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {(
+                                        [
+                                          { type: 'heading', label: 'Heading' },
+                                          { type: 'rich_text', label: 'Rich Text' },
+                                          { type: 'list', label: 'Bullet List' },
+                                          { type: 'field_rows', label: 'Key-Value' },
+                                          { type: 'table', label: 'Mini Table' },
+                                          { type: 'money_summary', label: 'Money Rows' },
+                                          { type: 'image', label: 'Image/Seal' },
+                                          { type: 'signature_box', label: 'Sign Box' },
+                                          { type: 'qr_code', label: 'QR Code' },
+                                          { type: 'divider', label: 'Divider' },
+                                          { type: 'columns', label: '2 Columns' }
+                                        ] as const
+                                      ).map((item) => (
+                                        <button
+                                          key={item.type}
+                                          type="button"
+                                          onClick={() =>
+                                            handleAddPieceToBlock(selectedBlock.id, item.type)
+                                          }
+                                          className="py-1.5 px-1.5 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50 text-[10px] font-semibold text-slate-700 transition cursor-pointer text-center"
+                                        >
+                                          + {item.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteBlock(selectedBlock.id)}
+                                    className="w-full py-2 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Delete Custom Block</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </>
                       )}
 
