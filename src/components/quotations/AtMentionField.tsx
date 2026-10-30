@@ -50,6 +50,7 @@ export interface AtMentionInputProps
   onChange: (newValue: string) => void;
   tokenContext: QuotationTokenContext;
   showQuickAtButton?: boolean;
+  compact?: boolean;
 }
 
 export const AtMentionInput: React.FC<AtMentionInputProps> = ({
@@ -57,6 +58,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   onChange,
   tokenContext,
   showQuickAtButton = true,
+  compact: _compact,
   className = '',
   onKeyDown,
   onBlur,
@@ -264,6 +266,7 @@ export interface AtMentionTextareaProps
   onChange: (newValue: string) => void;
   tokenContext: QuotationTokenContext;
   showInsertBar?: boolean;
+  compact?: boolean;
 }
 
 export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
@@ -271,6 +274,7 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
   onChange,
   tokenContext,
   showInsertBar = true,
+  compact: _compact,
   className = '',
   onKeyDown,
   onBlur,
