@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Quotation Studio 2.0 Phase 2: Decluttered Commercial Summary & Totals Hub, featuring Choice B1 Unpriced Submittal snapshot/restore memory, unified Document Pricing & Option Mode controls, batch BOM Set pricing defaults without locking per-set overrides, and reorderable standard + custom financial summary rows with live AED previews.",
-  "updatedAt":  "2026-10-30T10:39:23.813090449Z",
+  "summary":  "Implementation plan for the urgent Gemini 3.x / Latest Model Cascade & Live Model Discovery Fallback hotfix across the client extraction utility, enquiry form, settings hub API health test, and server fallback pool.",
+  "updatedAt":  "2026-10-30T11:02:32.462035864Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

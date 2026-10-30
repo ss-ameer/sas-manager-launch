@@ -642,26 +642,73 @@ export default function SettingsHub({
       }
 
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const { DEFAULT_MODEL_CASCADE, discoverLiveGeminiModels } = await import('../utils/aiExtractionClient');
       const genAI = new GoogleGenerativeAI(userApiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-      
-      const response = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: "PING_API_KEY_HEALTH_TEST. Just reply 'OK'." }] }],
-        generationConfig: { maxOutputTokens: 10 }
-      });
-      
-      const reply = response.response.text();
+      const testPool = Array.from(
+        new Set([
+          'gemini-3.1-flash-lite',
+          'gemini-flash-latest',
+          'gemini-3-flash-preview',
+          'gemini-3.1-pro-preview',
+          ...DEFAULT_MODEL_CASCADE,
+        ])
+      );
+
+      let reply = '';
+      let connectedModel = '';
+      let lastTestError: any = null;
+
+      for (const candidateModel of testPool) {
+        try {
+          const model = genAI.getGenerativeModel({ model: candidateModel });
+          const response = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: "PING_API_KEY_HEALTH_TEST. Just reply 'OK'." }] }],
+            generationConfig: { maxOutputTokens: 10 }
+          });
+          const text = response.response.text();
+          if (text) {
+            reply = text;
+            connectedModel = candidateModel;
+            break;
+          }
+        } catch (modelErr: any) {
+          lastTestError = modelErr;
+        }
+      }
+
+      if (!reply) {
+        const discovered = await discoverLiveGeminiModels(userApiKey);
+        for (const liveModel of discovered) {
+          if (testPool.includes(liveModel)) continue;
+          try {
+            const model = genAI.getGenerativeModel({ model: liveModel });
+            const response = await model.generateContent({
+              contents: [{ role: 'user', parts: [{ text: "PING_API_KEY_HEALTH_TEST. Just reply 'OK'." }] }],
+              generationConfig: { maxOutputTokens: 10 }
+            });
+            const text = response.response.text();
+            if (text) {
+              reply = text;
+              connectedModel = liveModel;
+              break;
+            }
+          } catch (modelErr: any) {
+            lastTestError = modelErr;
+          }
+        }
+      }
+
       const latencyMs = Date.now() - startTime;
 
       if (reply) {
         setApiKeyTestResult({
           status: 'active',
-          message: `Gemini API key is valid and connected! Response time: ${latencyMs}ms.`,
+          message: `Gemini API key is valid and connected via ${connectedModel}! Response time: ${latencyMs}ms.`,
           latencyMs
         });
-        if (triggerToast) triggerToast(`API Key active (${latencyMs}ms)`, 'success');
+        if (triggerToast) triggerToast(`API Key active via ${connectedModel} (${latencyMs}ms)`, 'success');
       } else {
-        throw new Error("Empty response from Gemini.");
+        throw lastTestError || new Error("Empty response from Gemini.");
       }
     } catch (err: any) {
       const latencyMs = Date.now() - startTime;

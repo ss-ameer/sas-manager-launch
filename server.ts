@@ -31,8 +31,8 @@ async function startServer() {
   // Helper for exponential backoff retries on transient errors with model rotation pool support
   async function retryWithBackoffAndFallback<T>(
     fn: (modelName: string) => Promise<T>,
-    modelsPool = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
-    retries = 3,
+    modelsPool = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-flash-latest", "gemini-3.1-pro-preview"],
+    retries = modelsPool.length,
     delayMs = 400
   ): Promise<T> {
     let attempt = 0;

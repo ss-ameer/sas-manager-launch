@@ -142,16 +142,72 @@ Extract the details accurately into the requested JSON format.${salespersonExclu
 
 export const AVAILABLE_GEMINI_MODELS = [
   { id: 'auto', label: '⚡ Auto-Cascade (Failover Pool)' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Flagship Default)' },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
+  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Auto-Alias)' },
 ];
 
 export const DEFAULT_MODEL_CASCADE = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-pro'
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview',
+  'gemini-flash-latest',
+  'gemini-3.1-pro-preview',
 ];
+
+export async function discoverLiveGeminiModels(apiKey: string): Promise<string[]> {
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rawModels: any[] = Array.isArray(data?.models) ? data.models : [];
+
+    const candidates = rawModels
+      .filter((m) => {
+        const methods: string[] = Array.isArray(m?.supportedGenerationMethods)
+          ? m.supportedGenerationMethods
+          : [];
+        if (!methods.includes('generateContent')) return false;
+        const name = String(m?.name || '').replace(/^models\//, '').toLowerCase();
+        if (!name.startsWith('gemini-')) return false;
+        const excluded = ['2.5', '1.5', 'embedding', 'imagen', 'veo', 'tts', 'audio'];
+        if (excluded.some((ex) => name.includes(ex))) return false;
+        return true;
+      })
+      .map((m) => String(m.name).replace(/^models\//, ''));
+
+    // Prioritize 'flash' and '3.' models first
+    candidates.sort((a, b) => {
+      const aScore =
+        (a.includes('3.') || a.includes('gemini-3') ? 4 : 0) +
+        (a.includes('flash') ? 2 : 0) +
+        (a.includes('latest') ? 1 : 0);
+      const bScore =
+        (b.includes('3.') || b.includes('gemini-3') ? 4 : 0) +
+        (b.includes('flash') ? 2 : 0) +
+        (b.includes('latest') ? 1 : 0);
+      return bScore - aScore;
+    });
+
+    return Array.from(new Set(candidates));
+  } catch (err) {
+    console.warn('[aiExtractionClient] Failed to discover live Gemini models:', err);
+    return [];
+  }
+}
 
 export async function extractEnquiryClientSide(
   apiKey: string,
@@ -194,6 +250,7 @@ export async function extractEnquiryClientSide(
   ];
 
   let lastError: any = null;
+  let hasAttemptedLiveDiscovery = false;
 
   for (let i = 0; i < modelSequence.length; i++) {
     const modelName = modelSequence[i];
@@ -305,6 +362,16 @@ export async function extractEnquiryClientSide(
         errMsg.toLowerCase().includes('overloaded') ||
         errMsg.toLowerCase().includes('rate limit');
 
+      if (isRecoverableError && i === modelSequence.length - 1 && !hasAttemptedLiveDiscovery) {
+        hasAttemptedLiveDiscovery = true;
+        onStatusUpdate?.('Discovering live Gemini models for failover...');
+        const discovered = await discoverLiveGeminiModels(apiKey);
+        const untried = discovered.filter((m) => !modelSequence.includes(m));
+        if (untried.length > 0) {
+          modelSequence.push(...untried);
+        }
+      }
+
       const hasNextModel = i < modelSequence.length - 1;
 
       if (isRecoverableError && hasNextModel) {
@@ -381,7 +448,10 @@ Sender: ${params.salespersonName || 'Sales Team'}
 Keep it warm, professional, and brief (3-5 sentences max). Output ONLY the WhatsApp message text.`;
 
   let lastErr: any = null;
+  const triedModels = new Set<string>();
+
   for (const modelName of DEFAULT_MODEL_CASCADE) {
+    triedModels.add(modelName);
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
@@ -391,6 +461,21 @@ Keep it warm, professional, and brief (3-5 sentences max). Output ONLY the Whats
       lastErr = err;
     }
   }
+
+  const discovered = await discoverLiveGeminiModels(resolvedKey);
+  for (const liveModel of discovered) {
+    if (triedModels.has(liveModel)) continue;
+    triedModels.add(liveModel);
+    try {
+      const model = genAI.getGenerativeModel({ model: liveModel });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+      if (text) return text;
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+
   throw lastErr || new Error('Failed to generate AI Quick Assist response.');
 }
 
