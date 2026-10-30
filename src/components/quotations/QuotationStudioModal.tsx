@@ -125,7 +125,13 @@ import {
   Copy,
   Eye,
   EyeOff,
-  AlertTriangle
+  AlertTriangle,
+  PanelLeft,
+  PanelLeftClose,
+  AlignJustify,
+  Bold,
+  Italic,
+  Underline
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -367,7 +373,7 @@ const createDefaultPiece = (pieceType: QuotationBlockPieceType): QuotationBlockP
             id: makeUniqueId('piece'),
             type: 'heading',
             enabled: true,
-            text: 'LEFT COLUMN',
+            text: '',
             showAccentBar: true,
             style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked' }
           },
@@ -384,7 +390,7 @@ const createDefaultPiece = (pieceType: QuotationBlockPieceType): QuotationBlockP
             id: makeUniqueId('piece'),
             type: 'heading',
             enabled: true,
-            text: 'RIGHT COLUMN',
+            text: '',
             showAccentBar: true,
             style: { fontSize: 'xs', fontWeight: 'bold', letterSpacing: 'uppercase_tracked' }
           },
@@ -1091,6 +1097,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   });
 
   const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>('structure');
+  const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(true);
+  const [openFormatPieceId, setOpenFormatPieceId] = useState<string | null>(null);
   const [showPageBreakGuides, setShowPageBreakGuides] = useState<boolean>(true);
   const [omittedFields, setOmittedFields] = useState<Record<string, boolean>>(() =>
     editingQuotation?.omitted_fields ? { ...editingQuotation.omitted_fields } : {}
@@ -4533,6 +4541,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   {liveQuotation.formatted_quote_ref}
                 </span>
 
+                <button
+                  type="button"
+                  onClick={() => setIsLeftDrawerOpen((prev) => !prev)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
+                    isLeftDrawerOpen
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 shadow-2xs'
+                  }`}
+                  title={isLeftDrawerOpen ? 'Hide Left Controls (Focus on Preview)' : 'Show Controls Panel'}
+                >
+                  {isLeftDrawerOpen ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{isLeftDrawerOpen ? 'Hide Controls' : 'Show Controls'}</span>
+                </button>
+
                 {/* Interactive Quotation Status Lifecycle Selector Pill */}
                 <div className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
                   {(
@@ -4634,6 +4656,51 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            {!isLeftDrawerOpen && (
+              isEffectiveSandbox ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                    disabled={isSavingPreset}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">Update Preset</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(true)}
+                    disabled={isSavingPreset}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Update &amp; Close</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
+                    disabled={isSaving}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="hidden sm:inline">Save Quotation</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation('Sent')}
+                    disabled={isSaving}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Issue Quotation</span>
+                  </button>
+                </div>
+              )
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -4687,7 +4754,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         {/* Modal Body: Two-Pane Split Layout */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden print:overflow-visible print:block print:w-full">
           {/* Left Column: Form Controls & Customization */}
-          <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden">
+          {isLeftDrawerOpen && (
+          <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden animate-in slide-in-from-left-4 duration-150">
             {/* Sticky Top Bar: Document Preset Selector + 2-Tab Mode Switcher */}
             <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-5 pt-4 pb-3 space-y-3">
               {/* Preset Selector */}
@@ -4696,17 +4764,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   <label className="block text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider">
                     Document Preset
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewPresetName('');
-                      setIsSavePresetModalOpen(true);
-                    }}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition cursor-pointer hover:underline"
-                  >
-                    <BookmarkPlus className="w-3.5 h-3.5" />
-                    <span>+ Save as New Preset</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewPresetName('');
+                        setIsSavePresetModalOpen(true);
+                      }}
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition cursor-pointer hover:underline"
+                    >
+                      <BookmarkPlus className="w-3.5 h-3.5" />
+                      <span>+ Save as New Preset</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsLeftDrawerOpen(false)}
+                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                      title="Collapse Left Drawer"
+                    >
+                      <PanelLeftClose className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <select
@@ -6883,12 +6961,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               )}
             </div>
           </div>
+          )}
 
           {/* Right Column: Live A4 Document Preview */}
           <div className="flex-1 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
             {/* Preview Toolbar */}
             <div className="px-4 py-2 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden flex-wrap gap-2">
               <div className="flex items-center space-x-2">
+                {!isLeftDrawerOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setIsLeftDrawerOpen(true)}
+                    className="px-2 py-1 rounded-md bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center gap-1 shadow-2xs cursor-pointer transition"
+                  >
+                    <PanelLeft className="w-3.5 h-3.5" />
+                    <span>Show Controls</span>
+                  </button>
+                )}
                 <span className="font-semibold text-slate-700">Live Preview:</span>
                 <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600">
                   A4 210mm × 297mm
@@ -13717,203 +13806,43 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             const renderStandardTextToolbar = (
                               curStyle: QuotationTextFormatStyle | undefined,
                               onChangeStyle: (patch: Partial<QuotationTextFormatStyle>) => void,
-                              onInsertTag?: (tag: string) => void
+                              onInsertTag?: (tag: string) => void,
+                              pieceId?: string
                             ) => {
                               const st = curStyle || {};
+                              const isOpen = pieceId ? openFormatPieceId === pieceId : true;
+                              const activeSummary = [
+                                (st.fontSize || 'sm').toUpperCase(),
+                                st.fontWeight === 'bold' ? 'Bold' : null,
+                                st.italic ? 'Italic' : null,
+                                st.textAlign && st.textAlign !== 'left' ? st.textAlign : null
+                              ]
+                                .filter(Boolean)
+                                .join(' • ');
+
                               return (
-                                <div className="p-1.5 rounded-lg bg-slate-100/90 border border-slate-200/90 space-y-1.5">
-                                  {/* Row 1: Font Size + Bold / Italic / Underline / Uppercase */}
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      {(
-                                        [
-                                          { id: 'xs', label: 'XS' },
-                                          { id: 'sm', label: 'SM' },
-                                          { id: 'base', label: 'Normal' },
-                                          { id: 'lg', label: 'LG' },
-                                          { id: 'xl', label: 'XL' }
-                                        ] as const
-                                      ).map((sz) => (
-                                        <button
-                                          key={sz.id}
-                                          type="button"
-                                          onClick={() => onChangeStyle({ fontSize: sz.id })}
-                                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
-                                            (st.fontSize || 'sm') === sz.id
-                                              ? 'bg-indigo-600 text-white font-bold'
-                                              : 'text-slate-600 hover:bg-slate-100'
-                                          }`}
-                                        >
-                                          {sz.label}
-                                        </button>
-                                      ))}
-                                    </div>
-
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onChangeStyle({
-                                            fontWeight: st.fontWeight === 'bold' ? 'normal' : 'bold'
-                                          })
-                                        }
-                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                                          st.fontWeight === 'bold'
-                                            ? 'bg-indigo-600 text-white'
-                                            : 'text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                        title="Bold"
-                                      >
-                                        B
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => onChangeStyle({ italic: !st.italic })}
-                                        className={`px-1.5 py-0.5 rounded text-[10px] italic font-serif cursor-pointer ${
-                                          st.italic
-                                            ? 'bg-indigo-600 text-white'
-                                            : 'text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                        title="Italic"
-                                      >
-                                        I
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => onChangeStyle({ underline: !st.underline })}
-                                        className={`px-1.5 py-0.5 rounded text-[10px] underline cursor-pointer ${
-                                          st.underline
-                                            ? 'bg-indigo-600 text-white'
-                                            : 'text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                        title="Underline"
-                                      >
-                                        U
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onChangeStyle({
-                                            letterSpacing:
-                                              st.letterSpacing === 'uppercase_tracked'
-                                                ? 'normal'
-                                                : 'uppercase_tracked'
-                                          })
-                                        }
-                                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono cursor-pointer ${
-                                          st.letterSpacing === 'uppercase_tracked'
-                                            ? 'bg-indigo-600 text-white font-bold'
-                                            : 'text-slate-600 hover:bg-slate-100'
-                                        }`}
-                                        title="UPPERCASE TRACKED"
-                                      >
-                                        AA
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Row 2: Alignment + Text Color + Line Height */}
-                                  <div className="flex flex-wrap items-center justify-between gap-1">
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      {(
-                                        [
-                                          { id: 'left', label: 'L' },
-                                          { id: 'center', label: 'C' },
-                                          { id: 'right', label: 'R' },
-                                          { id: 'justify', label: 'J' }
-                                        ] as const
-                                      ).map((al) => (
-                                        <button
-                                          key={al.id}
-                                          type="button"
-                                          onClick={() => onChangeStyle({ textAlign: al.id })}
-                                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer ${
-                                            (st.textAlign || 'left') === al.id
-                                              ? 'bg-indigo-600 text-white font-bold'
-                                              : 'text-slate-600 hover:bg-slate-100'
-                                          }`}
-                                          title={`Align ${al.id}`}
-                                        >
-                                          {al.label}
-                                        </button>
-                                      ))}
-                                    </div>
-
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      {(
-                                        [
-                                          { id: 'default', label: 'Ink' },
-                                          { id: 'muted', label: 'Muted' },
-                                          { id: 'accent', label: 'Brand' }
-                                        ] as const
-                                      ).map((tc) => (
-                                        <button
-                                          key={tc.id}
-                                          type="button"
-                                          onClick={() => onChangeStyle({ textColor: tc.id })}
-                                          className={`px-1.5 py-0.5 rounded text-[9.5px] cursor-pointer ${
-                                            (st.textColor || 'default') === tc.id
-                                              ? 'bg-indigo-600 text-white font-semibold'
-                                              : 'text-slate-600 hover:bg-slate-100'
-                                          }`}
-                                        >
-                                          {tc.label}
-                                        </button>
-                                      ))}
-                                    </div>
-
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      {(
-                                        [
-                                          { id: 'tight', label: '1.1x' },
-                                          { id: 'normal', label: '1.4x' },
-                                          { id: 'relaxed', label: '1.7x' }
-                                        ] as const
-                                      ).map((lh) => (
-                                        <button
-                                          key={lh.id}
-                                          type="button"
-                                          onClick={() => onChangeStyle({ lineHeight: lh.id })}
-                                          className={`px-1 py-0.5 rounded text-[9px] font-mono cursor-pointer ${
-                                            (st.lineHeight || 'normal') === lh.id
-                                              ? 'bg-indigo-600 text-white font-semibold'
-                                              : 'text-slate-600 hover:bg-slate-100'
-                                          }`}
-                                          title={`Line Spacing: ${lh.id}`}
-                                        >
-                                          {lh.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  {/* Row 3: Highlight Pill + @ Insert Data Tag Dropdown */}
-                                  <div className="flex items-center justify-between gap-1">
-                                    <div className="flex items-center gap-0.5 bg-white rounded border border-slate-200 p-0.5">
-                                      {(
-                                        [
-                                          { id: 'none', label: 'No Fill', cls: 'text-slate-500' },
-                                          { id: 'SoftYellow', label: 'Yel', cls: 'bg-amber-100 text-amber-900' },
-                                          { id: 'SoftBlue', label: 'Blu', cls: 'bg-sky-100 text-sky-900' },
-                                          { id: 'SoftEmerald', label: 'Grn', cls: 'bg-emerald-100 text-emerald-900' },
-                                          { id: 'SoftRose', label: 'Ros', cls: 'bg-rose-100 text-rose-900' },
-                                          { id: 'ThemeTint', label: 'Theme', cls: 'bg-indigo-100 text-indigo-900' }
-                                        ] as const
-                                      ).map((bg) => (
-                                        <button
-                                          key={bg.id}
-                                          type="button"
-                                          onClick={() => onChangeStyle({ highlightBg: bg.id })}
-                                          className={`px-1.5 py-0.5 rounded text-[9px] font-medium cursor-pointer ${
-                                            (st.highlightBg || 'none') === bg.id
-                                              ? 'ring-1 ring-indigo-600 font-bold ' + bg.cls
-                                              : bg.cls
-                                          }`}
-                                        >
-                                          {bg.label}
-                                        </button>
-                                      ))}
-                                    </div>
+                                <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 overflow-hidden">
+                                  {/* Compact Header Strip */}
+                                  <div className="px-2 py-1 flex items-center justify-between gap-1.5 bg-slate-100/80">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        pieceId &&
+                                        setOpenFormatPieceId((prev) => (prev === pieceId ? null : pieceId))
+                                      }
+                                      className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 cursor-pointer"
+                                    >
+                                      <Type className="w-3 h-3 text-indigo-600" />
+                                      <span>Typography &amp; Style</span>
+                                      <span className="text-[9px] font-mono text-slate-400">
+                                        ({activeSummary})
+                                      </span>
+                                      {isOpen ? (
+                                        <ChevronUp className="w-3 h-3 text-slate-400" />
+                                      ) : (
+                                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                                      )}
+                                    </button>
 
                                     {onInsertTag && (
                                       <select
@@ -13923,7 +13852,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             onInsertTag(e.target.value);
                                           }
                                         }}
-                                        className="px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-800 font-mono text-[9.5px] font-semibold cursor-pointer"
+                                        className="px-1.5 py-0.5 rounded border border-indigo-200 bg-white text-indigo-700 font-mono text-[9.5px] font-semibold cursor-pointer max-w-[125px]"
                                       >
                                         <option value="">+ @Data Tag</option>
                                         {QUOTATION_AT_TAGS.map((t) => (
@@ -13934,6 +13863,177 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       </select>
                                     )}
                                   </div>
+
+                                  {isOpen && (
+                                    <div className="p-2 space-y-2 border-t border-slate-200/80 bg-white">
+                                      {/* Row 1: Font Size + Bold/Italic/Underline/Uppercase + Alignment Icons */}
+                                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                        {/* Font Size */}
+                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
+                                          {(
+                                            [
+                                              { id: 'xs', label: 'XS' },
+                                              { id: 'sm', label: 'SM' },
+                                              { id: 'base', label: 'MD' },
+                                              { id: 'lg', label: 'LG' },
+                                              { id: 'xl', label: 'XL' }
+                                            ] as const
+                                          ).map((sz) => (
+                                            <button
+                                              key={sz.id}
+                                              type="button"
+                                              onClick={() => onChangeStyle({ fontSize: sz.id })}
+                                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
+                                                (st.fontSize || 'sm') === sz.id
+                                                  ? 'bg-indigo-600 text-white font-bold shadow-2xs'
+                                                  : 'text-slate-600 hover:text-slate-900'
+                                              }`}
+                                              title={`Font Size: ${sz.label}`}
+                                            >
+                                              {sz.label}
+                                            </button>
+                                          ))}
+                                        </div>
+
+                                        {/* B / I / U / AA */}
+                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onChangeStyle({
+                                                fontWeight: st.fontWeight === 'bold' ? 'normal' : 'bold'
+                                              })
+                                            }
+                                            className={`p-1 rounded cursor-pointer ${
+                                              st.fontWeight === 'bold'
+                                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                            title="Bold"
+                                          >
+                                            <Bold className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => onChangeStyle({ italic: !st.italic })}
+                                            className={`p-1 rounded cursor-pointer ${
+                                              st.italic
+                                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                            title="Italic"
+                                          >
+                                            <Italic className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => onChangeStyle({ underline: !st.underline })}
+                                            className={`p-1 rounded cursor-pointer ${
+                                              st.underline
+                                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                            title="Underline"
+                                          >
+                                            <Underline className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onChangeStyle({
+                                                letterSpacing:
+                                                  st.letterSpacing === 'uppercase_tracked'
+                                                    ? 'normal'
+                                                    : 'uppercase_tracked'
+                                              })
+                                            }
+                                            className={`px-1 py-0.5 rounded text-[9px] font-mono font-bold cursor-pointer ${
+                                              st.letterSpacing === 'uppercase_tracked'
+                                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                            title="Uppercase Tracked"
+                                          >
+                                            AA
+                                          </button>
+                                        </div>
+
+                                        {/* Alignment Icons */}
+                                        <div className="inline-flex items-center bg-slate-100 rounded-md p-0.5 border border-slate-200">
+                                          {(
+                                            [
+                                              { id: 'left', icon: AlignLeft, title: 'Align Left' },
+                                              { id: 'center', icon: AlignCenter, title: 'Align Center' },
+                                              { id: 'right', icon: AlignRight, title: 'Align Right' },
+                                              { id: 'justify', icon: AlignJustify, title: 'Justify' }
+                                            ] as const
+                                          ).map((al) => {
+                                            const IconComp = al.icon;
+                                            return (
+                                              <button
+                                                key={al.id}
+                                                type="button"
+                                                onClick={() => onChangeStyle({ textAlign: al.id })}
+                                                className={`p-1 rounded cursor-pointer ${
+                                                  (st.textAlign || 'left') === al.id
+                                                    ? 'bg-indigo-600 text-white shadow-2xs'
+                                                    : 'text-slate-600 hover:text-slate-900'
+                                                }`}
+                                                title={al.title}
+                                              >
+                                                <IconComp className="w-3 h-3" />
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+
+                                      {/* Row 2: Compact Selects for Color, Line Spacing & Highlight */}
+                                      <div className="grid grid-cols-3 gap-1.5">
+                                        <select
+                                          value={st.textColor || 'default'}
+                                          onChange={(e) =>
+                                            onChangeStyle({ textColor: e.target.value as any })
+                                          }
+                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Text Color"
+                                        >
+                                          <option value="default">Color: Dark Ink</option>
+                                          <option value="muted">Color: Muted</option>
+                                          <option value="accent">Color: Brand</option>
+                                        </select>
+
+                                        <select
+                                          value={st.lineHeight || 'normal'}
+                                          onChange={(e) =>
+                                            onChangeStyle({ lineHeight: e.target.value as any })
+                                          }
+                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Line Spacing"
+                                        >
+                                          <option value="tight">Spacing: Tight</option>
+                                          <option value="normal">Spacing: Normal</option>
+                                          <option value="relaxed">Spacing: Relaxed</option>
+                                        </select>
+
+                                        <select
+                                          value={st.highlightBg || 'none'}
+                                          onChange={(e) =>
+                                            onChangeStyle({ highlightBg: e.target.value as any })
+                                          }
+                                          className="rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-medium text-slate-700"
+                                          title="Highlight Fill"
+                                        >
+                                          <option value="none">Fill: None</option>
+                                          <option value="SoftYellow">Fill: Yellow</option>
+                                          <option value="SoftBlue">Fill: Blue</option>
+                                          <option value="SoftEmerald">Fill: Green</option>
+                                          <option value="SoftRose">Fill: Rose</option>
+                                          <option value="ThemeTint">Fill: Brand Tint</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             };
@@ -14194,7 +14294,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
                                                   ...p,
                                                   text: `${p.text || ''} ${tag}`.trim()
-                                                }))
+                                                })),
+                                              piece.id
                                             )}
                                             <AtMentionInput
                                               value={piece.text || ''}
@@ -14240,7 +14341,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
                                                   ...p,
                                                   text: `${p.text || ''} ${tag}`.trim()
-                                                }))
+                                                })),
+                                              piece.id
                                             )}
                                             <AtMentionTextarea
                                               value={piece.text || ''}
@@ -14294,11 +14396,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 ))}
                                               </div>
                                             </div>
-                                            {renderStandardTextToolbar(piece.style, (patch) =>
-                                              handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
-                                                ...p,
-                                                style: { ...(p.style || {}), ...patch }
-                                              }))
+                                            {renderStandardTextToolbar(
+                                              piece.style,
+                                              (patch) =>
+                                                handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                  ...p,
+                                                  style: { ...(p.style || {}), ...patch }
+                                                })),
+                                              undefined,
+                                              piece.id
                                             )}
                                             <div className="space-y-1">
                                               {(piece.items || []).map((itemText, iIdx) => (

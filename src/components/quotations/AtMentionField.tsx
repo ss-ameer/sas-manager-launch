@@ -497,7 +497,7 @@ const AtTagFloatingDropdown: React.FC<AtTagFloatingDropdownProps> = ({
   return (
     <div
       ref={menuRef}
-      className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-64 overflow-y-auto text-xs animate-in fade-in zoom-in-95 duration-100"
+      className="absolute left-0 right-0 top-full mt-1 z-[70] bg-white border border-slate-200 rounded-xl shadow-2xl max-h-56 overflow-y-auto text-xs animate-in fade-in zoom-in-95 duration-100"
     >
       <div className="sticky top-0 z-10 px-3 py-1.5 bg-slate-50/95 backdrop-blur-xs border-b border-slate-200 flex items-center justify-between">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1">

@@ -2009,7 +2009,7 @@ export default function EnquiryList({
           ...(isEditable
             ? [
                 {
-                  label: '+ Reserve Gap',
+                  label: 'Reserve Gap',
                   icon: Plus,
                   onClick: () => {
                     setReserveGapSn('');
@@ -2019,7 +2019,7 @@ export default function EnquiryList({
                   }
                 },
                 {
-                  label: 'Claim Quote Ref',
+                  label: 'Claim Ref',
                   icon: Hash,
                   onClick: () => setShowQuickClaimModal(true)
                 }
@@ -2028,7 +2028,7 @@ export default function EnquiryList({
           ...(isAdmin(user, activeWorkspace)
             ? [
                 {
-                  label: 'Import Legacy Log',
+                  label: 'Import',
                   icon: Upload,
                   onClick: () => setShowImport(true)
                 }
@@ -2037,7 +2037,7 @@ export default function EnquiryList({
           ...(canExportData(user, activeWorkspace)
             ? [
                 {
-                  label: 'Export flattened CSV',
+                  label: 'Export CSV',
                   icon: Download,
                   onClick: handleExportCSV
                 }
@@ -2300,9 +2300,9 @@ export default function EnquiryList({
               </div>
             </div>
 
-            <div className="w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto max-h-[calc(100vh-270px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
             <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 select-none">
+              <thead className="bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0 z-10 shadow-2xs select-none">
                 <tr>
                   {isMarkingMode && (
                     <th className="py-3 px-4 w-10 text-center">
