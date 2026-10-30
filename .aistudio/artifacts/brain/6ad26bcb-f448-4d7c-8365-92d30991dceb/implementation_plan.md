@@ -1,127 +1,119 @@
-# Quotation Studio 2.0 — Phase 1: Granular Set Sub-Component Row Options & Multi-Page Pagination Engine
+# Quotation Studio 2.0 — Phase 2: Decluttered Commercial Summary & Totals Hub
 
-Deliver per-row customization and pagination controls (`✂ Page Break`, `Spacer (mm)`, `🎨 Highlight`, `B Bold`, `Hide Price`, and `@tag`-enabled `+ Row Note`) across both top-level line items and every nested sub-component (`1.1`, `1.2`, ..., `1.50`) inside Composite BOM Sets, paired with an optional Auto-Paginate engine and multi-page BOM/Option table continuation safeguards.
+Consolidate scattered financial summary settings, multi-option table display modes, BOM package pricing defaults, and unpriced submittal controls into a single **Commercial Summary & Totals Hub** in the Right Inspector, complete with lossless price-restore memory (**Choice B1**) and reorderable financial rows with live currency previews.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following product and accounting behaviors have been confirmed during Phase 1 alignment:
+> The following product and UX decisions were confirmed during interactive clarification and govern this implementation:
 
-- **Confirmed Decision 1 — Visual-Only Price Masking (`Hide Price`)**: Toggling `Hide Price` on a top-level line item or Set sub-component renders `Included` (for sub-components) or `—` (for top-level unit/total cells) visually on the A4 quotation while keeping the row's numeric price inside the Set/Option financial rollup so package and grand totals remain 100% accurate.
-- **Confirmed Decision 2 — Smart `@Tag` Autocomplete in Row Notes (`+ Note`)**: Custom row notes on both top-level items and Set sub-components use `<AtMentionInput />` and resolve through the frozen quotation snapshot (`renderResolvedQuotationText`), supporting live `@delivery_lead_time`, `@warranty_period`, `@project_location`, and all 38 commercial `@tags`.
-- **Confirmed Decision 3 — Orphan-Free Set Header Guard in Auto-Paginate Mode**: When `Auto-Paginate Long Tables & Sets` (`auto_paginate_items`) is enabled, a Composite BOM Set header row and its first sub-component (`1.1`) are always kept together on the same A4 sheet; if both do not fit in the remaining vertical budget of the current sheet, the entire Set starts cleanly at the top of the next continuation sheet.
+- **Confirmed Decision 1 — Unpriced Submittal / DO Mode Rendering**: Activating **Unpriced Submittal / DO Mode** hides Unit Price and Line Total columns, suppresses per-option subtotal footer rows on the document while preserving quantities, units, and technical specifications, and hides the bottom Financial Summary block. Switching back to a Priced mode restores the exact prior column and block visibility snapshot (**Choice B1**).
+- **Confirmed Decision 2 — Reorderable Standard & Custom Financial Rows**: Standard accounting rows (`Subtotal`, `Freight`, `Tax / VAT`) can be reordered alongside custom financial adjustment rows (`Special Discount`, `Mobilization Advance`, `Rebate`), with custom rows also supporting `Above Grand Total` or `Below Grand Total` placement and Bold/Highlight styling.
+- **Confirmed Decision 3 — Single Source of Truth for Option & Package Modes**: The duplicate Multi-Option & Package Layout card inside the Line Items Table inspector is replaced with a clean 1-click navigation card (**`Configure Options, Totals & Package Pricing →`**) that opens the unified **Commercial Summary & Totals Hub** (`totals` Inspector), eliminating duplicate controls across drawers.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**:
-  - Elevates every sub-component (`1.1`, `1.2`, ..., `1.50`) inside a Composite BOM Set to a first-class customizable row with its own page break toggle, bottom spacer in millimeters, custom `@tag`-resolvable row note, amber/brand row highlight, bold typography toggle, and price visibility mask.
-  - Upgrades the A4 pagination engine so a 50-item BOM Set or Multi-Option schedule can split cleanly across multiple A4 sheets—either at exact manual cut points (`✂ Break After 1.x`) or automatically via `Auto-Paginate Long Tables & Sets`—with automatic `(Continued)` Set headers, continuous `1.11`, `1.12` numbering, zero double-counting of split Set prices, and preserved Option table grouping across all sheets.
-- **Target Audience / Persona**: Commercial estimators, proposals engineers, and sales managers preparing complex multi-page engineering BOMs and multi-option commercial offers.
-- **Key Value**: Eliminates awkward mid-table clipping and manual workarounds on large BOM sets while guaranteeing mathematical accuracy across multi-page option schedules.
+- **What It Does**: Transforms the `totals` Right Inspector into a unified **Commercial Summary & Totals Hub** structured into three focused cards:
+  1. **Card 1 — Document Pricing & Option Mode**: 3 top-level mode selectors (**`Standard / Combined Table`**, **`Multi-Option View`**, and **`Unpriced Submittal / DO`**) with automatic **Choice B1** snapshot/restore memory, option filter pills (`All Separate Option Tables`, `Option A Only`, `Option B Only`, `Option C Only`), custom option banner titles, and a 2-choice toggle for `Per-Option Totals Only` vs. `Per-Option Totals + Combined Bottom Summary`.
+  2. **Card 2 — BOM Set Pricing Default**: Batch-action buttons (**`Set All Packages to Lump Sum`** and **`Set All Packages to Itemized`**) with a live package breakdown counter (`X Lump Sum · Y Itemized`) that updates composite line items in bulk without locking out individual per-item overrides.
+  3. **Card 3 — Financial Summary Rows & Live Currency Preview**: Reorderable standard rows (`Subtotal`, `Freight`, `VAT`) showing live calculated figures right inside the inspector, plus reorderable custom financial rows with enable/disable checkboxes, Up/Down ordering, Bold/Highlight toggles, and `Above Grand Total` vs. `Below Grand Total` placement.
+- **Target Audience / Persona**: Commercial estimators, proposal engineers, and sales managers preparing standard quotations, multi-option comparative offers (Option A / B / C), lump-sum or itemized BOM packages, and unpriced technical submittals or delivery orders.
+- **Key Value**: Eliminates hunting across multiple tabs and drawers for pricing and option controls, prevents accidental loss of column/totals settings when toggling Unpriced Submittal mode, and gives real-time visibility into financial figures while customizing summary rows.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. **Right Inspector (`items_table` -> Line-Item Pagination, Spacing & Row Options)**:
-     - At the top of the section, users can toggle **`Auto-Paginate Long Tables & Sets`** (`auto_paginate_items`). When enabled, long tables and BOM sets automatically split across A4 sheets based on measured row height budgets while honoring any manual `✂ Break` flags as forced cut points.
-     - Each top-level item row displays a compact action bar: `✂ Break` (`Break After Table` on the final item), `Spacer (mm)` stepper, `🎨 Highlight`, `B Bold`, `Hide Price`, and `+ Note`.
-     - If an item is a Composite Set (`sub_components.length > 0`), an expandable indented sub-tree lists all sub-components (`1.1`, `1.2`, ..., `1.50`), each equipped with the exact same 6 controls (`✂ Break After 1.x`, `Spacer (mm)`, `🎨 Highlight`, `B Bold`, `Hide Price`, `+ Note`).
-  2. **Left Panel Line-Item Cards & `CompositePackageEditor`**:
-     - Inside the Left Panel's line-item list and inside `CompositePackageEditor`, each sub-component row includes compact quick toggles for `✂ Break After Row`, `🎨 Highlight`, `B Bold`, `Hide Price`, `Spacer`, and `+ Row Note` (with `@tag` autocomplete) so engineers can configure pagination and notes while editing a 50-row BOM.
-  3. **Live A4 Multi-Page Preview & Print Canvas**:
-     - When a BOM Set splits after sub-component `1.10`, Sheet 1 renders `1.1` through `1.10` followed by a subtle footer notice: `↳ Set #1 continued on next page...` (suppressing premature scope notes until the final slice).
-     - Sheet 2 opens with a continuation table header and a dedicated **Set Continuation Header Row**: `#` column shows `1 (Cont.)`, description shows `<Item Name> (Continued)` badge without repeating parent specs/descriptions, and Qty/UOM/Price cells show `—` / `Included above`, followed immediately by `1.11`, `1.12`, etc.
-     - For Multi-Option tables (`all_separate_tables`), if Option B spans Sheet 1 and Sheet 2, Sheet 1's Option B table footer displays `OPTION B — Continued on next page (Page Subtotal: AED ...)` and Sheet 2's Option B table footer displays the true cumulative `OPTION B TOTAL (AED ...)`.
+  1. **1-Click Hub Entry from Left Panel & Table Inspector**:
+     - In Left Panel → Tab 2 (`Deal Data & Content`) → `Tax & Financial Adjustments`, clicking **`Configure Totals, Options & Price Display →`** opens the `totals` Right Inspector.
+     - In the `items_table` Right Inspector, the former duplicate Multi-Option card is replaced by a streamlined summary banner with a 1-click **`Configure Options, Totals & Package Pricing →`** shortcut to the `totals` Hub.
+  2. **Switching Document Pricing & Option Modes (Card 1)**:
+     - Clicking **`Unpriced Submittal / DO`** snapshots `{ showUnitPrice, showLineTotal, totalsBlockVisible, showAmountInWords, optionDisplayMode }` into `savedPricedConfigRef`, hides the price columns and bottom `totals` block, and suppresses option subtotal rows on the canvas. An amber restore banner with a 1-click **`Restore Priced Quote Settings`** button appears immediately.
+     - Clicking **`Standard / Combined Table`** or **`Multi-Option View`** (or the restore button) automatically restores the saved priced configuration from `savedPricedConfigRef` before applying the chosen table mode.
+     - When **`Multi-Option View`** → **`All Separate Option Tables (A / B / C)`** is selected, a 2-choice segmented toggle lets the user pick **`Per-Option Totals Only`** (with an explanatory notice that each option table displays its own subtotal and amount in words so mutually exclusive options aren't summed together) or **`Per-Option Totals + Combined Bottom Summary`**.
+  3. **Batch BOM Set Pricing Without Locking Overrides (Card 2)**:
+     - Clicking **`Set All Packages to Lump Sum`** or **`Set All Packages to Itemized`** updates `package_pricing_mode` across all composite BOM line items while preserving the user's ability to toggle any individual Set later. A live counter displays `X Lump Sum · Y Itemized`.
+  4. **Configuring & Reordering Financial Summary Rows (Card 3)**:
+     - Each standard row (`Subtotal`, `Freight`, `VAT`, `Grand Total`) displays its live calculated currency amount (`AED X,XXX.XX`) in monospace tabular numerals (`tabular-nums`) right inside the inspector row, alongside Up/Down reorder buttons and inline label editing.
+     - Custom financial rows (e.g., `Special Discount`, `Mobilization Advance`, `Rebate`) provide an enable/disable checkbox, label and `@tag`-enabled value inputs, Up/Down reorder buttons, a **Bold / Highlight** toggle (`isHighlight`), and a **Placement** selector (`Above Grand Total` vs. `Below Grand Total`).
 
 - **Visual Identity & Theme**:
-  - **Aesthetic Direction**: High-density enterprise light-mode studio controls (`bg-white`, `bg-slate-50/70`, `border-slate-200`) paired with crisp, print-faithful A4 commercial typography.
-  - **Color Palette & Mood**:
-    - Active page break badges & indicators: Amber accent (`bg-amber-50/90 text-amber-800 border-amber-300`).
-    - Highlighted table rows (`row_highlight`): Soft warm tint (`bg-amber-50/60 print:bg-amber-50/50`) that prints cleanly without obscuring text contrast.
-    - Set Continuation banners: Subtle slate/indigo structural tint (`bg-slate-100/80 text-slate-700 border-slate-200`).
-  - **Typography & Hierarchy**: Monospace tabular numerals (`font-mono tabular-nums`) for all `#`, `1.x` sub-indices, quantities, spacer millimeter inputs, unit rates, and subtotals; clean sans-serif hierarchy for item titles and italic resolved `@tag` row notes.
+  - *Aesthetic Direction*: High-craft enterprise light mode with crisp slate surfaces (`#FFFFFF` cards on `#F8FAFC` inspector tracks) and semantic accents (`blue-600` primary commercial actions, `indigo-600` multi-option/BOM controls, `amber-600` unpriced submittal state & restore banner).
+  - *Typography & Hierarchy*: Clean sans-serif UI labels paired with strict monospace tabular numerals (`font-mono tabular-nums`) for all live currency previews (`AED 0.00`).
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Stable Composite Keys Over Positional Array Indices**
-  - *Chosen Approach*: Key all row overrides (`itemPageBreaks`, `itemRowSpacers`, and per-row style/note overrides) by stable `item.id` (for top-level items) and `${item.id}::${sub.id}` (for sub-components), while syncing directly onto the serialized `line_items` and `sub_components` objects.
-  - *Why*: Reordering items or inserting a new sub-component at row `1.5` never shifts page breaks, spacers, or notes onto the wrong row.
-- **Decision 2: Global Pre-Pass Before Sheet Chunking**
-  - *Chosen Approach*: Compute `distinctOptionGroupsAll`, `parentItemNumber`, `globalOptionItemNumber`, `fullOptionGroupTotals`, and `finalChunkIndexByOptionKey` across the full unchunked `lineItems` array before `splitLineItemsIntoChunks` slices items across sheets.
-  - *Why*: Prevents a continuation sheet that only contains `Option B` rows from losing its `Option B` table banner or resetting item numbering to `1`, and guarantees that split Composite Sets are never double-counted in option or grand totals.
-- **Decision 3: Hybrid Manual + Auto-Pagination Engine**
-  - *Chosen Approach*: Keep `auto_paginate_items` optional (default `false` for backward compatibility with existing saved quotes) and treat manual `page_break_after` flags as hard cut points that reset the running sheet height counter during auto-pagination.
-  - *Why*: Existing quotations preserve their exact page count and layout, while users with 30–100+ row BOMs can turn on `Auto-Paginate` with 1 click and still fine-tune specific breaks manually.
+- **Decision 1 — Lossless Price-Restore Memory (`Choice B1`)**:
+  - *Chosen Approach*: Store a ref/state snapshot (`savedPricedConfigRef`) capturing `{ showUnitPrice, showLineTotal, totalsBlockVisible, showAmountInWords, optionDisplayMode }` at the exact moment the user enters **Unpriced Submittal / DO Mode**.
+  - *Why*: Users frequently generate an unpriced technical submittal PDF and immediately switch back to the commercial quote. Snapshot memory guarantees that custom combinations (such as hiding Unit Price while keeping Line Total visible, or using Separate Option Tables) are restored faithfully instead of resetting to naive defaults.
+- **Decision 2 — Stateless Batch Action for BOM Set Pricing**:
+  - *Chosen Approach*: Apply batch updates directly to each composite line item's `package_pricing_mode` override rather than introducing a global override flag.
+  - *Why*: Allows an estimator to set 10 BOM packages to Lump Sum in one click and still switch 1 specific package to Itemized Rates without fighting a global lock.
+- **Decision 3 — Unified Reorderable Financial Summary Architecture**:
+  - *Chosen Approach*: Use `fieldOrder` on the `totals` block for standard pre-total accounting rows (`['subtotal', 'freight', 'tax']`) and extend `QuotationBlockCustomRow` with `isHighlight?: boolean` and `position?: 'above_grand_total' | 'below_grand_total'`.
+  - *Why*: Supports both standard accounting order adjustments and post-total commercial adjustments (such as `Less: 10% Advance Payment` or `Net Payable Upon Delivery` below Grand Total) while remaining 100% backward-compatible with existing saved quotations and presets.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## 4. Technical Architecture & Data Strategy
 
 ### Architecture & Component Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                        QuotationStudioModal (State)                          │
-│  • autoPaginateItems (boolean)                                               │
-│  • itemPageBreaks / itemRowSpacers / itemRowCustomizations (stable ID keys)  │
-│  • itemCompositeOverrides (sub_components with per-row break/spacer/style)   │
-└───────────────┬──────────────────────────────────────────────┬───────────────┘
-                │                                              │
-                ▼                                              ▼
-┌───────────────────────────────────────┐      ┌───────────────────────────────┐
-│   Right Inspector & Left BOM Editor   │      │       QuotationDocument       │
-│  • Auto-Paginate Master Toggle        │      │  1. Global Pre-Pass:          │
-│  • Top-Level Row Options Bar          │      │     - distinctOptionGroupsAll │
-│  • Expandable 1.1..1.N Sub-Row Tree   │      │     - parentItemNumber &      │
-│  • CompositePackageEditor Quick Tools │      │       globalOptionItemNumber  │
-│  • @Tag-Enabled Row Note Inputs       │      │     - fullOptionGroupTotals   │
-└───────────────────────────────────────┘      │  2. splitLineItemsIntoChunks: │
-                                               │     - Manual item & 1.x cuts  │
-                                               │     - Auto-Paginate height    │
-                                               │       budget (parent+1.1 kept │
-                                               │       together)               │
-                                               │  3. renderItemsTable:         │
-                                               │     - Set (Cont.) Header Row  │
-                                               │     - 1.11..1.N numbering     │
-                                               │     - Page Subtotal vs Final  │
-                                               │       Option Total Footers    │
-                                               └───────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        QuotationStudioModal (State)                        │
+│  • savedPricedConfigRef (Choice B1 Snapshot Memory)                        │
+│  • optionDisplayMode / showCombinedOptionsTotal / optionGroupTitles        │
+│  • visibleColumns (showUnitPrice, showLineTotal)                           │
+│  • layoutBlocks['totals'] (is_visible, fieldOrder, customRows, labels)     │
+│  • itemCompositeOverrides (per-item package_pricing_mode)                  │
+└───────────────┬────────────────────────────────────────┬───────────────────┘
+                │                                        │
+                ▼                                        ▼
+┌───────────────────────────────────────┐  ┌─────────────────────────────────┐
+│   Commercial Summary & Totals Hub     │  │     QuotationDocument (PDF)     │
+│   (Right Inspector: 'totals')         │  │                                 │
+│  ┌─────────────────────────────────┐  │  │  • renderItemsTable:            │
+│  │ Card 1: Pricing & Option Mode   │  │  │    Suppresses option subtotal   │
+│  │  • Standard / Combined Table    │  │  │    footer when unpriced         │
+│  │  • Multi-Option View (A/B/C)    │  │  │                                 │
+│  │  • Unpriced Submittal / DO      │  │  │  • renderTotalsBlock:           │
+│  ├─────────────────────────────────┤  │  │    1. Per-Option Summary Cards  │
+│  │ Card 2: BOM Set Pricing Default │  │  │    2. Ordered Standard Rows     │
+│  │  • All Lump Sum / All Itemized  │  │  │       (subtotal, freight, tax)  │
+│  │  • Live X Lump · Y Itemized     │  │  │    3. Custom Rows (Above Total) │
+│  ├─────────────────────────────────┤  │  │    4. Grand Total Banner        │
+│  │ Card 3: Financial Summary Rows  │  │  │    5. Custom Rows (Below Total) │
+│  │  • Live AED Previews & Reorder  │  │  │    6. Amount in Words           │
+│  │  • Custom Rows (Above/Below GT, │  │  └─────────────────────────────────┘
+│  │    Bold/Highlight, Reorder)     │  │
+│  └─────────────────────────────────┘  │
+└───────────────────────────────────────┘
 ```
 
 ### Data Model & State
-- **Per-Row Customization Fields (on `LineItemComponent`, `LineItem`, and `QuotationLineItem`)**:
-  - `page_break_after?: boolean`
-  - `row_spacer_after_mm?: number`
-  - `row_note?: string`
-  - `row_highlight?: boolean`
-  - `row_bold?: boolean`
-  - `hide_row_price?: boolean`
-- **Runtime Continuation Metadata (on `QuotationLineItem`)**:
-  - `isCompositeContinuation?: boolean`
-  - `hasMoreSubComponentsAfter?: boolean`
-  - `subComponentStartIndex?: number`
-  - `parentItemNumber?: number`
-  - `globalOptionItemNumber?: number`
-- **Quotation & Preset Setting**:
-  - `auto_paginate_items?: boolean` on `Quotation` and `QuotationPreset`, hydrated and persisted via `QuotationRepository`.
+
+- **`QuotationBlockCustomRow`**:
+  - Extended with `isHighlight?: boolean;` (renders row with bold typography and subtle accent highlight) and `position?: 'above_grand_total' | 'below_grand_total';` (defaults to `'above_grand_total'`).
+- **`PricedConfigSnapshot` (`savedPricedConfigRef`)**:
+  - Stores `{ showUnitPrice: boolean; showLineTotal: boolean; totalsBlockVisible: boolean; showAmountInWords: boolean; optionDisplayMode: QuotationOptionDisplayMode }`.
+  - Automatically populated when entering **Unpriced Submittal / DO Mode** and consumed when returning to **`Standard / Combined Table`** or **`Multi-Option View`** (or clicking **`Restore Priced Quote Settings`**).
 
 ### Interactive Component & State Mapping
-1. **Global Pre-Pass & Sub-Component Chunking**:
-   - Before splitting `lineItems`, annotate each item with `parentItemNumber` (`1..N`), `globalOptionItemNumber` (`1..M` within its option group), and ensure every sub-component has a deterministic ID (`sub.id || `${item.id}_sub_${sIdx}``).
-   - Calculate `fullOptionGroupTotals[optionKey]` and `finalChunkIndexByOptionKey[optionKey]` across non-continuation items.
-   - In `splitLineItemsIntoChunks(lineItems, { autoPaginate })`:
-     - Support splitting an item across multiple chunks whenever any sub-component `k < sub_components.length - 1` has `sub.page_break_after === true` OR when `autoPaginate` exceeds the current sheet's height budget (~175mm on Sheet 1, ~220mm on Sheet 2+).
-     - Enforce the **Orphan-Free Set Header Guard**: estimate the parent row + first sub-component (`1.1`) height together before starting a Set on the current sheet; if their combined height exceeds the remaining budget on a non-empty chunk, flush the current chunk first so the Set header and `1.1` start together on the next sheet.
-     - If the final sub-component (`k === sub_components.length - 1`) has `page_break_after === true`, promote it to `page_break_after: true` on that final item slice (including triggering the `Break After Table` sheet split when it is the last item in the quotation).
-2. **Table Rendering (`renderItemsTable`)**:
-   - Use `distinctOptionGroupsAll.length > 1` so continuation sheets with a single option group retain their Option banner and structure.
-   - Skip `it.isCompositeContinuation` in all subtotal/group reducers so split Sets are never double-counted.
-   - Render Set Continuation Header rows (`#1 (Cont.)`, `<Item Name> (Continued)`, `Included above` in price cells) when `item.isCompositeContinuation === true`.
-   - Render sub-components using `subSn = ${item.parentItemNumber || itemNumber}.${(item.subComponentStartIndex || 0) + subIdx + 1}`, applying `row_highlight`, `row_bold`, `hide_row_price`, `@tag`-resolved `row_note`, and `row_spacer_after_mm` to both parent rows and sub-component rows.
-   - Render `↳ Set #X continued on next page...` when `item.hasMoreSubComponentsAfter === true`, and render Option continuation footers (`Page Subtotal` vs final `OPTION X TOTAL`) based on `finalChunkIndexByOptionKey`.
+
+1. **Entry Shortcuts**:
+   - Left Panel Tab 2 (`Tax & Financial Adjustments` card) and Right Inspector (`items_table` card) invoke `handleInspectSection('totals')`, opening the `totals` Inspector drawer.
+2. **Mode Transitions (Card 1)**:
+   - **To `Unpriced Submittal / DO`**: If not already in unpriced mode, saves current `visibleColumns.showUnitPrice`, `visibleColumns.showLineTotal`, `totals` block `is_visible`/`enabled`, `amountInWordsEnabled`, and `optionDisplayMode` into `savedPricedConfigRef.current`. Sets `showUnitPrice: false`, `showLineTotal: false`, and `totals` block `enabled: false, is_visible: false`.
+   - **To `Standard / Combined Table`**: If currently in unpriced mode, restores `showUnitPrice`, `showLineTotal`, `totals` block visibility, and `amountInWordsEnabled` from `savedPricedConfigRef.current` (fallback: `true`), and sets `optionDisplayMode` to `'combined_table'`.
+   - **To `Multi-Option View`**: If currently in unpriced mode, restores priced columns and `totals` block visibility from `savedPricedConfigRef.current`, and sets `optionDisplayMode` to the saved multi-option mode (or `'all_separate_tables'` if previously `'combined_table'`).
+3. **Batch BOM Package Mode (Card 2)**:
+   - Iterates over composite line items in `quotationLineItems` and updates `itemCompositeOverrides[itemKey].package_pricing_mode` (and `customStudioLineItems` if active) to `'lump_sum'` or `'itemized'`.
+4. **Financial Rows & Custom Adjustments (Card 3 & Document Renderer)**:
+   - Standard rows (`subtotal`, `freight`, `tax`) render in the order defined by `selectedBlock.fieldOrder` (default `['subtotal', 'freight', 'tax']`) with Up/Down reorder buttons and live `AED` amounts from `financialTotals`.
+   - Custom rows on `totals` support Up/Down reordering, `enabled` toggle, `isHighlight` toggle (bold/tinted row styling), `position` toggle (`'above_grand_total'` vs `'below_grand_total'`), and `hideIfEmpty` toggle.

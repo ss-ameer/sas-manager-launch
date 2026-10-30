@@ -2347,6 +2347,113 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
+  // Choice B1 Price-Restore Memory for switching into/out of Unpriced Submittal / DO Mode
+  const savedPricedConfigRef = useRef<{
+    showUnitPrice: boolean;
+    showLineTotal: boolean;
+    totalsBlockVisible: boolean;
+    showAmountInWords: boolean;
+    optionDisplayMode: QuotationOptionDisplayMode;
+  } | null>(null);
+
+  const totalsLayoutBlock = useMemo(
+    () => layoutBlocks.find((b) => b.id === 'totals'),
+    [layoutBlocks]
+  );
+  const isTotalsBlockVisible = totalsLayoutBlock
+    ? totalsLayoutBlock.enabled !== false && totalsLayoutBlock.is_visible !== false
+    : true;
+  const isUnpricedSubmittalMode =
+    visibleColumns.showUnitPrice === false &&
+    visibleColumns.showLineTotal === false &&
+    !isTotalsBlockVisible;
+
+  const handleEnterUnpricedSubmittalMode = () => {
+    if (!isUnpricedSubmittalMode) {
+      savedPricedConfigRef.current = {
+        showUnitPrice:
+          visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false,
+        showLineTotal: visibleColumns.showLineTotal !== false,
+        totalsBlockVisible: isTotalsBlockVisible,
+        showAmountInWords: amountInWordsEnabled,
+        optionDisplayMode
+      };
+    }
+    setVisibleColumns((prev) => ({
+      ...prev,
+      unit_price: false,
+      showUnitPrice: false,
+      showLineTotal: false
+    }));
+    setLayoutBlocks((prev) =>
+      prev.map((b) =>
+        b.id === 'totals' ? { ...b, enabled: false, is_visible: false } : b
+      )
+    );
+  };
+
+  const handleRestorePricedQuoteMode = (nextOptionMode?: QuotationOptionDisplayMode) => {
+    const snap = savedPricedConfigRef.current;
+    setVisibleColumns((prev) => ({
+      ...prev,
+      unit_price: snap ? snap.showUnitPrice : true,
+      showUnitPrice: snap ? snap.showUnitPrice : true,
+      showLineTotal: snap ? snap.showLineTotal : true
+    }));
+    setLayoutBlocks((prev) =>
+      prev.map((b) =>
+        b.id === 'totals'
+          ? {
+              ...b,
+              enabled: snap ? snap.totalsBlockVisible : true,
+              is_visible: snap ? snap.totalsBlockVisible : true
+            }
+          : b
+      )
+    );
+    if (snap) {
+      setAmountInWordsEnabled(snap.showAmountInWords);
+    }
+    if (nextOptionMode) {
+      setOptionDisplayMode(nextOptionMode);
+    } else if (snap?.optionDisplayMode) {
+      setOptionDisplayMode(snap.optionDisplayMode);
+    }
+  };
+
+  const handleBatchSetBomPricingMode = (mode: 'lump_sum' | 'itemized') => {
+    setItemCompositeOverrides((prev) => {
+      const next = { ...prev };
+      quotationLineItems.forEach((item, idx) => {
+        const isComp = Boolean(
+          item.is_composite_set ||
+            (Array.isArray(item.sub_components) && item.sub_components.length > 0)
+        );
+        if (isComp) {
+          const itemKey = item.id || `item_${idx}`;
+          next[itemKey] = {
+            ...(next[itemKey] || {}),
+            package_pricing_mode: mode
+          };
+        }
+      });
+      return next;
+    });
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((it) => {
+              const isComp = Boolean(
+                it.is_composite_set ||
+                  (Array.isArray(it.sub_components) && it.sub_components.length > 0)
+              );
+              return isComp ? { ...it, package_pricing_mode: mode } : it;
+            })
+          : prev
+      );
+    }
+  };
+
   // Calculate live financial figures based on active optionDisplayMode
   const financialTotals = useMemo(() => {
     const itemsForTotals =
@@ -4913,6 +5020,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         {liveQuotation.currency} {financialTotals.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCanvasSelectSection('totals')}
+                      className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-between transition shadow-2xs cursor-pointer"
+                    >
+                      <span>Configure Totals, Options &amp; Price Display</span>
+                      <span className="font-mono text-sm leading-none">&rarr;</span>
+                    </button>
                   </div>
 
                   {/* Card 2: Subject, Commercial Terms & Validity */}
@@ -7998,126 +8114,32 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
-                    {/* 0. Multi-Option & Composite Package Table Layout Controls */}
-                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3">
+                    {/* 0. Unified Commercial Summary & Totals Hub Shortcut */}
+                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                          Multi-Option &amp; Package Layout
+                          Option Display, BOM Pricing &amp; Totals
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-white border border-indigo-200 text-indigo-700">
+                          {isUnpricedSubmittalMode
+                            ? 'Unpriced / DO'
+                            : optionDisplayMode === 'combined_table'
+                            ? 'Standard Table'
+                            : 'Multi-Option'}
                         </span>
                       </div>
-
-                      <div>
-                        <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70 mb-1">
-                          Option Table Layout Mode
-                        </label>
-                        <div className="grid grid-cols-2 gap-1">
-                          {[
-                            {
-                              id: 'all_separate_tables' as const,
-                              label: 'Separate Option Tables',
-                              desc: 'Dedicated table per Option'
-                            },
-                            {
-                              id: 'option_a_only' as const,
-                              label: 'Option A Only',
-                              desc: 'Filter to Option A items'
-                            },
-                            {
-                              id: 'option_b_only' as const,
-                              label: 'Option B Only',
-                              desc: 'Filter to Option B items'
-                            },
-                            {
-                              id: 'option_c_only' as const,
-                              label: 'Option C Only',
-                              desc: 'Filter to Option C items'
-                            },
-                            {
-                              id: 'combined_table' as const,
-                              label: 'Combined Table',
-                              desc: 'All items in 1 table'
-                            }
-                          ].map((optMode) => {
-                            const active = optionDisplayMode === optMode.id;
-                            return (
-                              <button
-                                key={optMode.id}
-                                type="button"
-                                onClick={() => setOptionDisplayMode(optMode.id)}
-                                className={`p-1.5 rounded-lg border text-left transition cursor-pointer ${
-                                  active
-                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
-                                }`}
-                              >
-                                <span className="text-[10.5px] font-bold block leading-tight">
-                                  {optMode.label}
-                                </span>
-                                <span
-                                  className={`text-[9px] block mt-0.5 ${
-                                    active ? 'text-indigo-100' : 'text-slate-400'
-                                  }`}
-                                >
-                                  {optMode.desc}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Custom Option Group Banner Titles */}
-                      {(() => {
-                        const detectedOpts: string[] = Array.from(
-                          new Set(
-                            quotationLineItems
-                              .map((it) => String(it.option || it.option_group || '').trim())
-                              .filter((o): o is string => Boolean(o && o !== 'Default / Included'))
-                          )
-                        );
-                        if (detectedOpts.length === 0) return null;
-                        return (
-                          <div className="space-y-1.5 pt-2 border-t border-indigo-200/60">
-                            <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70">
-                              Custom Option Banner Titles
-                            </label>
-                            {detectedOpts.map((optKey) => (
-                              <div key={optKey} className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-mono font-bold text-indigo-900 w-20 shrink-0 truncate">
-                                  {optKey}:
-                                </span>
-                                <input
-                                  type="text"
-                                  value={optionGroupTitles[optKey] ?? ''}
-                                  onChange={(e) =>
-                                    setOptionGroupTitles((prev) => ({
-                                      ...prev,
-                                      [optKey]: e.target.value
-                                    }))
-                                  }
-                                  placeholder={`Custom banner title for ${optKey}...`}
-                                  className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-md px-2 py-1 text-[10.5px] text-slate-800 focus:outline-none focus:border-indigo-500"
-                                />
-                              </div>
-                            ))}
-
-                            {detectedOpts.length > 1 && (
-                              <label className="flex items-center justify-between gap-2 pt-1.5 cursor-pointer">
-                                <span className="text-[10.5px] font-semibold text-indigo-950">
-                                  Show Combined Grand Total Across Options
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  checked={showCombinedOptionsTotal}
-                                  onChange={(e) => setShowCombinedOptionsTotal(e.target.checked)}
-                                  className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                />
-                              </label>
-                            )}
-                          </div>
-                        );
-                      })()}
+                      <p className="text-[10.5px] text-indigo-900/80 leading-relaxed">
+                        Multi-Option table layout, Unpriced Submittal / DO mode, batch BOM Set pricing, and financial summary rows are managed in the unified Commercial Summary &amp; Totals Hub.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleCanvasSelectSection('totals')}
+                        className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center justify-between transition shadow-2xs cursor-pointer"
+                      >
+                        <span>Configure Totals, Options &amp; Price Display</span>
+                        <span className="font-mono text-sm leading-none">&rarr;</span>
+                      </button>
                     </div>
 
                     {/* 1. Column Visibility Toggles */}
@@ -9415,6 +9437,316 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     {/* Drawer Content */}
                     <div className="p-4 space-y-4 text-xs">
+                      {/* Unified Commercial Summary & Totals Hub (Top of Totals Inspector) */}
+                      {selectedBlock.id === 'totals' && (
+                        <div className="space-y-3.5 pb-2 border-b border-slate-200">
+                          {/* Card 1 — Document Pricing & Option Mode */}
+                          <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
+                                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                                1. Document Pricing &amp; Option Mode
+                              </span>
+                            </div>
+
+                            {/* 3 Top-Level Mode Pills */}
+                            <div className="grid grid-cols-3 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleRestorePricedQuoteMode('combined_table')}
+                                className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                  !isUnpricedSubmittalMode && optionDisplayMode === 'combined_table'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                }`}
+                              >
+                                <span className="text-[10.5px] font-bold block leading-tight">
+                                  Standard / Combined
+                                </span>
+                                <span
+                                  className={`text-[9px] block mt-0.5 ${
+                                    !isUnpricedSubmittalMode && optionDisplayMode === 'combined_table'
+                                      ? 'text-indigo-100'
+                                      : 'text-slate-400'
+                                  }`}
+                                >
+                                  Single priced table
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRestorePricedQuoteMode(
+                                    optionDisplayMode === 'combined_table'
+                                      ? 'all_separate_tables'
+                                      : optionDisplayMode
+                                  )
+                                }
+                                className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                  !isUnpricedSubmittalMode && optionDisplayMode !== 'combined_table'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                }`}
+                              >
+                                <span className="text-[10.5px] font-bold block leading-tight">
+                                  Multi-Option View
+                                </span>
+                                <span
+                                  className={`text-[9px] block mt-0.5 ${
+                                    !isUnpricedSubmittalMode && optionDisplayMode !== 'combined_table'
+                                      ? 'text-indigo-100'
+                                      : 'text-slate-400'
+                                  }`}
+                                >
+                                  Option A / B / C tables
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleEnterUnpricedSubmittalMode}
+                                className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                  isUnpricedSubmittalMode
+                                    ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300'
+                                }`}
+                              >
+                                <span className="text-[10.5px] font-bold block leading-tight">
+                                  Unpriced Submittal / DO
+                                </span>
+                                <span
+                                  className={`text-[9px] block mt-0.5 ${
+                                    isUnpricedSubmittalMode ? 'text-amber-100' : 'text-slate-400'
+                                  }`}
+                                >
+                                  Qty &amp; specs only
+                                </span>
+                              </button>
+                            </div>
+
+                            {/* Unpriced Submittal / DO Active Banner with 1-Click Restore (Choice B1) */}
+                            {isUnpricedSubmittalMode && (
+                              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 space-y-2">
+                                <p className="text-[10.5px] text-amber-950 font-medium leading-relaxed">
+                                  <strong>Unpriced Submittal / Delivery Order Mode Active:</strong> Unit Price, Line Total, Option Subtotals, and Bottom Summary Totals are hidden while preserving quantities and technical specifications.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestorePricedQuoteMode()}
+                                  className="w-full py-1.5 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[10.5px] transition cursor-pointer shadow-2xs"
+                                >
+                                  Restore Priced Quote Settings
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Multi-Option Sub-Controls when Multi-Option View is selected */}
+                            {!isUnpricedSubmittalMode && optionDisplayMode !== 'combined_table' && (
+                              <div className="space-y-2.5 pt-2 border-t border-indigo-200/70">
+                                <div>
+                                  <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70 mb-1">
+                                    Option Table Filter &amp; Layout
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-1">
+                                    {[
+                                      {
+                                        id: 'all_separate_tables' as const,
+                                        label: 'All Options (Separate Tables)',
+                                        desc: 'Dedicated table per Option'
+                                      },
+                                      {
+                                        id: 'option_a_only' as const,
+                                        label: 'Option A Only',
+                                        desc: 'Filter to Option A items'
+                                      },
+                                      {
+                                        id: 'option_b_only' as const,
+                                        label: 'Option B Only',
+                                        desc: 'Filter to Option B items'
+                                      },
+                                      {
+                                        id: 'option_c_only' as const,
+                                        label: 'Option C Only',
+                                        desc: 'Filter to Option C items'
+                                      }
+                                    ].map((optMode) => {
+                                      const active = optionDisplayMode === optMode.id;
+                                      return (
+                                        <button
+                                          key={optMode.id}
+                                          type="button"
+                                          onClick={() => setOptionDisplayMode(optMode.id)}
+                                          className={`p-1.5 rounded-lg border text-left transition cursor-pointer ${
+                                            active
+                                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                              : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                          }`}
+                                        >
+                                          <span className="text-[10.5px] font-bold block leading-tight">
+                                            {optMode.label}
+                                          </span>
+                                          <span
+                                            className={`text-[9px] block mt-0.5 ${
+                                              active ? 'text-indigo-100' : 'text-slate-400'
+                                            }`}
+                                          >
+                                            {optMode.desc}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* 2-Choice Toggle when All Separate Tables is active */}
+                                {optionDisplayMode === 'all_separate_tables' && (
+                                  <div className="space-y-1.5 pt-1.5 border-t border-indigo-200/60">
+                                    <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70">
+                                      Multi-Option Bottom Totals Behavior
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowCombinedOptionsTotal(false)}
+                                        className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                          !showCombinedOptionsTotal
+                                            ? 'bg-indigo-900 text-white border-indigo-900 shadow-2xs'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                        }`}
+                                      >
+                                        <span className="text-[10px] font-bold block leading-tight">
+                                          Per-Option Totals Only
+                                        </span>
+                                        <span
+                                          className={`text-[9px] block mt-0.5 ${
+                                            !showCombinedOptionsTotal ? 'text-indigo-200' : 'text-slate-400'
+                                          }`}
+                                        >
+                                          Alternatives (No combined sum)
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowCombinedOptionsTotal(true)}
+                                        className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                          showCombinedOptionsTotal
+                                            ? 'bg-indigo-900 text-white border-indigo-900 shadow-2xs'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                        }`}
+                                      >
+                                        <span className="text-[10px] font-bold block leading-tight">
+                                          Per-Option + Combined Bottom
+                                        </span>
+                                        <span
+                                          className={`text-[9px] block mt-0.5 ${
+                                            showCombinedOptionsTotal ? 'text-indigo-200' : 'text-slate-400'
+                                          }`}
+                                        >
+                                          Sum all options in summary
+                                        </span>
+                                      </button>
+                                    </div>
+                                    {!showCombinedOptionsTotal && (
+                                      <div className="p-2 rounded-lg bg-indigo-100/80 border border-indigo-200 text-indigo-950 text-[10px] leading-relaxed">
+                                        Each Option table displays its own Total row on the PDF; bottom combined Grand Total is suppressed so alternative options are not added together.
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Custom Option Banner Titles */}
+                                {(() => {
+                                  const detectedOpts: string[] = Array.from(
+                                    new Set(
+                                      quotationLineItems
+                                        .map((it) => String(it.option || it.option_group || '').trim())
+                                        .filter((o): o is string => Boolean(o && o !== 'Default / Included'))
+                                    )
+                                  );
+                                  if (detectedOpts.length === 0) return null;
+                                  return (
+                                    <div className="space-y-1.5 pt-1.5 border-t border-indigo-200/60">
+                                      <label className="block text-[10px] font-mono font-bold uppercase text-indigo-900/70">
+                                        Custom Option Banner Titles
+                                      </label>
+                                      {detectedOpts.map((optKey) => (
+                                        <div key={optKey} className="flex items-center gap-1.5">
+                                          <span className="text-[10px] font-mono font-bold text-indigo-900 w-20 shrink-0 truncate">
+                                            {optKey}:
+                                          </span>
+                                          <input
+                                            type="text"
+                                            value={optionGroupTitles[optKey] ?? ''}
+                                            onChange={(e) =>
+                                              setOptionGroupTitles((prev) => ({
+                                                ...prev,
+                                                [optKey]: e.target.value
+                                              }))
+                                            }
+                                            placeholder={`Custom banner title for ${optKey}...`}
+                                            className="flex-1 min-w-0 bg-white border border-indigo-200 rounded-md px-2 py-1 text-[10.5px] text-slate-800 focus:outline-none focus:border-indigo-500"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card 2 — BOM Set Pricing Default (Batch Action Without Locking Individual Overrides) */}
+                          {(() => {
+                            const compositeItems = quotationLineItems.filter((it) =>
+                              Boolean(
+                                it.is_composite_set ||
+                                  (Array.isArray(it.sub_components) && it.sub_components.length > 0)
+                              )
+                            );
+                            const lumpSumCount = compositeItems.filter(
+                              (it) => (it.package_pricing_mode || 'lump_sum') === 'lump_sum'
+                            ).length;
+                            const itemizedCount = compositeItems.length - lumpSumCount;
+                            return (
+                              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-slate-800 text-xs">
+                                    2. BOM Set Pricing Default
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-semibold bg-white border border-slate-200 text-slate-600">
+                                    {compositeItems.length === 0
+                                      ? '0 BOM Sets'
+                                      : `${lumpSumCount} Lump Sum • ${itemizedCount} Itemized`}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 leading-normal">
+                                  Batch-apply pricing mode across all BOM Sets. You can still override individual sets in the Line Items list.
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={compositeItems.length === 0}
+                                    onClick={() => handleBatchSetBomPricingMode('lump_sum')}
+                                    className="py-1.5 px-2.5 rounded-lg border border-slate-300 bg-white hover:bg-blue-50 hover:border-blue-300 disabled:opacity-40 text-slate-800 font-semibold text-[10.5px] transition cursor-pointer shadow-2xs"
+                                  >
+                                    Set All Packages to Lump Sum
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={compositeItems.length === 0}
+                                    onClick={() => handleBatchSetBomPricingMode('itemized')}
+                                    className="py-1.5 px-2.5 rounded-lg border border-slate-300 bg-white hover:bg-blue-50 hover:border-blue-300 disabled:opacity-40 text-slate-800 font-semibold text-[10.5px] transition cursor-pointer shadow-2xs"
+                                  >
+                                    Set All Packages to Itemized
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+
                       {/* 1. Visibility Toggle */}
                       <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
                         <div>
@@ -10244,10 +10576,180 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           )}
 
-                          {/* Financial Totals Specific Options */}
+                          {/* Card 3 — Financial Summary Rows & Live AED Preview */}
                           {selectedBlock.id === 'totals' && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
                               <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs">
+                                  3. Financial Summary Rows &amp; Live Preview
+                                </span>
+                                <span className="font-mono font-bold text-[11px] text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                                  {liveQuotation.currency}{' '}
+                                  {financialTotals.grand_total.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}
+                                </span>
+                              </div>
+
+                              {/* Reorderable Standard Rows + Grand Total Row */}
+                              {(() => {
+                                const vis = selectedBlock.visibleFields || {};
+                                const lbls = selectedBlock.fieldLabels || {};
+                                const defaultStdOrder = ['subtotal', 'freight', 'tax'];
+                                const currentStdOrder = (() => {
+                                  const configured = Array.isArray(selectedBlock.fieldOrder)
+                                    ? selectedBlock.fieldOrder.filter((k) => defaultStdOrder.includes(k))
+                                    : [];
+                                  return [
+                                    ...configured,
+                                    ...defaultStdOrder.filter((k) => !configured.includes(k))
+                                  ];
+                                })();
+
+                                const stdRowMeta: Record<
+                                  string,
+                                  { defaultLabel: string; formattedAmount: string }
+                                > = {
+                                  subtotal: {
+                                    defaultLabel: 'Subtotal (Excl. Tax):',
+                                    formattedAmount: `${liveQuotation.currency} ${financialTotals.subtotal.toLocaleString(
+                                      'en-US',
+                                      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                    )}`
+                                  },
+                                  freight: {
+                                    defaultLabel: 'Freight / Logistics Charges:',
+                                    formattedAmount: `${liveQuotation.currency} ${Number(
+                                      freightAmount || 0
+                                    ).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })}`
+                                  },
+                                  tax: {
+                                    defaultLabel: `VAT / Tax (${taxRatePercent}%):`,
+                                    formattedAmount:
+                                      taxMode === 'taxes_extra'
+                                        ? `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
+                                            'en-US',
+                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                          )}`
+                                        : taxMode === 'tax_exempt'
+                                        ? `0.00 (Exempt)`
+                                        : `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
+                                            'en-US',
+                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                          )}`
+                                  }
+                                };
+
+                                const moveStdRow = (idx: number, dir: 'up' | 'down') => {
+                                  const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+                                  if (swapIdx < 0 || swapIdx >= currentStdOrder.length) return;
+                                  const nextOrder = [...currentStdOrder];
+                                  const temp = nextOrder[idx];
+                                  nextOrder[idx] = nextOrder[swapIdx];
+                                  nextOrder[swapIdx] = temp;
+                                  handleUpdateBlockConfig('totals', { fieldOrder: nextOrder });
+                                };
+
+                                return (
+                                  <div className="space-y-1.5">
+                                    <span className="text-[10.5px] font-bold text-slate-700 block">
+                                      Standard Accounting Rows (Reorderable)
+                                    </span>
+                                    {currentStdOrder.map((key, idx) => {
+                                      const meta = stdRowMeta[key];
+                                      if (!meta) return null;
+                                      return (
+                                        <div
+                                          key={key}
+                                          className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={vis[key] !== false}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('totals', {
+                                                visibleFields: { ...vis, [key]: e.target.checked }
+                                              })
+                                            }
+                                            className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                          />
+                                          <div className="flex flex-col gap-0.5 shrink-0">
+                                            <button
+                                              type="button"
+                                              disabled={idx === 0}
+                                              onClick={() => moveStdRow(idx, 'up')}
+                                              title="Move Row Up"
+                                              className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                            >
+                                              <ArrowUp className="w-2.5 h-2.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={idx === currentStdOrder.length - 1}
+                                              onClick={() => moveStdRow(idx, 'down')}
+                                              title="Move Row Down"
+                                              className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                            >
+                                              <ArrowDown className="w-2.5 h-2.5" />
+                                            </button>
+                                          </div>
+                                          <input
+                                            type="text"
+                                            value={lbls[key] ?? meta.defaultLabel}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('totals', {
+                                                fieldLabels: { ...lbls, [key]: e.target.value }
+                                              })
+                                            }
+                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
+                                          />
+                                          <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                                            {meta.formattedAmount}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+
+                                    {/* Grand Total Row */}
+                                    <div className="flex items-center gap-1.5 bg-blue-50/60 p-1.5 rounded-lg border border-blue-200">
+                                      <input
+                                        type="checkbox"
+                                        checked={vis.grand_total !== false}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig('totals', {
+                                            visibleFields: { ...vis, grand_total: e.target.checked }
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={lbls.grand_total ?? 'GRAND TOTAL:'}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig('totals', {
+                                            fieldLabels: { ...lbls, grand_total: e.target.value }
+                                          })
+                                        }
+                                        className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-blue-200 bg-white text-[10.5px] font-bold text-slate-900"
+                                      />
+                                      <span className="font-mono text-[10.5px] font-bold text-blue-900 bg-white px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
+                                        {liveQuotation.currency}{' '}
+                                        {financialTotals.grand_total.toLocaleString('en-US', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Amount in Words Toggle */}
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                                 <div>
                                   <span className="font-semibold text-slate-800 text-xs block">
                                     Show Amount in Words (Legal Phrasing)
@@ -10267,57 +10769,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                               </div>
 
-                              {/* Totals Row Toggles & Custom Labels */}
-                              {(() => {
-                                const vis = selectedBlock.visibleFields || {};
-                                const lbls = selectedBlock.fieldLabels || {};
-                                const totalRows = [
-                                  { key: 'subtotal', defaultLabel: 'Subtotal (Excl. Tax):' },
-                                  { key: 'freight', defaultLabel: 'Freight / Logistics Charges:' },
-                                  { key: 'tax', defaultLabel: `VAT / Tax (${taxRatePercent}%):` },
-                                  { key: 'grand_total', defaultLabel: 'GRAND TOTAL:' }
-                                ];
-                                return (
-                                  <div className="pt-2 border-t border-slate-200 space-y-1.5">
-                                    <span className="text-[10.5px] font-bold text-slate-700 block">
-                                      Summary Rows &amp; Labels
-                                    </span>
-                                    {totalRows.map((tr) => (
-                                      <div
-                                        key={tr.key}
-                                        className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={vis[tr.key] !== false}
-                                          onChange={(e) =>
-                                            handleUpdateBlockConfig('totals', {
-                                              visibleFields: { ...vis, [tr.key]: e.target.checked }
-                                            })
-                                          }
-                                          className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                        />
-                                        <input
-                                          type="text"
-                                          value={lbls[tr.key] ?? tr.defaultLabel}
-                                          onChange={(e) =>
-                                            handleUpdateBlockConfig('totals', {
-                                              fieldLabels: { ...lbls, [tr.key]: e.target.value }
-                                            })
-                                          }
-                                          className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
-                                        />
-                                      </div>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Custom Financial Rows */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
+                              {/* Custom Financial Rows (Reorderable, Enable/Disable, Highlight, Above/Below Grand Total) */}
+                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Custom Financial Rows
+                                    Custom Financial Rows (Discounts / Fees / Notes)
                                   </span>
                                   <button
                                     type="button"
@@ -10326,7 +10782,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         id: `tot_row_${Date.now()}`,
                                         label: 'Packing & Documentation:',
                                         value: 'Included',
-                                        enabled: true
+                                        enabled: true,
+                                        isHighlight: false,
+                                        position: 'above_grand_total' as const
                                       };
                                       handleUpdateBlockConfig('totals', {
                                         customRows: [...(selectedBlock.customRows || []), nextRow]
@@ -10338,73 +10796,164 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     <span>Add Row</span>
                                   </button>
                                 </div>
-                                {(selectedBlock.customRows || []).map((row, rIdx) => (
-                                  <div
-                                    key={row.id || rIdx}
-                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
-                                  >
-                                    <input
-                                      type="text"
-                                      value={row.label ?? ''}
-                                      onChange={(e) => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, label: e.target.value } : item
-                                        );
-                                        handleUpdateBlockConfig('totals', { customRows: updated });
-                                      }}
-                                      placeholder="Label"
-                                      className="w-28 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <AtMentionInput
-                                        value={row.value ?? ''}
-                                        onChange={(val) => {
-                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                            i === rIdx ? { ...item, value: val } : item
-                                          );
-                                          handleUpdateBlockConfig('totals', { customRows: updated });
-                                        }}
-                                        tokenContext={studioTokenContext}
-                                        compact
-                                        placeholder="Value or @tag"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                      />
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
-                                        );
-                                        handleUpdateBlockConfig('totals', { customRows: updated });
-                                      }}
-                                      title={
-                                        row.hideIfEmpty
-                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
-                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
-                                      }
-                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
-                                        row.hideIfEmpty
-                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
-                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                {(selectedBlock.customRows || []).map((row, rIdx) => {
+                                  const rowsArr = selectedBlock.customRows || [];
+                                  const moveCustomRow = (dir: 'up' | 'down') => {
+                                    const swapIdx = dir === 'up' ? rIdx - 1 : rIdx + 1;
+                                    if (swapIdx < 0 || swapIdx >= rowsArr.length) return;
+                                    const updated = [...rowsArr];
+                                    const temp = updated[rIdx];
+                                    updated[rIdx] = updated[swapIdx];
+                                    updated[swapIdx] = temp;
+                                    handleUpdateBlockConfig('totals', { customRows: updated });
+                                  };
+                                  return (
+                                    <div
+                                      key={row.id || rIdx}
+                                      className={`space-y-1.5 p-2 rounded-lg border ${
+                                        row.isHighlight
+                                          ? 'bg-amber-50/70 border-amber-300'
+                                          : 'bg-slate-50 border-slate-200'
                                       }`}
                                     >
-                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).filter(
-                                          (_, i) => i !== rIdx
-                                        );
-                                        handleUpdateBlockConfig('totals', { customRows: updated });
-                                      }}
-                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="checkbox"
+                                          checked={row.enabled !== false}
+                                          onChange={(e) => {
+                                            const updated = rowsArr.map((item, i) =>
+                                              i === rIdx ? { ...item, enabled: e.target.checked } : item
+                                            );
+                                            handleUpdateBlockConfig('totals', { customRows: updated });
+                                          }}
+                                          title="Enable / Disable Row"
+                                          className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                        />
+                                        <div className="flex flex-col gap-0.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            disabled={rIdx === 0}
+                                            onClick={() => moveCustomRow('up')}
+                                            title="Move Custom Row Up"
+                                            className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                          >
+                                            <ArrowUp className="w-2.5 h-2.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={rIdx === rowsArr.length - 1}
+                                            onClick={() => moveCustomRow('down')}
+                                            title="Move Custom Row Down"
+                                            className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                          >
+                                            <ArrowDown className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                        <input
+                                          type="text"
+                                          value={row.label ?? ''}
+                                          onChange={(e) => {
+                                            const updated = rowsArr.map((item, i) =>
+                                              i === rIdx ? { ...item, label: e.target.value } : item
+                                            );
+                                            handleUpdateBlockConfig('totals', { customRows: updated });
+                                          }}
+                                          placeholder="Label"
+                                          className="w-28 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <AtMentionInput
+                                            value={row.value ?? ''}
+                                            onChange={(val) => {
+                                              const updated = rowsArr.map((item, i) =>
+                                                i === rIdx ? { ...item, value: val } : item
+                                              );
+                                              handleUpdateBlockConfig('totals', { customRows: updated });
+                                            }}
+                                            tokenContext={studioTokenContext}
+                                            compact
+                                            placeholder="Value or @tag"
+                                            className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                          />
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = rowsArr.filter((_, i) => i !== rIdx);
+                                            handleUpdateBlockConfig('totals', { customRows: updated });
+                                          }}
+                                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+
+                                      {/* Row Placement & Style Controls */}
+                                      <div className="flex items-center justify-between gap-1.5 pl-5">
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updated = rowsArr.map((item, i) =>
+                                                i === rIdx
+                                                  ? { ...item, isHighlight: !item.isHighlight }
+                                                  : item
+                                              );
+                                              handleUpdateBlockConfig('totals', { customRows: updated });
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border cursor-pointer ${
+                                              row.isHighlight
+                                                ? 'bg-amber-100 border-amber-400 text-amber-900'
+                                                : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'
+                                            }`}
+                                          >
+                                            ★ Bold / Highlight
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updated = rowsArr.map((item, i) =>
+                                                i === rIdx
+                                                  ? { ...item, hideIfEmpty: !item.hideIfEmpty }
+                                                  : item
+                                              );
+                                              handleUpdateBlockConfig('totals', { customRows: updated });
+                                            }}
+                                            title={
+                                              row.hideIfEmpty
+                                                ? 'Row auto-hides when @tag is empty/omitted'
+                                                : 'Row shows — dash when @tag is empty/omitted'
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                              row.hideIfEmpty
+                                                ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                                : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                            }`}
+                                          >
+                                            {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
+                                          </button>
+                                        </div>
+
+                                        <select
+                                          value={row.position || 'above_grand_total'}
+                                          onChange={(e) => {
+                                            const nextPos = e.target.value as
+                                              | 'above_grand_total'
+                                              | 'below_grand_total';
+                                            const updated = rowsArr.map((item, i) =>
+                                              i === rIdx ? { ...item, position: nextPos } : item
+                                            );
+                                            handleUpdateBlockConfig('totals', { customRows: updated });
+                                          }}
+                                          className="text-[9.5px] font-medium bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 cursor-pointer"
+                                        >
+                                          <option value="above_grand_total">Above Grand Total</option>
+                                          <option value="below_grand_total">Below Grand Total</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}

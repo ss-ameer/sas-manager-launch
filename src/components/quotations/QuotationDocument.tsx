@@ -3501,98 +3501,177 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                   {showCombinedGrandTotal && (
                     <>
-                      {vis.subtotal !== false && (
-                        <div className="flex justify-between text-slate-600 py-0.5 text-[var(--block-base)]">
-                          <span>{labels.subtotal || 'Subtotal'}:</span>
-                          <span className="font-mono tabular-nums font-semibold text-slate-800">
-                            {formatCurrency(displaySubtotal)}
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const defaultStdOrder = ['subtotal', 'freight', 'tax'];
+                        const rawOrder =
+                          Array.isArray(blockConfig?.fieldOrder) && blockConfig!.fieldOrder!.length > 0
+                            ? blockConfig!.fieldOrder!
+                            : defaultStdOrder;
+                        const orderedStdKeys = [
+                          ...rawOrder.filter((k) => defaultStdOrder.includes(k)),
+                          ...defaultStdOrder.filter((k) => !rawOrder.includes(k))
+                        ];
 
-                      {vis.freight !== false && Number(quotation.freight_amount) > 0 && (
-                        <div
-                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-                        >
-                          <span>{labels.freight || 'Freight / Logistics'}:</span>
-                          <span className="font-mono tabular-nums font-semibold text-slate-800">
-                            {formatCurrency(quotation.freight_amount)}
-                          </span>
-                        </div>
-                      )}
+                        return orderedStdKeys.map((stdKey, sIdx) => {
+                          const borderCls = sIdx === 0 ? '' : rowBorderClass;
+                          if (stdKey === 'subtotal') {
+                            if (vis.subtotal === false) return null;
+                            return (
+                              <div
+                                key="std_subtotal"
+                                className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                              >
+                                <span>{labels.subtotal || 'Subtotal'}:</span>
+                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  {formatCurrency(displaySubtotal)}
+                                </span>
+                              </div>
+                            );
+                          }
+                          if (stdKey === 'freight') {
+                            if (vis.freight === false || Number(quotation.freight_amount) <= 0) return null;
+                            return (
+                              <div
+                                key="std_freight"
+                                className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                              >
+                                <span>{labels.freight || 'Freight / Logistics'}:</span>
+                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  {formatCurrency(quotation.freight_amount)}
+                                </span>
+                              </div>
+                            );
+                          }
+                          if (stdKey === 'tax') {
+                            if (vis.tax === false) return null;
+                            if (quotation.tax_mode === 'tax_calculated') {
+                              return (
+                                <div
+                                  key="std_tax"
+                                  className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                                >
+                                  <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                                  <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                    {formatCurrency(displayTaxAmount)}
+                                  </span>
+                                </div>
+                              );
+                            }
+                            if (quotation.tax_mode === 'taxes_extra') {
+                              return (
+                                <div
+                                  key="std_tax"
+                                  className={`py-0.5 ${borderCls} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
+                                >
+                                  <div className="flex justify-between">
+                                    <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
+                                    <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                      {formatCurrency(displayTaxAmount)}
+                                    </span>
+                                  </div>
+                                  <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
+                                    * Taxes EXTRA to client account as applicable
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (quotation.tax_mode === 'tax_exempt') {
+                              return (
+                                <div
+                                  key="std_tax"
+                                  className={`flex justify-between text-slate-600 py-0.5 ${borderCls} items-center text-[var(--block-base)]`}
+                                >
+                                  <span>Tax Status:</span>
+                                  <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
+                                    Tax Exempt (0%)
+                                  </span>
+                                </div>
+                              );
+                            }
+                          }
+                          return null;
+                        });
+                      })()}
 
-                      {/* Custom Financial Rows (e.g. Discount, Handling, Packing) */}
-                      {(blockConfig?.customRows || []).map((cr) => {
-                        if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
-                        return (
-                          <div
-                            key={cr.id}
-                            className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-                          >
-                            <span>{resolveQuotationTokens(cr.label, tokenContext)}:</span>
-                            <span className="font-mono tabular-nums font-semibold text-slate-800">
-                              {renderResolvedQuotationText(cr.value, tokenContext)}
-                            </span>
-                          </div>
-                        );
-                      })}
-
-                      {/* Tax Mode Display */}
-                      {vis.tax !== false && quotation.tax_mode === 'tax_calculated' && (
-                        <div
-                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
-                        >
-                          <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                          <span className="font-mono tabular-nums font-semibold text-slate-800">
-                            {formatCurrency(displayTaxAmount)}
-                          </span>
-                        </div>
-                      )}
-
-                      {vis.tax !== false && quotation.tax_mode === 'taxes_extra' && (
-                        <div
-                          className={`py-0.5 ${rowBorderClass} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
-                        >
-                          <div className="flex justify-between">
-                            <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                            <span className="font-mono tabular-nums font-semibold text-slate-800">
-                              {formatCurrency(displayTaxAmount)}
-                            </span>
-                          </div>
-                          <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
-                            * Taxes EXTRA to client account as applicable
-                          </p>
-                        </div>
-                      )}
-
-                      {vis.tax !== false && quotation.tax_mode === 'tax_exempt' && (
-                        <div
-                          className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} items-center text-[var(--block-base)]`}
-                        >
-                          <span>Tax Status:</span>
-                          <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                            Tax Exempt (0%)
-                          </span>
-                        </div>
-                      )}
+                      {/* Custom Financial Rows Above Grand Total (e.g. Discount, Handling, Packing) */}
+                      {(blockConfig?.customRows || [])
+                        .filter((cr) => (cr.position || 'above_grand_total') === 'above_grand_total')
+                        .map((cr) => {
+                          if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
+                          return (
+                            <div
+                              key={cr.id}
+                              className={`flex justify-between py-0.5 ${rowBorderClass} text-[var(--block-base)] ${
+                                cr.isHighlight
+                                  ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              <span className={cr.isHighlight ? 'font-bold text-slate-900' : ''}>
+                                {resolveQuotationTokens(cr.label, tokenContext)}
+                                {cr.label && !cr.label.trim().endsWith(':') ? ':' : ''}
+                              </span>
+                              <span
+                                className={`font-mono tabular-nums ${
+                                  cr.isHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                }`}
+                              >
+                                {renderResolvedQuotationText(cr.value, tokenContext)}
+                              </span>
+                            </div>
+                          );
+                        })}
 
                       {/* Grand Total */}
-                      <div
-                        className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
-                        style={{ borderColor: themePalette.primaryHex }}
-                      >
-                        <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">
-                          {hasMultiOptions
-                            ? 'Combined Grand Total:'
-                            : `${labels.grand_total || 'Grand Total'}:`}
-                        </span>
-                        <span
-                          className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
-                          style={{ color: themePalette.textAccent }}
+                      {vis.grand_total !== false && (
+                        <div
+                          className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
+                          style={{ borderColor: themePalette.primaryHex }}
                         >
-                          {formatCurrency(displayGrandTotal)}
-                        </span>
-                      </div>
+                          <span className="text-slate-900 uppercase tracking-tight text-[calc(var(--block-base)*1.15)]">
+                            {hasMultiOptions
+                              ? 'Combined Grand Total:'
+                              : `${labels.grand_total || 'Grand Total'}${
+                                  (labels.grand_total || 'Grand Total').trim().endsWith(':') ? '' : ':'
+                                }`}
+                          </span>
+                          <span
+                            className="font-mono tabular-nums font-bold text-[calc(var(--block-base)*1.35)]"
+                            style={{ color: themePalette.textAccent }}
+                          >
+                            {formatCurrency(displayGrandTotal)}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Custom Financial Rows Below Grand Total (e.g. Less Advance, Net Payable, Rebate) */}
+                      {(blockConfig?.customRows || [])
+                        .filter((cr) => cr.position === 'below_grand_total')
+                        .map((cr) => {
+                          if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
+                          return (
+                            <div
+                              key={cr.id}
+                              className={`flex justify-between py-0.5 mt-1 ${rowBorderClass} text-[var(--block-base)] ${
+                                cr.isHighlight
+                                  ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                  : 'text-slate-600'
+                              }`}
+                            >
+                              <span className={cr.isHighlight ? 'font-bold text-slate-900' : ''}>
+                                {resolveQuotationTokens(cr.label, tokenContext)}
+                                {cr.label && !cr.label.trim().endsWith(':') ? ':' : ''}
+                              </span>
+                              <span
+                                className={`font-mono tabular-nums ${
+                                  cr.isHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                }`}
+                              >
+                                {renderResolvedQuotationText(cr.value, tokenContext)}
+                              </span>
+                            </div>
+                          );
+                        })}
 
                       {/* Amount in Words */}
                       {showAmountInWords !== false && displayGrandTotal > 0 && (
@@ -6310,8 +6389,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       </tr>
                     ) : null}
 
-                    {/* Option / Package Subtotal Footer Row */}
+                    {/* Option / Package Subtotal Footer Row (suppressed on final chunk when Unpriced / Line Total hidden) */}
                     {group.items.length > 0 &&
+                      (showLineTotal || !isFinalChunkForGroup) &&
                       (shouldSplitByOptionTables ||
                         group.items.some((it) => Array.isArray(it.sub_components) && it.sub_components.length > 0)) && (
                         <tr
@@ -6322,7 +6402,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           }}
                         >
                           <td
-                            colSpan={Math.max(1, tableColLayout.activeColumnCount - 1)}
+                            colSpan={
+                              showLineTotal
+                                ? Math.max(1, tableColLayout.activeColumnCount - 1)
+                                : tableColLayout.activeColumnCount
+                            }
                             className="py-2 px-3 text-right uppercase tracking-wider text-slate-800"
                           >
                             {isFinalChunkForGroup

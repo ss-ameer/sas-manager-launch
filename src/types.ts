@@ -1426,6 +1426,8 @@ export interface QuotationBlockCustomRow {
   value: string;
   enabled?: boolean;
   hideIfEmpty?: boolean;
+  isHighlight?: boolean;
+  position?: 'above_grand_total' | 'below_grand_total';
 }
 
 export interface QuotationBlockConfig {
